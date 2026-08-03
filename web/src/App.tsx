@@ -87,14 +87,14 @@ const ModelsPage = lazy(() => import("@/pages/ModelsPage"));
 const CronPage = lazy(() => import("@/pages/CronPage"));
 const ProfilesPage = lazy(() => import("@/pages/ProfilesPage"));
 const ProfileBuilderPage = lazy(() => import("@/pages/ProfileBuilderPage"));
-const SkillsPage = lazy(() => import("@/pages/SkillsPage"));
 const PluginsPage = lazy(() => import("@/pages/PluginsPage"));
 const McpPage = lazy(() => import("@/pages/McpPage"));
 const PairingPage = lazy(() => import("@/pages/PairingPage"));
 const ChannelsPage = lazy(() => import("@/pages/ChannelsPage"));
 const WebhooksPage = lazy(() => import("@/pages/WebhooksPage"));
 const SystemPage = lazy(() => import("@/pages/SystemPage"));
-const ChatPage = lazy(() => import("@/components/DesktopChatHost"));
+/** Hermes One only — never reintroduce pages/ChatPage (TUI) or pages/SkillsPage. */
+const HermesOneHost = lazy(() => import("@/components/DesktopChatHost"));
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -102,7 +102,6 @@ import type { Translations } from "@/i18n/types";
 import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
 import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
-import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { latchChatActivation } from "@/lib/chat-activation";
 import { dashboardPathToDesktop } from "@/lib/desktop-path";
 import { api } from "@/lib/api";
@@ -124,7 +123,7 @@ function RouteFallback({ label = "Loading…" }: { label?: string }) {
 }
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/chat" replace />;
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -132,7 +131,7 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
     return null;
   }
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/chat" replace />;
 }
 
 const CHAT_NAV_ITEM: NavItem = {
@@ -142,16 +141,14 @@ const CHAT_NAV_ITEM: NavItem = {
   icon: Terminal,
 };
 
+/** Claims /chat + /skills so `*` does not redirect; Hermes One host paints. */
+function DesktopRouteSink() {
+  return null;
+}
+
 /**
- * Built-in routes except /chat.  Chat is rendered persistently (outside
- * <Routes>) when embedded — see the persistent chat host block rendered
- * inline near the bottom of this file — so the PTY child, WebSocket,
- * and xterm instance survive when the user visits another tab and comes
- * back.  A `display:none` toggle hides the terminal without unmounting.
- * The host itself is still deferred until the first /chat visit so the
- * xterm chunk is not downloaded on unrelated pages.  Routing still owns
- * the URL so /chat deep-links, browser back/forward, and nav highlight
- * keep working.
+ * Built-in admin routes. /chat and /skills are Hermes One only (DesktopRouteSink
+ * + persistent DesktopChatHost). Do NOT wire pages/ChatPage or pages/SkillsPage.
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
@@ -161,7 +158,8 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/models": ModelsPage,
   "/logs": LogsPage,
   "/cron": CronPage,
-  "/skills": SkillsPage,
+  "/skills": DesktopRouteSink,
+  "/chat": DesktopRouteSink,
   "/plugins": PluginsPage,
   "/mcp": McpPage,
   "/pairing": PairingPage,
@@ -174,12 +172,6 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/env": EnvPage,
   "/docs": DocsPage,
 };
-
-// Route placeholder for /chat and /skills when the persistent Desktop host
-// paints on top. Empty element claims the path so `*` doesn't redirect.
-function DesktopRouteSink() {
-  return null;
-}
 
 const BUILTIN_NAV_REST: NavItem[] = [
   {
@@ -203,7 +195,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
   },
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
+  // Skills live inside Hermes One (Discover) — no separate dashboard Skills page.
   { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   { path: "/mcp", label: "MCP", icon: Plug },
   { path: "/channels", label: "Channels", icon: Radio },
@@ -401,9 +393,9 @@ export default function App() {
   const isSkillsRoute = normalizedPath === "/skills";
   /** Desktop-embedded surfaces need a definite flex height (no page scroll chrome). */
   const isDesktopEmbedRoute = isChatRoute || isSkillsRoute;
-  const embeddedChat = isDashboardEmbeddedChatEnabled();
-  // Defer mounting the persistent desktop host until the user opens a desktop
-  // embed route (/chat or /skills). Sticky after that so gateway/sessions survive.
+  // Hermes One host is always on — never fall back to the old TUI/Skills pages.
+  const hermesOne = true;
+  // Defer mounting until first /chat or /skills visit; sticky after that.
   const [desktopHostMounted, setDesktopHostMounted] = useState(isDesktopEmbedRoute);
   useEffect(() => {
     setDesktopHostMounted((prev) => latchChatActivation(prev, isDesktopEmbedRoute));
@@ -452,21 +444,16 @@ export default function App() {
   const builtinRoutes = useMemo(
     () => ({
       ...BUILTIN_ROUTES_CORE,
-      ...(embeddedChat
-        ? { "/chat": DesktopRouteSink, "/skills": DesktopRouteSink }
-        : {}),
     }),
-    [embeddedChat],
+    [],
   );
 
   const builtinNav = useMemo(() => {
-    const base = embeddedChat
-      ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
-      : BUILTIN_NAV_REST;
+    const base = [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST];
     return showTokenAnalytics
       ? base
       : base.filter((n) => n.path !== "/analytics");
-  }, [embeddedChat, showTokenAnalytics]);
+  }, [showTokenAnalytics]);
 
   const sidebarNav = useMemo(
     () => partitionSidebarNav(builtinNav, manifests),
@@ -799,7 +786,7 @@ export default function App() {
                   </Suspense>
                 </ProfileKeyedRoutes>
 
-                {embeddedChat &&
+                {hermesOne &&
                   !chatOverriddenByPlugin &&
                   (pluginsLoading ? (
                     isDesktopEmbedRoute ? (
@@ -821,7 +808,7 @@ export default function App() {
                           ) : null
                         }
                       >
-                        <ChatPage
+                        <HermesOneHost
                           isActive={isDesktopEmbedRoute}
                           path={desktopPath}
                         />
