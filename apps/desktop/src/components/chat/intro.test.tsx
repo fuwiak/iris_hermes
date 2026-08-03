@@ -97,7 +97,7 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
     }
   )
 
-  it('draws the mark as a filled aubergine circle', () => {
+  it('draws the mark as a filled violet circle', () => {
     const block = css.slice(css.indexOf('.hermes-one-mark {'))
 
     expect(block).toContain('border-radius: 999px')
@@ -105,7 +105,7 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
     expect(block).not.toContain('background: #050505')
   })
 
-  it('keeps suggestion chip text readable on cream (no black chips)', () => {
+  it('keeps suggestion chip text readable (cream ink on aubergine)', () => {
     const block = css.slice(css.indexOf('.hermes-one-suggestions button {'))
 
     expect(block).toContain('color: var(--ui-text-primary, #1d1d1d)')

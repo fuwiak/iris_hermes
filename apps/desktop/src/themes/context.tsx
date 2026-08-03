@@ -182,9 +182,9 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   const c = theme.colors
   const typo = { ...DEFAULT_TYPOGRAPHY, ...irisTheme.typography, ...theme.typography }
   const skinName = theme.name.endsWith(`-${mode}`) ? theme.name.slice(0, -mode.length - 1) : theme.name
-  // Iris/Slacc is a light cream brand — never apply .dark chrome.
-  const forceLight = skinName === 'iris'
-  const rendered = forceLight ? 'light' : renderedModeFor(c, mode)
+  // Iris is a dark aubergine brand — always render dark chrome + cream ink.
+  const forceIrisDark = skinName === 'iris'
+  const rendered = forceIrisDark ? 'dark' : renderedModeFor(c, mode)
   const isDark = rendered === 'dark'
   const midground = c.midground ?? c.ring
 
@@ -229,41 +229,49 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)'
   }
 
-  if (forceLight) {
+  if (forceIrisDark) {
     Object.assign(palette, {
       '--theme-mix-chrome': '100%',
       '--theme-mix-sidebar': '100%',
       '--theme-mix-card': '100%',
       '--theme-mix-elevated': '100%',
       '--theme-mix-bubble': '100%',
-      '--theme-neutral-chrome': '#f4ede4',
-      '--theme-neutral-sidebar': '#f9f0ff',
-      '--theme-neutral-card': '#ffffff',
-      '--dt-foreground': c.foreground,
-      '--dt-card-foreground': c.cardForeground,
-      '--dt-popover-foreground': c.popoverForeground,
-      '--dt-background': '#f4ede4',
-      '--dt-card': '#ffffff',
-      '--dt-popover': '#ffffff',
-      '--muted-foreground': c.mutedForeground,
-      '--ui-text-primary': c.foreground,
-      '--ui-text-secondary': c.mutedForeground,
-      '--ui-text-tertiary': c.mutedForeground,
-      '--ui-bg-chrome': '#f4ede4',
-      '--ui-bg-sidebar': '#f9f0ff',
-      '--ui-bg-editor': '#ffffff',
-      '--ui-bg-elevated': '#ffffff',
-      '--ui-bg-card': '#ffffff',
-      '--ui-bg-quaternary': '#f9f0ff',
-      '--ui-bg-quinary': '#f4ede4',
-      '--ui-bg-secondary': '#f9f0ff',
-      '--ui-bg-tertiary': '#f4ede4',
-      '--ui-surface-background': '#ffffff',
-      '--ui-sidebar-surface-background': '#f9f0ff',
-      '--ui-chat-surface-background': '#f4ede4',
-      '--ui-editor-surface-background': '#f4ede4',
-      '--ui-widget-surface-background': '#ffffff',
-      '--chrome-action-hover': 'color-mix(in srgb, #4a154b 8%, #f9f0ff)'
+      '--theme-neutral-chrome': '#2a0f2e',
+      '--theme-neutral-sidebar': '#220c26',
+      '--theme-neutral-card': '#3a1840',
+      '--dt-foreground': '#f4ede4',
+      '--dt-card-foreground': '#f4ede4',
+      '--dt-popover-foreground': '#f4ede4',
+      '--dt-background': '#2a0f2e',
+      '--dt-card': '#3a1840',
+      '--dt-popover': '#3a1840',
+      '--dt-muted': '#481a54',
+      '--muted-foreground': '#e4c8ea',
+      '--ui-text-primary': '#f4ede4',
+      '--ui-text-secondary': '#e4c8ea',
+      '--ui-text-tertiary': '#d9bdde',
+      '--ui-text-quaternary': '#c9a8d0',
+      '--ui-bg-chrome': '#2a0f2e',
+      '--ui-bg-sidebar': '#220c26',
+      '--ui-bg-editor': '#3a1840',
+      '--ui-bg-elevated': '#421c4a',
+      '--ui-bg-card': '#3a1840',
+      '--ui-bg-input': '#481a54',
+      '--ui-bg-quaternary': '#481a54',
+      '--ui-bg-quinary': '#3a1840',
+      '--ui-bg-secondary': '#481a54',
+      '--ui-bg-tertiary': '#3a1840',
+      '--ui-surface-background': '#3a1840',
+      '--ui-sidebar-surface-background': '#220c26',
+      '--ui-chat-surface-background': '#2a0f2e',
+      '--ui-editor-surface-background': '#2a0f2e',
+      '--ui-widget-surface-background': '#3a1840',
+      '--ui-chat-bubble-background': '#481a54',
+      '--ui-chat-bubble-opaque-background': '#481a54',
+      '--dt-user-bubble': '#481a54',
+      '--chrome-action-hover': 'color-mix(in srgb, #c084fc 18%, #3a1840)',
+      '--conversation-scaffold-text': '#e4c8ea',
+      '--conversation-scaffold-meta': '#d9bdde'
     })
   }
 
@@ -282,7 +290,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   // they let a brand-new window paint the themed background on its very first
   // frame, before this module has even loaded.
   try {
-    window.localStorage.setItem('hermes-boot-background', forceLight ? c.background : chromeBg)
+    window.localStorage.setItem('hermes-boot-background', forceIrisDark ? c.background : chromeBg)
     window.localStorage.setItem('hermes-boot-color-scheme', rendered)
   } catch {
     // Storage may be unavailable (private mode / quota); the inline script

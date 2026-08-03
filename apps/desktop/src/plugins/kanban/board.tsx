@@ -1321,7 +1321,7 @@ export function KanbanBoardPage() {
 
   return (
     <div
-      className="relative flex h-full flex-col overflow-hidden bg-[#ffffff] text-[#1d1d1d]"
+      className="relative flex h-full flex-col overflow-hidden bg-[#3a1840] text-[#f4ede4]"
       data-slot="kanban-board"
     >
       {/* Page-owned titlebar chrome: exists exactly while this page is mounted. */}

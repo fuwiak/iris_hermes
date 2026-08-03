@@ -1,32 +1,31 @@
 /* Hermes One presentation for the browser-hosted desktop client.
-   Default look follows root DESIGN.md (aubergine primary, cream canvas).
-   Buttons and body text keep high contrast (ink on cream / white on aubergine). */
+   Iris dark aubergine + cream ink (readable chat / questions). */
 
 [data-desktop-chat-host] {
-  --iris-primary: #4a154b;
-  --iris-primary-press: #611f69;
-  --iris-ink: #1d1d1d;
-  --iris-ink-mute: #3d3d3d;
-  --iris-canvas: #f4ede4;
-  --iris-lavender: #f9f0ff;
-  --iris-surface: #ffffff;
-  --iris-hairline: #e6e6e6;
-  --iris-on-primary: #ffffff;
-  --iris-link: #1264a3;
+  --iris-primary: #c084fc;
+  --iris-primary-press: #e9d5ff;
+  --iris-ink: #f4ede4;
+  --iris-ink-mute: #e4c8ea;
+  --iris-canvas: #2a0f2e;
+  --iris-lavender: #481a54;
+  --iris-surface: #3a1840;
+  --iris-hairline: #592466;
+  --iris-on-primary: #1a0a1c;
+  --iris-link: #7dd3fc;
   --iris-on-aubergine-mute: #d9bdde;
 
   --ui-chat-surface-background: var(--iris-canvas);
   --ui-editor-surface-background: var(--iris-surface);
-  --ui-sidebar-surface-background: var(--iris-lavender);
+  --ui-sidebar-surface-background: #220c26;
   --ui-bg-chrome: var(--iris-canvas);
-  --ui-bg-sidebar: var(--iris-lavender);
+  --ui-bg-sidebar: #220c26;
   --ui-bg-editor: var(--iris-surface);
   --ui-text-primary: var(--iris-ink);
   --ui-text-secondary: var(--iris-ink-mute);
-  --ui-text-tertiary: #696969;
-  --ui-stroke-secondary: rgba(29, 29, 29, 0.12);
-  --ui-stroke-tertiary: rgba(29, 29, 29, 0.08);
-  --sidebar-edge-border: rgba(74, 21, 75, 0.12);
+  --ui-text-tertiary: #d9bdde;
+  --ui-stroke-secondary: rgba(244, 237, 228, 0.16);
+  --ui-stroke-tertiary: rgba(244, 237, 228, 0.1);
+  --sidebar-edge-border: rgba(192, 132, 252, 0.22);
   --composer-width: calc(100% - 3.5rem);
   --composer-control-size: 2.15rem;
   --composer-control-primary-size: 2.35rem;
@@ -55,8 +54,8 @@
 
 [data-desktop-chat-host] [data-slot="sidebar"] {
   background:
-    radial-gradient(circle at 58% 86%, rgba(249, 240, 255, 0.9), transparent 42%),
-    linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+    radial-gradient(circle at 58% 86%, rgba(192, 132, 252, 0.18), transparent 42%),
+    linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
   color: var(--iris-ink);
 }
 
@@ -138,6 +137,13 @@
 [data-desktop-chat-host] [data-slot="aui_thread-content"] {
   max-width: min(62rem, calc(100% - 3rem));
   padding-inline: 1.5rem;
+  color: var(--iris-ink);
+}
+
+[data-desktop-chat-host] [data-slot="aui_assistant-message-content"],
+[data-desktop-chat-host] [data-slot="aui_user-inline-text"],
+[data-desktop-chat-host] [data-slot="composer-rich-input"] {
+  color: var(--iris-ink) !important;
 }
 
 [data-desktop-chat-host] [data-hermes-one-intro] {
@@ -174,7 +180,7 @@
 
 [data-desktop-chat-host] [data-hermes-one-intro] h1 {
   margin: 0;
-  color: var(--iris-ink);
+  color: var(--iris-ink) !important;
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
   font-weight: 700;
@@ -184,7 +190,7 @@
 [data-desktop-chat-host] [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--iris-ink-mute);
+  color: var(--iris-ink-mute) !important;
   font-size: 1.05rem;
   line-height: 1.55;
   font-weight: 400;
@@ -198,7 +204,6 @@
   gap: 0.75rem;
 }
 
-/* Secondary lavender pills — ink on lavender, high contrast */
 [data-desktop-chat-host] .hermes-one-suggestions button {
   display: inline-flex;
   min-height: 3rem;
@@ -209,7 +214,7 @@
   border: 2px solid var(--iris-primary);
   border-radius: 90px;
   background: var(--iris-lavender);
-  color: var(--iris-ink);
+  color: var(--iris-ink) !important;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -220,7 +225,7 @@
 [data-desktop-chat-host] .hermes-one-suggestions button:focus-visible {
   border-color: var(--iris-primary-press);
   background: var(--iris-primary);
-  color: var(--iris-on-primary);
+  color: var(--iris-on-primary) !important;
   outline: none;
 }
 
@@ -235,35 +240,22 @@
 }
 
 [data-desktop-chat-host] [data-slot="composer-surface"] {
-  min-height: 8.5rem;
   border: 1px solid var(--iris-hairline);
   background: var(--iris-surface);
-  box-shadow: rgba(0, 0, 0, 0.08) 0 5px 20px 0;
-}
-
-[data-desktop-chat-host] [data-slot="composer-surface"] > [aria-hidden="true"] {
-  opacity: 0;
-}
-
-[data-desktop-chat-host] [data-slot="composer-fade"] > div:has([data-slot="composer-rich-input"]) {
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: "input input input" "menu controls controls";
-  align-items: center;
-  row-gap: 0.5rem;
+  color: var(--iris-ink);
 }
 
 [data-desktop-chat-host] [data-slot="composer-rich-input"] {
   padding: 0.2rem 0.35rem 0.55rem;
-  color: var(--iris-ink);
+  color: var(--iris-ink) !important;
   font-size: 1rem;
   font-weight: 400;
 }
 
 [data-desktop-chat-host] [data-slot="composer-rich-input"]::before {
-  color: var(--iris-ink-mute);
+  color: var(--iris-ink-mute) !important;
 }
 
-/* Primary aubergine send / action controls */
 [data-desktop-chat-host] [data-slot="composer-surface"] button[data-slot="composer-send"],
 [data-desktop-chat-host] [data-slot="composer-surface"] button[type="submit"] {
   border-radius: 90px;
@@ -281,7 +273,7 @@
 [data-desktop-chat-host] [data-slot="statusbar"] {
   height: 1.55rem;
   border-top: 1px solid var(--iris-hairline);
-  background: linear-gradient(90deg, #f9f0ff, #f4ede4 72%, #ffffff);
+  background: linear-gradient(90deg, #220c26, #2a0f2e 72%, #3a1840);
   color: var(--iris-ink);
 }
 

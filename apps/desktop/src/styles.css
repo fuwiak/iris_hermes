@@ -142,20 +142,20 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #1d1d1d;
-    --theme-primary: #4a154b;
-    --theme-secondary: #f9f0ff;
-    --theme-accent-soft: #f9f0ff;
-    --theme-midground: #4a154b;
-    --theme-warm: #8752c1;
-    --theme-background-seed: #f4ede4;
-    --theme-sidebar-seed: #f9f0ff;
-    --theme-card-seed: #ffffff;
-    --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: #f9f0ff;
-    --theme-neutral-chrome: #f4ede4;
-    --theme-neutral-sidebar: #f9f0ff;
-    --theme-neutral-card: #ffffff;
+    --theme-foreground: #f4ede4;
+    --theme-primary: #c084fc;
+    --theme-secondary: #481a54;
+    --theme-accent-soft: #611f69;
+    --theme-midground: #c084fc;
+    --theme-warm: #c084fc;
+    --theme-background-seed: #2a0f2e;
+    --theme-sidebar-seed: #220c26;
+    --theme-card-seed: #3a1840;
+    --theme-elevated-seed: #3a1840;
+    --theme-bubble-seed: #481a54;
+    --theme-neutral-chrome: #2a0f2e;
+    --theme-neutral-sidebar: #220c26;
+    --theme-neutral-card: #3a1840;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 22%;
@@ -535,146 +535,163 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris / Slacc — solid cream surfaces (transparent color-mix pulls toward black). */
+  /* Iris / Slacc — deep aubergine chrome + cream ink (chat must stay readable). */
   :root[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #f4ede4;
-    --theme-neutral-sidebar: #f9f0ff;
-    --theme-neutral-card: #ffffff;
+    --theme-neutral-chrome: #2a0f2e;
+    --theme-neutral-sidebar: #220c26;
+    --theme-neutral-card: #3a1840;
     --theme-mix-chrome: 100%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 100%;
     --theme-mix-elevated: 100%;
     --theme-mix-bubble: 100%;
-    --ui-link: #1264a3;
-    --ui-link-hover: #3860be;
-    /* Opaque ladders — translucent mixes wash out on cream/lavender. */
-    --ui-text-primary: #1d1d1d;
-    --ui-text-secondary: #3d3d3d;
-    --ui-text-tertiary: #525252;
-    --ui-text-quaternary: #616161;
-    --conversation-scaffold-text: #3d3d3d;
-    --conversation-scaffold-meta: #525252;
-    /* Opaque surfaces — kanban / settings / drawers use these tokens. */
-    --ui-bg-chrome: #f4ede4;
-    --ui-bg-sidebar: #f9f0ff;
-    --ui-bg-editor: #ffffff;
-    --ui-bg-elevated: #ffffff;
-    --ui-bg-card: #ffffff;
-    --ui-bg-input: #ffffff;
-    --ui-bg-primary: color-mix(in srgb, #4a154b 10%, #f9f0ff);
-    --ui-bg-secondary: #f9f0ff;
-    --ui-bg-tertiary: #f4ede4;
-    --ui-bg-quaternary: #f9f0ff;
-    --ui-bg-quinary: #f4ede4;
-    --ui-row-hover-background: color-mix(in srgb, #4a154b 6%, #ffffff);
-    --ui-row-active-background: color-mix(in srgb, #4a154b 10%, #ffffff);
-    --ui-control-hover-background: color-mix(in srgb, #4a154b 8%, #f9f0ff);
-    --ui-control-active-background: color-mix(in srgb, #4a154b 12%, #f9f0ff);
-    --ui-surface-background: #ffffff;
-    --ui-sidebar-surface-background: #f9f0ff;
-    --ui-chat-surface-background: #f4ede4;
-    --ui-editor-surface-background: #f4ede4;
-    --ui-terminal-surface-background: #f4ede4;
-    --ui-widget-surface-background: #ffffff;
-    --ui-chat-bubble-background: #f9f0ff;
-    --ui-chat-bubble-opaque-background: #ffffff;
-    --ui-inline-code-background: #f9f0ff;
-    --ui-inline-code-foreground: #1d1d1d;
-    --dt-background: #f4ede4;
-    --dt-foreground: #1d1d1d;
-    --dt-card: #ffffff;
-    --dt-card-foreground: #1d1d1d;
-    --dt-popover: #ffffff;
-    --dt-popover-foreground: #1d1d1d;
-    --dt-muted: #f9f0ff;
-    --dt-muted-foreground: #3d3d3d;
-    --dt-secondary: #f9f0ff;
-    --dt-secondary-foreground: #1d1d1d;
-    --dt-accent: #f9f0ff;
-    --dt-accent-foreground: #1d1d1d;
-    --dt-primary-foreground: #ffffff;
-    --muted-foreground: #3d3d3d;
-    --chrome-action-hover: color-mix(in srgb, #4a154b 8%, #f9f0ff);
+    --ui-link: #7dd3fc;
+    --ui-link-hover: #bae6fd;
+    --ui-text-primary: #f4ede4;
+    --ui-text-secondary: #e4c8ea;
+    --ui-text-tertiary: #d9bdde;
+    --ui-text-quaternary: #c9a8d0;
+    --conversation-scaffold-text: #e4c8ea;
+    --conversation-scaffold-meta: #d9bdde;
+    --conversation-text-font-size: 0.9375rem;
+    --ui-bg-chrome: #2a0f2e;
+    --ui-bg-sidebar: #220c26;
+    --ui-bg-editor: #3a1840;
+    --ui-bg-elevated: #421c4a;
+    --ui-bg-card: #3a1840;
+    --ui-bg-input: #481a54;
+    --ui-bg-primary: color-mix(in srgb, #c084fc 22%, #3a1840);
+    --ui-bg-secondary: #481a54;
+    --ui-bg-tertiary: #3a1840;
+    --ui-bg-quaternary: #481a54;
+    --ui-bg-quinary: #3a1840;
+    --ui-row-hover-background: color-mix(in srgb, #c084fc 14%, #3a1840);
+    --ui-row-active-background: color-mix(in srgb, #c084fc 22%, #3a1840);
+    --ui-control-hover-background: color-mix(in srgb, #c084fc 18%, #3a1840);
+    --ui-control-active-background: color-mix(in srgb, #c084fc 26%, #3a1840);
+    --ui-surface-background: #3a1840;
+    --ui-sidebar-surface-background: #220c26;
+    --ui-chat-surface-background: #2a0f2e;
+    --ui-editor-surface-background: #2a0f2e;
+    --ui-terminal-surface-background: #2a0f2e;
+    --ui-widget-surface-background: #3a1840;
+    --ui-chat-bubble-background: #481a54;
+    --ui-chat-bubble-opaque-background: #481a54;
+    --ui-inline-code-background: #481a54;
+    --ui-inline-code-foreground: #f4ede4;
+    --dt-background: #2a0f2e;
+    --dt-foreground: #f4ede4;
+    --dt-card: #3a1840;
+    --dt-card-foreground: #f4ede4;
+    --dt-popover: #3a1840;
+    --dt-popover-foreground: #f4ede4;
+    --dt-muted: #481a54;
+    --dt-muted-foreground: #e4c8ea;
+    --dt-secondary: #481a54;
+    --dt-secondary-foreground: #f4ede4;
+    --dt-accent: #611f69;
+    --dt-accent-foreground: #f9f0ff;
+    --dt-primary-foreground: #1a0a1c;
+    --dt-user-bubble: #481a54;
+    --muted-foreground: #e4c8ea;
+    --chrome-action-hover: color-mix(in srgb, #c084fc 18%, #3a1840);
     --slacc-mesh:
-      radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
-      radial-gradient(ellipse 60% 45% at 50% 90%, rgba(210, 230, 210, 0.45), transparent 55%),
-      linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
-    color-scheme: light;
+      radial-gradient(ellipse 70% 50% at 12% 8%, rgba(192, 132, 252, 0.28), transparent 55%),
+      radial-gradient(ellipse 60% 45% at 88% 18%, rgba(97, 31, 105, 0.55), transparent 50%),
+      radial-gradient(ellipse 50% 40% at 50% 100%, rgba(74, 21, 75, 0.65), transparent 55%),
+      linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
+    color-scheme: dark;
   }
 
   :root[data-hermes-theme='iris'] body,
   :root[data-hermes-theme='iris'] #root {
     background-image: var(--slacc-mesh);
-    background-color: #f4ede4;
-    color: #1d1d1d;
+    background-color: #2a0f2e;
+    color: #f4ede4;
   }
 
-  /* Cream chrome even if .dark class leaks from OS preference. */
+  /* Chat transcript — force cream ink (questions + answers). */
+  :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'],
+  :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md,
+  :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md :where(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th),
+  :root[data-hermes-theme='iris'] [data-slot='aui_user-inline-text'],
+  :root[data-hermes-theme='iris'] [data-slot='aui_user-message-root'],
+  :root[data-hermes-theme='iris'] [data-slot='composer-rich-input'],
+  :root[data-hermes-theme='iris'] [data-hermes-one-intro],
+  :root[data-hermes-theme='iris'] [data-hermes-one-intro] h1 {
+    color: #f4ede4 !important;
+  }
+
+  :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
+    color: #e4c8ea !important;
+  }
+
+  :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
+    background: #481a54;
+    border-color: #c084fc;
+    color: #f4ede4 !important;
+  }
+
+  :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
+  :root[data-hermes-theme='iris'] .hermes-one-suggestions button:focus-visible {
+    background: #c084fc;
+    color: #1a0a1c !important;
+  }
+
   :root.dark[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #f4ede4;
-    --theme-neutral-sidebar: #f9f0ff;
-    --theme-neutral-card: #ffffff;
-    --theme-mix-chrome: 100%;
-    --theme-mix-sidebar: 100%;
-    --theme-mix-card: 100%;
-    --theme-mix-elevated: 100%;
-    --ui-bg-chrome: #f4ede4;
-    --ui-bg-sidebar: #f9f0ff;
-    --ui-bg-editor: #ffffff;
-    --ui-bg-elevated: #ffffff;
-    --ui-bg-quaternary: #f9f0ff;
-    --ui-bg-quinary: #f4ede4;
-    --ui-surface-background: #ffffff;
-    --ui-widget-surface-background: #ffffff;
-    --ui-text-primary: #1d1d1d;
-    --ui-text-secondary: #3d3d3d;
-    --ui-text-tertiary: #525252;
-    --ui-text-quaternary: #616161;
-    --dt-background: #f4ede4;
-    --dt-foreground: #1d1d1d;
-    --dt-card: #ffffff;
-    --dt-muted-foreground: #3d3d3d;
-    --muted-foreground: #3d3d3d;
-    color-scheme: light;
+    --theme-neutral-chrome: #2a0f2e;
+    --theme-neutral-sidebar: #220c26;
+    --theme-neutral-card: #3a1840;
+    --ui-bg-chrome: #2a0f2e;
+    --ui-bg-sidebar: #220c26;
+    --ui-bg-editor: #3a1840;
+    --ui-bg-elevated: #421c4a;
+    --ui-surface-background: #3a1840;
+    --ui-widget-surface-background: #3a1840;
+    --ui-text-primary: #f4ede4;
+    --ui-text-secondary: #e4c8ea;
+    --ui-text-tertiary: #d9bdde;
+    --dt-foreground: #f4ede4;
+    --dt-muted-foreground: #e4c8ea;
+    --muted-foreground: #e4c8ea;
+    color-scheme: dark;
   }
 
-  /* Kanban + plugin routes — force cream page chrome (no black panels). */
   :root[data-hermes-theme='iris'] [data-plugin-page],
   :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
   :root[data-hermes-theme='iris'] [data-settings-view] {
-    background-color: #ffffff;
-    color: #1d1d1d;
+    background-color: #3a1840;
+    color: #f4ede4;
   }
 
-  /* Scaffold fade was washing tool/thinking rows — keep nearly opaque on Iris. */
   :root[data-hermes-theme='iris']
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
-    opacity: 0.92;
+    opacity: 0.95;
+    color: #e4c8ea;
   }
 
-  /* Settings ▸ Plugins — lavender panel, ink text (Iris readability). */
+  /* Settings ▸ Plugins — aubergine panel, cream text. */
   .iris-plugins-settings {
-    color: #1d1d1d;
-    color-scheme: light;
+    color: #f4ede4;
+    color-scheme: dark;
   }
 
   .iris-plugins-settings,
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
-    --ui-text-primary: #1d1d1d;
-    --ui-text-secondary: #3d3d3d;
-    --ui-text-tertiary: #525252;
+    --ui-text-primary: #f4ede4;
+    --ui-text-secondary: #e4c8ea;
+    --ui-text-tertiary: #d9bdde;
   }
 
   .iris-plugins-settings {
     padding: 0.75rem 0.85rem 1.25rem;
     border-radius: 1rem;
     background:
-      radial-gradient(circle at 10% 0%, #f9f0ff, transparent 45%),
-      linear-gradient(180deg, #f9f0ff 0%, #f4ede4 100%);
-    color: #1d1d1d;
+      radial-gradient(circle at 10% 0%, rgba(192, 132, 252, 0.22), transparent 45%),
+      linear-gradient(180deg, #3a1840 0%, #2a0f2e 100%);
+    color: #f4ede4;
   }
 
   .iris-plugins-settings p,
@@ -684,7 +701,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #3d3d3d !important;
+    color: #e4c8ea !important;
   }
 
   * {

@@ -48,21 +48,18 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Iris (DESIGN.md) — cream canvas + aubergine primary as the static
-   default dashboard theme. ThemeProvider rewrites these on switch. */
+/* Iris dark aubergine — first paint before ThemeProvider mounts.     */
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* Iris / DESIGN.md tokens — first paint before ThemeProvider mounts. */
-  /* Opaque ink for first paint — alpha-0 glass overlay made text unreadable. */
-  --foreground: #1d1d1d;
-  --foreground-base: #1d1d1d;
+  --foreground: #f4ede4;
+  --foreground-base: #f4ede4;
   --foreground-alpha: 1;
-  --midground: color-mix(in srgb, #4a154b 100%, transparent);
-  --midground-base: #4a154b;
+  --midground: color-mix(in srgb, #c084fc 100%, transparent);
+  --midground-base: #c084fc;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #f4ede4 100%, transparent);
-  --background-base: #f4ede4;
+  --background: color-mix(in srgb, #2a0f2e 100%, transparent);
+  --background-base: #2a0f2e;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -82,9 +79,9 @@
   --theme-spacing-mul: 1;
   --theme-density: comfortable;
 
-  /* Data-series accents — aubergine input + leaf green output. */
-  --series-input-token: #4a154b;
-  --series-output-token: #206b22;
+  /* Data-series accents. */
+  --series-input-token: #c084fc;
+  --series-output-token: #3fb97d;
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -105,14 +102,12 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground-base, #1d1d1d);
-  /* Slacc pastel-mesh under cream canvas (DESIGN.md). */
-  background-color: #f4ede4;
+  color: var(--foreground-base, #f4ede4);
+  background-color: #2a0f2e;
   background-image:
-    radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
-    radial-gradient(ellipse 60% 45% at 50% 90%, rgba(210, 230, 210, 0.45), transparent 55%),
-    linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(192, 132, 252, 0.28), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 88% 18%, rgba(97, 31, 105, 0.55), transparent 50%),
+    linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
 }
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
@@ -163,26 +158,25 @@ code { font-size: 0.875rem; }
      Midground stays the brand/CTA accent via --color-primary. */
   --color-foreground: var(--foreground-base);
 
-  --color-card: #ffffff;
+  --color-card: #3a1840;
   --color-card-foreground: var(--foreground-base);
   --color-primary: var(--midground);
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #f9f0ff;
+  --color-primary-foreground: #1a0a1c;
+  --color-secondary: #481a54;
   --color-secondary-foreground: var(--foreground-base);
-  --color-muted: #f9f0ff;
-  /* Routes the shadcn `muted-foreground` slot through a readable ink-mute
-     so labels and captions stay legible on cream canvas. */
-  --color-muted-foreground: #3d3d3d;
-  --color-accent: #f9f0ff;
-  --color-accent-foreground: var(--foreground-base);
-  --color-destructive: #cc4117;
+  --color-muted: #481a54;
+  /* Cream mute on aubergine — readable captions. */
+  --color-muted-foreground: #e4c8ea;
+  --color-accent: #611f69;
+  --color-accent-foreground: #f9f0ff;
+  --color-destructive: #ff6b3d;
   --color-destructive-foreground: #ffffff;
-  --color-success: #007a5a;
-  --color-warning: #d4a017;
-  --color-border: #e6e6e6;
-  --color-input: #e6e6e6;
+  --color-success: #3fb97d;
+  --color-warning: #d4b348;
+  --color-border: #592466;
+  --color-input: #481a54;
   --color-ring: var(--midground);
-  --color-popover: #ffffff;
+  --color-popover: #3a1840;
   --color-popover-foreground: var(--foreground-base);
 
   --radius-sm: calc(var(--theme-radius) - 4px);
@@ -191,57 +185,57 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
-/* Kanban + plugin tabs — cream canvas, never black panels. */
+/* Kanban + plugin tabs — aubergine chrome, cream ink. */
 .hermes-kanban {
-  background: #f4ede4 !important;
-  color: #1d1d1d !important;
+  background: #2a0f2e !important;
+  color: #f4ede4 !important;
 }
 
 .hermes-kanban-drawer {
-  background: #ffffff !important;
-  color: #1d1d1d !important;
-  border-left-color: #e6e6e6 !important;
-  box-shadow: -4px 0 18px rgba(74, 21, 75, 0.18) !important;
+  background: #3a1840 !important;
+  color: #f4ede4 !important;
+  border-left-color: #592466 !important;
+  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.35) !important;
 }
 
 .hermes-kanban-drawer-shade {
-  background: rgba(74, 21, 75, 0.28) !important;
+  background: rgba(26, 10, 28, 0.55) !important;
 }
 
-/* Achievements cards — mix toward cream, not black, on Iris. */
+/* Achievements cards on Iris dark. */
 .ha-card {
   background:
-    radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 16%, transparent), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent),
-    #ffffff !important;
-  color: #1d1d1d;
+    radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 22%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+    #3a1840 !important;
+  color: #f4ede4;
 }
 
 .ha-progress-track,
 .ha-scan-progress-track {
-  background: #f4ede4 !important;
+  background: #2a0f2e !important;
 }
 
 .ha-share-dialog {
-  background: #ffffff !important;
-  color: #1d1d1d !important;
-  box-shadow: 0 24px 60px rgba(74, 21, 75, 0.18) !important;
+  background: #3a1840 !important;
+  color: #f4ede4 !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45) !important;
 }
 
-/* Plugins page — force Iris lavender surfaces + ink text (no black cards). */
+/* Plugins page — aubergine panel, cream text. */
 .iris-plugins-page {
-  --iris-plugins-ink: #1d1d1d;
-  --iris-plugins-mute: #3d3d3d;
-  --iris-plugins-canvas: #f4ede4;
-  --iris-plugins-lavender: #f9f0ff;
-  --iris-plugins-surface: #ffffff;
-  --iris-plugins-primary: #4a154b;
-  --iris-plugins-border: #e6e6e6;
+  --iris-plugins-ink: #f4ede4;
+  --iris-plugins-mute: #e4c8ea;
+  --iris-plugins-canvas: #2a0f2e;
+  --iris-plugins-lavender: #481a54;
+  --iris-plugins-surface: #3a1840;
+  --iris-plugins-primary: #c084fc;
+  --iris-plugins-border: #592466;
 
   color: var(--iris-plugins-ink);
   background:
-    radial-gradient(circle at 12% 0%, rgba(249, 240, 255, 0.95), transparent 42%),
-    linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+    radial-gradient(circle at 12% 0%, rgba(192, 132, 252, 0.22), transparent 42%),
+    linear-gradient(180deg, #3a1840 0%, #2a0f2e 55%, #220c26 100%);
   border-radius: 1rem;
   padding: 1rem 1.1rem 1.5rem;
 }

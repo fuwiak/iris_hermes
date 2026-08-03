@@ -208,18 +208,17 @@ export const nousBlueTheme: DashboardTheme = {
 };
 
 /**
- * Iris / Slacc — cream canvas + aubergine primary (DESIGN.md).
- * Pastel-mesh atmospherics live in index.css / hermes-one-web.css.
+ * Iris / Slacc — deep aubergine chrome + cream ink (expressive dark band).
  */
 export const irisTheme: DashboardTheme = {
   name: "iris",
   label: "Iris (Slacc)",
-  description: "Slacc cream canvas, aubergine CTAs, lavender secondary",
+  description: "Deep aubergine chrome, cream ink, vivid violet CTAs",
   palette: {
-    background: { hex: "#f4ede4", alpha: 1 },
-    midground: { hex: "#4a154b", alpha: 1 },
-    foreground: { hex: "#1d1d1d", alpha: 1 },
-    warmGlow: "rgba(74, 21, 75, 0.14)",
+    background: { hex: "#2a0f2e", alpha: 1 },
+    midground: { hex: "#c084fc", alpha: 1 },
+    foreground: { hex: "#f4ede4", alpha: 1 },
+    warmGlow: "rgba(192, 132, 252, 0.22)",
     noiseOpacity: 0,
   },
   typography: {
@@ -240,28 +239,28 @@ export const irisTheme: DashboardTheme = {
     crest: "/favicon.svg",
   },
   colorOverrides: {
-    primary: "#4a154b",
-    primaryForeground: "#ffffff",
-    accent: "#f9f0ff",
-    accentForeground: "#1d1d1d",
-    muted: "#f9f0ff",
-    mutedForeground: "#3d3d3d",
-    border: "#e6e6e6",
-    card: "#ffffff",
-    cardForeground: "#1d1d1d",
-    success: "#007a5a",
-    warning: "#d4a017",
-    destructive: "#cc4117",
-    ring: "#4a154b",
+    primary: "#c084fc",
+    primaryForeground: "#1a0a1c",
+    accent: "#611f69",
+    accentForeground: "#f9f0ff",
+    muted: "#481a54",
+    mutedForeground: "#e4c8ea",
+    border: "#592466",
+    card: "#3a1840",
+    cardForeground: "#f4ede4",
+    success: "#3fb97d",
+    warning: "#d4b348",
+    destructive: "#ff6b3d",
+    ring: "#c084fc",
   },
-  terminalBackground: "#ffffff",
-  terminalForeground: "#1d1d1d",
+  terminalBackground: "#2a0f2e",
+  terminalForeground: "#f4ede4",
   seriesColors: {
-    inputTokenAccent: "#4a154b",
-    outputTokenAccent: "#206b22",
+    inputTokenAccent: "#c084fc",
+    outputTokenAccent: "#3fb97d",
   },
   // [background, midground, warmGlow] — ThemeList swatch is a fixed triple.
-  swatchColors: ["#f4ede4", "#4a154b", "#8752c1"],
+  swatchColors: ["#2a0f2e", "#c084fc", "#f4ede4"],
 };
 
 /**
