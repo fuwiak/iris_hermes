@@ -88,6 +88,8 @@ export function TabDropdown({
 }
 
 export interface ResponsiveTab {
+  /** Optional leading glyph — Discover shows one per registry kind. */
+  icon?: IconComponent
   id: string
   label: string
   meta?: number | string | null
@@ -115,6 +117,7 @@ export function ResponsiveTabs({
       <div className={cn('hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 md:flex', wideClassName)}>
         {tabs.map(tab => (
           <TextTab active={tab.id === value} key={tab.id} onClick={() => onChange(tab.id)}>
+            {tab.icon && <TabDropdownIcon icon={tab.icon} />}
             {tab.label}
             {tab.meta !== undefined && <TextTabMeta>{tabMetaContent(tab.meta)}</TextTabMeta>}
           </TextTab>
@@ -125,6 +128,7 @@ export function ResponsiveTabs({
           align={align}
           items={tabs.map(tab => ({
             active: tab.id === value,
+            icon: tab.icon,
             id: tab.id,
             label: tab.label,
             meta: tab.meta,

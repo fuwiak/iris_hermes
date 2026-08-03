@@ -105,6 +105,12 @@ export default defineConfig({
       { find: "simple-git", replacement: EMPTY_SHIM },
       { find: "electron", replacement: EMPTY_SHIM },
     ],
+    // TS BEFORE JS — the desktop tree we alias into (`@desktop`, `@/…` from
+    // apps/desktop/src) collects gitignored `foo.js` artifacts from
+    // `tsc --build`. Vite's default order resolves those ahead of `foo.tsx`,
+    // so the embed would paint stale desktop code. Mirror of the same setting
+    // in apps/desktop/vite.config.ts.
+    extensions: [".tsx", ".ts", ".mts", ".jsx", ".mjs", ".js", ".json"],
     // When @nous-research/ui is symlinked via `file:../../design-language`,
     // Node's module resolution would pick up shared deps from
     // design-language/node_modules/*, giving us two copies + breaking

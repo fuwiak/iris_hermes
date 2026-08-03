@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import { PageHeaderContext } from "./page-header-context";
+import { isDesktopEmbedPath } from "@/lib/desktop-path";
 import { resolvePageTitle } from "@/lib/resolve-page-title";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
@@ -35,12 +36,8 @@ export function PageHeaderProvider({
   const displayTitle = titleOverride ?? defaultTitle;
 
   const normalized = pathname.replace(/\/$/, "") || "/";
-  const hideDashboardHeader =
-    normalized === "/chat" ||
-    normalized === "/skills" ||
-    normalized === "/config" ||
-    normalized === "/settings" ||
-    normalized === "/env";
+  /** Desktop-embedded surfaces own their chrome — one list, in desktop-path.ts. */
+  const hideDashboardHeader = isDesktopEmbedPath(normalized);
   /** Env jump-nav is wide — stack below title on small screens so KEYS stays readable. */
   const isEnvRoute = normalized === "/env";
   const isEmbedMain = hideDashboardHeader;

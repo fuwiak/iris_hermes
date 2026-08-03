@@ -26,6 +26,12 @@ const BUILTIN_LITERAL: Record<string, string> = {
   "/webhooks": "Webhooks",
   "/pairing": "Pairing",
   "/system": "System",
+  // Hermes One (desktop) views — the dashboard header is hidden on these, but
+  // the title still feeds document titles / plugin lookups.
+  "/agents": "Agents",
+  "/artifacts": "Artifacts",
+  "/command-center": "Command Center",
+  "/starmap": "Starmap",
 };
 
 export function resolvePageTitle(

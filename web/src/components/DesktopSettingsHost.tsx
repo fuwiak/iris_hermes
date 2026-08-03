@@ -1,6 +1,6 @@
 /**
- * Embeds Hermes One (desktop renderer) in the dashboard — Electron look + feel.
- * Separate React root so dashboard BrowserRouter does not nest MemoryRouter.
+ * Mounts the Electron desktop SettingsView 1:1 — same module as
+ * `apps/desktop/src/app/settings`. No dashboard ConfigPage, no shell chrome.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,36 +11,25 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ComponentType,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useNavigate } from "react-router";
+import { MemoryRouter } from "react-router";
 
-import { isDesktopOverlayRoute } from "@/lib/desktop-path";
 import { installHermesDesktopStub } from "@/lib/hermesDesktopStub";
 
 import "@desktop/styles.css";
 import "./hermes-one-web.css";
 
-/** Match Electron Hermes One charcoal chrome — apps/desktop/src/themes/presets.ts */
-const WEB_DESKTOP_SKIN = "mono";
-const WEB_DESKTOP_MODE = "dark";
 const BOOT_BG = "#0e0e0e";
 const BOOT_FG = "#eaeaea";
 
-function preferDesktopTheme(): void {
-  try {
-    window.localStorage.setItem("hermes-desktop-theme-v2", WEB_DESKTOP_SKIN);
-    window.localStorage.setItem("hermes-desktop-mode-v1", WEB_DESKTOP_MODE);
-    window.localStorage.setItem("hermes-boot-background", BOOT_BG);
-    window.localStorage.setItem("hermes-boot-color-scheme", "dark");
-    document.documentElement.classList.add("dark");
-    document.documentElement.style.colorScheme = "dark";
-    document.documentElement.style.backgroundColor = BOOT_BG;
-    document.documentElement.style.color = BOOT_FG;
-  } catch {
-    // private browsing / blocked storage
-  }
-}
+type SettingsViewProps = {
+  onClose: () => void;
+  gateway?: unknown;
+  onConfigSaved?: () => void;
+  onMainModelChanged?: (provider: string, model: string) => void;
+};
 
 let queryClient: QueryClient | null = null;
 function getQueryClient(): QueryClient {
@@ -54,62 +43,38 @@ function getQueryClient(): QueryClient {
   return queryClient;
 }
 
-function parseDesktopPath(path: string): { pathname: string; search: string } {
-  const q = path.indexOf("?");
-  if (q === -1) return { pathname: path || "/", search: "" };
-  return {
-    pathname: path.slice(0, q) || "/",
-    search: path.slice(q), // includes leading '?'
-  };
+function preferDesktopTheme(): void {
+  try {
+    window.localStorage.setItem("hermes-desktop-theme-v2", "mono");
+    window.localStorage.setItem("hermes-desktop-mode-v1", "dark");
+    window.localStorage.setItem("hermes-boot-background", BOOT_BG);
+    window.localStorage.setItem("hermes-boot-color-scheme", "dark");
+    document.documentElement.classList.add("dark");
+    document.documentElement.style.colorScheme = "dark";
+    document.documentElement.style.backgroundColor = BOOT_BG;
+    document.documentElement.style.color = BOOT_FG;
+  } catch {
+    // private browsing
+  }
 }
 
-/** Overlay routes (settings, cron, profiles, …) need a router remount — see DesktopTree. */
-function isOverlayDesktopPath(path: string): boolean {
-  return isDesktopOverlayRoute(parseDesktopPath(path).pathname);
-}
-
-/**
- * Sync dashboard → desktop ONLY when the dashboard path prop changes.
- * Never re-assert on every render — that wiped in-app sidebar navigation.
- * `path` may include a query (e.g. `/settings?tab=keys`).
- */
-function DesktopRouteSync({ path }: { path: string }) {
-  const navigate = useNavigate();
-  const lastSynced = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (lastSynced.current === path) return;
-    lastSynced.current = path;
-    const { pathname, search } = parseDesktopPath(path);
-    navigate({ pathname, search }, { replace: true });
-  }, [navigate, path]);
-
-  return null;
-}
-
-function DesktopTree({
-  DesktopApp,
+function SettingsTree({
+  SettingsView,
   I18nProvider,
   ThemeProvider,
   HapticsProvider,
   RootTooltipProvider,
   path,
+  onClose,
 }: {
-  DesktopApp: React.ComponentType;
-  I18nProvider: React.ComponentType<{ children: React.ReactNode }>;
-  ThemeProvider: React.ComponentType<{ children: React.ReactNode }>;
-  HapticsProvider: React.ComponentType<{ children: React.ReactNode }>;
-  RootTooltipProvider: React.ComponentType<{ children: React.ReactNode }>;
+  SettingsView: ComponentType<SettingsViewProps>;
+  I18nProvider: ComponentType<{ children: React.ReactNode }>;
+  ThemeProvider: ComponentType<{ children: React.ReactNode }>;
+  HapticsProvider: ComponentType<{ children: React.ReactNode }>;
+  RootTooltipProvider: ComponentType<{ children: React.ReactNode }>;
   path: string;
+  onClose: () => void;
 }) {
-  // Remount the router when entering/leaving an overlay route (settings, cron,
-  // profiles, agents, starmap, webhooks, command-center) so the dashboard tab
-  // always opens the Electron overlay — not a stale chat route left behind
-  // after the overlay was closed from inside the desktop shell.
-  const isOverlay = isOverlayDesktopPath(path);
-  const routerKey = isOverlay ? `overlay:${path}` : "shell";
-  const initialPath = isOverlay ? path : path.startsWith("/") ? path : "/";
-
   return (
     <StrictMode>
       <div
@@ -124,6 +89,7 @@ function DesktopTree({
           overflow: "hidden",
           backgroundColor: BOOT_BG,
           color: BOOT_FG,
+          position: "relative",
         }}
       >
         <QueryClientProvider client={getQueryClient()}>
@@ -132,12 +98,11 @@ function DesktopTree({
               <HapticsProvider>
                 <RootTooltipProvider>
                   <MemoryRouter
-                    key={routerKey}
-                    initialEntries={[initialPath]}
+                    key={path}
+                    initialEntries={[path]}
                     useTransitions={false}
                   >
-                    <DesktopRouteSync path={path} />
-                    <DesktopApp />
+                    <SettingsView onClose={onClose} />
                   </MemoryRouter>
                 </RootTooltipProvider>
               </HapticsProvider>
@@ -149,22 +114,29 @@ function DesktopTree({
   );
 }
 
-export default function DesktopChatHost({
+/**
+ * Full-bleed Electron Settings. `path` is a desktop settings URL
+ * (`/settings` or `/settings?tab=keys`).
+ */
+export default function DesktopSettingsHost({
   isActive,
-  path = "/",
+  path = "/settings",
+  onClose,
 }: {
   isActive: boolean;
-  /** Desktop-internal path (e.g. `/`, `/skills`). */
   path?: string;
+  onClose: () => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<Root | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const modsRef = useRef<{
-    DesktopApp: React.ComponentType;
-    I18nProvider: React.ComponentType<{ children: React.ReactNode }>;
-    ThemeProvider: React.ComponentType<{ children: React.ReactNode }>;
-    HapticsProvider: React.ComponentType<{ children: React.ReactNode }>;
-    RootTooltipProvider: React.ComponentType<{ children: React.ReactNode }>;
+    SettingsView: ComponentType<SettingsViewProps>;
+    I18nProvider: ComponentType<{ children: React.ReactNode }>;
+    ThemeProvider: ComponentType<{ children: React.ReactNode }>;
+    HapticsProvider: ComponentType<{ children: React.ReactNode }>;
+    RootTooltipProvider: ComponentType<{ children: React.ReactNode }>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -181,18 +153,17 @@ export default function DesktopChatHost({
     void (async () => {
       try {
         preferDesktopTheme();
-        const [{ default: DesktopApp }, i18n, themes, haptics, tooltip] =
-          await Promise.all([
-            import("@desktop/app"),
-            import("@desktop/i18n"),
-            import("@desktop/themes/context"),
-            import("@desktop/components/haptics-provider"),
-            import("@desktop/components/ui/tooltip"),
-          ]);
+        const [settingsMod, i18n, themes, haptics, tooltip] = await Promise.all([
+          import("@desktop/app/settings"),
+          import("@desktop/i18n"),
+          import("@desktop/themes/context"),
+          import("@desktop/components/haptics-provider"),
+          import("@desktop/components/ui/tooltip"),
+        ]);
         if (cancelled) return;
 
         const mods = {
-          DesktopApp,
+          SettingsView: settingsMod.SettingsView,
           I18nProvider: i18n.I18nProvider,
           ThemeProvider: themes.ThemeProvider,
           HapticsProvider: haptics.HapticsProvider,
@@ -206,7 +177,13 @@ export default function DesktopChatHost({
           return;
         }
         rootRef.current = next;
-        next.render(<DesktopTree {...mods} path={path} />);
+        next.render(
+          <SettingsTree
+            {...mods}
+            path={path}
+            onClose={() => onCloseRef.current()}
+          />,
+        );
         setError(null);
         setReady(true);
       } catch (err) {
@@ -224,13 +201,18 @@ export default function DesktopChatHost({
       rootRef.current = null;
       modsRef.current = null;
     };
-    // Boot once — path updates paint via the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!ready || !rootRef.current || !modsRef.current) return;
-    rootRef.current.render(<DesktopTree {...modsRef.current} path={path} />);
+    rootRef.current.render(
+      <SettingsTree
+        {...modsRef.current}
+        path={path}
+        onClose={() => onCloseRef.current()}
+      />,
+    );
   }, [path, ready]);
 
   const style = useMemo(
@@ -244,8 +226,6 @@ export default function DesktopChatHost({
         height: "100%",
         flexDirection: "column" as const,
         isolation: "isolate" as const,
-        // Contain `position:fixed` titlebar tools inside the host (not the
-        // browser viewport) so they can't steal clicks from the sidebar.
         transform: "translateZ(0)",
         backgroundColor: BOOT_BG,
         color: BOOT_FG,
@@ -260,25 +240,24 @@ export default function DesktopChatHost({
     <div
       style={style}
       className="dark"
-      data-desktop-chat-host=""
+      data-desktop-settings-host=""
       data-desktop-embed=""
       data-desktop-theme="mono"
       data-desktop-mode="dark"
-      data-chat-active={isActive ? "true" : "false"}
     >
       {error ? (
         <div
           className="absolute inset-0 z-10 flex items-center justify-center p-8 text-sm"
           role="alert"
         >
-          Desktop app failed to load: {error}
+          Desktop Settings failed to load: {error}
         </div>
       ) : !ready ? (
         <div
           className="absolute inset-0 z-10 flex items-center justify-center p-8 text-sm opacity-70"
           aria-busy="true"
         >
-          Loading Hermes…
+          Loading Settings…
         </div>
       ) : null}
       <div

@@ -53,7 +53,6 @@ import {
   setPinnedSessionOrder,
   setSidebarAgentsGrouped,
   setSidebarCronOpen,
-  setSidebarPinsOpen,
   setSidebarProjectOrderIds,
   setSidebarRecentsOpen,
   setSidebarSessionOrderIds,
@@ -61,8 +60,7 @@ import {
   setSidebarWorkspaceOrderIds,
   setSidebarWorkspaceParentOrderIds,
   SIDEBAR_SESSIONS_PAGE_SIZE,
-  toggleSidebarMessagingOpen,
-  unpinSession
+  toggleSidebarMessagingOpen
 } from '@/store/layout'
 import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import {
@@ -267,21 +265,28 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const { t } = useI18n()
   const s = t.sidebar
+
   const embed =
     typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
+
   const appControlTools = useAppControlTools()
+
   // Dashboard embed hides the titlebar app-control cluster — surface those tools in the nav.
   const webAppControlNav: SidebarNavItem[] = embed
     ? appControlTools.map(tool => ({
         active: tool.active,
-        icon: ({ className }) => <span className={className}>{tool.icon}</span>,
+        icon: ({ className }: { className?: string }) => (
+          <span className={className}>{tool.icon}</span>
+        ),
         id: `app-control-${tool.id}`,
         keybindActionId: tool.actionId,
         label: tool.label,
-        onSelect: event => tool.onSelect?.(event)
+        onSelect: (event: React.MouseEvent | React.KeyboardEvent) => tool.onSelect?.(event)
       }))
     : []
+
   const primaryNav = [...SIDEBAR_NAV, ...webAppControlNav]
+
   const navLabel = (item: SidebarNavItem) => {
     const labels: Record<string, string> = {
       'new-session': s.hermesOneNav.newChat,
@@ -293,6 +298,7 @@ export function ChatSidebar({
 
     return labels[item.id] ?? s.nav[item.id] ?? item.label
   }
+
   const { pathname } = useLocation()
   // Contributed nav rows (plugins pairing a page with a sidebar entry) render
   // below the built-ins with the same chrome; active = at their route.

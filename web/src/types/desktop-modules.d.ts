@@ -29,6 +29,16 @@ declare module "@desktop/components/ui/tooltip" {
   export const RootTooltipProvider: ComponentType<{ children: ReactNode }>;
 }
 
+declare module "@desktop/app/settings" {
+  import type { ComponentType } from "react";
+  export const SettingsView: ComponentType<{
+    onClose: () => void;
+    gateway?: unknown;
+    onConfigSaved?: () => void;
+    onMainModelChanged?: (provider: string, model: string) => void;
+  }>;
+}
+
 declare module "@desktop/styles.css" {}
 
 declare module "@desktop/*" {

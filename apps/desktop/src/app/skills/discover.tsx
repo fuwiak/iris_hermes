@@ -6,7 +6,7 @@ import { useDebounced } from '@/app/hooks/use-debounced'
 import { useRouteEnumParam } from '@/app/hooks/use-route-enum-param'
 import { PageLoader } from '@/components/page-loader'
 import { Button } from '@/components/ui/button'
-import { Codicon } from '@/components/ui/codicon'
+import { Codicon, codiconIcon } from '@/components/ui/codicon'
 import { SearchField } from '@/components/ui/search-field'
 import { ResponsiveTabs } from '@/components/ui/tab-dropdown'
 import {
@@ -53,9 +53,9 @@ interface DiscoverCardModel {
 function tabIcon(tab: DiscoverTab): string {
   switch (tab) {
     case 'mcps':
-      return 'server-process'
+      return 'plug'
     case 'agents':
-      return 'organization'
+      return 'robot'
     case 'workflows':
       return 'type-hierarchy-sub'
     default:
@@ -382,8 +382,8 @@ export function DiscoverView({ className, ...props }: ComponentProps<'section'>)
             <p className="mt-1 text-[0.85rem] text-(--ui-text-tertiary)">{d.subtitle}</p>
           </div>
           <Button onClick={() => openExternalLink(REGISTRY_URL)} size="sm" variant="secondary">
-            {d.openRegistry}
             <Codicon name="link-external" size="0.75rem" />
+            {d.openRegistry}
           </Button>
         </div>
 
@@ -394,10 +394,10 @@ export function DiscoverView({ className, ...props }: ComponentProps<'section'>)
               setQuery('')
             }}
             tabs={[
-              { id: 'skills', label: d.tabSkills, meta: skillCount },
-              { id: 'mcps', label: d.tabMcps, meta: mcpCount },
-              { id: 'agents', label: d.tabAgents, meta: 0 },
-              { id: 'workflows', label: d.tabWorkflows, meta: 0 }
+              { icon: codiconIcon(tabIcon('skills')), id: 'skills', label: d.tabSkills, meta: skillCount },
+              { icon: codiconIcon(tabIcon('mcps')), id: 'mcps', label: d.tabMcps, meta: mcpCount },
+              { icon: codiconIcon(tabIcon('agents')), id: 'agents', label: d.tabAgents, meta: 0 },
+              { icon: codiconIcon(tabIcon('workflows')), id: 'workflows', label: d.tabWorkflows, meta: 0 }
             ]}
             value={tab}
             wideClassName="justify-start gap-x-4"

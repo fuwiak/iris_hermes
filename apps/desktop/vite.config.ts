@@ -152,7 +152,13 @@ export default defineConfig(({ command }) => ({
       'react/jsx-dev-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-dev-runtime.js'),
       'react/jsx-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-runtime.js')
     },
-    dedupe: ['react', 'react-dom']
+    dedupe: ['react', 'react-dom'],
+    // TS BEFORE JS. `tsc --build tsconfig.json` (typecheck, IDE builds) emits
+    // `foo.js` next to `foo.tsx` inside src/. Those are gitignored artifacts,
+    // but with Vite's default order ('.mjs', '.js', … , '.tsx') an
+    // extensionless `@/components/ui/tab-dropdown` resolves to the STALE .js
+    // and the app silently renders old code. Sources always win now.
+    extensions: ['.tsx', '.ts', '.mts', '.jsx', '.mjs', '.js', '.json']
   },
   server: {
     host: '127.0.0.1',

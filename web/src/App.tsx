@@ -24,8 +24,10 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Bot,
   Clock,
   Code,
+  Command,
   Cpu,
   Database,
   Download,
@@ -82,17 +84,16 @@ const SessionsPage = lazy(() => import("@/pages/SessionsPage"));
 const LogsPage = lazy(() => import("@/pages/LogsPage"));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage"));
 const ModelsPage = lazy(() => import("@/pages/ModelsPage"));
-const CronPage = lazy(() => import("@/pages/CronPage"));
-const ProfilesPage = lazy(() => import("@/pages/ProfilesPage"));
-const ProfileBuilderPage = lazy(() => import("@/pages/ProfileBuilderPage"));
 const PluginsPage = lazy(() => import("@/pages/PluginsPage"));
 const McpPage = lazy(() => import("@/pages/McpPage"));
 const PairingPage = lazy(() => import("@/pages/PairingPage"));
-const ChannelsPage = lazy(() => import("@/pages/ChannelsPage"));
-const WebhooksPage = lazy(() => import("@/pages/WebhooksPage"));
 const SystemPage = lazy(() => import("@/pages/SystemPage"));
 /** Hermes One only — never reintroduce pages/ChatPage (TUI) or pages/SkillsPage. */
 const HermesOneHost = lazy(() => import("@/components/DesktopChatHost"));
+/** Electron SettingsView 1:1 — never reintroduce pages/ConfigPage. */
+const DesktopSettingsHost = lazy(
+  () => import("@/components/DesktopSettingsHost"),
+);
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -104,6 +105,7 @@ import { latchChatActivation } from "@/lib/chat-activation";
 import {
   dashboardPathToDesktop,
   isDesktopEmbedPath,
+  isDesktopOverlayRoute,
 } from "@/lib/desktop-path";
 import { api } from "@/lib/api";
 import type { StatusResponse, UpdateCheckResponse } from "@/lib/api";
@@ -148,9 +150,13 @@ function DesktopRouteSink() {
 }
 
 /**
- * Built-in admin routes. Chat / skills / settings / keys are Hermes One only
- * (DesktopRouteSink + persistent DesktopChatHost). Do NOT wire pages/ChatPage,
- * pages/SkillsPage, pages/ConfigPage, or pages/EnvPage.
+ * Built-in admin routes. Every surface the desktop app also has is Hermes One
+ * only (DesktopRouteSink + persistent DesktopChatHost) so the web UI is
+ * one-to-one with Electron. Do NOT wire pages/ChatPage, pages/SkillsPage,
+ * pages/ConfigPage, pages/EnvPage, pages/CronPage, pages/ProfilesPage,
+ * pages/ProfileBuilderPage, pages/ChannelsPage, or pages/WebhooksPage —
+ * all of them were deleted in favour of the desktop views.
+ * Dashboard pages remain only where the desktop app has no counterpart.
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
@@ -159,22 +165,28 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
   "/logs": LogsPage,
-  "/cron": CronPage,
-  "/skills": DesktopRouteSink,
-  "/chat": DesktopRouteSink,
   "/plugins": PluginsPage,
   "/mcp": McpPage,
   "/pairing": PairingPage,
-  "/channels": ChannelsPage,
-  "/webhooks": WebhooksPage,
   "/system": SystemPage,
-  "/profiles": ProfilesPage,
-  "/profiles/new": ProfileBuilderPage,
+  "/docs": DocsPage,
+  // ── Desktop (Hermes One) views ───────────────────────────────────────────
+  "/chat": DesktopRouteSink,
+  "/skills": DesktopRouteSink,
+  "/cron": DesktopRouteSink,
+  "/channels": DesktopRouteSink,
+  "/webhooks": DesktopRouteSink,
+  "/profiles": DesktopRouteSink,
+  // Old profile-builder bookmarks → desktop Profiles (owns create/rename).
+  "/profiles/new": DesktopRouteSink,
+  "/artifacts": DesktopRouteSink,
+  "/agents": DesktopRouteSink,
+  "/starmap": DesktopRouteSink,
+  "/command-center": DesktopRouteSink,
   // Old /config bookmarks → desktop Settings (never ConfigPage).
   "/config": () => <Navigate to="/settings" replace />,
   "/settings": DesktopRouteSink,
   "/env": DesktopRouteSink,
-  "/docs": DocsPage,
 };
 
 const BUILTIN_NAV_REST: NavItem[] = [
@@ -198,8 +210,12 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: Cpu,
   },
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
+  // Hermes One (desktop) views below — Discover lives inside /chat's sidebar.
+  { path: "/command-center", label: "Command Center", icon: Command },
+  { path: "/agents", label: "Agents", icon: Bot },
+  { path: "/artifacts", label: "Artifacts", icon: Package },
+  { path: "/starmap", label: "Starmap", icon: Star },
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  // Skills live inside Hermes One (Discover) — no separate dashboard Skills page.
   { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   { path: "/mcp", label: "MCP", icon: Plug },
   { path: "/channels", label: "Channels", icon: Radio },
@@ -368,6 +384,7 @@ const SIDEBAR_COLLAPSED_KEY = "hermes-sidebar-collapsed";
 export default function App() {
   const { t } = useI18n();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { manifests, loading: pluginsLoading } = usePlugins();
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -404,6 +421,12 @@ export default function App() {
     setDesktopHostMounted((prev) => latchChatActivation(prev, isDesktopEmbedRoute));
   }, [isDesktopEmbedRoute]);
   const desktopPath = dashboardPathToDesktop(pathname);
+  // Settings = exact Electron SettingsView module (not the full shell overlay).
+  const isDesktopSettingsRoute = isDesktopOverlayRoute(desktopPath) &&
+    desktopPath.replace(/[?#].*$/, "") === "/settings";
+  const closeDesktopSettings = useCallback(() => {
+    navigate("/chat", { replace: true });
+  }, [navigate]);
 
   // `dashboard.show_token_analytics` gates the Analytics nav item.  The
   // page itself remains reachable by URL (it renders an explanation when
@@ -807,14 +830,28 @@ export default function App() {
                       <Suspense
                         fallback={
                           isDesktopEmbedRoute ? (
-                            <RouteFallback label="Loading Hermes…" />
+                            <RouteFallback
+                              label={
+                                isDesktopSettingsRoute
+                                  ? "Loading Settings…"
+                                  : "Loading Hermes…"
+                              }
+                            />
                           ) : null
                         }
                       >
-                        <HermesOneHost
-                          isActive={isDesktopEmbedRoute}
-                          path={desktopPath}
-                        />
+                        {isDesktopSettingsRoute ? (
+                          <DesktopSettingsHost
+                            isActive={isDesktopEmbedRoute}
+                            path={desktopPath}
+                            onClose={closeDesktopSettings}
+                          />
+                        ) : (
+                          <HermesOneHost
+                            isActive={isDesktopEmbedRoute}
+                            path={desktopPath}
+                          />
+                        )}
                       </Suspense>
                     </div>
                   ) : isDesktopEmbedRoute ? (
