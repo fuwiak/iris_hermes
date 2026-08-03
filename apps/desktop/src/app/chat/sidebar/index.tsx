@@ -272,17 +272,20 @@ export function ChatSidebar({
   const appControlTools = useAppControlTools()
 
   // Dashboard embed hides the titlebar app-control cluster — surface those tools in the nav.
+  // Skip `hidden` tools (e.g. file-browser toggle — clutter, not Hermes One chrome).
   const webAppControlNav: SidebarNavItem[] = embed
-    ? appControlTools.map(tool => ({
-        active: tool.active,
-        icon: ({ className }: { className?: string }) => (
-          <span className={className}>{tool.icon}</span>
-        ),
-        id: `app-control-${tool.id}`,
-        keybindActionId: tool.actionId,
-        label: tool.label,
-        onSelect: (event: React.MouseEvent | React.KeyboardEvent) => tool.onSelect?.(event)
-      }))
+    ? appControlTools
+        .filter(tool => !tool.hidden)
+        .map(tool => ({
+          active: tool.active,
+          icon: ({ className }: { className?: string }) => (
+            <span className={className}>{tool.icon}</span>
+          ),
+          id: `app-control-${tool.id}`,
+          keybindActionId: tool.actionId,
+          label: tool.label,
+          onSelect: (event: React.MouseEvent | React.KeyboardEvent) => tool.onSelect?.(event)
+        }))
     : []
 
   const primaryNav = [...SIDEBAR_NAV, ...webAppControlNav]

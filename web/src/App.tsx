@@ -196,7 +196,8 @@ const BUILTIN_NAV_REST: NavItem[] = [
     label: "Sessions",
     icon: MessageSquare,
   },
-  { path: "/files", label: "Files", icon: FolderOpen },
+  // /files stays routable but off the main nav — Hermes One does not surface a
+  // workspace file browser in chrome (see desktop embed right-sidebar hide).
   {
     path: "/analytics",
     labelKey: "analytics",

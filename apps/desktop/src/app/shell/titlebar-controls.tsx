@@ -56,6 +56,9 @@ export function useAppControlTools(onOpenSettings?: () => void): readonly Titleb
   const modHeld = useModifierHeld()
   const hapticsMuted = useStore($hapticsMuted)
   const fileBrowserOpen = useStore($fileBrowserOpen)
+  // Dashboard embed already has a chat-first shell — the file-browser toggle just
+  // dumps a workspace tree into the primary nav. Keep the Electron titlebar tool.
+  const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
 
   const toggleHaptics = () => {
     if (!hapticsMuted) {
@@ -121,6 +124,7 @@ export function useAppControlTools(onOpenSettings?: () => void): readonly Titleb
     },
     {
       actionId: 'view.toggleRightSidebar',
+      hidden: embed,
       icon: <Codicon name="layout-sidebar-right" />,
       id: 'right-sidebar',
       label: fileBrowserOpen ? t.titlebar.hideRightSidebar : t.titlebar.showRightSidebar,
