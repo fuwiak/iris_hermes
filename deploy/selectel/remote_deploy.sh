@@ -21,11 +21,17 @@ fi
 systemctl enable --now docker
 
 mkdir -p /opt/data
-if [ ! -d "$APP_DIR/.git" ]; then
-  git clone --depth 1 "$REPO_URL" "$APP_DIR"
-else
+if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" fetch --depth 1 origin main || true
   git -C "$APP_DIR" reset --hard origin/main || true
+elif [ -f "$APP_DIR/deploy/selectel/docker-compose.yml" ]; then
+  # CI rsyncs the tree without .git — use the synced checkout as-is.
+  echo "Using existing app tree at $APP_DIR (no .git)"
+elif [ -e "$APP_DIR" ]; then
+  echo "FATAL: $APP_DIR exists but is not a git checkout and has no deploy/selectel" >&2
+  exit 1
+else
+  git clone --depth 1 "$REPO_URL" "$APP_DIR"
 fi
 
 mkdir -p "$DEPLOY_DIR"
