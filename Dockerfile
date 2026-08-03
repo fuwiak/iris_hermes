@@ -272,6 +272,8 @@ RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra 
 COPY web/ web/
 COPY ui-tui/ ui-tui/
 COPY apps/shared/ apps/shared/
+# Dashboard embeds Desktop Settings/Chat hosts (`@desktop` → apps/desktop/src).
+COPY apps/desktop/ apps/desktop/
 RUN cd web && npm run build && \
     cd ../ui-tui && npm run build
 
@@ -419,8 +421,9 @@ COPY --chmod=0755 docker/entrypoint-dispatch.sh /opt/hermes/docker/entrypoint-di
 # every other consumer.
 ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 RUN mkdir -p /opt/data
-# No Docker VOLUME — bind-mount /opt/data at runtime (docker run -v, compose,
-# Railway Volumes). Dockerfile VOLUME is rejected by Railway Metal builders.
+# Do not declare an image volume here — bind-mount /opt/data at runtime
+# (docker run -v, compose, Railway persistent mounts). Metal builders reject
+# the Dockerfile volume instruction.
 
 # The image ENTRYPOINT is a tiny dispatcher rather than `/init` directly.
 # When the image really owns PID 1 (normal Docker / Podman), the dispatcher

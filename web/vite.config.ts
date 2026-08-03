@@ -10,6 +10,32 @@ const WEB_SRC = path.resolve(__dirname, "./src");
 const EMPTY_SHIM = path.resolve(__dirname, "./src/shims/empty-module.ts");
 
 /**
+ * Desktop sources live under `apps/desktop/` and are pulled into the web
+ * bundle via `@desktop`. Their bare imports (`web-haptics/react`, …) walk
+ * `node_modules` from the importer path, which misses `web/node_modules`
+ * in Docker/railway (`cd web && npm install`). Re-resolve those deps as if
+ * the importer were the web package so both local (hoisted root) and
+ * Docker (web-local) installs work.
+ */
+function resolveDepsFromWeb(deps: string[]): Plugin {
+  const webImporter = path.resolve(__dirname, "package.json");
+  const webRoot = path.resolve(__dirname) + path.sep;
+  return {
+    name: "hermes:resolve-deps-from-web",
+    enforce: "pre",
+    async resolveId(source, importer, options) {
+      if (!deps.some((d) => source === d || source.startsWith(`${d}/`))) {
+        return null;
+      }
+      if (importer && (importer === webImporter || importer.startsWith(webRoot))) {
+        return null;
+      }
+      return this.resolve(source, webImporter, { ...options, skipSelf: true });
+    },
+  };
+}
+
+/**
  * Desktop sources import `@/…` meaning `apps/desktop/src`. Web uses `@` for
  * `web/src`. Route `@/` by importer path so both graphs resolve correctly.
  */
@@ -89,7 +115,13 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hermesDevToken(), desktopAtAlias()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    hermesDevToken(),
+    desktopAtAlias(),
+    resolveDepsFromWeb(["web-haptics"]),
+  ],
   resolve: {
     alias: [
       {
@@ -134,6 +166,7 @@ export default defineConfig({
       "@tanstack/react-query",
       "@assistant-ui/react",
       "@nous-research/ui",
+      "web-haptics",
     ],
   },
   optimizeDeps: {
