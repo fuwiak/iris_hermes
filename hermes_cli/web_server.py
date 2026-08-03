@@ -15549,6 +15549,198 @@ async def console_ws(ws: WebSocket) -> None:
                 pass
 
 
+def _interactive_shell_argv() -> tuple[list[str], str]:
+    """Resolve argv + short name for an interactive login shell (sidebar terminal).
+
+    Mirrors Electron ``terminalShellCommand``: ``HERMES_DESKTOP_SHELL`` / ``$SHELL``
+    override, then zsh → bash → sh on POSIX; PowerShell/cmd on Windows.
+    """
+    if sys.platform.startswith("win"):
+        override = (os.environ.get("HERMES_DESKTOP_SHELL") or "").strip()
+        candidates = [override] if override else []
+        system_root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
+        candidates.extend(
+            [
+                shutil.which("pwsh") or "",
+                shutil.which("pwsh.exe") or "",
+                os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+                os.environ.get("COMSPEC") or "cmd.exe",
+            ]
+        )
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = candidate if os.path.isabs(candidate) else (shutil.which(candidate) or "")
+            if not path or not os.path.isfile(path):
+                continue
+            name = os.path.basename(path).lower()
+            if name.startswith("pwsh") or name.startswith("powershell"):
+                return [path, "-NoLogo"], name
+            if name.startswith("cmd"):
+                return [path], name
+            return [path], name
+        return ["cmd.exe"], "cmd.exe"
+
+    override = (
+        os.environ.get("HERMES_DESKTOP_SHELL") or os.environ.get("SHELL") or ""
+    ).strip()
+    candidates: list[str] = []
+    if override:
+        candidates.append(override)
+    candidates.extend(["/bin/zsh", "/bin/bash", "/bin/sh"])
+    for candidate in candidates:
+        path = candidate if os.path.isabs(candidate) else (shutil.which(candidate) or "")
+        if not path or not (os.path.isfile(path) and os.access(path, os.X_OK)):
+            continue
+        name = os.path.basename(path)
+        args = ["-il"] if ("zsh" in name or "bash" in name) else ["-i"]
+        return [path, *args], name
+    return ["/bin/sh", "-i"], "sh"
+
+
+def _safe_shell_cwd(raw: Optional[str]) -> str:
+    """Resolve a cwd for ``/api/shell``; fall back to home on missing/invalid."""
+    home = str(Path.home())
+    if not raw or not str(raw).strip():
+        return home
+    try:
+        path = Path(str(raw)).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return home
+    if path.is_dir():
+        return str(path)
+    if path.parent.is_dir():
+        return str(path.parent)
+    return home
+
+
+def _shell_spawn_env() -> dict:
+    """Env for dashboard interactive shell — real xterm, no agent-runner noise."""
+    from tools.environments.local import build_subprocess_env
+
+    env = build_subprocess_env(scrub_secrets=False, inherit_profile_home=False)
+    for key in list(env):
+        if key == "npm_config_prefix" or key.startswith("npm_config_") or key.startswith(
+            "npm_package_"
+        ):
+            env.pop(key, None)
+    env.pop("NO_COLOR", None)
+    env.pop("FORCE_COLOR", None)
+    env.pop("COLORFGBG", None)
+    env["COLORTERM"] = "truecolor"
+    env["LC_CTYPE"] = env.get("LC_CTYPE") or "UTF-8"
+    env["TERM"] = "xterm-256color"
+    env["TERM_PROGRAM"] = "Hermes"
+    # Distinct from HERMES_DESKTOP_TERMINAL (Electron pane) — same intent.
+    env["HERMES_DASHBOARD_SHELL"] = "1"
+    return env
+
+
+def _ws_dims(ws: "WebSocket", *, default_cols: int = 80, default_rows: int = 24) -> tuple[int, int]:
+    def _one(name: str, default: int, maximum: int) -> int:
+        raw = ws.query_params.get(name)
+        try:
+            value = int(raw) if raw is not None else default
+        except (TypeError, ValueError):
+            value = default
+        return max(2, min(maximum, value))
+
+    return _one("cols", default_cols, 2000), _one("rows", default_rows, 1000)
+
+
+@app.websocket("/api/shell")
+async def shell_ws(ws: WebSocket) -> None:
+    """Interactive login shell for the Hermes One sidebar terminal in the browser.
+
+    Same auth / host / peer gates as ``/api/pty``. Spawns the user shell (not
+    ``hermes --tui``) so operators can run ``hermes tools``, git, etc. from the
+    dashboard embed. Bytes + ``\\x1b[RESIZE:cols;rows]`` — identical wire format
+    to ``/api/pty`` legacy pump.
+    """
+    peer = ws.client.host if ws.client else "?"
+
+    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
+        _log.info("shell refused: embedded chat disabled peer=%s", peer)
+        await ws.close(code=4404, reason="embedded chat disabled")
+        return
+
+    auth_reason, cred = _ws_auth_reason(ws)
+    mode = _ws_auth_mode()
+    if auth_reason is not None:
+        _log.warning(
+            "shell auth rejected reason=%s mode=%s cred=%s peer=%s",
+            auth_reason,
+            mode,
+            cred,
+            peer,
+        )
+        await ws.close(code=4401, reason=_ws_close_reason(f"auth: {auth_reason}"))
+        return
+
+    host_origin_reason = _ws_host_origin_reason(ws)
+    if host_origin_reason is not None:
+        _log.warning("shell refused: %s peer=%s", host_origin_reason, peer)
+        await ws.close(code=4403, reason=_ws_close_reason(host_origin_reason))
+        return
+
+    client_reason = _ws_client_reason(ws)
+    if client_reason is not None:
+        _log.warning("shell refused: %s", client_reason)
+        await ws.close(code=4408, reason=_ws_close_reason(client_reason))
+        return
+
+    await ws.accept()
+    _log.info("shell accepted peer=%s mode=%s cred=%s", peer, mode, cred)
+
+    if not _PTY_BRIDGE_AVAILABLE or PtyBridge is None:
+        await ws.send_text(
+            "\r\n\x1b[31mShell unavailable: PTY bridge missing on this platform.\x1b[0m\r\n"
+        )
+        await ws.close(code=1011)
+        return
+
+    argv, shell_name = _interactive_shell_argv()
+    cwd = _safe_shell_cwd(ws.query_params.get("cwd"))
+    cols, rows = _ws_dims(ws)
+    profile = (ws.query_params.get("profile") or "").strip() or None
+
+    def _spawn():
+        env = _shell_spawn_env()
+        if profile:
+            # Soft hint only — shell inherits process HERMES_HOME by default;
+            # profile scoping for arbitrary shells is best-effort via env.
+            try:
+                from hermes_cli.profiles import get_profile_dir
+
+                profile_home = get_profile_dir(profile)
+                if profile_home.is_dir():
+                    env["HERMES_HOME"] = str(profile_home)
+            except Exception:
+                pass
+        return PtyBridge.spawn(argv, cwd=cwd, env=env, cols=cols, rows=rows)
+
+    try:
+        bridge = _spawn()
+    except PtyUnavailableError as exc:
+        await ws.send_text(f"\r\n\x1b[31mShell unavailable: {exc}\x1b[0m\r\n")
+        await ws.close(code=1011)
+        return
+    except (FileNotFoundError, OSError) as exc:
+        await ws.send_text(f"\r\n\x1b[31mShell failed to start: {exc}\x1b[0m\r\n")
+        await ws.close(code=1011)
+        return
+
+    _log.info(
+        "shell spawned name=%s cwd=%s cols=%s rows=%s peer=%s",
+        shell_name,
+        cwd,
+        cols,
+        rows,
+        peer,
+    )
+    await _legacy_pump(ws, bridge)
+
+
 @app.websocket("/api/pty")
 async def pty_ws(ws: WebSocket) -> None:
     peer = ws.client.host if ws.client else "?"

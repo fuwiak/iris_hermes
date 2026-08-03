@@ -12,6 +12,7 @@ import {
 import {
   HERMES_BASE_PATH,
   buildWsAuthParam,
+  buildWsUrl,
 } from "@/lib/api";
 
 type HermesApiRequest = {
@@ -132,6 +133,174 @@ const DATA_URL_READ_MAX = { defaultMaxMb: 10, maxBytes: 10 * 1024 * 1024, maxMb:
 
 function unsupported(what: string): Error {
   return new Error(`${what} is not available in the browser dashboard.`);
+}
+
+/** Sidebar terminal sessions bridged to ``/api/shell`` (login shell PTY). */
+type BrowserShellSession = {
+  id: string;
+  ws: WebSocket;
+  shell: string;
+  cwd: string | null;
+  dataListeners: Set<(data: string) => void>;
+  exitListeners: Set<(info: { code: number | null; signal: string | null }) => void>;
+  decoder: TextDecoder;
+  closed: boolean;
+};
+
+const browserShellSessions = new Map<string, BrowserShellSession>();
+
+function decodeShellChunk(session: BrowserShellSession, raw: ArrayBuffer | string): string {
+  if (typeof raw === "string") return raw;
+  return session.decoder.decode(raw, { stream: true });
+}
+
+function closeBrowserShellSession(id: string, info?: { code: number | null; signal: string | null }) {
+  const session = browserShellSessions.get(id);
+  if (!session || session.closed) return;
+  session.closed = true;
+  browserShellSessions.delete(id);
+  try {
+    session.ws.close();
+  } catch {
+    /* already closed */
+  }
+  const payload = info ?? { code: null, signal: null };
+  for (const cb of session.exitListeners) {
+    try {
+      cb(payload);
+    } catch {
+      /* listener errors must not break dispose */
+    }
+  }
+  session.dataListeners.clear();
+  session.exitListeners.clear();
+}
+
+function createBrowserShellTerminalApi() {
+  return {
+    cwd: async (_id: string) => null as string | null,
+    dispose: async (id: string) => {
+      closeBrowserShellSession(String(id || ""));
+      return true;
+    },
+    resize: async (id: string, size: { cols?: number; rows?: number } = {}) => {
+      const session = browserShellSessions.get(String(id || ""));
+      if (!session || session.closed || session.ws.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+      const cols = Math.max(2, Number.parseInt(String(size?.cols || 80), 10) || 80);
+      const rows = Math.max(2, Number.parseInt(String(size?.rows || 24), 10) || 24);
+      const escape = `\x1b[RESIZE:${cols};${rows}]`;
+      session.ws.send(new TextEncoder().encode(escape));
+      return true;
+    },
+    start: async (options: { cols?: number; cwd?: string; rows?: number } = {}) => {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `shell-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const cols = Math.max(2, Number.parseInt(String(options?.cols || 80), 10) || 80);
+      const rows = Math.max(2, Number.parseInt(String(options?.rows || 24), 10) || 24);
+      const cwd = (options?.cwd || "").trim();
+      const params: Record<string, string> = {
+        cols: String(cols),
+        rows: String(rows),
+      };
+      if (cwd) params.cwd = cwd;
+
+      const url = await buildWsUrl("/api/shell", params);
+      const ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
+
+      const session: BrowserShellSession = {
+        id,
+        ws,
+        shell: "shell",
+        cwd: cwd || null,
+        dataListeners: new Set(),
+        exitListeners: new Set(),
+        decoder: new TextDecoder("utf-8"),
+        closed: false,
+      };
+      browserShellSessions.set(id, session);
+
+      await new Promise<void>((resolve, reject) => {
+        const onOpen = () => {
+          cleanup();
+          resolve();
+        };
+        const onError = () => {
+          cleanup();
+          closeBrowserShellSession(id);
+          reject(new Error("Shell WebSocket failed to connect."));
+        };
+        const onClose = (ev: CloseEvent) => {
+          cleanup();
+          closeBrowserShellSession(id, { code: ev.code, signal: null });
+          reject(
+            new Error(
+              ev.reason
+                ? `Shell WebSocket closed: ${ev.reason}`
+                : `Shell WebSocket closed (code ${ev.code}).`,
+            ),
+          );
+        };
+        const cleanup = () => {
+          ws.removeEventListener("open", onOpen);
+          ws.removeEventListener("error", onError);
+          ws.removeEventListener("close", onClose);
+        };
+        ws.addEventListener("open", onOpen);
+        ws.addEventListener("error", onError);
+        ws.addEventListener("close", onClose);
+      });
+
+      ws.addEventListener("message", (ev) => {
+        if (session.closed) return;
+        const data = decodeShellChunk(session, ev.data as ArrayBuffer | string);
+        if (!data) return;
+        for (const cb of session.dataListeners) {
+          try {
+            cb(data);
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      ws.addEventListener("close", (ev) => {
+        closeBrowserShellSession(id, { code: ev.code, signal: null });
+      });
+
+      return { cwd: cwd || null, id, shell: session.shell };
+    },
+    write: async (id: string, data: string) => {
+      const session = browserShellSessions.get(String(id || ""));
+      if (!session || session.closed || session.ws.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+      session.ws.send(String(data || ""));
+      return true;
+    },
+    onData: (id: string, callback: (data: string) => void) => {
+      const session = browserShellSessions.get(String(id || ""));
+      if (!session) return noopUnsub();
+      session.dataListeners.add(callback);
+      return () => {
+        session.dataListeners.delete(callback);
+      };
+    },
+    onExit: (
+      id: string,
+      callback: (info: { code: number | null; signal: string | null }) => void,
+    ) => {
+      const session = browserShellSessions.get(String(id || ""));
+      if (!session) return noopUnsub();
+      session.exitListeners.add(callback);
+      return () => {
+        session.exitListeners.delete(callback);
+      };
+    },
+  };
 }
 
 /** Bootstrap never runs in the browser — the gateway is already up. */
@@ -333,17 +502,7 @@ export function installHermesDesktopStub(): void {
     revealLogs: async () => ({ ok: false, path: "" }),
     getRecentLogs: async () => ({ path: "", lines: [] }),
     readDir: async () => ({ entries: [] }),
-    terminal: {
-      cwd: async () => null,
-      dispose: async () => true,
-      resize: async () => false,
-      start: async () => {
-        throw unsupported("The local terminal");
-      },
-      write: async () => false,
-      onData: () => noopUnsub(),
-      onExit: () => noopUnsub(),
-    },
+    terminal: createBrowserShellTerminalApi(),
     getBootstrapState: async () => idleBootstrapState(),
     continueBootstrapLocal: async () => ({ ok: false }),
     resetBootstrap: async () => ({ ok: false }),

@@ -62,6 +62,7 @@ The repo ships these bundled plugins under `plugins/`. All are opt-in — enable
 | `teams_pipeline` | standalone | Microsoft Teams meeting pipeline — Graph-backed, transcript-first meeting summaries |
 | `spotify` | backend (7 tools) | Native Spotify playback, queue, search, playlists, albums, library |
 | `google_meet` | standalone | Join Meet calls, live-caption transcription, optional realtime duplex audio |
+| `moysklad` | standalone | МойСклад Remap 1.2 — client/order tools + dashboard **Клиенты** (Маркетплейс/Прямые) |
 | `image_gen/openai` | image backend | OpenAI `gpt-image-2` image generation backend (alternative to FAL) |
 | `image_gen/openai-codex` | image backend | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | xAI `grok-2-image` backend |
@@ -233,6 +234,40 @@ The agent kicks off the meeting join, streams the transcription back into its co
 **When to use it:** recurring standups where you want a bot to transcribe + summarize for async attendees; deposition-style interviews where you want structured notes; any case where you'd otherwise need Fireflies / Otter / Grain. When you'd rather not have an AI listening in — don't enable it.
 
 **Disabling:** `hermes plugins disable google_meet`. Any saved transcripts stay in `~/.hermes/workspace/meetings/` until you remove them.
+
+### moysklad
+
+МойСклад Remap 1.2 integration for flower-retail CRM workflows — agent tools plus a dashboard **Клиенты** tab (Маркетплейс / Прямые audiences, group cloud, heuristic tag assign).
+
+**What it adds:**
+
+- Seven tools in toolset `moysklad`: health, counterparties, orders, positions, channels, push tags, `clients_by_sales_type`
+- Dashboard tab **Клиенты** at `/clients` (group chips + table + «Предложить группы»)
+- Colocated usage guide: `plugins/moysklad/README.md` and `plugins/moysklad/SKILL.md`
+
+**Setup:**
+
+```bash
+# Token: МойСклад → Настройки → Пользователи и права → Токены
+# Add to ~/.hermes/.env:
+#   MOYSKLAD_API_TOKEN=...
+# optional: MOYSKLAD_API_URL, MOYSKLAD_REQUEST_DELAY_MS, MOYSKLAD_API_RETRY_MAX
+
+hermes plugins enable moysklad
+hermes tools   # turn on the moysklad toolset for CLI / messaging / api_server
+```
+
+Usage from chat:
+
+> «Проверь МойСклад» → `moysklad_health`
+> «Кто прямые клиенты?» → `moysklad_clients_by_sales_type` with `sales_filter="direct"`
+> «Маркетплейс аудитория» → `sales_filter="marketplace"`
+
+Dashboard: `hermes dashboard` → **Клиенты**.
+
+**When to use it:** syncing or querying MoySklad counterparties/orders from the agent; building Маркетплейс vs Прямые audiences with the same rules as Iris CRM; pushing segment tags back to MoySklad.
+
+**Disabling:** `hermes plugins disable moysklad`. The Clients tab and `/api/plugins/moysklad` routes go away once the plugin is on the disabled list.
 
 ### hermes-achievements
 

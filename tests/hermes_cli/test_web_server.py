@@ -3534,6 +3534,68 @@ def test_resolve_chat_argv_injects_gateway_ws_url(monkeypatch):
     assert "token=" in gateway_url
 
 
+class TestShellWebSocket:
+    """``/api/shell`` — interactive login shell for the browser sidebar terminal."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, monkeypatch, _isolate_hermes_home):
+        from starlette.testclient import TestClient
+
+        import hermes_cli.web_server as ws
+
+        self.ws_module = ws
+        monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
+        self.token = ws._SESSION_TOKEN
+        self.client = TestClient(ws.app)
+
+    def _url(self, **params: str) -> str:
+        from urllib.parse import urlencode
+
+        q = {"token": self.token, **params}
+        return f"/api/shell?{urlencode(q)}"
+
+    def test_interactive_shell_argv_prefers_override(self, monkeypatch, tmp_path):
+        shell = tmp_path / "myshell"
+        shell.write_text("#!/bin/sh\n")
+        shell.chmod(0o755)
+        monkeypatch.setenv("HERMES_DESKTOP_SHELL", str(shell))
+        monkeypatch.delenv("SHELL", raising=False)
+        argv, name = self.ws_module._interactive_shell_argv()
+        assert argv[0] == str(shell)
+        assert name == "myshell"
+
+    def test_safe_shell_cwd_falls_back_to_home(self, tmp_path):
+        homeish = self.ws_module._safe_shell_cwd(str(tmp_path / "missing-dir"))
+        assert Path(homeish).is_dir()
+        assert self.ws_module._safe_shell_cwd(str(tmp_path)) == str(tmp_path.resolve())
+
+    def test_shell_echo_roundtrip(self, monkeypatch):
+        """Spawn a tiny PTY program and prove bytes flow both ways."""
+        if sys.platform.startswith("win"):
+            pytest.skip("POSIX PTY shell smoke only")
+        if not self.ws_module._PTY_BRIDGE_AVAILABLE:
+            pytest.skip("PTY bridge unavailable")
+
+        monkeypatch.setattr(
+            self.ws_module,
+            "_interactive_shell_argv",
+            lambda: (["/bin/cat"], "cat"),
+        )
+        with self.client.websocket_connect(self._url(cols="40", rows="12")) as conn:
+            conn.send_text("hello-shell\n")
+            # cat echoes; collect until we see our payload (may be chunked).
+            buf = b""
+            deadline = time.time() + 5
+            while time.time() < deadline and b"hello-shell" not in buf:
+                msg = conn.receive()
+                chunk = msg.get("bytes")
+                if chunk is None:
+                    text = msg.get("text")
+                    chunk = text.encode() if isinstance(text, str) else b""
+                buf += chunk
+            assert b"hello-shell" in buf
+
+
 class TestDashboardPluginStaticAssetAllowlist:
     """``/dashboard-plugins/<name>/<path>`` is unauthenticated by design —
     the SPA loads plugin JS via ``<script src>`` and CSS via

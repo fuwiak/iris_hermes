@@ -21,6 +21,9 @@ except Exception:  # pragma: no cover — unit tests without fastapi
         def post(self, *_a, **_k):
             return lambda fn: fn
 
+        def delete(self, *_a, **_k):
+            return lambda fn: fn
+
     class HTTPException(Exception):  # type: ignore[no-redef]
         def __init__(self, status_code: int = 500, detail: str = ""):
             self.status_code = status_code
@@ -44,6 +47,11 @@ except Exception:  # pragma: no cover — unit tests without fastapi
 from plugins.moysklad.assign_groups import (
     propose_groups_for_rows,
     push_merged_tags,
+)
+from plugins.moysklad.campaigns import (
+    create_draft,
+    delete_campaign,
+    list_campaigns,
 )
 from plugins.moysklad.classify import build_enriched_catalog, clients_page
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
@@ -73,6 +81,20 @@ class AssignBody(BaseModel):
 class PushBody(BaseModel):
     assignments: list[dict[str, Any]] = Field(default_factory=list)
     only_changed: bool = True
+
+
+class CampaignCreateBody(BaseModel):
+    title: str = "Рассылка"
+    channel: str = "telegram"
+    mode: str = "manual"
+    offer: str = ""
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    include_preview: bool = True
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
 
 
 def _client() -> MoySkladClient:
@@ -253,3 +275,74 @@ def post_groups_push(body: PushBody) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /groups/push failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/campaigns")
+def get_campaigns() -> dict[str, Any]:
+    return {"ok": True, "campaigns": list_campaigns()}
+
+
+@router.post("/campaigns")
+def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
+    try:
+        catalog = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+        )
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter,
+            group=body.group,
+            q=body.q,
+            limit=20 if body.include_preview else 1,
+            offset=0,
+            catalog=catalog,
+        )
+        preview = []
+        if body.include_preview:
+            for row in page.get("clients") or []:
+                preview.append(
+                    {
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "phone": row.get("phone"),
+                        "email": row.get("email"),
+                        "sales_type": row.get("sales_type"),
+                    }
+                )
+        offer = body.offer
+        if body.mode == "auto" and not (offer or "").strip():
+            offer = (
+                "Здравствуйте! Специально для вас — персональное предложение "
+                "от Iris. Напишите, если удобно продолжить диалог."
+            )
+        item = create_draft(
+            title=body.title,
+            channel=body.channel,
+            mode=body.mode,
+            offer=offer,
+            sales_filter=page.get("sales_filter") or body.sales_filter,
+            group=body.group,
+            q=body.q,
+            audience_count=int(page.get("matched_total") or 0),
+            audience_preview=preview,
+        )
+        return {"ok": True, "campaign": item}
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns create failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.delete("/campaigns/{campaign_id}")
+def remove_campaign(campaign_id: str) -> dict[str, Any]:
+    ok = delete_campaign(campaign_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="campaign not found")
+    return {"ok": True, "deleted": campaign_id}

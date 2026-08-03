@@ -523,5 +523,303 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("moysklad", ClientsPage);
+  function CampaignsPage() {
+    const [campaigns, setCampaigns] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [title, setTitle] = useState("Рассылка по фильтрам");
+    const [channel, setChannel] = useState("telegram");
+    const [mode, setMode] = useState("manual");
+    const [offer, setOffer] = useState("");
+    const [salesFilter, setSalesFilter] = useState("direct");
+    const [saving, setSaving] = useState(false);
+    const [counts, setCounts] = useState(null);
+    const [audience, setAudience] = useState(0);
+
+    const refresh = useCallback(function () {
+      setLoading(true);
+      setError("");
+      Promise.all([
+        api("/campaigns"),
+        api("/clients?sales_filter=" + encodeURIComponent(salesFilter) + "&limit=1"),
+      ])
+        .then(function (pair) {
+          setCampaigns((pair[0] && pair[0].campaigns) || []);
+          setCounts((pair[1] && pair[1].counts) || null);
+          setAudience((pair[1] && pair[1].matched_total) || 0);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setLoading(false);
+        });
+    }, [salesFilter]);
+
+    useEffect(function () {
+      refresh();
+    }, [refresh]);
+
+    function createDraft(e) {
+      e.preventDefault();
+      setSaving(true);
+      setError("");
+      api("/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title,
+          channel: channel,
+          mode: mode,
+          offer: offer,
+          sales_filter: salesFilter,
+        }),
+      })
+        .then(function () {
+          setOffer("");
+          refresh();
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setSaving(false);
+        });
+    }
+
+    function remove(id) {
+      api("/campaigns/" + encodeURIComponent(id), { method: "DELETE" })
+        .then(refresh)
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        });
+    }
+
+    return h(
+      "div",
+      { className: "ms-clients ms-campaigns" },
+      h(
+        "div",
+        { className: "ms-clients-header" },
+        h("div", null,
+          h("h1", { className: "ms-clients-title" }, "Рассылки"),
+          h(
+            "p",
+            { className: "ms-muted" },
+            "Telegram / WhatsApp черновики по аудитории МойСклад (как на kinetic-ai /campaigns).",
+          ),
+        ),
+        h(
+          "button",
+          { type: "button", className: "ms-btn", disabled: loading, onClick: refresh },
+          "Обновить",
+        ),
+      ),
+      h(FilterTabs, {
+        salesFilter: salesFilter,
+        counts: counts,
+        disabled: loading,
+        onChange: setSalesFilter,
+      }),
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Аудитория: ",
+        h("strong", null, String(audience)),
+      ),
+      h(
+        "div",
+        { className: "ms-filter-tabs", role: "tablist" },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-filter-tab" + (mode === "manual" ? " is-active" : ""),
+            onClick: function () {
+              setMode("manual");
+            },
+          },
+          "Ручная",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-filter-tab" + (mode === "auto" ? " is-active" : ""),
+            onClick: function () {
+              setMode("auto");
+            },
+          },
+          "Авто (AI)",
+        ),
+      ),
+      h(
+        "form",
+        { className: "ms-campaign-form", onSubmit: createDraft },
+        h(
+          "label",
+          null,
+          "Название",
+          h("input", {
+            value: title,
+            required: true,
+            onChange: function (e) {
+              setTitle(e.target.value);
+            },
+          }),
+        ),
+        h(
+          "label",
+          null,
+          "Канал",
+          h(
+            "select",
+            {
+              value: channel,
+              onChange: function (e) {
+                setChannel(e.target.value);
+              },
+            },
+            h("option", { value: "telegram" }, "Telegram (личные)"),
+            h("option", { value: "telegram_channel" }, "Telegram-канал"),
+            h("option", { value: "whatsapp" }, "WhatsApp"),
+          ),
+        ),
+        mode === "manual"
+          ? h(
+              "label",
+              null,
+              "Текст сообщения",
+              h("textarea", {
+                rows: 4,
+                value: offer,
+                placeholder: "Текст рассылки…",
+                onChange: function (e) {
+                  setOffer(e.target.value);
+                },
+              }),
+            )
+          : h(
+              "p",
+              { className: "ms-muted" },
+              "Текст для каждого клиента подставится из шаблона AI при создании черновика.",
+            ),
+        h(
+          "button",
+          {
+            type: "submit",
+            className: "ms-btn ms-btn-primary",
+            disabled: saving || loading,
+          },
+          mode === "auto" ? "Создать авто-черновик" : "Создать черновик",
+        ),
+      ),
+      error ? h("div", { className: "ms-error" }, error) : null,
+      h("h2", { className: "ms-section-title" }, "Черновики"),
+      loading && !campaigns.length
+        ? h("p", { className: "ms-muted" }, "Загрузка…")
+        : !campaigns.length
+          ? h("p", { className: "ms-muted" }, "Пока нет рассылок.")
+          : h(
+              "ul",
+              { className: "ms-campaign-list" },
+              campaigns.map(function (c) {
+                return h(
+                  "li",
+                  { key: c.id, className: "ms-campaign-card" },
+                  h(
+                    "div",
+                    { className: "ms-campaign-card-head" },
+                    h("strong", null, c.title),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "ms-btn",
+                        onClick: function () {
+                          remove(c.id);
+                        },
+                      },
+                      "Удалить",
+                    ),
+                  ),
+                  h(
+                    "div",
+                    { className: "ms-muted" },
+                    c.channel +
+                      " · " +
+                      c.mode +
+                      " · аудитория " +
+                      String(c.audience_count || 0) +
+                      " · " +
+                      (c.status || "draft"),
+                  ),
+                  c.offer
+                    ? h("p", { className: "ms-campaign-offer" }, c.offer)
+                    : null,
+                );
+              }),
+            ),
+    );
+  }
+
+  function MoySkladApp() {
+    const [view, setView] = useState(function () {
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        return sp.get("view") === "campaigns" ? "campaigns" : "clients";
+      } catch (_) {
+        return "clients";
+      }
+    });
+
+    function go(next) {
+      setView(next);
+      try {
+        const url = new URL(window.location.href);
+        if (next === "campaigns") url.searchParams.set("view", "campaigns");
+        else url.searchParams.delete("view");
+        window.history.replaceState({}, "", url.pathname + url.search);
+      } catch (_) {}
+    }
+
+    return h(
+      "div",
+      { className: "ms-shell" },
+      h(
+        "nav",
+        { className: "ms-topnav", "aria-label": "МойСклад" },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-topnav-link" + (view === "clients" ? " is-active" : ""),
+            onClick: function () {
+              go("clients");
+            },
+          },
+          "Клиенты",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-topnav-link" + (view === "campaigns" ? " is-active" : ""),
+            onClick: function () {
+              go("campaigns");
+            },
+          },
+          "Рассылки",
+        ),
+        h(
+          "a",
+          { className: "ms-topnav-link ms-topnav-ext", href: "/plugins" },
+          "Plugins",
+        ),
+      ),
+      view === "campaigns" ? h(CampaignsPage) : h(ClientsPage),
+    );
+  }
+
+  window.__HERMES_PLUGINS__.register("moysklad", MoySkladApp);
 })();

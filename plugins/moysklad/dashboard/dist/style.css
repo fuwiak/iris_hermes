@@ -307,3 +307,118 @@
   justify-content: flex-end;
   flex-wrap: wrap;
 }
+
+/* Shell + campaigns (kinetic-ai style) */
+.ms-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: #f4ede4;
+  color: #1d1d1d;
+}
+
+.ms-topnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.75rem 1.25rem 0;
+  border-bottom: 1px solid #e6e6e6;
+  background: #ffffff;
+}
+
+.ms-topnav-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #1d1d1d;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 90px 90px 0 0;
+  cursor: pointer;
+  text-decoration: none;
+  opacity: 0.7;
+}
+
+.ms-topnav-link:hover,
+.ms-topnav-link.is-active {
+  opacity: 1;
+  background: #f9f0ff;
+  color: #4a154b;
+}
+
+.ms-topnav-ext {
+  margin-left: auto;
+  color: #1264a3;
+  opacity: 1;
+}
+
+.ms-campaign-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 40rem;
+  padding: 1rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.ms-campaign-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ms-campaign-form input,
+.ms-campaign-form select,
+.ms-campaign-form textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #1d1d1d;
+}
+
+.ms-section-title {
+  margin: 0.5rem 0 0;
+  font-size: 1.05rem;
+}
+
+.ms-campaign-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ms-campaign-card {
+  border: 1px solid #e6e6e6;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  background: #ffffff;
+}
+
+.ms-campaign-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.ms-campaign-offer {
+  margin: 0.55rem 0 0;
+  white-space: pre-wrap;
+  color: #454545;
+}
+
+.ms-btn-primary {
+  background: #4a154b !important;
+  color: #ffffff !important;
+  border-color: #4a154b !important;
+  font-weight: 700;
+}
