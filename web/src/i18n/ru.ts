@@ -34,6 +34,9 @@ export const ru: Translations = {
     tools: "инструменты",
     match: "совпадение",
     other: "Прочее",
+    gateway: "Gateway",
+    gatewayHint:
+      "Платформы обмена сообщениями, API-сервер и webhooks настраиваются на странице «Каналы». Это параметры уровня шлюза (режим proxy/relay и глобальный allowlist).",
     configured: "настроено",
     removed: "удалено",
     failedToToggle: "Не удалось переключить",
@@ -90,6 +93,10 @@ export const ru: Translations = {
     statusOverview: "Обзор статуса",
     system: "Система",
     webUi: "Web UI",
+    managingProfile: "Управление профилем",
+    currentProfileOption: "эта панель ({name})",
+    managingProfileBanner:
+      "Управление профилем «{name}» — конфигурация, ключи, навыки, MCP, модель и новые чаты применяются к этому профилю.",
   },
 
   status: {
@@ -100,6 +107,7 @@ export const ru: Translations = {
     activeSessions: "Активные сессии",
     connected: "Подключено",
     connectedPlatforms: "Подключённые платформы",
+    disabled: "Отключено",
     disconnected: "Отключено",
     error: "Ошибка",
     failed: "Сбой",
@@ -113,6 +121,9 @@ export const ru: Translations = {
     platformError: "ошибка",
     recentSessions: "Недавние сессии",
     restartGateway: "Перезапустить шлюз",
+    restartGatewayConfirmMessage:
+      "Это перезапустит процесс шлюза Hermes. Подключённые каналы и активные сессии переподключатся после этого.",
+    restartGatewayConfirmTitle: "Перезапустить шлюз?",
     restartingGateway: "Перезапуск шлюза…",
     running: "Работает",
     runningRemote: "Работает (удалённо)",
@@ -121,6 +132,10 @@ export const ru: Translations = {
     startedInBackground: "Запущено в фоне — следите за журналами",
     stopped: "Остановлено",
     updateHermes: "Обновить Hermes",
+    updateHermesConfirmMessage:
+      "Будет выполнена команда hermes update, после чего шлюз перезапустится. Активные сессии сохранят кэш промпта до этого момента.",
+    updateHermesConfirmNow: "Обновить сейчас",
+    updateHermesConfirmTitle: "Обновить Hermes?",
     updatingHermes: "Обновление Hermes…",
     waitingForOutput: "Ожидание вывода…",
   },
@@ -283,6 +298,9 @@ export const ru: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      needsHomeChannel: "сначала задайте домашний канал",
+      noneConfigured:
+        "Платформы обмена сообщениями не настроены. Настройте одну из них в разделе «Каналы», чтобы доставлять отчёты.",
     },
   },
 
@@ -293,7 +311,8 @@ export const ru: Translations = {
     nameRequired: "Имя обязательно",
     nameRule:
       "Только строчные буквы, цифры, _ и -; должно начинаться с буквы или цифры; до 64 символов.",
-    invalidName: "Недопустимое имя профиля",    cloneFrom: "Клонировать конфигурацию из профиля",
+    invalidName: "Недопустимое имя профиля",
+    cloneFrom: "Клонировать конфигурацию из профиля",
     cloneFromNone: "Нет (пусто)",
     allProfiles: "Профили",
     noProfiles: "Профили не найдены.",
@@ -316,6 +335,38 @@ export const ru: Translations = {
     created: "Создан",
     deleted: "Удалён",
     renamed: "Переименован",
+    activeProfile: "Активный профиль",
+    activeBadge: "активен",
+    setActive: "Сделать активным",
+    activeSet: "Активный профиль установлен",
+    gatewayRunning: "Шлюз запущен",
+    gatewayStopped: "Шлюз остановлен",
+    gatewayRunningWarning:
+      "Шлюз этого профиля запущен — он будет остановлен.",
+    aliasBadge: "алиас",
+    description: "Описание",
+    descriptionPlaceholder:
+      "Для чего этот профиль? Используется для маршрутизации задач Kanban по ролям.",
+    noDescription: "Нет описания",
+    editDescription: "Изменить описание",
+    descriptionSaved: "Описание сохранено",
+    reviewBadge: "проверка",
+    autoGenerate: "Сгенерировать автоматически",
+    generating: "Генерация…",
+    describeFailed: "Не удалось сгенерировать описание",
+    distribution: "Распределение",
+    advancedOptions: "Дополнительные параметры",
+    cloneAll: "Клонировать всё (память, сессии, навыки, состояние)",
+    noSkillsOption: "Не копировать встроенные навыки",
+    descriptionOptional: "Описание (необязательно)",
+    modelOptional: "Модель (необязательно)",
+    modelInherit: "Наследовать от клона / по умолчанию",
+    modelLoading: "Загрузка моделей…",
+    modelNone: "Нет аутентифицированных провайдеров — сначала задайте ключ",
+    editModel: "Изменить модель",
+    modelSaved: "Модель обновлена",
+    modelSelect: "Выберите модель",
+    actions: "Действия",
   },
 
   pluginsPage: {
@@ -377,6 +428,10 @@ export const ru: Translations = {
     setupNeeded: "Требуется настройка",
     disabledForCli: "Отключено для CLI",
     more: "+{count} ещё",
+    profileSelector: "Профиль",
+    currentProfile: "текущий ({name})",
+    managingProfile:
+      "Управление профилем «{name}» — переключатели применяются к этому профилю, а не к этой панели.",
   },
 
   config: {
@@ -498,6 +553,12 @@ export const ru: Translations = {
   theme: {
     title: "Тема",
     switchTheme: "Сменить тему",
+    fontTitle: "Шрифт",
+    fontDefault: "По умолчанию для темы",
+    fontDefaultHint: "Использовать шрифт активной темы",
+    fontSans: "Sans",
+    fontSerif: "Serif",
+    fontMono: "Mono",
   },
 
   achievements: {
@@ -646,6 +707,9 @@ export const ru: Translations = {
     createTask: "Создать задачу в этой колонке",
     noTasks: "— нет задач —",
     unassigned: "без исполнителя",
+    needsAssignee: "Нужен исполнитель",
+    needsAssigneeHint:
+      "Зависимости выполнены, но диспетчер пропустит задачу, пока вы не назначите профиль.",
     untitled: "(без названия)",
     loadingDetail: "Загрузка…",
     addComment: "Добавить комментарий… (Enter — отправить)",
@@ -750,6 +814,8 @@ export const ru: Translations = {
       "Архивировать эту задачу? Она исчезнет из стандартного вида доски.",
     confirmBlocked:
       "Отметить эту задачу как заблокированную? Захват воркера будет освобождён.",
+    confirmScheduled:
+      "Переместить эту задачу в «Запланировано»? Используйте это для известных задержек по времени, а не для блокировок, требующих человека.",
     completionSummary:
       "Сводка завершения для {label}. Сохраняется как результат задачи.",
     completionSummaryRequired:
@@ -767,5 +833,25 @@ export const ru: Translations = {
       "путь к рабочей области (необязательно, выводится из исполнителя, если не указан)",
     logTruncated: "(показаны последние 100 KB — полный журнал в ",
     logAt: ")",
+    newTaskTitle: "Новая задача — {column}",
+    taskTitleLabel: "Название",
+    assigneeLabel: "Исполнитель",
+    assigneeLabelHint: "(пусто = выберет диспетчер)",
+    skillsLabel: "Навыки",
+    skillsLabelHint: "(необязательно, через запятую)",
+    parentLabel: "Родительская задача",
+    parentLabelHint: "(дочерняя остаётся заблокированной, пока родитель не завершён)",
+    create: "Создать",
+    boardSettings: "Настройки",
+    boardSettingsTitle:
+      "Настройки доски — имя, описание и каталог проекта по умолчанию для новых задач",
+    boardSettingsTitleFor: "Настройки доски — {name}",
+    projectDirectoryOverrideHint:
+      "Новые задачи наследуют это как рабочую область по умолчанию; каждая задача может переопределить её в диалоге создания.",
+    saving: "Сохранение…",
+    commentHint:
+      "Комментарии доходят до воркера при следующем запуске или kanban_show() — блокировать задачу заранее не нужно.",
+    commentHintTitle:
+      "Комментарии — канал общения с воркером задачи. Они сразу попадают в поток — блокировать задачу не обязательно. Работающий воркер подхватит поток при следующем kanban_show() или перезапуске; блокировка нужна только если вы хотите, чтобы воркер ОСТАНОВИЛСЯ и ждал вашего ввода.",
   },
 };
