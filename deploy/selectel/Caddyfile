@@ -1,8 +1,10 @@
-bettercallbober.ru {
-	encode gzip
-	reverse_proxy hermes:8080
+{
+	# Until DNS A records point at this VDS, skip HTTPS redirects so the
+	# dashboard is reachable by IP / Host header over HTTP.
+	auto_https disable_redirects
 }
 
-www.bettercallbober.ru {
-	redir https://bettercallbober.ru{uri}
+bettercallbober.ru, www.bettercallbober.ru, :80 {
+	encode gzip
+	reverse_proxy hermes:8080
 }

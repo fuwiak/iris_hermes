@@ -53,7 +53,7 @@ services:
   hermes:
     build:
       context: ../..
-      dockerfile: Dockerfile.railway
+      dockerfile: deploy/selectel/Dockerfile
     image: iris-hermes:selectel
     restart: unless-stopped
     mem_limit: 4096m
