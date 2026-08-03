@@ -259,7 +259,8 @@ export const irisTheme: DashboardTheme = {
     inputTokenAccent: "#4a154b",
     outputTokenAccent: "#206b22",
   },
-  swatchColors: ["#1d1d1d", "#4a154b", "#8752c1", "#f4ede4"],
+  // [background, midground, warmGlow] — ThemeList swatch is a fixed triple.
+  swatchColors: ["#f4ede4", "#4a154b", "#8752c1"],
 };
 
 /**
