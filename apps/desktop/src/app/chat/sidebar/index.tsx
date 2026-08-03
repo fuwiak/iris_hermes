@@ -50,7 +50,6 @@ import {
   filterVisibleProjects,
   pinSession,
   SESSION_SEARCH_FOCUS_EVENT,
-  setPinnedSessionOrder,
   setSidebarAgentsGrouped,
   setSidebarCronOpen,
   setSidebarProjectOrderIds,
@@ -284,7 +283,7 @@ export function ChatSidebar({
           id: `app-control-${tool.id}`,
           keybindActionId: tool.actionId,
           label: tool.label,
-          onSelect: (event: React.MouseEvent | React.KeyboardEvent) => tool.onSelect?.(event)
+          onSelect: (event: React.MouseEvent<HTMLButtonElement>) => tool.onSelect?.(event)
         }))
     : []
 
@@ -471,10 +470,10 @@ export function ChatSidebar({
   const pinnedRealIdSet = useMemo(() => new Set(pinnedSessions.map(s => s.id)), [pinnedSessions])
   const pinnedIdSet = useMemo(() => new Set(pinnedSessionIds), [pinnedSessionIds])
 
-  // A pinned session belongs to the Pinned section and nowhere else, so every
-  // other list filters it out (the flat recents already did). Match on the live
-  // id AND the durable pin id — a backend snapshot can surface either side of a
-  // compression tip rotation.
+  // Pins stay in their home list (Chats / platform / project) — Hermes One has
+  // no separate Pinned section. Match live id AND durable pin id so a backend
+  // snapshot can surface either side of a compression tip rotation. Project
+  // trees still exclude pins to avoid duplicating rows already in Chats.
   const isPinnedSession = useCallback(
     (session: SessionInfo) => pinnedRealIdSet.has(session.id) || pinnedIdSet.has(sessionPinId(session)),
     [pinnedRealIdSet, pinnedIdSet]
@@ -938,10 +937,6 @@ export function ChatSidebar({
     }
 
     const bySource = new Map<string, SessionInfo[]>()
-    // Rows this platform owns that the Pinned section is showing instead. The
-    // backend's per-platform total counts them, so discount it or "load more"
-    // promises rows that will never appear.
-    const pinnedBySource = new Map<string, number>()
 
     for (const session of messagingSessions) {
       const sourceId = normalizeSessionSource(session.source)
@@ -950,12 +945,7 @@ export function ChatSidebar({
         continue
       }
 
-      if (isPinnedSession(session)) {
-        pinnedBySource.set(sourceId, (pinnedBySource.get(sourceId) ?? 0) + 1)
-
-        continue
-      }
-
+      // Keep pinned messaging rows here — no Pinned section to host them.
       const list = bySource.get(sourceId) ?? []
       list.push(session)
       bySource.set(sourceId, list)
@@ -965,14 +955,13 @@ export function ChatSidebar({
       .map(([sourceId, list]) => {
         const ordered = [...list].sort((a, b) => sessionTime(b) - sessionTime(a))
         const known = messagingPlatformTotals[sourceId]
-        const unpinnedKnown = known == null ? null : Math.max(0, known - (pinnedBySource.get(sourceId) ?? 0))
-        const total = Math.max(ordered.length, unpinnedKnown ?? 0)
+        const total = Math.max(ordered.length, known ?? 0)
 
         return {
           // Known exact total → more exist iff total exceeds loaded; otherwise
           // the seed fetch was capped, so assume more until a per-platform load
           // resolves the count.
-          hasMore: unpinnedKnown != null ? unpinnedKnown > ordered.length : messagingTruncated,
+          hasMore: known != null ? known > ordered.length : messagingTruncated,
           label: sessionSourceLabel(sourceId) ?? sourceId,
           sessions: ordered,
           sourceId,
@@ -980,7 +969,7 @@ export function ChatSidebar({
         }
       })
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
-  }, [messagingSessions, messagingPlatformTotals, messagingTruncated, isPinnedSession])
+  }, [messagingSessions, messagingPlatformTotals, messagingTruncated])
 
   // ALL-profiles view: one collapsible group per profile, color on the header
   // (not on every row). Default profile floats to the top, the rest alpha.
@@ -1145,17 +1134,6 @@ export function ChatSidebar({
   // Persist the new project overview order (drag-to-reorder); orderByIds applies
   // it over the default sort, so stale/new ids reconcile on the next render.
   const reorderProjects = (ids: string[]) => setSidebarProjectOrderIds(ids)
-
-  // Sortable rows carry live session ids; the pinned store is keyed by durable
-  // (lineage-root) ids, so translate before persisting the new order.
-  const reorderPinned = (ids: string[]) =>
-    setPinnedSessionOrder(
-      ids.map(id => {
-        const session = sessionByAnyId.get(id)
-
-        return session ? sessionPinId(session) : id
-      })
-    )
 
   return (
     <Sidebar
