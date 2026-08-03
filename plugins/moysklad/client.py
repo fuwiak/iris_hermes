@@ -24,8 +24,43 @@ class MoySkladError(RuntimeError):
         self.status_code = status_code
 
 
+def _token_from_railway_cli() -> str:
+    """Local-dev fallback: pull token via Railway CLI when unset in env/.env."""
+    if os.environ.get("HERMES_CONTAINER") or os.environ.get("CI"):
+        return ""
+    try:
+        import json
+        import shutil
+        import subprocess
+
+        if not shutil.which("railway"):
+            return ""
+        proc = subprocess.run(
+            ["railway", "variable", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return ""
+        data = json.loads(proc.stdout)
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("MOYSKLAD_API_TOKEN") or "").strip()
+    except Exception:
+        return ""
+
+
 def _token() -> str:
-    return (os.environ.get("MOYSKLAD_API_TOKEN") or "").strip()
+    token = (os.environ.get("MOYSKLAD_API_TOKEN") or "").strip()
+    if token:
+        return token
+    token = _token_from_railway_cli()
+    if token:
+        # Keep the rest of the process (and child tools) consistent.
+        os.environ["MOYSKLAD_API_TOKEN"] = token
+    return token
 
 
 def token_configured() -> bool:
