@@ -23,9 +23,10 @@ Language resolution order:
     1. Explicit ``lang=`` argument passed to :func:`t`
     2. ``HERMES_LANGUAGE`` environment variable (for tests / quick override)
     3. ``display.language`` from config.yaml
-    4. ``"en"`` (baseline)
+    4. ``"ru"`` (default UI language)
 
-Supported languages: en, ru.  Unknown values fall back to en.
+Supported languages: en, ru.  Unknown values fall back to the default.
+Missing catalog keys always fall back to English.
 """
 
 from __future__ import annotations
@@ -42,7 +43,8 @@ logger = logging.getLogger(__name__)
 SUPPORTED_LANGUAGES: tuple[str, ...] = (
     "en", "ru",
 )
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "ru"
+FALLBACK_LANGUAGE = "en"
 
 # Accept a few natural aliases so users who type "russian" / "ru-RU"
 # get the right catalog instead of silently falling back to English.
@@ -219,9 +221,9 @@ def t(key: str, lang: str | None = None, **format_kwargs: Any) -> str:
     catalog = _load_catalog(target)
     value = catalog.get(key)
 
-    if value is None and target != DEFAULT_LANGUAGE:
+    if value is None and target != FALLBACK_LANGUAGE:
         # Fall through to English rather than showing a key path to the user.
-        value = _load_catalog(DEFAULT_LANGUAGE).get(key)
+        value = _load_catalog(FALLBACK_LANGUAGE).get(key)
 
     if value is None:
         # Last-ditch: return the key itself.  A broken catalog should not
@@ -244,6 +246,7 @@ def t(key: str, lang: str | None = None, **format_kwargs: Any) -> str:
 __all__ = [
     "SUPPORTED_LANGUAGES",
     "DEFAULT_LANGUAGE",
+    "FALLBACK_LANGUAGE",
     "t",
     "get_language",
     "reset_language_cache",

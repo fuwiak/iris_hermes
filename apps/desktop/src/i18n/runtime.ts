@@ -1,5 +1,5 @@
 import { TRANSLATIONS } from './catalog'
-import { DEFAULT_LOCALE } from './languages'
+import { DEFAULT_LOCALE, FALLBACK_LOCALE } from './languages'
 import type { Locale } from './types'
 
 let runtimeLocale: Locale = DEFAULT_LOCALE
@@ -26,7 +26,7 @@ function render(value: unknown, args: unknown[]): null | string {
   return null
 }
 
-/** The active → DEFAULT → key resolution every translator shares. `source`
+/** The active → FALLBACK → key resolution every translator shares. `source`
  *  yields a message tree per locale — the app catalog, or a plugin's bundles. */
 export function translateFrom(
   source: (locale: Locale) => unknown,
@@ -40,8 +40,8 @@ export function translateFrom(
     return active
   }
 
-  if (locale !== DEFAULT_LOCALE) {
-    const fallback = render(resolvePath(source(DEFAULT_LOCALE), key), args)
+  if (locale !== FALLBACK_LOCALE) {
+    const fallback = render(resolvePath(source(FALLBACK_LOCALE), key), args)
 
     if (fallback !== null) {
       return fallback

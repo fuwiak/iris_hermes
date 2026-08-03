@@ -10,6 +10,7 @@ export {
 } from './context'
 export {
   DEFAULT_LOCALE,
+  FALLBACK_LOCALE,
   isLocale,
   isSupportedLocaleValue,
   LOCALE_OPTIONS,
