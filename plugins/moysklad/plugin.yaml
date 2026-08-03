@@ -1,0 +1,27 @@
+name: moysklad
+version: 1.0.0
+description: "МойСклад Remap 1.2 — counterparties, orders, positions, tag push. Opt-in via `hermes plugins enable moysklad`. Token: MOYSKLAD_API_TOKEN."
+author: Hermes Agent
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows
+provides_tools:
+  - moysklad_health
+  - moysklad_counterparties
+  - moysklad_orders
+  - moysklad_positions
+  - moysklad_channels
+  - moysklad_push_tags
+requires_env:
+  - name: MOYSKLAD_API_TOKEN
+    description: "MoySklad Remap 1.2 Bearer API token"
+    prompt: "MoySklad API token"
+    url: "https://www.moysklad.ru/"
+    password: true
+optional_env:
+  - name: MOYSKLAD_API_URL
+    description: "Remap base URL (default https://api.moysklad.ru/api/remap/1.2)"
+    prompt: "MoySklad API URL"
+    password: false

@@ -1,0 +1,53 @@
+# Hide secrets and heavy local artifacts from Cursor indexing.
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+.op.env
+*.env
+!*.env.example
+.envrc.local
+
+# Venvs / deps / build
+.venv/
+venv/
+node_modules/
+hermes_cli/web_dist/
+hermes_cli/tui_dist/
+apps/desktop/build/
+apps/desktop/dist/
+apps/desktop/release/
+ui-tui/dist/
+web/dist/
+website/build/
+website/.docusaurus/
+__pycache__/
+
+# Synced / heavy assets
+web/public/ds-assets/
+web/public/fonts/
+apps/desktop/public/ds-assets/
+apps/desktop/public/fonts/
+
+# Binary / weights / local dumps
+*.dmg
+*.AppImage
+*.whl
+*.gguf
+*.safetensors
+*.onnx
+*_fix.png
+sqlite_leak_fix.png
+tools/neutts_samples/
+mcp-research-data/
+
+# Caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.turbo/
+.uv-cache/
+.pip-cache/

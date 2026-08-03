@@ -1,0 +1,96 @@
+name: Deploy Selectel
+
+# Single SSH session (multi-step SSH + request_pty was hanging on "Sync git").
+# Progress markers: STEP 1/9 … DEPLOY_OK in the job log.
+# On VDS: tail -f /var/log/kinetic-deploy.log · cat /var/run/kinetic-deploy.status
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-selectel
+  # false (not true): request_pty is off, so cancelling the Actions job does
+  # NOT stop the remote git reset/docker build over SSH — it keeps running
+  # orphaned on the VDS. cancel-in-progress used to let a new push start a
+  # second deploy on top of that orphan, pegging the box until new SSH
+  # sessions sat silent for minutes before Actions gave up. With this false,
+  # a new push queues; GitHub auto-drops any older *queued* run for you, so
+  # you never get more than one deploy actually touching the VDS at a time.
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Selectel VDS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Deploy link
+        run: |
+          {
+            echo "### Selectel deploy"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- Look for \`STEP n/9\` and \`DEPLOY_OK\` in the SSH step log"
+            echo "- On VDS: \`tail -f /var/log/kinetic-deploy.log\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: SSH deploy (live STEP logs)
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SELECTEL_HOST }}
+          username: ${{ secrets.SELECTEL_USER }}
+          key: ${{ secrets.SELECTEL_SSH_KEY }}
+          port: 22
+          command_timeout: 25m
+          # request_pty caused indefinite hangs on this VDS — keep off.
+          request_pty: false
+          script: |
+            set -euo pipefail
+            export PYTHONUNBUFFERED=1
+            export GIT_TERMINAL_PROMPT=0
+            export BUILDKIT_PROGRESS=plain
+            APP_DIR=/opt/app
+            REPO_URL=https://github.com/fuwiak/client_segmentation_deepseek.git
+
+            echo "[$(date -u +%H:%M:%S)] SSH_CONNECTED host=$(hostname)"
+            # Clear leftover locks from cancelled runs.
+            rm -f /opt/app/.git/index.lock /opt/app/.git/HEAD.lock 2>/dev/null || true
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "[$(date -u +%H:%M:%S)] cloning repo…"
+              mkdir -p /opt
+              rm -rf "$APP_DIR"
+              timeout 180 git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            echo "[$(date -u +%H:%M:%S)] fetching origin…"
+            timeout 120 git fetch origin --prune
+            git checkout main
+            git reset --hard origin/main
+            chmod +x deploy/remote_deploy.sh
+            echo "[$(date -u +%H:%M:%S)] HEAD=$(git rev-parse --short HEAD) — starting remote_deploy.sh"
+            # Heartbeat while deploy runs (docker build can be quiet for minutes).
+            (
+              while true; do
+                sleep 30
+                st=$(cat /var/run/kinetic-deploy.status 2>/dev/null || echo 'no-status')
+                echo "[$(date -u +%H:%M:%S)] HEARTBEAT $st"
+              done
+            ) &
+            HB_PID=$!
+            trap 'kill $HB_PID 2>/dev/null || true' EXIT
+            APP_DIR="$APP_DIR" bash deploy/remote_deploy.sh
+            kill $HB_PID 2>/dev/null || true
+            echo "[$(date -u +%H:%M:%S)] remote_deploy finished"
+            echo "--- status ---"
+            cat /var/run/kinetic-deploy.status || true
+            echo "--- log tail ---"
+            tail -n 30 /var/log/kinetic-deploy.log || true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://kinetic-ai.ru/health" >> "$GITHUB_STEP_SUMMARY"

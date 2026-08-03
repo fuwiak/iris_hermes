@@ -1,0 +1,259 @@
+/* Hermes One presentation for the browser-hosted desktop client. The shared
+   desktop runtime still owns sessions, tools, streaming, and navigation. */
+
+[data-desktop-chat-host] {
+  --ui-chat-surface-background: #202020;
+  --ui-editor-surface-background: #202020;
+  --ui-sidebar-surface-background: #303231;
+  --ui-bg-chrome: #171717;
+  --ui-bg-sidebar: #303231;
+  --ui-bg-editor: #202020;
+  --ui-text-primary: #f2f2f2;
+  --ui-text-secondary: #c6c6c6;
+  --ui-text-tertiary: #929292;
+  --ui-stroke-secondary: rgba(255, 255, 255, 0.09);
+  --ui-stroke-tertiary: rgba(255, 255, 255, 0.07);
+  --sidebar-edge-border: rgba(255, 255, 255, 0.08);
+  --composer-width: calc(100% - 3.5rem);
+  --composer-control-size: 2.15rem;
+  --composer-control-primary-size: 2.35rem;
+  --composer-control-gap: 0.45rem;
+  --composer-row-gap: 0.55rem;
+  --composer-surface-pad-x: 1rem;
+  --composer-surface-pad-y: 0.8rem;
+  --composer-input-min-height: 3.25rem;
+  --composer-input-max-height: 12rem;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+[data-desktop-chat-host] [data-slot="desktop-titlebar"] {
+  height: 2.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  background: #171717;
+}
+
+[data-desktop-chat-host] [data-slot="desktop-titlebar"] > * {
+  opacity: 0.76;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar"] {
+  background:
+    radial-gradient(circle at 58% 86%, rgba(25, 76, 92, 0.2), transparent 40%),
+    linear-gradient(180deg, #323433 0%, #303231 50%, #19272d 100%);
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-content"] {
+  padding-inline: 0.8rem;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-group"]:first-child {
+  padding-top: 0.9rem;
+  padding-bottom: 1.4rem;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-menu"] {
+  gap: 0.2rem;
+}
+
+[data-desktop-chat-host]
+  [data-slot="sidebar-menu-item"]
+  :is([data-slot="context-menu-trigger"], [data-slot="sidebar-menu-button"]) {
+  height: 3.55rem;
+  padding-inline: 0.85rem;
+  gap: 0.8rem;
+  border: 0;
+  border-radius: 0.85rem;
+  color: #eeeeee;
+  font-size: 1.02rem;
+  font-weight: 450;
+}
+
+[data-desktop-chat-host]
+  [data-slot="sidebar-menu-item"]
+  :is([data-slot="context-menu-trigger"], [data-slot="sidebar-menu-button"])
+  svg,
+[data-desktop-chat-host]
+  [data-slot="sidebar-menu-item"]
+  :is([data-slot="context-menu-trigger"], [data-slot="sidebar-menu-button"])
+  .codicon {
+  width: 1.15rem;
+  height: 1.15rem;
+  font-size: 1.15rem !important;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-menu-item"]:first-child [data-slot="context-menu-trigger"] {
+  margin-bottom: 0.2rem;
+  background: rgba(20, 112, 197, 0.13);
+  color: #1689ff;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-menu-item"]:first-child [data-slot="kbd-group"] {
+  display: none;
+}
+
+[data-desktop-chat-host] [data-slot="sidebar-content"] > div:nth-child(2) {
+  display: none;
+}
+
+[data-desktop-chat-host] [data-slot="profile-rail"] {
+  min-height: 3.35rem;
+  padding: 0.55rem 0.35rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-desktop-chat-host] [data-slot="profile-rail"]::after {
+  order: -1;
+  flex: 1;
+  color: #d7d7d7;
+  font-size: 0.9rem;
+  font-weight: 520;
+  content: "Hermes One";
+}
+
+[data-desktop-chat-host] [data-slot="aui_thread-content"] {
+  max-width: min(62rem, calc(100% - 3rem));
+  padding-inline: 1.5rem;
+}
+
+[data-desktop-chat-host] [data-hermes-one-intro] {
+  gap: 0;
+  color: #f2f2f2;
+  transform: translateY(-11vh);
+}
+
+[data-desktop-chat-host] .hermes-one-mark {
+  display: flex;
+  width: 7.7rem;
+  height: 7.7rem;
+  margin-bottom: 1.55rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #050505;
+  color: white;
+  font-family: Impact, "Arial Narrow", sans-serif;
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+}
+
+[data-desktop-chat-host] .hermes-one-mark span {
+  font-size: 1.3rem;
+}
+
+[data-desktop-chat-host] .hermes-one-mark strong {
+  font-size: 2.25rem;
+}
+
+[data-desktop-chat-host] [data-hermes-one-intro] h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 2.4vw, 2.55rem);
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+[data-desktop-chat-host] [data-hermes-one-intro] > p {
+  max-width: 32rem;
+  margin: 1.35rem 0 2.4rem;
+  color: #9d9d9d;
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
+[data-desktop-chat-host] .hermes-one-suggestions {
+  display: flex;
+  max-width: 40rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+[data-desktop-chat-host] .hermes-one-suggestions button {
+  display: inline-flex;
+  min-height: 3rem;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0.85rem;
+  background: #1a1a1a;
+  color: #b9b9b9;
+  font-size: 0.98rem;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+[data-desktop-chat-host] .hermes-one-suggestions button:hover,
+[data-desktop-chat-host] .hermes-one-suggestions button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #242424;
+  color: #f1f1f1;
+  outline: none;
+}
+
+[data-desktop-chat-host] [data-slot="composer-dock"] {
+  width: calc(100% - 5rem);
+  padding-bottom: 3.5rem;
+}
+
+[data-desktop-chat-host] [data-slot="composer-root"],
+[data-desktop-chat-host] [data-slot="composer-surface"] {
+  border-radius: 1.35rem;
+}
+
+[data-desktop-chat-host] [data-slot="composer-surface"] {
+  min-height: 8.5rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #151515;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+[data-desktop-chat-host] [data-slot="composer-surface"] > [aria-hidden="true"] {
+  opacity: 0;
+}
+
+[data-desktop-chat-host] [data-slot="composer-fade"] > div:has([data-slot="composer-rich-input"]) {
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "input input input" "menu controls controls";
+  align-items: center;
+  row-gap: 0.5rem;
+}
+
+[data-desktop-chat-host] [data-slot="composer-rich-input"] {
+  padding: 0.2rem 0.35rem 0.55rem;
+  color: #eeeeee;
+  font-size: 1rem;
+}
+
+[data-desktop-chat-host] [data-slot="composer-rich-input"]::before {
+  color: #888888;
+}
+
+[data-desktop-chat-host] [data-slot="statusbar"] {
+  height: 1.55rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  background: linear-gradient(90deg, #1b292e, #202720 72%, #222222);
+}
+
+@media (max-width: 900px) {
+  [data-desktop-chat-host] {
+    --composer-width: calc(100% - 1rem);
+  }
+
+  [data-desktop-chat-host] [data-slot="composer-dock"] {
+    width: calc(100% - 1rem);
+  }
+
+  [data-desktop-chat-host] [data-hermes-one-intro] > p {
+    margin-bottom: 1.3rem;
+  }
+
+  [data-desktop-chat-host] [data-hermes-one-intro] {
+    transform: translateY(-4vh);
+  }
+
+  [data-desktop-chat-host] .hermes-one-suggestions {
+    display: none;
+  }
+}

@@ -1,0 +1,11 @@
+# DEPRECATED: прод — Selectel VDS (GitHub Actions → deploy/remote_deploy.sh).
+# Railway оставлен только как legacy/dev; домен kinetic-ai.ru на него не указывает.
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT --ws websockets"
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
