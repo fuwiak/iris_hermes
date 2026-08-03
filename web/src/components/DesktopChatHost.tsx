@@ -21,11 +21,11 @@ import { installHermesDesktopStub } from "@/lib/hermesDesktopStub";
 import "@desktop/styles.css";
 import "./hermes-one-web.css";
 
-/** Match Electron Hermes One charcoal chrome — apps/desktop/src/themes/presets.ts */
-const WEB_DESKTOP_SKIN = "mono";
+/** Iris aubergine chrome — apps/desktop/src/themes/presets.ts irisTheme */
+const WEB_DESKTOP_SKIN = "iris";
 const WEB_DESKTOP_MODE = "dark";
-const BOOT_BG = "#0e0e0e";
-const BOOT_FG = "#eaeaea";
+const BOOT_BG = "#2a0f2e";
+const BOOT_FG = "#f4ede4";
 
 function preferDesktopTheme(): void {
   try {
@@ -262,7 +262,7 @@ export default function DesktopChatHost({
       className="dark"
       data-desktop-chat-host=""
       data-desktop-embed=""
-      data-desktop-theme="mono"
+      data-desktop-theme="iris"
       data-desktop-mode="dark"
       data-chat-active={isActive ? "true" : "false"}
     >

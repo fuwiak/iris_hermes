@@ -7,6 +7,15 @@ on:
     paths:
       - "deploy/selectel/**"
       - "Dockerfile.railway"
+      - "Dockerfile.railway.dockerignore"
+      - ".dockerignore"
+      - "docker/railway-entrypoint.sh"
+      - "web/**"
+      - "apps/desktop/**"
+      - "apps/shared/**"
+      - "plugins/moysklad/**"
+      - "hermes_cli/config_defaults.py"
+      - "hermes_cli/config_migrations.py"
       - ".github/workflows/deploy-selectel-iris.yml"
 
 concurrency:

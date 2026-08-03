@@ -1,4 +1,4 @@
-# Dockerignore for Dockerfile.railway (BuildKit picks this up automatically).
+# Dockerignore for deploy/selectel/Dockerfile (BuildKit).
 
 .git
 .gitignore

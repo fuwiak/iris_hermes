@@ -1,5 +1,14 @@
-# Slim Selectel image — uses prebuilt hermes_cli/web_dist from the repo
-# (no in-image npm build). Faster cold deploys on VDS.
+# Selectel VDS image — builds dashboard UI in-image (same as Railway slim),
+# so a bare git checkout on the VDS still produces a working SPA + plugins.
+
+FROM node:26-bookworm-slim AS web_build
+WORKDIR /src
+COPY web/package.json ./web/
+COPY apps/shared/ ./apps/shared/
+COPY apps/desktop/ ./apps/desktop/
+COPY web/ ./web/
+WORKDIR /src/web
+RUN npm install && npm run build
 
 FROM python:3.13-slim-bookworm
 
@@ -22,10 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
 COPY . .
-RUN test -f /opt/hermes/hermes_cli/web_dist/index.html \
-    || (echo "FATAL: hermes_cli/web_dist missing — run web build before image build" >&2; exit 1)
+COPY --from=web_build /src/hermes_cli/web_dist /opt/hermes/hermes_cli/web_dist
 
 RUN chmod +x /opt/hermes/docker/railway-entrypoint.sh \
+    && test -f /opt/hermes/hermes_cli/web_dist/index.html \
+    || (echo "FATAL: hermes_cli/web_dist missing after frontend build" >&2; exit 1) \
+    && test -f /opt/hermes/plugins/moysklad/dashboard/dist/index.js \
+    || (echo "FATAL: plugins/moysklad/dashboard/dist missing — check .dockerignore" >&2; exit 1) \
     && uv venv /opt/hermes/.venv \
     && uv pip install --no-cache-dir -e ".[web,mcp]" \
     && mkdir -p /opt/data \

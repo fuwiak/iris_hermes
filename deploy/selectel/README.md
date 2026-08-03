@@ -27,6 +27,16 @@ If the panel says **not delegated**, set NS at the registrar to:
 
 Then wait for propagation and enable HTTPS in Caddy (remove `auto_https disable_redirects`).
 
+## Iris defaults
+
+Entrypoint (`docker/railway-entrypoint.sh`) on every boot:
+
+- sets `dashboard.theme` / `display.skin` to **iris** when missing or `mono`/`default`
+- ensures `plugins.enabled` includes **moysklad** (unless explicitly disabled)
+- syncs `MOYSKLAD_API_TOKEN` from process env into `$HERMES_HOME/.env`
+
+Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone does not enable the Hermes plugin.
+
 ## Deploy
 
 GitHub Actions: `.github/workflows/deploy-selectel-iris.yml`

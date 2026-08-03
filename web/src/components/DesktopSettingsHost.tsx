@@ -21,8 +21,9 @@ import { installHermesDesktopStub } from "@/lib/hermesDesktopStub";
 import "@desktop/styles.css";
 import "./hermes-one-web.css";
 
-const BOOT_BG = "#0e0e0e";
-const BOOT_FG = "#eaeaea";
+/** Iris aubergine — match DesktopChatHost / irisTheme */
+const BOOT_BG = "#2a0f2e";
+const BOOT_FG = "#f4ede4";
 
 type SettingsViewProps = {
   onClose: () => void;
@@ -45,7 +46,7 @@ function getQueryClient(): QueryClient {
 
 function preferDesktopTheme(): void {
   try {
-    window.localStorage.setItem("hermes-desktop-theme-v2", "mono");
+    window.localStorage.setItem("hermes-desktop-theme-v2", "iris");
     window.localStorage.setItem("hermes-desktop-mode-v1", "dark");
     window.localStorage.setItem("hermes-boot-background", BOOT_BG);
     window.localStorage.setItem("hermes-boot-color-scheme", "dark");
@@ -242,7 +243,7 @@ export default function DesktopSettingsHost({
       className="dark"
       data-desktop-settings-host=""
       data-desktop-embed=""
-      data-desktop-theme="mono"
+      data-desktop-theme="iris"
       data-desktop-mode="dark"
     >
       {error ? (

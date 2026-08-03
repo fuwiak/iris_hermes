@@ -10,7 +10,6 @@ __pycache__
 *.so
 .Python
 *.egg-info/
-dist/
 build/
 
 # Virtual environments
@@ -33,6 +32,14 @@ node_modules
 # that now depends on the full ui-tui/packages/hermes-ink/ tree being present.
 ui-tui/dist/
 ui-tui/packages/hermes-ink/dist/
+
+# Generic Python/JS `dist/` trees — but keep dashboard plugin UI bundles
+# (MoySklad Клиенты tab ships prebuilt index.js/css under plugins/*/dashboard/dist).
+dist/
+!plugins/*/dashboard/dist/
+!plugins/*/dashboard/dist/**
+!plugins/**/dashboard/dist/
+!plugins/**/dashboard/dist/**
 
 # CI/CD
 .github
