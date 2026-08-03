@@ -535,12 +535,31 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris dark: aubergine surfaces, never pure black neutrals. */
+  /* Iris / Slacc — pastel-mesh chrome (peach + lavender + dusty green). */
+  :root[data-hermes-theme='iris'] {
+    --ui-link: #1264a3;
+    --ui-link-hover: #3860be;
+    --ui-text-secondary: #696969;
+    --slacc-mesh:
+      radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
+      radial-gradient(ellipse 60% 45% at 50% 90%, rgba(210, 230, 210, 0.45), transparent 55%),
+      linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+  }
+
+  :root[data-hermes-theme='iris'] body,
+  :root[data-hermes-theme='iris'] #root {
+    background-image: var(--slacc-mesh);
+    background-color: #f4ede4;
+  }
+
+  /* Iris without darkColors stays cream even under OS dark preference. */
   :root.dark[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #2a0f2e;
-    --theme-neutral-sidebar: #220c26;
-    --theme-neutral-card: #3a1840;
-    --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 92%, #2a0f2e);
+    --theme-neutral-chrome: #f4ede4;
+    --theme-neutral-sidebar: #f9f0ff;
+    --theme-neutral-card: #ffffff;
+    --ui-widget-surface-background: #ffffff;
+    color-scheme: light;
   }
 
   /* Settings ▸ Plugins — lavender panel, ink text (Iris readability). */
@@ -553,8 +572,8 @@
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
     --ui-text-primary: #1d1d1d;
-    --ui-text-secondary: #454545;
-    --ui-text-tertiary: #5c5c5c;
+    --ui-text-secondary: #696969;
+    --ui-text-tertiary: #696969;
   }
 
   .iris-plugins-settings {
@@ -573,7 +592,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #454545 !important;
+    color: #696969 !important;
   }
 
   * {

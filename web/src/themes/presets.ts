@@ -208,13 +208,13 @@ export const nousBlueTheme: DashboardTheme = {
 };
 
 /**
- * Iris CRM light theme — cream canvas + aubergine primary from DESIGN.md
- * (Slacc-inspired: `#f4ede4` canvas, `#4a154b` primary, Inter substitute).
+ * Iris / Slacc — cream canvas + aubergine primary (DESIGN.md).
+ * Pastel-mesh atmospherics live in index.css / hermes-one-web.css.
  */
 export const irisTheme: DashboardTheme = {
   name: "iris",
-  label: "Iris",
-  description: "Light cream canvas with aubergine Iris accents",
+  label: "Iris (Slacc)",
+  description: "Slacc cream canvas, aubergine CTAs, lavender secondary",
   palette: {
     background: { hex: "#f4ede4", alpha: 1 },
     midground: { hex: "#4a154b", alpha: 1 },
@@ -229,6 +229,7 @@ export const irisTheme: DashboardTheme = {
     fontUrl:
       "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
     letterSpacing: "-0.005em",
+    lineHeight: "1.55",
   },
   layout: {
     ...DEFAULT_LAYOUT,
@@ -244,7 +245,7 @@ export const irisTheme: DashboardTheme = {
     accent: "#f9f0ff",
     accentForeground: "#1d1d1d",
     muted: "#f9f0ff",
-    mutedForeground: "#454545",
+    mutedForeground: "#696969",
     border: "#e6e6e6",
     card: "#ffffff",
     cardForeground: "#1d1d1d",

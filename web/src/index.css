@@ -104,6 +104,13 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  /* Slacc pastel-mesh under cream canvas (DESIGN.md). */
+  background-color: #f4ede4;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
+    radial-gradient(ellipse 60% 45% at 50% 90%, rgba(210, 230, 210, 0.45), transparent 55%),
+    linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
 }
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
@@ -185,7 +192,7 @@ code { font-size: 0.875rem; }
 /* Plugins page — force Iris lavender surfaces + ink text (no black cards). */
 .iris-plugins-page {
   --iris-plugins-ink: #1d1d1d;
-  --iris-plugins-mute: #454545;
+  --iris-plugins-mute: #696969;
   --iris-plugins-canvas: #f4ede4;
   --iris-plugins-lavender: #f9f0ff;
   --iris-plugins-surface: #ffffff;
