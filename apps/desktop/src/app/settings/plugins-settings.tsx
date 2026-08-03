@@ -122,7 +122,7 @@ export function PluginsSettings() {
       {rows.length === 0 ? (
         <EmptyState title={p.empty} />
       ) : (
-        <div className="divide-y divide-(--ui-stroke-tertiary) rounded-xl border border-(--ui-stroke-tertiary) bg-[color-mix(in_srgb,#f9f0ff_88%,#ffffff)] px-1">
+        <div className="divide-y divide-(--ui-stroke-tertiary) rounded-xl border border-(--ui-stroke-tertiary) bg-[#3a1840] px-1">
           {rows.map(record => (
             <PluginRow key={record.id} record={record} />
           ))}

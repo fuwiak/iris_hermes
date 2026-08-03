@@ -101,14 +101,14 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
     const block = css.slice(css.indexOf('.hermes-one-mark {'))
 
     expect(block).toContain('border-radius: 999px')
-    expect(block).toContain('background: var(--theme-primary, #4a154b)')
+    expect(block).toContain('background: var(--theme-primary, #c084fc)')
     expect(block).not.toContain('background: #050505')
   })
 
   it('keeps suggestion chip text readable (cream ink on aubergine)', () => {
     const block = css.slice(css.indexOf('.hermes-one-suggestions button {'))
 
-    expect(block).toContain('color: var(--ui-text-primary, #1d1d1d)')
+    expect(block).toContain('color: var(--ui-text-primary, #f4ede4)')
     expect(block).not.toContain('background: #1a1a1a')
   })
 })

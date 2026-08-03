@@ -1,4 +1,4 @@
-/* MoySklad CRM desktop plugin — Iris / DESIGN.md cream + aubergine */
+/* MoySklad CRM — Iris dark aubergine + cream ink (no white panels). */
 
 .ms-page {
   display: flex;
@@ -7,8 +7,8 @@
   padding: 1.25rem 1.5rem 2rem;
   min-height: 100%;
   box-sizing: border-box;
-  background: #f4ede4;
-  color: #1d1d1d;
+  background: #2a0f2e;
+  color: #f4ede4;
 }
 
 .ms-page h1 {
@@ -16,7 +16,7 @@
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #1d1d1d;
+  color: #f4ede4;
 }
 
 .ms-page-header {
@@ -35,15 +35,15 @@
 
 .ms-muted {
   margin: 0.25rem 0 0;
-  color: #3d3d3d;
+  color: #e4c8ea;
   font-size: 0.9rem;
 }
 
 .ms-error {
   padding: 0.65rem 0.85rem;
   border-radius: 0.65rem;
-  background: color-mix(in srgb, #cc4117 12%, #fff);
-  color: #cc4117;
+  background: color-mix(in srgb, #ff6b3d 18%, #3a1840);
+  color: #ffb39a;
   font-weight: 600;
 }
 
@@ -55,9 +55,9 @@
 
 .ms-filter-tab {
   appearance: none;
-  border: 2px solid #4a154b;
-  background: #f9f0ff;
-  color: #1d1d1d;
+  border: 2px solid #c084fc;
+  background: #481a54;
+  color: #f4ede4;
   border-radius: 90px;
   padding: 0.4rem 0.95rem;
   font-size: 0.88rem;
@@ -67,8 +67,8 @@
 
 .ms-filter-tab.is-active,
 .ms-filter-tab:hover {
-  background: #4a154b;
-  color: #ffffff;
+  background: #c084fc;
+  color: #1a0a1c;
 }
 
 .ms-tab-count {
@@ -80,10 +80,10 @@
 .ms-search input {
   width: min(100%, 28rem);
   padding: 0.55rem 0.75rem;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 0.4rem;
-  background: #ffffff;
-  color: #1d1d1d;
+  background: #3a1840;
+  color: #f4ede4;
   font: inherit;
 }
 
@@ -95,9 +95,9 @@
 
 .ms-chip {
   appearance: none;
-  border: 1px solid #e6e6e6;
-  background: #ffffff;
-  color: #1d1d1d;
+  border: 1px solid #592466;
+  background: #3a1840;
+  color: #f4ede4;
   border-radius: 90px;
   padding: 0.3rem 0.7rem;
   font-size: 0.8rem;
@@ -106,9 +106,9 @@
 }
 
 .ms-chip.is-active {
-  border-color: #4a154b;
-  background: #f9f0ff;
-  color: #4a154b;
+  border-color: #c084fc;
+  background: #481a54;
+  color: #f4ede4;
 }
 
 .ms-chip span {
@@ -118,9 +118,9 @@
 
 .ms-btn {
   appearance: none;
-  border: 1px solid #e6e6e6;
-  background: #ffffff;
-  color: #1d1d1d;
+  border: 1px solid #592466;
+  background: #3a1840;
+  color: #f4ede4;
   border-radius: 90px;
   padding: 0.45rem 1rem;
   font: inherit;
@@ -129,9 +129,9 @@
 }
 
 .ms-btn-primary {
-  background: #4a154b;
-  border-color: #4a154b;
-  color: #ffffff;
+  background: #c084fc;
+  border-color: #c084fc;
+  color: #1a0a1c;
 }
 
 .ms-btn:disabled {
@@ -141,9 +141,9 @@
 
 .ms-table-wrap {
   overflow: auto;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 1rem;
-  background: #ffffff;
+  background: #3a1840;
 }
 
 .ms-table {
@@ -156,15 +156,16 @@
 .ms-table td {
   padding: 0.65rem 0.85rem;
   text-align: left;
-  border-bottom: 1px solid #e6e6e6;
+  border-bottom: 1px solid #592466;
+  color: #f4ede4;
 }
 
 .ms-table th {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #454545;
-  background: #f9f0ff;
+  color: #e4c8ea;
+  background: #481a54;
 }
 
 .ms-campaign-form {
@@ -172,9 +173,9 @@
   gap: 0.75rem;
   max-width: 40rem;
   padding: 1rem;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 1rem;
-  background: #ffffff;
+  background: #3a1840;
 }
 
 .ms-campaign-form label {
@@ -182,6 +183,7 @@
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
+  color: #f4ede4;
 }
 
 .ms-campaign-form input,
@@ -190,15 +192,16 @@
   font: inherit;
   font-weight: 400;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 0.4rem;
-  background: #fff;
-  color: #1d1d1d;
+  background: #481a54;
+  color: #f4ede4;
 }
 
 .ms-section-title {
   margin: 0.5rem 0 0;
   font-size: 1.05rem;
+  color: #f4ede4;
 }
 
 .ms-campaign-list {
@@ -210,10 +213,11 @@
 }
 
 .ms-campaign-card {
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 1rem;
   padding: 0.85rem 1rem;
-  background: #ffffff;
+  background: #3a1840;
+  color: #f4ede4;
 }
 
 .ms-campaign-card-head {
@@ -226,5 +230,5 @@
 .ms-campaign-offer {
   margin: 0.55rem 0 0;
   white-space: pre-wrap;
-  color: #454545;
+  color: #e4c8ea;
 }

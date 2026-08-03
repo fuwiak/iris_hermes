@@ -194,7 +194,7 @@
   opacity: 0.7;
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, Canvas 92%, transparent);
+  background: color-mix(in srgb, #3a1840 92%, transparent);
   backdrop-filter: blur(6px);
 }
 
@@ -272,8 +272,8 @@
   width: min(720px, 100%);
   max-height: min(80vh, 640px);
   overflow: auto;
-  background: Canvas;
-  color: CanvasText;
+  background: #3a1840;
+  color: #f4ede4;
   border-radius: 0.85rem;
   border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   padding: 1rem 1.15rem 1.15rem;
@@ -313,8 +313,8 @@
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  background: #f4ede4;
-  color: #1d1d1d;
+  background: #2a0f2e;
+  color: #f4ede4;
 }
 
 .ms-topnav {
@@ -322,15 +322,15 @@
   flex-wrap: wrap;
   gap: 0.35rem;
   padding: 0.75rem 1.25rem 0;
-  border-bottom: 1px solid #e6e6e6;
-  background: #ffffff;
+  border-bottom: 1px solid #592466;
+  background: #3a1840;
 }
 
 .ms-topnav-link {
   appearance: none;
   border: 0;
   background: transparent;
-  color: #1d1d1d;
+  color: #f4ede4;
   font: inherit;
   font-weight: 700;
   font-size: 0.92rem;
@@ -344,8 +344,8 @@
 .ms-topnav-link:hover,
 .ms-topnav-link.is-active {
   opacity: 1;
-  background: #f9f0ff;
-  color: #4a154b;
+  background: #481a54;
+  color: #f4ede4;
 }
 
 .ms-topnav-ext {
@@ -359,9 +359,9 @@
   gap: 0.75rem;
   max-width: 40rem;
   padding: 1rem;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 1rem;
-  background: #ffffff;
+  background: #3a1840;
 }
 
 .ms-campaign-form label {
@@ -377,10 +377,10 @@
   font: inherit;
   font-weight: 400;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 0.4rem;
-  background: #fff;
-  color: #1d1d1d;
+  background: #481a54;
+  color: #f4ede4;
 }
 
 .ms-section-title {
@@ -397,10 +397,10 @@
 }
 
 .ms-campaign-card {
-  border: 1px solid #e6e6e6;
+  border: 1px solid #592466;
   border-radius: 1rem;
   padding: 0.85rem 1rem;
-  background: #ffffff;
+  background: #3a1840;
 }
 
 .ms-campaign-card-head {
@@ -413,12 +413,12 @@
 .ms-campaign-offer {
   margin: 0.55rem 0 0;
   white-space: pre-wrap;
-  color: #454545;
+  color: #e4c8ea;
 }
 
 .ms-btn-primary {
-  background: #4a154b !important;
-  color: #ffffff !important;
-  border-color: #4a154b !important;
+  background: #c084fc !important;
+  color: #1a0a1c !important;
+  border-color: #c084fc !important;
   font-weight: 700;
 }

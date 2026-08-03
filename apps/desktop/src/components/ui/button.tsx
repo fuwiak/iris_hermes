@@ -17,15 +17,15 @@ const buttonVariants = cva(
         default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#611f69_100%,transparent)]',
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
-        // button-outline-aubergine
+        // button-outline — aubergine surface, violet ring
         outline:
-          'bg-white text-primary shadow-[inset_0_0_0_2px_#4a154b] hover:bg-[#f9f0ff] hover:text-primary',
-        // button-secondary-pill — lavender + ink
-        secondary: 'bg-[#f9f0ff] text-[#1d1d1d] hover:bg-[color-mix(in_srgb,#4a154b_10%,#f9f0ff)] hover:text-[#1d1d1d]',
-        ghost: 'text-(--ui-text-secondary) hover:bg-[#f9f0ff] hover:text-[#1d1d1d]',
-        link: `text-[#1264a3] underline-offset-4 decoration-current/20 hover:text-[#3860be] hover:underline ${TEXT_ACTION_ICON}`,
-        text: `text-[#696969] underline-offset-4 hover:text-[#1d1d1d] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-semibold text-[#696969] underline underline-offset-4 hover:text-[#1d1d1d] ${TEXT_ACTION_ICON}`
+          'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#c084fc] hover:bg-[#481a54] hover:text-[#f4ede4]',
+        // button-secondary-pill — deep lavender + cream
+        secondary: 'bg-[#481a54] text-[#f4ede4] hover:bg-[color-mix(in_srgb,#c084fc_22%,#481a54)] hover:text-[#f4ede4]',
+        ghost: 'text-(--ui-text-secondary) hover:bg-[#481a54] hover:text-[#f4ede4]',
+        link: `text-[#7dd3fc] underline-offset-4 decoration-current/20 hover:text-[#bae6fd] hover:underline ${TEXT_ACTION_ICON}`,
+        text: `text-[#e4c8ea] underline-offset-4 hover:text-[#f4ede4] hover:underline ${TEXT_ACTION_ICON}`,
+        textStrong: `font-semibold text-[#e4c8ea] underline underline-offset-4 hover:text-[#f4ede4] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill
