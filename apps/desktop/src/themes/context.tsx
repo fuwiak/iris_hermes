@@ -230,13 +230,41 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   }
 
   if (forceLight) {
-    palette['--dt-foreground'] = c.foreground
-    palette['--dt-card-foreground'] = c.cardForeground
-    palette['--dt-popover-foreground'] = c.popoverForeground
-    palette['--muted-foreground'] = c.mutedForeground
-    palette['--ui-text-primary'] = c.foreground
-    palette['--ui-text-secondary'] = c.mutedForeground
-    palette['--ui-text-tertiary'] = c.mutedForeground
+    Object.assign(palette, {
+      '--theme-mix-chrome': '100%',
+      '--theme-mix-sidebar': '100%',
+      '--theme-mix-card': '100%',
+      '--theme-mix-elevated': '100%',
+      '--theme-mix-bubble': '100%',
+      '--theme-neutral-chrome': '#f4ede4',
+      '--theme-neutral-sidebar': '#f9f0ff',
+      '--theme-neutral-card': '#ffffff',
+      '--dt-foreground': c.foreground,
+      '--dt-card-foreground': c.cardForeground,
+      '--dt-popover-foreground': c.popoverForeground,
+      '--dt-background': '#f4ede4',
+      '--dt-card': '#ffffff',
+      '--dt-popover': '#ffffff',
+      '--muted-foreground': c.mutedForeground,
+      '--ui-text-primary': c.foreground,
+      '--ui-text-secondary': c.mutedForeground,
+      '--ui-text-tertiary': c.mutedForeground,
+      '--ui-bg-chrome': '#f4ede4',
+      '--ui-bg-sidebar': '#f9f0ff',
+      '--ui-bg-editor': '#ffffff',
+      '--ui-bg-elevated': '#ffffff',
+      '--ui-bg-card': '#ffffff',
+      '--ui-bg-quaternary': '#f9f0ff',
+      '--ui-bg-quinary': '#f4ede4',
+      '--ui-bg-secondary': '#f9f0ff',
+      '--ui-bg-tertiary': '#f4ede4',
+      '--ui-surface-background': '#ffffff',
+      '--ui-sidebar-surface-background': '#f9f0ff',
+      '--ui-chat-surface-background': '#f4ede4',
+      '--ui-editor-surface-background': '#f4ede4',
+      '--ui-widget-surface-background': '#ffffff',
+      '--chrome-action-hover': 'color-mix(in srgb, #4a154b 8%, #f9f0ff)'
+    })
   }
 
   for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {

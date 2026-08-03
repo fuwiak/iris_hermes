@@ -535,11 +535,16 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris / Slacc — solid ink on cream (no translucent color-mix text). */
+  /* Iris / Slacc — solid cream surfaces (transparent color-mix pulls toward black). */
   :root[data-hermes-theme='iris'] {
     --theme-neutral-chrome: #f4ede4;
     --theme-neutral-sidebar: #f9f0ff;
     --theme-neutral-card: #ffffff;
+    --theme-mix-chrome: 100%;
+    --theme-mix-sidebar: 100%;
+    --theme-mix-card: 100%;
+    --theme-mix-elevated: 100%;
+    --theme-mix-bubble: 100%;
     --ui-link: #1264a3;
     --ui-link-hover: #3860be;
     /* Opaque ladders — translucent mixes wash out on cream/lavender. */
@@ -549,16 +554,47 @@
     --ui-text-quaternary: #616161;
     --conversation-scaffold-text: #3d3d3d;
     --conversation-scaffold-meta: #525252;
+    /* Opaque surfaces — kanban / settings / drawers use these tokens. */
+    --ui-bg-chrome: #f4ede4;
+    --ui-bg-sidebar: #f9f0ff;
+    --ui-bg-editor: #ffffff;
+    --ui-bg-elevated: #ffffff;
+    --ui-bg-card: #ffffff;
+    --ui-bg-input: #ffffff;
+    --ui-bg-primary: color-mix(in srgb, #4a154b 10%, #f9f0ff);
+    --ui-bg-secondary: #f9f0ff;
+    --ui-bg-tertiary: #f4ede4;
+    --ui-bg-quaternary: #f9f0ff;
+    --ui-bg-quinary: #f4ede4;
+    --ui-row-hover-background: color-mix(in srgb, #4a154b 6%, #ffffff);
+    --ui-row-active-background: color-mix(in srgb, #4a154b 10%, #ffffff);
+    --ui-control-hover-background: color-mix(in srgb, #4a154b 8%, #f9f0ff);
+    --ui-control-active-background: color-mix(in srgb, #4a154b 12%, #f9f0ff);
+    --ui-surface-background: #ffffff;
+    --ui-sidebar-surface-background: #f9f0ff;
+    --ui-chat-surface-background: #f4ede4;
+    --ui-editor-surface-background: #f4ede4;
+    --ui-terminal-surface-background: #f4ede4;
+    --ui-widget-surface-background: #ffffff;
+    --ui-chat-bubble-background: #f9f0ff;
+    --ui-chat-bubble-opaque-background: #ffffff;
+    --ui-inline-code-background: #f9f0ff;
+    --ui-inline-code-foreground: #1d1d1d;
+    --dt-background: #f4ede4;
     --dt-foreground: #1d1d1d;
+    --dt-card: #ffffff;
     --dt-card-foreground: #1d1d1d;
+    --dt-popover: #ffffff;
     --dt-popover-foreground: #1d1d1d;
+    --dt-muted: #f9f0ff;
     --dt-muted-foreground: #3d3d3d;
+    --dt-secondary: #f9f0ff;
     --dt-secondary-foreground: #1d1d1d;
+    --dt-accent: #f9f0ff;
     --dt-accent-foreground: #1d1d1d;
     --dt-primary-foreground: #ffffff;
     --muted-foreground: #3d3d3d;
-    --ui-inline-code-foreground: #1d1d1d;
-    --ui-widget-surface-background: #ffffff;
+    --chrome-action-hover: color-mix(in srgb, #4a154b 8%, #f9f0ff);
     --slacc-mesh:
       radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
       radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
@@ -579,15 +615,36 @@
     --theme-neutral-chrome: #f4ede4;
     --theme-neutral-sidebar: #f9f0ff;
     --theme-neutral-card: #ffffff;
+    --theme-mix-chrome: 100%;
+    --theme-mix-sidebar: 100%;
+    --theme-mix-card: 100%;
+    --theme-mix-elevated: 100%;
+    --ui-bg-chrome: #f4ede4;
+    --ui-bg-sidebar: #f9f0ff;
+    --ui-bg-editor: #ffffff;
+    --ui-bg-elevated: #ffffff;
+    --ui-bg-quaternary: #f9f0ff;
+    --ui-bg-quinary: #f4ede4;
+    --ui-surface-background: #ffffff;
     --ui-widget-surface-background: #ffffff;
     --ui-text-primary: #1d1d1d;
     --ui-text-secondary: #3d3d3d;
     --ui-text-tertiary: #525252;
     --ui-text-quaternary: #616161;
+    --dt-background: #f4ede4;
     --dt-foreground: #1d1d1d;
+    --dt-card: #ffffff;
     --dt-muted-foreground: #3d3d3d;
     --muted-foreground: #3d3d3d;
     color-scheme: light;
+  }
+
+  /* Kanban + plugin routes — force cream page chrome (no black panels). */
+  :root[data-hermes-theme='iris'] [data-plugin-page],
+  :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
+  :root[data-hermes-theme='iris'] [data-settings-view] {
+    background-color: #ffffff;
+    color: #1d1d1d;
   }
 
   /* Scaffold fade was washing tool/thinking rows — keep nearly opaque on Iris. */

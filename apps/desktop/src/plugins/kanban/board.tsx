@@ -1320,7 +1320,10 @@ export function KanbanBoardPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-(--ui-surface-background)">
+    <div
+      className="relative flex h-full flex-col overflow-hidden bg-[#ffffff] text-[#1d1d1d]"
+      data-slot="kanban-board"
+    >
       {/* Page-owned titlebar chrome: exists exactly while this page is mounted. */}
       <Contribute area={TITLEBAR_AREAS.center} id="kanban:board-switcher">
         <BoardSwitcher />

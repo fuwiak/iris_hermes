@@ -191,6 +191,43 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
+/* Kanban + plugin tabs — cream canvas, never black panels. */
+.hermes-kanban {
+  background: #f4ede4 !important;
+  color: #1d1d1d !important;
+}
+
+.hermes-kanban-drawer {
+  background: #ffffff !important;
+  color: #1d1d1d !important;
+  border-left-color: #e6e6e6 !important;
+  box-shadow: -4px 0 18px rgba(74, 21, 75, 0.18) !important;
+}
+
+.hermes-kanban-drawer-shade {
+  background: rgba(74, 21, 75, 0.28) !important;
+}
+
+/* Achievements cards — mix toward cream, not black, on Iris. */
+.ha-card {
+  background:
+    radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 16%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent),
+    #ffffff !important;
+  color: #1d1d1d;
+}
+
+.ha-progress-track,
+.ha-scan-progress-track {
+  background: #f4ede4 !important;
+}
+
+.ha-share-dialog {
+  background: #ffffff !important;
+  color: #1d1d1d !important;
+  box-shadow: 0 24px 60px rgba(74, 21, 75, 0.18) !important;
+}
+
 /* Plugins page — force Iris lavender surfaces + ink text (no black cards). */
 .iris-plugins-page {
   --iris-plugins-ink: #1d1d1d;
