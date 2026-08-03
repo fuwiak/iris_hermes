@@ -57,5 +57,5 @@ jobs:
 
       - name: Health summary
         run: |
-          echo "Target: https://bettercallbober.ru" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: https://hermes-agent-ai.ru" >> "$GITHUB_STEP_SUMMARY"
           echo "VDS: ${{ secrets.SELECTEL_IRIS_HOST }}" >> "$GITHUB_STEP_SUMMARY"

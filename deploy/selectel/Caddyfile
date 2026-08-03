@@ -1,10 +1,4 @@
-{
-	# Until DNS A records point at this VDS, skip HTTPS redirects so the
-	# dashboard is reachable by IP / Host header over HTTP.
-	auto_https disable_redirects
-}
-
-bettercallbober.ru, www.bettercallbober.ru, :80 {
+hermes-agent-ai.ru, www.hermes-agent-ai.ru {
 	encode gzip
 	reverse_proxy hermes:8080
 }

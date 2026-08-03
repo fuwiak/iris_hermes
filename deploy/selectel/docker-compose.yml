@@ -1,4 +1,4 @@
-# Selectel VDS stack for Iris Hermes (bettercallbober.ru)
+# Selectel VDS stack for Iris Hermes (hermes-agent-ai.ru)
 # Path on server: /opt/iris_hermes/deploy/selectel/
 #
 # Services: hermes dashboard + redis + postgres + caddy

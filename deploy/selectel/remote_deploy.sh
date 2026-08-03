@@ -3,7 +3,7 @@
 # Expects repo already at /opt/iris_hermes OR clones from REPO_URL.
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-bettercallbober.ru}"
+DOMAIN="${DOMAIN:-hermes-agent-ai.ru}"
 REPO_URL="${REPO_URL:-https://github.com/fuwiak/iris_hermes.git}"
 APP_DIR="${APP_DIR:-/opt/iris_hermes}"
 DEPLOY_DIR="${APP_DIR}/deploy/selectel"
