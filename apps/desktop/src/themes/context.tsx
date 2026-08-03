@@ -181,10 +181,12 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   const root = document.documentElement
   const c = theme.colors
   const typo = { ...DEFAULT_TYPOGRAPHY, ...irisTheme.typography, ...theme.typography }
-  const rendered = renderedModeFor(c, mode)
+  const skinName = theme.name.endsWith(`-${mode}`) ? theme.name.slice(0, -mode.length - 1) : theme.name
+  // Iris/Slacc is a light cream brand — never apply .dark chrome.
+  const forceLight = skinName === 'iris'
+  const rendered = forceLight ? 'light' : renderedModeFor(c, mode)
   const isDark = rendered === 'dark'
   const midground = c.midground ?? c.ring
-  const skinName = theme.name.endsWith(`-${mode}`) ? theme.name.slice(0, -mode.length - 1) : theme.name
 
   root.style.setProperty('color-scheme', rendered)
   root.dataset.hermesTheme = skinName
@@ -215,6 +217,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     '--dt-input': c.input,
     '--dt-ring': c.ring,
     '--dt-muted': c.muted,
+    '--dt-muted-foreground': c.mutedForeground,
     '--dt-midground-foreground': c.midgroundForeground ?? readableOn(midground),
     '--dt-composer-ring': c.composerRing ?? midground,
     '--dt-destructive': c.destructive,
@@ -224,6 +227,16 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     '--dt-font-sans': typo.fontSans,
     '--dt-font-mono': typo.fontMono,
     '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)'
+  }
+
+  if (forceLight) {
+    palette['--dt-foreground'] = c.foreground
+    palette['--dt-card-foreground'] = c.cardForeground
+    palette['--dt-popover-foreground'] = c.popoverForeground
+    palette['--muted-foreground'] = c.mutedForeground
+    palette['--ui-text-primary'] = c.foreground
+    palette['--ui-text-secondary'] = c.mutedForeground
+    palette['--ui-text-tertiary'] = c.mutedForeground
   }
 
   for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {
@@ -241,7 +254,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   // they let a brand-new window paint the themed background on its very first
   // frame, before this module has even loaded.
   try {
-    window.localStorage.setItem('hermes-boot-background', chromeBg)
+    window.localStorage.setItem('hermes-boot-background', forceLight ? c.background : chromeBg)
     window.localStorage.setItem('hermes-boot-color-scheme', rendered)
   } catch {
     // Storage may be unavailable (private mode / quota); the inline script

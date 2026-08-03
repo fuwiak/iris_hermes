@@ -218,7 +218,7 @@ export const irisTheme: DashboardTheme = {
   palette: {
     background: { hex: "#f4ede4", alpha: 1 },
     midground: { hex: "#4a154b", alpha: 1 },
-    foreground: { hex: "#1d1d1d", alpha: 0 },
+    foreground: { hex: "#1d1d1d", alpha: 1 },
     warmGlow: "rgba(74, 21, 75, 0.14)",
     noiseOpacity: 0,
   },
@@ -245,7 +245,7 @@ export const irisTheme: DashboardTheme = {
     accent: "#f9f0ff",
     accentForeground: "#1d1d1d",
     muted: "#f9f0ff",
-    mutedForeground: "#696969",
+    mutedForeground: "#3d3d3d",
     border: "#e6e6e6",
     card: "#ffffff",
     cardForeground: "#1d1d1d",

@@ -54,9 +54,10 @@
 
 :root {
   /* Iris / DESIGN.md tokens — first paint before ThemeProvider mounts. */
-  --foreground: color-mix(in srgb, #1d1d1d 0%, transparent);
+  /* Opaque ink for first paint — alpha-0 glass overlay made text unreadable. */
+  --foreground: #1d1d1d;
   --foreground-base: #1d1d1d;
-  --foreground-alpha: 0;
+  --foreground-alpha: 1;
   --midground: color-mix(in srgb, #4a154b 100%, transparent);
   --midground-base: #4a154b;
   --midground-alpha: 1;
@@ -104,6 +105,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  color: var(--foreground-base, #1d1d1d);
   /* Slacc pastel-mesh under cream canvas (DESIGN.md). */
   background-color: #f4ede4;
   background-image:
@@ -170,7 +172,7 @@ code { font-size: 0.875rem; }
   --color-muted: #f9f0ff;
   /* Routes the shadcn `muted-foreground` slot through a readable ink-mute
      so labels and captions stay legible on cream canvas. */
-  --color-muted-foreground: #454545;
+  --color-muted-foreground: #3d3d3d;
   --color-accent: #f9f0ff;
   --color-accent-foreground: var(--foreground-base);
   --color-destructive: #cc4117;
@@ -192,7 +194,7 @@ code { font-size: 0.875rem; }
 /* Plugins page — force Iris lavender surfaces + ink text (no black cards). */
 .iris-plugins-page {
   --iris-plugins-ink: #1d1d1d;
-  --iris-plugins-mute: #696969;
+  --iris-plugins-mute: #3d3d3d;
   --iris-plugins-canvas: #f4ede4;
   --iris-plugins-lavender: #f9f0ff;
   --iris-plugins-surface: #ffffff;

@@ -287,7 +287,7 @@ const irisColors = {
   card: '#ffffff',
   cardForeground: '#1d1d1d',
   muted: '#f9f0ff',
-  mutedForeground: '#696969',
+  mutedForeground: '#3d3d3d',
   popover: '#ffffff',
   popoverForeground: '#1d1d1d',
   primary: '#4a154b',

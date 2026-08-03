@@ -19,9 +19,9 @@
         let bg = localStorage.getItem('hermes-boot-background')
         let scheme = localStorage.getItem('hermes-boot-color-scheme')
         if (!bg) {
-          const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
-          bg = dark ? '#2a0f2e' : '#f4ede4'
-          scheme = dark ? 'dark' : 'light'
+          // Iris/Slacc is light-only cream — never boot to dark aubergine.
+          bg = '#f4ede4'
+          scheme = 'light'
         }
         document.documentElement.style.backgroundColor = bg
         if (scheme === 'dark' || scheme === 'light') {

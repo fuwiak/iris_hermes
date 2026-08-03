@@ -535,31 +535,66 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris / Slacc — pastel-mesh chrome (peach + lavender + dusty green). */
+  /* Iris / Slacc — solid ink on cream (no translucent color-mix text). */
   :root[data-hermes-theme='iris'] {
+    --theme-neutral-chrome: #f4ede4;
+    --theme-neutral-sidebar: #f9f0ff;
+    --theme-neutral-card: #ffffff;
     --ui-link: #1264a3;
     --ui-link-hover: #3860be;
-    --ui-text-secondary: #696969;
+    /* Opaque ladders — translucent mixes wash out on cream/lavender. */
+    --ui-text-primary: #1d1d1d;
+    --ui-text-secondary: #3d3d3d;
+    --ui-text-tertiary: #525252;
+    --ui-text-quaternary: #616161;
+    --conversation-scaffold-text: #3d3d3d;
+    --conversation-scaffold-meta: #525252;
+    --dt-foreground: #1d1d1d;
+    --dt-card-foreground: #1d1d1d;
+    --dt-popover-foreground: #1d1d1d;
+    --dt-muted-foreground: #3d3d3d;
+    --dt-secondary-foreground: #1d1d1d;
+    --dt-accent-foreground: #1d1d1d;
+    --dt-primary-foreground: #ffffff;
+    --muted-foreground: #3d3d3d;
+    --ui-inline-code-foreground: #1d1d1d;
+    --ui-widget-surface-background: #ffffff;
     --slacc-mesh:
       radial-gradient(ellipse 80% 60% at 15% 10%, rgba(255, 240, 230, 0.9), transparent 55%),
       radial-gradient(ellipse 70% 50% at 85% 20%, rgba(233, 216, 255, 0.75), transparent 50%),
       radial-gradient(ellipse 60% 45% at 50% 90%, rgba(210, 230, 210, 0.45), transparent 55%),
       linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+    color-scheme: light;
   }
 
   :root[data-hermes-theme='iris'] body,
   :root[data-hermes-theme='iris'] #root {
     background-image: var(--slacc-mesh);
     background-color: #f4ede4;
+    color: #1d1d1d;
   }
 
-  /* Iris without darkColors stays cream even under OS dark preference. */
+  /* Cream chrome even if .dark class leaks from OS preference. */
   :root.dark[data-hermes-theme='iris'] {
     --theme-neutral-chrome: #f4ede4;
     --theme-neutral-sidebar: #f9f0ff;
     --theme-neutral-card: #ffffff;
     --ui-widget-surface-background: #ffffff;
+    --ui-text-primary: #1d1d1d;
+    --ui-text-secondary: #3d3d3d;
+    --ui-text-tertiary: #525252;
+    --ui-text-quaternary: #616161;
+    --dt-foreground: #1d1d1d;
+    --dt-muted-foreground: #3d3d3d;
+    --muted-foreground: #3d3d3d;
     color-scheme: light;
+  }
+
+  /* Scaffold fade was washing tool/thinking rows — keep nearly opaque on Iris. */
+  :root[data-hermes-theme='iris']
+    [data-slot='aui_assistant-message-content']
+    [data-conversation-scaffold] {
+    opacity: 0.92;
   }
 
   /* Settings ▸ Plugins — lavender panel, ink text (Iris readability). */
@@ -572,8 +607,8 @@
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
     --ui-text-primary: #1d1d1d;
-    --ui-text-secondary: #696969;
-    --ui-text-tertiary: #696969;
+    --ui-text-secondary: #3d3d3d;
+    --ui-text-tertiary: #525252;
   }
 
   .iris-plugins-settings {
@@ -592,7 +627,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #696969 !important;
+    color: #3d3d3d !important;
   }
 
   * {
@@ -822,7 +857,7 @@
   inset: 0;
   padding: inherit;
   overflow: hidden;
-  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  color: var(--muted-foreground, var(--dt-muted-foreground, #3d3d3d));
   /* One line, clipped — the hint states the field's purpose; it never reflows
      the box it sits in. A narrow composer or a long locale string would
      otherwise wrap and double the empty composer's height. */
