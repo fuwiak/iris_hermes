@@ -543,6 +543,39 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 92%, #2a0f2e);
   }
 
+  /* Settings ▸ Plugins — lavender panel, ink text (Iris readability). */
+  .iris-plugins-settings {
+    color: #1d1d1d;
+    color-scheme: light;
+  }
+
+  .iris-plugins-settings,
+  [data-hermes-theme='iris'] [data-settings-view='plugins'],
+  :root[data-hermes-theme='iris'] .iris-plugins-settings {
+    --ui-text-primary: #1d1d1d;
+    --ui-text-secondary: #454545;
+    --ui-text-tertiary: #5c5c5c;
+  }
+
+  .iris-plugins-settings {
+    padding: 0.75rem 0.85rem 1.25rem;
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at 10% 0%, #f9f0ff, transparent 45%),
+      linear-gradient(180deg, #f9f0ff 0%, #f4ede4 100%);
+    color: #1d1d1d;
+  }
+
+  .iris-plugins-settings p,
+  .iris-plugins-settings span,
+  .iris-plugins-settings label {
+    color: inherit;
+  }
+
+  .iris-plugins-settings .text-muted-foreground {
+    color: #454545 !important;
+  }
+
   * {
     box-sizing: border-box;
     border-color: var(--dt-border);

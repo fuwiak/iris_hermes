@@ -97,6 +97,7 @@ export function PluginsSettings() {
 
   return (
     <SettingsContent>
+      <div className="iris-plugins-settings">
       <SectionHeading icon={Package} meta={p.count(rows.length)} title={p.title} />
       <p className="mb-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">{p.blurb}</p>
 
@@ -121,12 +122,13 @@ export function PluginsSettings() {
       {rows.length === 0 ? (
         <EmptyState title={p.empty} />
       ) : (
-        <div className="divide-y divide-(--ui-stroke-tertiary)">
+        <div className="divide-y divide-(--ui-stroke-tertiary) rounded-xl border border-(--ui-stroke-tertiary) bg-[color-mix(in_srgb,#f9f0ff_88%,#ffffff)] px-1">
           {rows.map(record => (
             <PluginRow key={record.id} record={record} />
           ))}
         </div>
       )}
+      </div>
     </SettingsContent>
   )
 }

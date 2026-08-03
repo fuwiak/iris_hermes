@@ -517,7 +517,7 @@ export default function PluginsPage() {
     memoryConfig?.fields.filter((field) => fieldIsVisible(field, memoryValues)) ?? [];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="iris-plugins-page flex flex-col gap-4">
       <PluginSlot name="plugins:top" />
 
       <div className={cn("flex w-full flex-col gap-8")}>

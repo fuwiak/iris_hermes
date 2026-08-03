@@ -182,6 +182,91 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
+/* Plugins page — force Iris lavender surfaces + ink text (no black cards). */
+.iris-plugins-page {
+  --iris-plugins-ink: #1d1d1d;
+  --iris-plugins-mute: #454545;
+  --iris-plugins-canvas: #f4ede4;
+  --iris-plugins-lavender: #f9f0ff;
+  --iris-plugins-surface: #ffffff;
+  --iris-plugins-primary: #4a154b;
+  --iris-plugins-border: #e6e6e6;
+
+  color: var(--iris-plugins-ink);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249, 240, 255, 0.95), transparent 42%),
+    linear-gradient(180deg, #f9f0ff 0%, #f4ede4 55%, #efe4f6 100%);
+  border-radius: 1rem;
+  padding: 1rem 1.1rem 1.5rem;
+}
+
+.iris-plugins-page,
+.iris-plugins-page * {
+  color-scheme: light;
+}
+
+.iris-plugins-page [data-slot="card"],
+.iris-plugins-page .rounded-xl,
+.iris-plugins-page .rounded-lg,
+.iris-plugins-page [class*="bg-card"],
+.iris-plugins-page [class*="bg-background"] {
+  background-color: var(--iris-plugins-surface) !important;
+  color: var(--iris-plugins-ink) !important;
+  border-color: var(--iris-plugins-border) !important;
+}
+
+.iris-plugins-page h1,
+.iris-plugins-page h2,
+.iris-plugins-page h3,
+.iris-plugins-page [data-slot="card-title"],
+.iris-plugins-page .text-foreground,
+.iris-plugins-page .text-midground {
+  color: var(--iris-plugins-primary) !important;
+}
+
+.iris-plugins-page .text-muted-foreground,
+.iris-plugins-page .text-text-secondary,
+.iris-plugins-page .text-text-tertiary,
+.iris-plugins-page .text-text-primary {
+  color: var(--iris-plugins-mute) !important;
+}
+
+.iris-plugins-page code,
+.iris-plugins-page pre,
+.iris-plugins-page .font-mono,
+.iris-plugins-page .font-mono-ui,
+.iris-plugins-page [class*="bg-background/"] {
+  background-color: var(--iris-plugins-lavender) !important;
+  color: var(--iris-plugins-ink) !important;
+  border-color: color-mix(in srgb, var(--iris-plugins-primary) 18%, white) !important;
+}
+
+.iris-plugins-page button,
+.iris-plugins-page [role="button"] {
+  color: var(--iris-plugins-ink);
+}
+
+.iris-plugins-page button[class*="bg-primary"],
+.iris-plugins-page [data-variant="default"] {
+  background-color: var(--iris-plugins-primary) !important;
+  color: #ffffff !important;
+  border-color: var(--iris-plugins-primary) !important;
+}
+
+.iris-plugins-page input,
+.iris-plugins-page select,
+.iris-plugins-page textarea,
+.iris-plugins-page [role="combobox"] {
+  background-color: var(--iris-plugins-surface) !important;
+  color: var(--iris-plugins-ink) !important;
+  border-color: var(--iris-plugins-border) !important;
+}
+
+.iris-plugins-page ul li,
+.iris-plugins-page [class*="border-current"] {
+  border-color: color-mix(in srgb, var(--iris-plugins-primary) 16%, white) !important;
+}
+
 
 /* Collapsed sidebar tooltip entrance — skipped when moving between items. */
 @keyframes sidebar-tooltip-in {
