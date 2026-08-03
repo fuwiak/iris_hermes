@@ -76,8 +76,10 @@ function Kbd({ children, className, size, variant, ...props }: KbdProps) {
   )
 }
 
-interface KbdGroupProps extends Omit<React.ComponentProps<'span'>, 'children'>, VariantProps<typeof kbdVariants> {
+interface KbdGroupProps extends Omit<React.ComponentProps<'span'>, 'children' | 'size'> {
   keys: string[]
+  size?: 'md' | 'sm'
+  variant?: VariantProps<typeof kbdVariants>['variant']
 }
 
 function KbdGroup({ className, keys, size, variant, ...props }: KbdGroupProps) {

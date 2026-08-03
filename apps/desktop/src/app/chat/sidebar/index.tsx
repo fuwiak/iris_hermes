@@ -431,7 +431,10 @@ export function ChatSidebar({
   // profile in, grouped by profile below. Single-profile users land here with
   // scope === their only profile, so nothing is filtered out.
   const visibleSessions = useMemo(
-    () => (showAllProfiles ? sessions : sessions.filter(s => normalizeProfileKey(s.profile) === profileScope)),
+    () =>
+      showAllProfiles
+        ? sessions
+        : sessions.filter((session: SessionInfo) => normalizeProfileKey(session.profile) === profileScope),
     [sessions, showAllProfiles, profileScope]
   )
 
@@ -442,7 +445,7 @@ export function ChatSidebar({
     [visibleSessions]
   )
 
-  const workingSessionIdSet = useMemo(() => new Set(workingSessionIds), [workingSessionIds])
+  const workingSessionIdSet = useMemo(() => new Set<string>(workingSessionIds), [workingSessionIds])
 
   // Index sessions by every id a pin might be stored under — recents, cron,
   // AND messaging, since all three can be pinned (see session-index.ts).
@@ -657,7 +660,7 @@ export function ChatSidebar({
     }
 
     const sorted = sortProjectsForOverview(
-      filterVisibleProjects(projectTree, dismissedAutoProjects).map(project =>
+      filterVisibleProjects<SidebarProjectTree>(projectTree, dismissedAutoProjects).map(project =>
         excludeProjectSessions(
           {
             ...project,
@@ -1181,7 +1184,7 @@ export function ChatSidebar({
                       !isInteractive &&
                         'cursor-default hover:border-transparent hover:bg-transparent hover:text-inherit'
                     )}
-                    onClick={event => {
+                    onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                       if (item.onSelect) {
                         item.onSelect(event)
 
@@ -1213,7 +1216,7 @@ export function ChatSidebar({
                       <KbdGroup
                         className={cn('ml-auto opacity-55', newSessionKbdFlash && 'opacity-100!')}
                         keys={newSessionKbd}
-                        size="sm"
+                        size={'sm'}
                       />
                     )}
                   </SidebarMenuButton>
@@ -1356,7 +1359,7 @@ export function ChatSidebar({
                           <Button
                             aria-label={s.showProjects}
                             className={HEADER_NAV_BTN}
-                            onClick={event => {
+                            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                               event.stopPropagation()
                               exitProjectScope()
                             }}
@@ -1375,7 +1378,7 @@ export function ChatSidebar({
                           <Button
                             aria-label={agentsGrouped ? s.projects.newButton : s.nav['new-session']}
                             className={HEADER_ACTION_BTN}
-                            onClick={event => {
+                            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                               event.stopPropagation()
 
                               if (agentsGrouped) {
@@ -1400,7 +1403,7 @@ export function ChatSidebar({
                                 HEADER_NAV_BTN,
                                 agentsGrouped && 'bg-(--ui-control-active-background) text-foreground opacity-100'
                               )}
-                              onClick={event => {
+                              onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                                 event.stopPropagation()
                                 setSidebarRecentsOpen(true)
                                 setSidebarAgentsGrouped(!agentsGrouped)
