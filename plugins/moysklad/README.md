@@ -1,6 +1,8 @@
 # moysklad plugin — МойСклад Remap 1.2
 
-Opt-in standalone plugin: agent tools + dashboard tab **Клиенты** (`/clients`).
+Opt-in standalone plugin: agent tools + dashboard tab **Клиенты** (`/clients`
+with in-page **Рассылки**) + Hermes One sidebar **Клиенты** / **Рассылки** /
+**Plugins**.
 Same enable pattern as `google_meet`.
 
 ## Quick start
@@ -35,7 +37,8 @@ hermes plugins disable moysklad
 | Piece | Role |
 |---|---|
 | 7 model tools (`toolset=moysklad`) | Health, counterparties, orders, positions, channels, push tags, CRM tabs |
-| Dashboard tab **Клиенты** | Маркетплейс / Прямые filters, group cloud, heuristic «Предложить группы» |
+| Dashboard tab **Клиенты** | Маркетплейс / Прямые + in-page **Рассылки** drafts |
+| Hermes One plugin | Sidebar Клиенты / Рассылки / Plugins (Settings) |
 | `skills/productivity/moysklad-crm-tabs` | Agent guidance for tab rules |
 
 ## Agent tools

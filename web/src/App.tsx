@@ -211,13 +211,14 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: Cpu,
   },
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
+  // Plugins early — Iris users need to enable MoySklad / other tabs from here.
+  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   // Hermes One (desktop) views below — Discover lives inside /chat's sidebar.
   { path: "/command-center", label: "Command Center", icon: Command },
   { path: "/agents", label: "Agents", icon: Bot },
   { path: "/artifacts", label: "Artifacts", icon: Package },
   { path: "/starmap", label: "Starmap", icon: Star },
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   { path: "/mcp", label: "MCP", icon: Plug },
   { path: "/channels", label: "Channels", icon: Radio },
   { path: "/webhooks", label: "Webhooks", icon: Webhook },

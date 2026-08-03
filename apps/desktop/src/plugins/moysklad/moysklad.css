@@ -1,0 +1,230 @@
+/* MoySklad CRM desktop plugin — Iris / DESIGN.md cream + aubergine */
+
+.ms-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 2rem;
+  min-height: 100%;
+  box-sizing: border-box;
+  background: #f4ede4;
+  color: #1d1d1d;
+}
+
+.ms-page h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1d1d1d;
+}
+
+.ms-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ms-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ms-muted {
+  margin: 0.25rem 0 0;
+  color: #454545;
+  font-size: 0.9rem;
+}
+
+.ms-error {
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, #cc4117 12%, #fff);
+  color: #cc4117;
+  font-weight: 600;
+}
+
+.ms-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ms-filter-tab {
+  appearance: none;
+  border: 2px solid #4a154b;
+  background: #f9f0ff;
+  color: #1d1d1d;
+  border-radius: 90px;
+  padding: 0.4rem 0.95rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ms-filter-tab.is-active,
+.ms-filter-tab:hover {
+  background: #4a154b;
+  color: #ffffff;
+}
+
+.ms-tab-count {
+  margin-left: 0.3rem;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.ms-search input {
+  width: min(100%, 28rem);
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 0.4rem;
+  background: #ffffff;
+  color: #1d1d1d;
+  font: inherit;
+}
+
+.ms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ms-chip {
+  appearance: none;
+  border: 1px solid #e6e6e6;
+  background: #ffffff;
+  color: #1d1d1d;
+  border-radius: 90px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ms-chip.is-active {
+  border-color: #4a154b;
+  background: #f9f0ff;
+  color: #4a154b;
+}
+
+.ms-chip span {
+  margin-left: 0.25rem;
+  opacity: 0.65;
+}
+
+.ms-btn {
+  appearance: none;
+  border: 1px solid #e6e6e6;
+  background: #ffffff;
+  color: #1d1d1d;
+  border-radius: 90px;
+  padding: 0.45rem 1rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ms-btn-primary {
+  background: #4a154b;
+  border-color: #4a154b;
+  color: #ffffff;
+}
+
+.ms-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ms-table-wrap {
+  overflow: auto;
+  border: 1px solid #e6e6e6;
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.ms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ms-table th,
+.ms-table td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.ms-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #454545;
+  background: #f9f0ff;
+}
+
+.ms-campaign-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 40rem;
+  padding: 1rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.ms-campaign-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ms-campaign-form input,
+.ms-campaign-form select,
+.ms-campaign-form textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #1d1d1d;
+}
+
+.ms-section-title {
+  margin: 0.5rem 0 0;
+  font-size: 1.05rem;
+}
+
+.ms-campaign-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ms-campaign-card {
+  border: 1px solid #e6e6e6;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  background: #ffffff;
+}
+
+.ms-campaign-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.ms-campaign-offer {
+  margin: 0.55rem 0 0;
+  white-space: pre-wrap;
+  color: #454545;
+}
