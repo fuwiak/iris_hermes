@@ -120,7 +120,17 @@ export default defineConfig({
     tailwindcss(),
     hermesDevToken(),
     desktopAtAlias(),
-    resolveDepsFromWeb(["web-haptics"]),
+    // Bare imports from apps/desktop miss web/node_modules in Docker
+    // (`cd web && npm install`). Keep this list in sync with deps that
+    // desktop UI/hosts import but web/src may never touch first.
+    resolveDepsFromWeb([
+      "web-haptics",
+      "radix-ui",
+      "class-variance-authority",
+      "cmdk",
+      "unicode-animations",
+      "motion",
+    ]),
   ],
   resolve: {
     alias: [
@@ -167,6 +177,7 @@ export default defineConfig({
       "@assistant-ui/react",
       "@nous-research/ui",
       "web-haptics",
+      "radix-ui",
     ],
   },
   optimizeDeps: {
