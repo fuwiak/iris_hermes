@@ -97,10 +97,18 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
     }
   )
 
-  it('draws the mark as a filled circle', () => {
+  it('draws the mark as a filled aubergine circle', () => {
     const block = css.slice(css.indexOf('.hermes-one-mark {'))
 
     expect(block).toContain('border-radius: 999px')
-    expect(block).toContain('background: #050505')
+    expect(block).toContain('background: var(--theme-primary, #4a154b)')
+    expect(block).not.toContain('background: #050505')
+  })
+
+  it('keeps suggestion chip text readable on cream (no black chips)', () => {
+    const block = css.slice(css.indexOf('.hermes-one-suggestions button {'))
+
+    expect(block).toContain('color: var(--ui-text-primary, #1d1d1d)')
+    expect(block).not.toContain('background: #1a1a1a')
   })
 })

@@ -142,20 +142,20 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #17171a;
-    --theme-primary: #0053fd;
-    --theme-secondary: color-mix(in srgb, #0053fd 7%, #ffffff);
-    --theme-accent-soft: color-mix(in srgb, #0053fd 10%, #ffffff);
-    --theme-midground: #0053fd;
-    --theme-warm: #cf806d;
-    --theme-background-seed: #f8faff;
-    --theme-sidebar-seed: #f3f7ff;
+    --theme-foreground: #1d1d1d;
+    --theme-primary: #4a154b;
+    --theme-secondary: #f9f0ff;
+    --theme-accent-soft: #f9f0ff;
+    --theme-midground: #4a154b;
+    --theme-warm: #8752c1;
+    --theme-background-seed: #f4ede4;
+    --theme-sidebar-seed: #f9f0ff;
     --theme-card-seed: #ffffff;
     --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: color-mix(in srgb, #0053fd 6%, #ffffff);
-    --theme-neutral-chrome: #f3f3f3;
-    --theme-neutral-sidebar: #f3f3f3;
-    --theme-neutral-card: #fcfcfc;
+    --theme-bubble-seed: #f9f0ff;
+    --theme-neutral-chrome: #f4ede4;
+    --theme-neutral-sidebar: #f9f0ff;
+    --theme-neutral-card: #ffffff;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 22%;
@@ -533,6 +533,14 @@
        touch — still clearly a surface, no longer the brightest thing in the
        transcript. Derived from the card so every skin follows its own seed. */
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
+  }
+
+  /* Iris dark: aubergine surfaces, never pure black neutrals. */
+  :root.dark[data-hermes-theme='iris'] {
+    --theme-neutral-chrome: #2a0f2e;
+    --theme-neutral-sidebar: #220c26;
+    --theme-neutral-card: #3a1840;
+    --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 92%, #2a0f2e);
   }
 
   * {
@@ -1367,14 +1375,12 @@ text-* variant utilities. */ .btn-arc {
 }
 
 /* ── Hermes One intro ──────────────────────────────────────────────────────
-   The new-chat empty state (components/chat/intro.tsx): round HERMES ONE mark,
-   headline, subtitle, suggestion chips. These live here — NOT only in the
-   dashboard's hermes-one-web.css — so Electron and the web embed paint the
-   same screen. The web sheet only re-scopes/overrides them for its host
-   element; without this block the Electron intro rendered unstyled. */
+   New-chat empty state. Tokens follow DESIGN.md / Iris (cream canvas,
+   aubergine primary, ink text). No hardcoded black — black chips on cream
+   made labels invisible. Electron + web embed share these rules. */
 [data-hermes-one-intro] {
   gap: 0;
-  color: #f2f2f2;
+  color: var(--ui-text-primary, #1d1d1d);
 }
 
 .hermes-one-mark {
@@ -1386,35 +1392,38 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: #050505;
-  color: white;
-  font-family: Impact, 'Arial Narrow', sans-serif;
+  background: var(--theme-primary, #4a154b);
+  color: var(--dt-primary-foreground, #ffffff);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   line-height: 0.85;
   letter-spacing: -0.04em;
 }
 
 .hermes-one-mark span {
   font-size: 1.3rem;
+  font-weight: 700;
 }
 
 .hermes-one-mark strong {
   font-size: 2.25rem;
+  font-weight: 700;
 }
 
 [data-hermes-one-intro] h1 {
   margin: 0;
+  color: var(--ui-text-primary, #1d1d1d);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.035em;
 }
 
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: #9d9d9d;
+  color: var(--ui-text-secondary, #454545);
   font-size: 1.05rem;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 
 .hermes-one-suggestions {
@@ -1431,12 +1440,14 @@ text-* variant utilities. */ .btn-arc {
   cursor: pointer;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.7rem 1.1rem;
-  border: 1px solid rgb(255 255 255 / 7%);
-  border-radius: 0.85rem;
-  background: #1a1a1a;
-  color: #b9b9b9;
-  font-size: 0.98rem;
+  padding: 0.7rem 1.75rem;
+  border: 2px solid var(--theme-primary, #4a154b);
+  border-radius: 90px;
+  background: var(--theme-accent-soft, #f9f0ff);
+  color: var(--ui-text-primary, #1d1d1d);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
   transition:
     border-color 120ms ease,
     background-color 120ms ease,
@@ -1445,9 +1456,9 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-suggestions button:hover,
 .hermes-one-suggestions button:focus-visible {
-  border-color: rgb(255 255 255 / 16%);
-  background: #242424;
-  color: #f1f1f1;
+  border-color: var(--theme-primary, #4a154b);
+  background: var(--theme-primary, #4a154b);
+  color: var(--dt-primary-foreground, #ffffff);
   outline: none;
 }
 
