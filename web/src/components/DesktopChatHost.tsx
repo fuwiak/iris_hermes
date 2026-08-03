@@ -53,9 +53,23 @@ function getQueryClient(): QueryClient {
   return queryClient;
 }
 
+function parseDesktopPath(path: string): { pathname: string; search: string } {
+  const q = path.indexOf("?");
+  if (q === -1) return { pathname: path || "/", search: "" };
+  return {
+    pathname: path.slice(0, q) || "/",
+    search: path.slice(q), // includes leading '?'
+  };
+}
+
+function isSettingsDesktopPath(path: string): boolean {
+  return parseDesktopPath(path).pathname === "/settings";
+}
+
 /**
  * Sync dashboard → desktop ONLY when the dashboard path prop changes.
  * Never re-assert on every render — that wiped in-app sidebar navigation.
+ * `path` may include a query (e.g. `/settings?tab=keys`).
  */
 function DesktopRouteSync({ path }: { path: string }) {
   const navigate = useNavigate();
@@ -64,7 +78,8 @@ function DesktopRouteSync({ path }: { path: string }) {
   useEffect(() => {
     if (lastSynced.current === path) return;
     lastSynced.current = path;
-    navigate(path, { replace: true });
+    const { pathname, search } = parseDesktopPath(path);
+    navigate({ pathname, search }, { replace: true });
   }, [navigate, path]);
 
   return null;
@@ -85,6 +100,12 @@ function DesktopTree({
   RootTooltipProvider: React.ComponentType<{ children: React.ReactNode }>;
   path: string;
 }) {
+  // Remount router when entering/leaving Settings so `/settings` always opens
+  // the Electron Settings overlay (same SettingsView as desktop) — not a stale
+  // chat route left over from a previous dashboard tab.
+  const routerKey = isSettingsDesktopPath(path) ? `settings:${path}` : "shell";
+  const initialPath = isSettingsDesktopPath(path) ? path : path.startsWith("/") ? path : "/";
+
   return (
     <StrictMode>
       <div
@@ -106,7 +127,11 @@ function DesktopTree({
             <ThemeProvider>
               <HapticsProvider>
                 <RootTooltipProvider>
-                  <MemoryRouter initialEntries={[path]} useTransitions={false}>
+                  <MemoryRouter
+                    key={routerKey}
+                    initialEntries={[initialPath]}
+                    useTransitions={false}
+                  >
                     <DesktopRouteSync path={path} />
                     <DesktopApp />
                   </MemoryRouter>

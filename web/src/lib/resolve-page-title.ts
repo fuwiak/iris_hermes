@@ -11,6 +11,7 @@ const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
   "/plugins": "plugins",
   "/profiles": "profiles",
   "/config": "config",
+  "/settings": "config",
   "/env": "keys",
   "/docs": "documentation",
 };

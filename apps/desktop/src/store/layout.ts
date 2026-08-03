@@ -9,10 +9,9 @@ import { arraysEqual, insertUniqueId, readKey } from '@/lib/storage'
 
 import { $paneStates, ensurePaneRegistered, setPaneOpen, setPaneWidthOverride, togglePane } from './panes'
 
-const HERMES_ONE_WEB = typeof window !== 'undefined' && window.__HERMES_ONE_WEB__ === true
-
-export const SIDEBAR_DEFAULT_WIDTH = HERMES_ONE_WEB ? 390 : 237
-export const SIDEBAR_MAX_WIDTH = HERMES_ONE_WEB ? 430 : 360
+// Hermes One is the only desktop presentation — wider sidebar than legacy stock.
+export const SIDEBAR_DEFAULT_WIDTH = 390
+export const SIDEBAR_MAX_WIDTH = 430
 // Open at the same width as the sessions sidebar so the two rails match, but
 // allow shrinking well below that (~30% under the old 14rem floor) for users who
 // want a narrow tree.

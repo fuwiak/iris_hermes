@@ -48,7 +48,6 @@ import {
   RefreshCw,
   Settings,
   Settings2,
-  SlidersHorizontal,
   Starmap,
   Sun,
   Users,
@@ -87,7 +86,6 @@ import { isUserTheme, resolveTheme } from '@/themes/user-themes'
 import { openSession, openSessionIntentFromModifiers } from '../open-session'
 import {
   AGENTS_ROUTE,
-  ARTIFACTS_ROUTE,
   COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
@@ -780,7 +778,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             action: 'nav.skills',
             icon: Wrench,
             id: 'nav-skills',
-            keywords: ['skills', 'tools', 'toolsets', 'mcp', 'capabilities'],
+            keywords: ['skills', 'tools', 'discover', 'mcp', 'hub'],
             label: cc.nav.skills.title,
             run: go(SKILLS_ROUTE)
           },
@@ -795,8 +793,9 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             action: 'nav.artifacts',
             icon: Package,
             id: 'nav-artifacts',
+            keywords: ['kanban', 'board', 'tasks', 'artifacts'],
             label: cc.nav.artifacts.title,
-            run: go(ARTIFACTS_ROUTE)
+            run: go('/kanban')
           },
           {
             action: 'nav.cron',
@@ -997,34 +996,26 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
       })
     }
 
-    // Deep-link straight to a Capabilities sub-tab. The root "Go to" entry only
-    // lands on the top-level Skills view; typing "mcp"/"tools"/"skills" should
-    // jump to the exact tab (matches the "not just the top lvl" ask).
-    const capLabel = t.commandCenter.nav.skills.title
+    // Deep-link Discover tabs (skills / MCPs). Agents & workflows are placeholders.
+    const discoverLabel = t.commandCenter.nav.skills.title
+    const d = t.skills.discover
 
     result.push({
-      heading: capLabel,
+      heading: discoverLabel,
       items: [
         {
           icon: Wrench,
-          id: 'cap-skills',
-          keywords: ['skills', 'capabilities'],
-          label: `${capLabel}: ${t.skills.tabSkills}`,
+          id: 'discover-skills',
+          keywords: ['skills', 'discover', 'hub'],
+          label: `${discoverLabel}: ${d.tabSkills}`,
           run: go(`${SKILLS_ROUTE}?tab=skills`)
         },
         {
-          icon: SlidersHorizontal,
-          id: 'cap-toolsets',
-          keywords: ['tools', 'toolsets', 'capabilities'],
-          label: `${capLabel}: ${t.skills.tabToolsets}`,
-          run: go(`${SKILLS_ROUTE}?tab=toolsets`)
-        },
-        {
           icon: Layers3,
-          id: 'cap-mcp',
-          keywords: ['mcp', 'servers', 'tools', 'capabilities', 'model context protocol'],
-          label: `${capLabel}: ${t.skills.tabMcp}`,
-          run: go(`${SKILLS_ROUTE}?tab=mcp`)
+          id: 'discover-mcps',
+          keywords: ['mcp', 'servers', 'discover', 'model context protocol'],
+          label: `${discoverLabel}: ${d.tabMcps}`,
+          run: go(`${SKILLS_ROUTE}?tab=mcps`)
         }
       ]
     })

@@ -1,7 +1,7 @@
 /**
  * ROUTE (PAGE) TILES — a full-page view rendered as a layout-tree pane BESIDE
  * the main thread, the page analog of session tiles. Built-in pages
- * (Capabilities / Messaging / Artifacts) render their view; plugin pages render
+ * (Discover / Office / Artifacts) render their view; plugin pages render
  * their `ROUTES_AREA` contribution. Lifecycle mirrors session tiles:
  * `openRouteTile(path)` -> `watchRouteTiles` registers a pane docked beside
  * main -> tree adoption lands it on the chosen edge; closing removes it.
@@ -24,8 +24,8 @@ const ArtifactsView = lazy(async () => ({ default: (await import('../artifacts')
 // Built-in page views + their pane titles, keyed by route.
 const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> = {
   [ARTIFACTS_ROUTE]: { render: () => <ArtifactsView />, title: 'Artifacts' },
-  [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: 'Messaging' },
-  [SKILLS_ROUTE]: { render: () => <SkillsView />, title: 'Capabilities' }
+  [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: 'Office' },
+  [SKILLS_ROUTE]: { render: () => <SkillsView />, title: 'Discover' }
 }
 
 /** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */

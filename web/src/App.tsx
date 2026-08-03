@@ -76,9 +76,7 @@ import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
 // Route pages are lazy-loaded so the initial dashboard shell does not pay for
 // every admin surface (and heavy deps like xterm) up front.
-const ConfigPage = lazy(() => import("@/pages/ConfigPage"));
 const DocsPage = lazy(() => import("@/pages/DocsPage"));
-const EnvPage = lazy(() => import("@/pages/EnvPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage"));
 const SessionsPage = lazy(() => import("@/pages/SessionsPage"));
 const LogsPage = lazy(() => import("@/pages/LogsPage"));
@@ -103,7 +101,10 @@ import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
 import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { latchChatActivation } from "@/lib/chat-activation";
-import { dashboardPathToDesktop } from "@/lib/desktop-path";
+import {
+  dashboardPathToDesktop,
+  isDesktopEmbedPath,
+} from "@/lib/desktop-path";
 import { api } from "@/lib/api";
 import type { StatusResponse, UpdateCheckResponse } from "@/lib/api";
 
@@ -141,14 +142,15 @@ const CHAT_NAV_ITEM: NavItem = {
   icon: Terminal,
 };
 
-/** Claims /chat + /skills so `*` does not redirect; Hermes One host paints. */
+/** Claims desktop-embed paths so `*` does not redirect; Hermes One host paints. */
 function DesktopRouteSink() {
   return null;
 }
 
 /**
- * Built-in admin routes. /chat and /skills are Hermes One only (DesktopRouteSink
- * + persistent DesktopChatHost). Do NOT wire pages/ChatPage or pages/SkillsPage.
+ * Built-in admin routes. Chat / skills / settings / keys are Hermes One only
+ * (DesktopRouteSink + persistent DesktopChatHost). Do NOT wire pages/ChatPage,
+ * pages/SkillsPage, pages/ConfigPage, or pages/EnvPage.
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
@@ -168,8 +170,10 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/system": SystemPage,
   "/profiles": ProfilesPage,
   "/profiles/new": ProfileBuilderPage,
-  "/config": ConfigPage,
-  "/env": EnvPage,
+  // Old /config bookmarks → desktop Settings (never ConfigPage).
+  "/config": () => <Navigate to="/settings" replace />,
+  "/settings": DesktopRouteSink,
+  "/env": DesktopRouteSink,
   "/docs": DocsPage,
 };
 
@@ -202,7 +206,9 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/webhooks", label: "Webhooks", icon: Webhook },
   { path: "/pairing", label: "Pairing", icon: ShieldCheck },
   { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
-  { path: "/config", labelKey: "config", label: "Config", icon: Settings },
+  // Desktop Settings overlay (apps/desktop/src/app/settings) — not ConfigPage.
+  { path: "/settings", labelKey: "config", label: "Settings", icon: Settings },
+  // Desktop Settings ▸ Keys — not EnvPage.
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
   { path: "/system", label: "System", icon: Wrench },
   {
@@ -388,14 +394,11 @@ export default function App() {
   const tooltipWarmRef = useRef(0);
   const sidebarStatus = useSidebarStatus();
   const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
-  const normalizedPath = pathname.replace(/\/$/, "") || "/";
-  const isChatRoute = normalizedPath === "/chat";
-  const isSkillsRoute = normalizedPath === "/skills";
   /** Desktop-embedded surfaces need a definite flex height (no page scroll chrome). */
-  const isDesktopEmbedRoute = isChatRoute || isSkillsRoute;
-  // Hermes One host is always on — never fall back to the old TUI/Skills pages.
+  const isDesktopEmbedRoute = isDesktopEmbedPath(pathname);
+  // Hermes One host is always on — never fall back to old dashboard pages.
   const hermesOne = true;
-  // Defer mounting until first /chat or /skills visit; sticky after that.
+  // Defer mounting until first embed visit; sticky after that.
   const [desktopHostMounted, setDesktopHostMounted] = useState(isDesktopEmbedRoute);
   useEffect(() => {
     setDesktopHostMounted((prev) => latchChatActivation(prev, isDesktopEmbedRoute));
@@ -565,7 +568,7 @@ export default function App() {
       )}
 
       <PluginSlot name="header-banner" />
-      <ProfileScopeBanner />
+      {!isDesktopEmbedRoute ? <ProfileScopeBanner /> : null}
 
       <div
         className={cn(

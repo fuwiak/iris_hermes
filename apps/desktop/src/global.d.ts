@@ -13,8 +13,6 @@ export {}
 
 declare global {
   interface Window {
-    /** Legacy Hermes One web presentation fork — keep off for Electron-parity embeds. */
-    __HERMES_ONE_WEB__?: boolean
     /** Desktop renderer hosted inside the dashboard browser (API stub bridge). */
     __HERMES_DESKTOP_EMBED__?: boolean
     hermesDesktop: {

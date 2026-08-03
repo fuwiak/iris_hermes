@@ -710,9 +710,7 @@ function TitlebarSlot({ area, className, style }: TitlebarSlotProps) {
 export function ContribController() {
   const sidebarOpen = useStore($sidebarOpen)
   const statusbarVisible = useStore($statusbarVisible)
-  const embed =
-    typeof window !== 'undefined' &&
-    (window.__HERMES_DESKTOP_EMBED__ === true || window.__HERMES_ONE_WEB__ === true)
+  const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
   // Electron owns the window → h/w-screen. Dashboard embed must fill the host
   // (h/w-full) or fixed titlebar tools position against the browser viewport
   // and steal sidebar clicks.

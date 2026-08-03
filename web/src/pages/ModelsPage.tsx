@@ -1306,7 +1306,7 @@ export default function ModelsPage() {
                   …) and provider retries, so they diverge from your provider
                   bill. Enable{" "}
                   <span className="font-mono">dashboard.show_token_analytics</span>{" "}
-                  in <a href="/config" className="underline">Config</a> to
+                  in <a href="/settings" className="underline">Settings</a> to
                   show the local debug estimate anyway.
                 </p>
               )}

@@ -101,7 +101,6 @@ import { $focusedStoredSessionId, $workingSessionIds, type SplitDir } from '@/st
 
 import {
   type AppView,
-  ARTIFACTS_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
   SIDEBAR_NAV_AREA,
@@ -132,7 +131,7 @@ import {
   StartWorkButton,
   useRepoWorktreeMap
 } from './projects'
-import { SidebarBlankState, SidebarPinnedEmptyState, SidebarSessionSkeletons } from './section-states'
+import { SidebarBlankState, SidebarSessionSkeletons } from './section-states'
 import { buildSessionByAnyId } from './session-index'
 import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
 import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
@@ -143,6 +142,7 @@ import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
 const NON_SESSION_INITIAL_ROWS = 3
 const NON_SESSION_LOAD_STEP = 10
 
+/** Hermes One primary nav — Discover / Office / Kanban / Schedules. Stock Capabilities/Messaging/Artifacts removed. */
 const SIDEBAR_NAV: SidebarNavItem[] = [
   {
     id: 'new-session',
@@ -165,19 +165,6 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     route: MESSAGING_ROUTE,
     keybindActionId: 'nav.messaging'
   },
-  {
-    id: 'artifacts',
-    label: '',
-    icon: props => <Codicon name="files" {...props} />,
-    route: ARTIFACTS_ROUTE,
-    keybindActionId: 'nav.artifacts'
-  }
-]
-
-const HERMES_ONE_WEB_NAV: SidebarNavItem[] = [
-  SIDEBAR_NAV[0]!,
-  SIDEBAR_NAV[1]!,
-  SIDEBAR_NAV[2]!,
   // Labeled "Kanban" via hermesOneNav — real board route (plugin must be on).
   {
     id: 'artifacts',
@@ -280,20 +267,22 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const { t } = useI18n()
   const s = t.sidebar
-  const hermesOneWeb = typeof window !== 'undefined' && window.__HERMES_ONE_WEB__ === true
+  const embed =
+    typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
   const appControlTools = useAppControlTools()
-  const webAppControlNav: SidebarNavItem[] = appControlTools.map(tool => ({
-    active: tool.active,
-    icon: ({ className }) => <span className={className}>{tool.icon}</span>,
-    id: `app-control-${tool.id}`,
-    keybindActionId: tool.actionId,
-    label: tool.label,
-    onSelect: event => tool.onSelect?.(event)
-  }))
-  const primaryNav = hermesOneWeb ? [...HERMES_ONE_WEB_NAV, ...webAppControlNav] : SIDEBAR_NAV
+  // Dashboard embed hides the titlebar app-control cluster — surface those tools in the nav.
+  const webAppControlNav: SidebarNavItem[] = embed
+    ? appControlTools.map(tool => ({
+        active: tool.active,
+        icon: ({ className }) => <span className={className}>{tool.icon}</span>,
+        id: `app-control-${tool.id}`,
+        keybindActionId: tool.actionId,
+        label: tool.label,
+        onSelect: event => tool.onSelect?.(event)
+      }))
+    : []
+  const primaryNav = [...SIDEBAR_NAV, ...webAppControlNav]
   const navLabel = (item: SidebarNavItem) => {
-    if (!hermesOneWeb) return s.nav[item.id] ?? item.label
-
     const labels: Record<string, string> = {
       'new-session': s.hermesOneNav.newChat,
       skills: s.hermesOneNav.discover,
@@ -318,8 +307,8 @@ export function ChatSidebar({
           return []
         }
 
-        // Hermes One primary nav already owns /kanban — skip the plugin duplicate.
-        if (hermesOneWeb && data.path === '/kanban') {
+        // Primary nav already owns /kanban — skip the plugin duplicate.
+        if (data.path === '/kanban') {
           return []
         }
 
@@ -334,7 +323,7 @@ export function ChatSidebar({
           }
         ]
       }),
-    [hermesOneWeb, navContributions]
+    [navContributions]
   )
 
   const panesFlipped = useStore($panesFlipped)
@@ -570,15 +559,7 @@ export function ChatSidebar({
     }
   }, [agentOrderIds, agentOrderManual, unpinnedAgentSessions])
 
-  const agentSessions = useMemo(
-    () =>
-      hermesOneWeb
-        ? sortedSessions
-        : agentOrderManual
-          ? orderByIds(unpinnedAgentSessions, s => s.id, agentOrderIds)
-          : unpinnedAgentSessions,
-    [agentOrderIds, agentOrderManual, hermesOneWeb, sortedSessions, unpinnedAgentSessions]
-  )
+  const agentSessions = useMemo(() => sortedSessions, [sortedSessions])
 
   // Recents are local-only: messaging-platform sessions are fetched as their
   // own slice ($messagingSessions) and rendered in self-managed per-platform
@@ -887,13 +868,7 @@ export function ChatSidebar({
   // The Sessions section is a project switcher in grouped mode: its label reads
   // "Sessions" when flat, "Projects" at the overview, and the project's name
   // once you've entered one.
-  const sessionsLabel = hermesOneWeb
-    ? s.hermesOneNav.chats
-    : inProject && enteredProject
-      ? enteredProject.label
-      : worktreeGroupingActive
-        ? s.projects.sectionLabel
-        : s.sessions
+  const sessionsLabel = s.hermesOneNav.chats
 
   // Mirror the section's skeleton gate (projectsLoading + nothing to show yet):
   // while the skeleton is up there's no point also spinning the header count.
@@ -1327,30 +1302,6 @@ export function ChatSidebar({
                 rootClassName="min-h-32 flex-1 overflow-hidden p-0"
                 sessions={searchResults}
                 showProfileTags={showAllProfiles}
-                workingSessionIdSet={workingSessionIdSet}
-              />
-            )}
-
-            {!trimmedQuery && !hermesOneWeb && (
-              <SidebarSessionsSection
-                activeSessionId={activeSidebarSessionId}
-                contentClassName={cn('flex max-h-[50vh] flex-col gap-px rounded-lg pb-2 pt-1', GROUP_BODY)}
-                dndSensors={dndSensors}
-                emptyState={<SidebarPinnedEmptyState />}
-                label={s.pinned}
-                onArchiveSession={onArchiveSession}
-                onBranchSession={onBranchSession}
-                onDeleteSession={onDeleteSession}
-                onReorderSessions={reorderPinned}
-                onResumeSession={onResumeSession}
-                onToggle={() => setSidebarPinsOpen(!pinsOpen)}
-                onTogglePin={unpinSession}
-                open={pinsOpen}
-                pinned
-                rootClassName="shrink-0 p-0 pb-1"
-                sessions={pinnedSessions}
-                showProfileTags={showAllProfiles}
-                sortable={pinnedSessions.length > 1}
                 workingSessionIdSet={workingSessionIdSet}
               />
             )}

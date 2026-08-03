@@ -1672,7 +1672,7 @@ describe('selectSidebarItem', () => {
     await waitFor(() => expect(handle).not.toBeNull())
 
     act(() => {
-      handle!.selectSidebarItem({ icon: (() => null) as never, id: 'skills', label: 'Capabilities', route: '/skills' })
+      handle!.selectSidebarItem({ icon: (() => null) as never, id: 'skills', label: 'Discover', route: '/skills' })
     })
 
     expect(navigate).toHaveBeenCalledWith('/skills', undefined)

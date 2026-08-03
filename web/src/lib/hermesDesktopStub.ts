@@ -152,8 +152,7 @@ function idleBootstrapState() {
 /** Install `window.hermesDesktop` once. Idempotent. */
 export function installHermesDesktopStub(): void {
   if (typeof window === "undefined") return;
-  // Hermes One presentation (nav labels, intro, chrome CSS) + browser bridge.
-  window.__HERMES_ONE_WEB__ = true;
+  // Browser host for the desktop renderer (Hermes One is always-on in desktop).
   window.__HERMES_DESKTOP_EMBED__ = true;
   if (window.hermesDesktop && (window as { __HERMES_DESKTOP_STUB__?: boolean }).__HERMES_DESKTOP_STUB__) {
     return;
@@ -406,7 +405,6 @@ export function installHermesDesktopStub(): void {
 declare global {
   // Desktop's full typed bridge; browser stub is structurally compatible.
   interface Window {
-    __HERMES_ONE_WEB__?: boolean;
     /** True when the desktop renderer is hosted inside the dashboard browser. */
     __HERMES_DESKTOP_EMBED__?: boolean;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

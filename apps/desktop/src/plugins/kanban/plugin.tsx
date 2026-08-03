@@ -81,10 +81,8 @@ function KanbanCount() {
 const plugin: HermesPlugin = {
   id: 'kanban',
   name: 'Kanban',
-  // Opt-in on stock Electron; on for Hermes One web / dashboard embed.
-  defaultEnabled:
-    typeof window !== 'undefined' &&
-    (window.__HERMES_ONE_WEB__ === true || window.__HERMES_DESKTOP_EMBED__ === true),
+  // Always on — Hermes One is the only desktop presentation.
+  defaultEnabled: true,
   register(ctx) {
     ctx.i18n.register(KANBAN_LOCALES)
     ctx.onDispose(bindApi(ctx.rest, ctx.storage, ctx.socket))

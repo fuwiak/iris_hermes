@@ -1112,7 +1112,7 @@ export const en: Translations = {
       emptyAgentsDesc: 'A browsable agent registry is not available in this build yet.',
       emptyWorkflowsTitle: 'Workflows coming soon',
       emptyWorkflowsDesc: 'A browsable workflow registry is not available in this build yet.',
-      mcpNeedsCredentials: 'Open Capabilities → MCP to finish installing with required credentials.'
+      mcpNeedsCredentials: 'Open Settings → MCP to finish installing with required credentials.'
     }
   },
 
@@ -1262,11 +1262,11 @@ export const en: Translations = {
       usage: 'Token, cost, and skill activity over time'
     },
     nav: {
-      newChat: { title: 'New session', detail: 'Start a fresh session' },
+      newChat: { title: 'New chat', detail: 'Start a fresh session' },
       settings: { title: 'Settings', detail: 'Configure Hermes desktop' },
-      skills: { title: 'Capabilities', detail: 'Skills, tools, and MCP servers' },
-      messaging: { title: 'Messaging', detail: 'Set up Telegram, Slack, Discord, and more' },
-      artifacts: { title: 'Artifacts', detail: 'Browse generated outputs' }
+      skills: { title: 'Discover', detail: 'Browse skills, MCP servers, agents, and workflows' },
+      messaging: { title: 'Office', detail: 'Set up Telegram, Slack, Discord, and more' },
+      artifacts: { title: 'Kanban', detail: 'Multi-agent work board' }
     },
     sectionEntries: {
       sessions: { title: 'Sessions panel', detail: 'Search, pin, and manage sessions' },
@@ -1857,10 +1857,11 @@ export const en: Translations = {
       chats: 'Chats'
     },
     nav: {
-      'new-session': 'New session',
-      skills: 'Capabilities',
-      messaging: 'Messaging',
-      artifacts: 'Artifacts'
+      'new-session': 'New Chat',
+      skills: 'Discover',
+      messaging: 'Office',
+      artifacts: 'Kanban',
+      schedules: 'Schedules'
     },
     searchAria: 'Search sessions',
     searchPlaceholder: 'Search sessions…',

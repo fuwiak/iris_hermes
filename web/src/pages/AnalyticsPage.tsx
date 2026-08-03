@@ -515,7 +515,7 @@ export default function AnalyticsPage() {
                 <span className="font-mono">
                   dashboard.show_token_analytics: true
                 </span>{" "}
-                in <a href="/config" className="underline">Config</a>.
+                in <a href="/settings" className="underline">Settings</a>.
               </p>
             </div>
           </CardContent>

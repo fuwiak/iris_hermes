@@ -184,7 +184,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const location = useLocation()
   const sidebarOpen = useStore($sidebarOpen)
   const appControlTools = useAppControlTools(onOpenSettings)
-  const hermesOneWeb = typeof window !== 'undefined' && window.__HERMES_ONE_WEB__ === true
+  const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
 
   // POSITIONAL toggles: each button shows/hides everything on its physical
   // side of the main zone (the layout tree collapses the whole side), so they
@@ -260,7 +260,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
         </div>
       )}
 
-      {!hermesOneWeb && (
+      {!embed && (
         <div
           aria-label={t.shell.appControls}
           className="fixed right-(--titlebar-tools-right) top-(--titlebar-controls-top) z-70 flex flex-row items-center justify-end gap-x-1 pointer-events-auto select-none [-webkit-app-region:no-drag]"
