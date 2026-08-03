@@ -10,26 +10,44 @@ const WEB_SRC = path.resolve(__dirname, "./src");
 const EMPTY_SHIM = path.resolve(__dirname, "./src/shims/empty-module.ts");
 
 /**
- * Desktop sources live under `apps/desktop/` and are pulled into the web
- * bundle via `@desktop`. Their bare imports (`web-haptics/react`, …) walk
- * `node_modules` from the importer path, which misses `web/node_modules`
- * in Docker/railway (`cd web && npm install`). Re-resolve those deps as if
- * the importer were the web package so both local (hoisted root) and
- * Docker (web-local) installs work.
+ * Desktop (and shared) sources live outside `web/` and are pulled into the
+ * dashboard bundle via `@desktop` / `@hermes/shared`. Their bare imports walk
+ * `node_modules` from the importer path, which misses `web/node_modules` in
+ * Docker/railway (`cd web && npm install`). Re-resolve every bare package
+ * import from those trees as if the importer were the web package so we do
+ * not play allowlist whack-a-mole on each new desktop dep.
  */
-function resolveDepsFromWeb(deps: string[]): Plugin {
+function resolveOutsideWebDepsFromWeb(): Plugin {
   const webImporter = path.resolve(__dirname, "package.json");
   const webRoot = path.resolve(__dirname) + path.sep;
+  const outsideMarkers = [
+    `${path.sep}apps${path.sep}desktop${path.sep}`,
+    `${path.sep}apps${path.sep}shared${path.sep}`,
+  ];
   return {
-    name: "hermes:resolve-deps-from-web",
+    name: "hermes:resolve-outside-web-deps-from-web",
     enforce: "pre",
     async resolveId(source, importer, options) {
-      if (!deps.some((d) => source === d || source.startsWith(`${d}/`))) {
+      if (!importer || !source) return null;
+      // Relative, absolute, virtual, and our own aliases — leave alone.
+      if (
+        source.startsWith(".") ||
+        source.startsWith("/") ||
+        source.startsWith("\0") ||
+        source.startsWith("@/") ||
+        source.startsWith("@desktop") ||
+        source.startsWith("@hermes/shared") ||
+        source.startsWith("node:")
+      ) {
         return null;
       }
-      if (importer && (importer === webImporter || importer.startsWith(webRoot))) {
+      // Node-only shims are handled by resolve.alias.
+      if (source === "electron" || source === "node-pty" || source === "simple-git") {
         return null;
       }
+      if (importer.startsWith(webRoot)) return null;
+      const fromOutside = outsideMarkers.some((m) => importer.includes(m));
+      if (!fromOutside) return null;
       return this.resolve(source, webImporter, { ...options, skipSelf: true });
     },
   };
@@ -120,17 +138,7 @@ export default defineConfig({
     tailwindcss(),
     hermesDevToken(),
     desktopAtAlias(),
-    // Bare imports from apps/desktop miss web/node_modules in Docker
-    // (`cd web && npm install`). Keep this list in sync with deps that
-    // desktop UI/hosts import but web/src may never touch first.
-    resolveDepsFromWeb([
-      "web-haptics",
-      "radix-ui",
-      "class-variance-authority",
-      "cmdk",
-      "unicode-animations",
-      "motion",
-    ]),
+    resolveOutsideWebDepsFromWeb(),
   ],
   resolve: {
     alias: [
@@ -178,6 +186,7 @@ export default defineConfig({
       "@nous-research/ui",
       "web-haptics",
       "radix-ui",
+      "@tabler/icons-react",
     ],
   },
   optimizeDeps: {
