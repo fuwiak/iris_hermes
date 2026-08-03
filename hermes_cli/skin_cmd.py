@@ -28,7 +28,7 @@ def _active_skin() -> str:
     from hermes_cli.config import load_config
 
     display = (load_config() or {}).get("display") or {}
-    return str(display.get("skin") or "default")
+    return str(display.get("skin") or "iris")
 
 
 def _use(name: str) -> None:

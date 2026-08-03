@@ -48,49 +48,42 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Hermes Agent — Nous DS with the LENS_0 (Hermes teal) palette applied
-   statically as the default dashboard theme. */
+/* Iris (DESIGN.md) — cream canvas + aubergine primary as the static
+   default dashboard theme. ThemeProvider rewrites these on switch. */
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* LENS_0 — from design-language/src/ui/components/overlays/index.tsx.
-     These are the defaults for the `default` (Hermes Teal) dashboard theme;
-     ThemeProvider rewrites them as inline styles when a user switches themes. */
-  --foreground: color-mix(in srgb, #ffffff 0%, transparent);
-  --foreground-base: #ffffff;
+  /* Iris / DESIGN.md tokens — first paint before ThemeProvider mounts. */
+  --foreground: color-mix(in srgb, #1d1d1d 0%, transparent);
+  --foreground-base: #1d1d1d;
   --foreground-alpha: 0;
-  --midground: color-mix(in srgb, #ffe6cb 100%, transparent);
-  --midground-base: #ffe6cb;
+  --midground: color-mix(in srgb, #4a154b 100%, transparent);
+  --midground-base: #4a154b;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #041c1c 100%, transparent);
-  --background-base: #041c1c;
+  --background: color-mix(in srgb, #f4ede4 100%, transparent);
+  --background-base: #f4ede4;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
-     system stack so themes that don't override look native. */
-  --theme-font-sans: system-ui, -apple-system, "Segoe UI", Roboto,
+     Inter substitute from DESIGN.md. */
+  --theme-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --theme-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo,
     Consolas, monospace;
   --theme-font-display: var(--theme-font-sans);
   --theme-base-size: 15px;
   --theme-line-height: 1.55;
-  --theme-letter-spacing: 0;
+  --theme-letter-spacing: -0.005em;
 
   /* Layout tokens. */
-  --radius: 0.5rem;
-  --theme-radius: 0.5rem;
+  --radius: 1rem;
+  --theme-radius: 1rem;
   --theme-spacing-mul: 1;
   --theme-density: comfortable;
 
-  /* Data-series accents — consumed by Analytics + Models pages for the
-     input-vs-output token visualisations (chart bars, table values,
-     legend swatches). Defaults are tuned for the Hermes-teal LENS_0
-     look: cream input + emerald-400 output read as warm/cool against
-     the dark canvas. Themes override via ThemeProvider, which emits
-     these as `--series-input-token` / `--series-output-token`. */
-  --series-input-token: #ffe6cb;
-  --series-output-token: #34d399;
+  /* Data-series accents — aubergine input + leaf green output. */
+  --series-input-token: #4a154b;
+  --series-output-token: #206b22;
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -157,33 +150,31 @@ code { font-size: 0.875rem; }
    extensively. Rather than rewrite every call site, we expose those
    tokens on top of the Nous palette so classes continue to resolve. */
 @theme inline {
-  /* Remap foreground to midground so `text-foreground` / `bg-foreground`
-     stay visible — in LENS_0, `--foreground` itself has alpha 0. */
-  --color-foreground: var(--midground);
+  /* Body/UI text uses foreground-base (ink on light themes, white on dark).
+     Midground stays the brand/CTA accent via --color-primary. */
+  --color-foreground: var(--foreground-base);
 
-  --color-card: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-card-foreground: var(--midground);
+  --color-card: #ffffff;
+  --color-card-foreground: var(--foreground-base);
   --color-primary: var(--midground);
-  --color-primary-foreground: var(--background-base);
-  --color-secondary: color-mix(in srgb, var(--midground-base) 6%, var(--background-base));
-  --color-secondary-foreground: var(--midground);
-  --color-muted: color-mix(in srgb, var(--midground-base) 8%, var(--background-base));
-  /* Routes the shadcn `muted-foreground` slot through the DS semantic
-     text-secondary token (defaults to midground 80%) so legacy call
-     sites that use `text-muted-foreground` get a readable color
-     instead of the old 55%-transparent default. */
-  --color-muted-foreground: var(--color-text-secondary);
-  --color-accent: color-mix(in srgb, var(--midground-base) 10%, var(--background-base));
-  --color-accent-foreground: var(--midground);
-  --color-destructive: #fb2c36;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f9f0ff;
+  --color-secondary-foreground: var(--foreground-base);
+  --color-muted: #f9f0ff;
+  /* Routes the shadcn `muted-foreground` slot through a readable ink-mute
+     so labels and captions stay legible on cream canvas. */
+  --color-muted-foreground: #454545;
+  --color-accent: #f9f0ff;
+  --color-accent-foreground: var(--foreground-base);
+  --color-destructive: #cc4117;
   --color-destructive-foreground: #ffffff;
-  --color-success: #4ade80;
-  --color-warning: #ffbd38;
-  --color-border: color-mix(in srgb, var(--midground-base) 15%, transparent);
-  --color-input: color-mix(in srgb, var(--midground-base) 15%, transparent);
+  --color-success: #007a5a;
+  --color-warning: #d4a017;
+  --color-border: #e6e6e6;
+  --color-input: #e6e6e6;
   --color-ring: var(--midground);
-  --color-popover: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-popover-foreground: var(--midground);
+  --color-popover: #ffffff;
+  --color-popover-foreground: var(--foreground-base);
 
   --radius-sm: calc(var(--theme-radius) - 4px);
   --radius-md: calc(var(--theme-radius) - 2px);

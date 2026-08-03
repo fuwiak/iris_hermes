@@ -208,9 +208,8 @@ export const nousBlueTheme: DashboardTheme = {
 };
 
 /**
- * Iris CRM light theme — cream canvas + aubergine primary pulled from
- * the Iris client-segmentation design system (`--canvas: #f4ede4`,
- * `--primary: #4a154b`, logo purple `#8752c1`).
+ * Iris CRM light theme — cream canvas + aubergine primary from DESIGN.md
+ * (Slacc-inspired: `#f4ede4` canvas, `#4a154b` primary, Inter substitute).
  */
 export const irisTheme: DashboardTheme = {
   name: "iris",
@@ -220,19 +219,20 @@ export const irisTheme: DashboardTheme = {
     background: { hex: "#f4ede4", alpha: 1 },
     midground: { hex: "#4a154b", alpha: 1 },
     foreground: { hex: "#1d1d1d", alpha: 0 },
-    warmGlow: "rgba(135, 82, 193, 0.18)",
+    warmGlow: "rgba(74, 21, 75, 0.14)",
     noiseOpacity: 0,
   },
   typography: {
     ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Lato", ${SYSTEM_SANS}`,
+    fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      "https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
+    letterSpacing: "-0.005em",
   },
   layout: {
     ...DEFAULT_LAYOUT,
-    radius: "0.625rem",
+    radius: "1rem",
   },
   assets: {
     logo: "/iris-logo.svg",
@@ -241,19 +241,19 @@ export const irisTheme: DashboardTheme = {
   colorOverrides: {
     primary: "#4a154b",
     primaryForeground: "#ffffff",
-    accent: "#8752c1",
-    accentForeground: "#ffffff",
+    accent: "#f9f0ff",
+    accentForeground: "#1d1d1d",
     muted: "#f9f0ff",
-    mutedForeground: "#696969",
+    mutedForeground: "#454545",
     border: "#e6e6e6",
     card: "#ffffff",
     cardForeground: "#1d1d1d",
     success: "#007a5a",
     warning: "#d4a017",
     destructive: "#cc4117",
-    ring: "#8752c1",
+    ring: "#4a154b",
   },
-  terminalBackground: "#f9f0ff",
+  terminalBackground: "#ffffff",
   terminalForeground: "#1d1d1d",
   seriesColors: {
     inputTokenAccent: "#4a154b",

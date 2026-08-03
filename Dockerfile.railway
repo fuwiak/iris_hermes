@@ -1,8 +1,8 @@
 # Optional slim Railway image (dashboard-only). Prefer ./Dockerfile for
 # production Railway deploys — see railway.toml.
 #
-# Persistent state: Railway Volume mounted at /opt/data (HERMES_HOME).
-# No Docker VOLUME — Railway Metal builders reject it.
+# Persistent state: Railway mount at /opt/data (HERMES_HOME).
+# Do not declare an image volume — Metal builders reject that instruction.
 
 FROM node:26-bookworm-slim AS web_build
 WORKDIR /src

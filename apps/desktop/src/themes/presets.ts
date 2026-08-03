@@ -295,20 +295,20 @@ export const irisTheme: DesktopTheme = {
     popoverForeground: '#1d1d1d',
     primary: '#4a154b',
     primaryForeground: '#ffffff',
-    secondary: '#eee8f0',
+    secondary: '#f9f0ff',
     secondaryForeground: '#1d1d1d',
     accent: '#f9f0ff',
     accentForeground: '#4a154b',
     border: '#e6e6e6',
     input: '#e6e6e6',
-    ring: '#8752c1',
-    midground: '#8752c1',
+    ring: '#4a154b',
+    midground: '#4a154b',
     composerRing: '#4a154b',
     destructive: '#cc4117',
     destructiveForeground: '#ffffff',
     sidebarBackground: '#f9f0ff',
-    sidebarBorder: '#eee8f0',
-    userBubble: '#eee8f0',
+    sidebarBorder: '#e6e6e6',
+    userBubble: '#f9f0ff',
     userBubbleBorder: '#d9bdde'
   },
   darkColors: {
@@ -339,10 +339,10 @@ export const irisTheme: DesktopTheme = {
     userBubbleBorder: '#8752c1'
   },
   typography: {
-    fontSans: `"Lato", ${SYSTEM_SANS}`,
+    fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      'https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
   }
 }
 
@@ -359,4 +359,4 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
 /** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+export const DEFAULT_SKIN_NAME = 'iris'

@@ -3198,7 +3198,7 @@ _last_skin_sig: tuple[str, float | None] | None = None
 def _skin_sig() -> tuple[str, float | None]:
     """(active skin name, its user-file mtime). Built-ins have no file, so only
     their name moves; a user skin's mtime lets an in-place color edit repaint too."""
-    name = str((_load_cfg().get("display") or {}).get("skin") or "default")
+    name = str((_load_cfg().get("display") or {}).get("skin") or "iris")
     override = get_hermes_home_override()
     home = override if isinstance(override, str) and override else _hermes_home
     try:
