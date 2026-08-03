@@ -1,0 +1,8 @@
+bettercallbober.ru {
+	encode gzip
+	reverse_proxy hermes:8080
+}
+
+www.bettercallbober.ru {
+	redir https://bettercallbober.ru{uri}
+}

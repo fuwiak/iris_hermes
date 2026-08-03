@@ -1,0 +1,61 @@
+name: Deploy Iris Hermes to Selectel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/selectel/**"
+      - "Dockerfile.railway"
+      - ".github/workflows/deploy-selectel-iris.yml"
+
+concurrency:
+  group: deploy-selectel-iris
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync to VDS over SSH
+        env:
+          SELECTEL_HOST: ${{ secrets.SELECTEL_IRIS_HOST }}
+          SELECTEL_USER: ${{ secrets.SELECTEL_IRIS_USER }}
+          SELECTEL_SSH_KEY: ${{ secrets.SELECTEL_IRIS_SSH_KEY }}
+          DEPLOY_ENV: ${{ secrets.SELECTEL_IRIS_DEPLOY_ENV }}
+        run: |
+          set -euo pipefail
+          test -n "${SELECTEL_HOST:-}"
+          test -n "${SELECTEL_USER:-}"
+          test -n "${SELECTEL_SSH_KEY:-}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SELECTEL_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SELECTEL_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.venv' \
+            --exclude 'venv' \
+            --exclude 'graphify-out' \
+            -e "ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes" \
+            ./ "${SELECTEL_USER}@${SELECTEL_HOST}:/opt/iris_hermes/"
+
+          if [ -n "${DEPLOY_ENV:-}" ]; then
+            printf '%s\n' "$DEPLOY_ENV" | ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+              "${SELECTEL_USER}@${SELECTEL_HOST}" 'cat > /root/deploy.env'
+          fi
+
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            "${SELECTEL_USER}@${SELECTEL_HOST}" \
+            'bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh'
+
+      - name: Health summary
+        run: |
+          echo "Target: https://bettercallbober.ru" >> "$GITHUB_STEP_SUMMARY"
+          echo "VDS: ${{ secrets.SELECTEL_IRIS_HOST }}" >> "$GITHUB_STEP_SUMMARY"

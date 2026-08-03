@@ -1,0 +1,100 @@
+# Selectel VDS stack for Iris Hermes (bettercallbober.ru)
+# Path on server: /opt/iris_hermes/deploy/selectel/
+#
+# Services: hermes dashboard + redis + postgres + caddy
+# Secrets: /root/deploy.env → copied to .env before compose up
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes:
+      - redis_data:/data
+    command:
+      [
+        "redis-server",
+        "--save",
+        "60",
+        "1",
+        "--loglevel",
+        "warning",
+        "--maxmemory",
+        "200mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      POSTGRES_USER: hermes
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: hermes
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=50
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hermes -d hermes"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  hermes:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.railway
+    image: iris-hermes:selectel
+    restart: unless-stopped
+    mem_limit: 4096m
+    env_file:
+      - .env
+    environment:
+      HERMES_HOME: /opt/data
+      HOME: /opt/data
+      PORT: "8080"
+      HERMES_DASHBOARD_HOST: "0.0.0.0"
+      HERMES_DASHBOARD_PORT: "8080"
+      DATABASE_URL: postgresql://hermes:${POSTGRES_PASSWORD}@postgres:5432/hermes
+      REDIS_URL: redis://redis:6379/0
+      MOYSKLAD_ENABLED: ${MOYSKLAD_ENABLED:-true}
+    volumes:
+      - hermes_data:/opt/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - hermes
+
+volumes:
+  redis_data:
+  pg_data:
+  hermes_data:
+  caddy_data:
+  caddy_config:
