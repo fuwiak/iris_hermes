@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugins.moysklad.classify import clients_by_sales_type
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
 from tools.registry import tool_error, tool_result
 
@@ -167,6 +168,44 @@ MOYSKLAD_PUSH_TAGS_SCHEMA = {
     },
 }
 
+MOYSKLAD_CLIENTS_BY_SALES_TYPE_SCHEMA = {
+    "name": "moysklad_clients_by_sales_type",
+    "description": (
+        "List MoySklad clients filtered like Iris CRM tabs «Маркетплейс» / "
+        "«Прямые». Uses the same channel allowlists (FlowWow vs Telegram/"
+        "WhatsApp/Витрина/сайт). Prefer this over inventing classification."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "sales_filter": {
+                "type": "string",
+                "description": (
+                    "direct | marketplace | all "
+                    "(also: прямые, маркетплейс). Default all."
+                ),
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max clients to return (default 50, max 500).",
+            },
+            "max_orders": {
+                "type": "integer",
+                "description": "Max orders to scan for channels (default 5000, 0=all).",
+            },
+            "max_counterparties": {
+                "type": "integer",
+                "description": "Max counterparties to scan (default 0=all).",
+            },
+            "include_archived": {
+                "type": "boolean",
+                "description": "Include archived counterparties (default false).",
+            },
+        },
+        "required": [],
+    },
+}
+
 
 def handle_moysklad_health(args: dict, **kw) -> str:
     return _handle(lambda c: c.health())
@@ -220,3 +259,19 @@ def handle_moysklad_push_tags(args: dict, **kw) -> str:
     if not tags:
         return tool_error("tags must be a non-empty list")
     return _handle(lambda c: c.push_tags(counterparty_id, tags))
+
+
+def handle_moysklad_clients_by_sales_type(args: dict, **kw) -> str:
+    sales_filter = str(args.get("sales_filter") or "all").strip() or "all"
+    return _handle(
+        lambda c: clients_by_sales_type(
+            c,
+            sales_filter=sales_filter,
+            limit=_int_arg(args.get("limit"), 50, maximum=500),
+            max_orders=_int_arg(args.get("max_orders"), 5000, maximum=100_000),
+            max_counterparties=_int_arg(
+                args.get("max_counterparties"), 0, maximum=100_000
+            ),
+            include_archived=_bool_arg(args.get("include_archived"), False),
+        )
+    )

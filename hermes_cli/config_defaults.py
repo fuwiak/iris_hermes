@@ -3744,6 +3744,7 @@ OPTIONAL_ENV_VARS = {
             "moysklad_positions",
             "moysklad_channels",
             "moysklad_push_tags",
+            "moysklad_clients_by_sales_type",
         ],
         "password": True,
         "category": "tool",

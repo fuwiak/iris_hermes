@@ -1,10 +1,11 @@
-"""moysklad plugin — MoySklad Remap 1.2 tools for Hermes.
+"""moysklad plugin — MoySklad Remap 1.2 tools + Clients dashboard.
 
 Opt-in standalone plugin (same enable/disable pattern as google_meet):
 
     hermes plugins enable moysklad
     hermes plugins disable moysklad
 
+Dashboard tab «Клиенты» (`/clients`) appears when enabled.
 Then toggle the ``moysklad`` toolset per surface in ``hermes tools``.
 
 Requires ``MOYSKLAD_API_TOKEN`` in ``~/.hermes/.env``.
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 from plugins.moysklad.tools import (
     MOYSKLAD_CHANNELS_SCHEMA,
+    MOYSKLAD_CLIENTS_BY_SALES_TYPE_SCHEMA,
     MOYSKLAD_COUNTERPARTIES_SCHEMA,
     MOYSKLAD_HEALTH_SCHEMA,
     MOYSKLAD_ORDERS_SCHEMA,
@@ -21,6 +23,7 @@ from plugins.moysklad.tools import (
     MOYSKLAD_PUSH_TAGS_SCHEMA,
     check_moysklad_available,
     handle_moysklad_channels,
+    handle_moysklad_clients_by_sales_type,
     handle_moysklad_counterparties,
     handle_moysklad_health,
     handle_moysklad_orders,
@@ -35,6 +38,12 @@ _TOOLS = (
     ("moysklad_positions", MOYSKLAD_POSITIONS_SCHEMA, handle_moysklad_positions, "📦"),
     ("moysklad_channels", MOYSKLAD_CHANNELS_SCHEMA, handle_moysklad_channels, "📡"),
     ("moysklad_push_tags", MOYSKLAD_PUSH_TAGS_SCHEMA, handle_moysklad_push_tags, "🏷️"),
+    (
+        "moysklad_clients_by_sales_type",
+        MOYSKLAD_CLIENTS_BY_SALES_TYPE_SCHEMA,
+        handle_moysklad_clients_by_sales_type,
+        "🗂️",
+    ),
 )
 
 

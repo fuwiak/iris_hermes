@@ -62,10 +62,12 @@ class MoySkladClient:
         self._base = _base_url()
 
     def _headers(self) -> dict[str, str]:
+        # Remap 1.2 rejects bare Accept: application/json (error 1062) —
+        # requires charset=utf-8. Matches MoySklad docs / live API.
         return {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "application/json;charset=utf-8",
             "Accept-Encoding": "gzip",
         }
 

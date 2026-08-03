@@ -1,6 +1,6 @@
 name: moysklad
-version: 1.0.0
-description: "МойСклад Remap 1.2 — counterparties, orders, positions, tag push. Opt-in via `hermes plugins enable moysklad`. Token: MOYSKLAD_API_TOKEN."
+version: 1.2.0
+description: "МойСклад Remap 1.2 — Clients dashboard (Маркетплейс/Прямые + группы), tools. Opt-in: `hermes plugins enable moysklad`. Token: MOYSKLAD_API_TOKEN."
 author: Hermes Agent
 kind: standalone
 platforms:
@@ -14,6 +14,7 @@ provides_tools:
   - moysklad_positions
   - moysklad_channels
   - moysklad_push_tags
+  - moysklad_clients_by_sales_type
 requires_env:
   - name: MOYSKLAD_API_TOKEN
     description: "MoySklad Remap 1.2 Bearer API token"

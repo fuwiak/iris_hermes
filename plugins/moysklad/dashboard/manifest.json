@@ -1,0 +1,14 @@
+{
+  "name": "moysklad",
+  "label": "Клиенты",
+  "description": "Iris CRM clients — Маркетплейс/Прямые tabs, MoySklad group cloud, heuristic group assign.",
+  "icon": "Users",
+  "version": "1.2.0",
+  "tab": {
+    "path": "/clients",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}
