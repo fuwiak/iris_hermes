@@ -1,5 +1,20 @@
 {
-  // This file is not used in compilation. It is here just for a nice editor experience.
-  "extends": "@docusaurus/tsconfig",
+  // Editor-only config (Docusaurus does not compile with this file).
+  // Inlined from @docusaurus/tsconfig so the IDE works before website deps are installed.
+  "compilerOptions": {
+    "allowJs": true,
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "lib": ["ES2022", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "paths": {
+      "@site/*": ["./*"]
+    },
+    "skipLibCheck": true,
+    "target": "ES2022"
+  },
   "exclude": [".docusaurus", "build"]
 }
