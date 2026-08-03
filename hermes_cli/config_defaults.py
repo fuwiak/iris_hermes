@@ -3119,8 +3119,16 @@ DEFAULT_CONFIG = {
         "region": "global",
     },
 
+    # Iris ships MoySklad as a first-party bundled plugin — on by default.
+    # Token still lives in .env (MOYSKLAD_API_TOKEN). Opt out with
+    # `hermes plugins disable moysklad`.
+    "plugins": {
+        "enabled": ["moysklad"],
+        "disabled": [],
+    },
+
     # Config schema version - bump this when adding new required fields
-    "_config_version": 33,
+    "_config_version": 34,
 }
 
 # Optional environment variables that enhance functionality
@@ -3732,7 +3740,7 @@ OPTIONAL_ENV_VARS = {
         "category": "tool",
     },
 
-    # ── MoySklad (plugins/moysklad — enable via `hermes plugins enable moysklad`) ──
+    # ── MoySklad (plugins/moysklad — Iris default-enabled; token required) ──
     "MOYSKLAD_API_TOKEN": {
         "description": "MoySklad Remap 1.2 Bearer API token (counterparties, orders, tags)",
         "prompt": "MoySklad API token",

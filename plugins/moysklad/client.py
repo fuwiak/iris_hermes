@@ -55,8 +55,8 @@ class MoySkladClient:
         token = _token()
         if not token:
             raise MoySkladError(
-                "MOYSKLAD_API_TOKEN missing. Add it to ~/.hermes/.env, then "
-                "`hermes plugins enable moysklad`."
+                "MOYSKLAD_API_TOKEN missing. Add it to ~/.hermes/.env "
+                "(Iris enables the moysklad plugin by default)."
             )
         self._token = token
         self._base = _base_url()

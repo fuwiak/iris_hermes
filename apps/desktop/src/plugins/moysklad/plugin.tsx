@@ -360,8 +360,8 @@ function CampaignsPage() {
 const plugin: HermesPlugin = {
   id: 'moysklad',
   name: 'МойСклад CRM',
-  // On for Hermes One — Settings ▸ Plugins can disable. Backend still needs
-  // `hermes plugins enable moysklad` + MOYSKLAD_API_TOKEN for live data.
+  // Iris default-on. Settings ▸ Plugins can disable. Live data needs
+  // MOYSKLAD_API_TOKEN in .env.
   defaultEnabled: true,
   register(ctx) {
     rest = ctx.rest

@@ -644,6 +644,45 @@ def _migrate_to_33(results: Dict[str, Any], quiet: bool) -> None:
             )
 
 
+def _migrate_to_34(results: Dict[str, Any], quiet: bool) -> None:
+    # ── Version 33 → 34: Iris default-enables bundled moysklad ──
+    # Standalone plugins stay opt-in in general; Iris ships MoySklad as a
+    # first-party surface. Respect an explicit disable entry.
+    _c = _cfg()
+    read_raw_config = _c.read_raw_config
+    _persist_migration = _c._persist_migration
+
+    config = read_raw_config()
+    plugins_cfg = config.get("plugins")
+    if not isinstance(plugins_cfg, dict):
+        plugins_cfg = {}
+    disabled = plugins_cfg.get("disabled") or []
+    if not isinstance(disabled, list):
+        disabled = []
+    disabled_set = {str(x) for x in disabled}
+    if "moysklad" in disabled_set:
+        return
+
+    enabled = plugins_cfg.get("enabled")
+    if not isinstance(enabled, list):
+        enabled = []
+    if "moysklad" in enabled:
+        return
+
+    enabled = list(enabled)
+    enabled.append("moysklad")
+    plugins_cfg["enabled"] = enabled
+    config["plugins"] = plugins_cfg
+    _persist_migration(config)
+    results["config_added"].append("plugins.enabled += moysklad (Iris default)")
+    if not quiet:
+        print(
+            "  ✓ Enabled bundled MoySklad plugin (plugins.enabled). "
+            "Set MOYSKLAD_API_TOKEN in .env; disable with "
+            "`hermes plugins disable moysklad`."
+        )
+
+
 #: Registry of (target_version, migration_fn), strictly ascending. The driver
 #: applies every entry whose target version is greater than the on-disk
 #: version captured before the ladder started. Order matters: later steps may
@@ -665,6 +704,7 @@ MIGRATIONS: Tuple[Tuple[int, Callable[[Dict[str, Any], bool], None]], ...] = (
     (31, _migrate_to_31),
     (32, _migrate_to_32),
     (33, _migrate_to_33),
+    (34, _migrate_to_34),
 )
 
 

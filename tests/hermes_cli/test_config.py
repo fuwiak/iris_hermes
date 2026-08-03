@@ -713,7 +713,7 @@ class TestConfigSupportFloor:
         "agent": {"verify_on_stop": True},
     }
     _V12_EXPECTED = {
-        "_config_version": 33,
+        "_config_version": 34,
         "agent": {"verify_on_stop": False},
         "auxiliary": {"compression": {"model": "gpt-x"}},
         "compression": {},
@@ -725,7 +725,7 @@ class TestConfigSupportFloor:
         "memory": {"write_approval": True},
         "model": {"default": "openai/gpt-5.4", "provider": "openrouter"},
         "model_catalog": {"ttl_hours": 1},
-        "plugins": {"enabled": []},
+        "plugins": {"enabled": ["moysklad"]},
         "stt": {"provider": "local"},
     }
 
@@ -738,11 +738,11 @@ class TestConfigSupportFloor:
         "agent": {},
     }
     _V20_EXPECTED = {
-        "_config_version": 33,
+        "_config_version": 34,
         "agent": {"verify_on_stop": False},
         "model": {"default": "anthropic/claude-fable-5", "provider": "nous"},
         "model_catalog": {"ttl_hours": 1},
-        "plugins": {"disabled": ["foo"], "enabled": []},
+        "plugins": {"disabled": ["foo"], "enabled": ["moysklad"]},
     }
 
     _ENV_FIXTURE = (
@@ -772,12 +772,12 @@ class TestConfigSupportFloor:
         raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         # Pin the golden version the fixtures were captured at, then compare
         # the rest against the same-latest expectation. If _config_version has
-        # advanced past 33, only the version key may differ.
+        # advanced past 34, only the version key may differ.
         assert raw["_config_version"] == DEFAULT_CONFIG["_config_version"]
         raw.pop("_config_version")
         exp = dict(expected)
         exp.pop("_config_version")
-        if DEFAULT_CONFIG["_config_version"] == 33:
+        if DEFAULT_CONFIG["_config_version"] == 34:
             assert raw == exp
         else:  # future migrations appended — golden subset must still hold
             for key, val in exp.items():
