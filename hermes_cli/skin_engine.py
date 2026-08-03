@@ -133,6 +133,7 @@ BUILT-IN SKINS
 - ``slate``   — Cool blue developer-focused theme
 - ``daylight`` — Light background theme with dark text and blue accents
 - ``warm-lightmode`` — Warm brown/gold text for light terminal backgrounds
+- ``iris`` — Cream canvas + aubergine accents (Iris CRM design system)
 
 USER SKINS
 ==========
@@ -539,6 +540,70 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "help_header": "(^_^)? Available Commands",
         },
         "tool_prefix": "\u250a",
+    },
+    # Iris CRM design system (client_segmentation): cream canvas #f4ede4,
+    # aubergine primary #4a154b, logo purple #8752c1, leaf green #206b22.
+    "iris": {
+        "name": "iris",
+        "description": "Iris CRM — cream canvas with aubergine accents",
+        "colors": {
+            "background": "#f4ede4",
+            "banner_border": "#4a154b",
+            "banner_title": "#4a154b",
+            "banner_accent": "#8752c1",
+            "banner_dim": "#696969",
+            "banner_text": "#1d1d1d",
+            "ui_accent": "#4a154b",
+            "ui_label": "#611f69",
+            "ui_text": "#1d1d1d",
+            "ui_border": "#e6e6e6",
+            "ui_ok": "#007a5a",
+            "ui_error": "#cc4117",
+            "ui_warn": "#a67c00",
+            "prompt": "#1d1d1d",
+            "input_rule": "#8752c1",
+            "response_border": "#4a154b",
+            "status_bar_bg": "#f9f0ff",
+            "status_bar_text": "#1d1d1d",
+            "status_bar_strong": "#4a154b",
+            "status_bar_dim": "#696969",
+            "status_bar_good": "#007a5a",
+            "status_bar_warn": "#a67c00",
+            "status_bar_bad": "#cc4117",
+            "status_bar_critical": "#cc4117",
+            "session_label": "#611f69",
+            "session_border": "#7a6288",
+            "completion_menu_bg": "#ffffff",
+            "completion_menu_current_bg": "#e8d5f0",
+            "completion_menu_meta_bg": "#f4ede4",
+            "completion_menu_meta_current_bg": "#d9bdde",
+            "selection_bg": "#e8d5f0",
+            "shell_dollar": "#1264a3",
+            "voice_status_bg": "#f9f0ff",
+        },
+        "spinner": {
+            "waiting_faces": ["(✿)", "(❀)", "(❁)", "(✾)", "(✽)"],
+            "thinking_faces": ["(✿)", "(❀)", "(❁)", "(✾)", "(✽)"],
+            "thinking_verbs": [
+                "blooming", "segmenting", "rooting", "pollinating",
+                "growing leads", "sorting petals", "tending CRM", "opening buds",
+            ],
+            "wings": [
+                ["⟨✿", "✿⟩"],
+                ["⟨❀", "❀⟩"],
+                ["⟨❁", "❁⟩"],
+                ["⟨✾", "✾⟩"],
+            ],
+        },
+        "branding": {
+            "agent_name": "Iris Agent",
+            "welcome": "Welcome to Iris Agent! Type your message or /help for commands.",
+            "goodbye": "Do widzenia! ✿",
+            "response_label": " ✿ Iris ",
+            "prompt_symbol": "✿",
+            "help_header": "(✿) Available Commands",
+        },
+        "tool_prefix": "┊",
     },
     "poseidon": {
         "name": "poseidon",

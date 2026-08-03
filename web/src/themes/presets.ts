@@ -235,14 +235,21 @@ export const irisTheme: DashboardTheme = {
     radius: "0.625rem",
   },
   assets: {
-    logo: "/favicon.svg",
+    logo: "/iris-logo.svg",
+    crest: "/favicon.svg",
   },
   colorOverrides: {
     primary: "#4a154b",
     primaryForeground: "#ffffff",
     accent: "#8752c1",
     accentForeground: "#ffffff",
+    muted: "#f9f0ff",
+    mutedForeground: "#696969",
+    border: "#e6e6e6",
+    card: "#ffffff",
+    cardForeground: "#1d1d1d",
     success: "#007a5a",
+    warning: "#d4a017",
     destructive: "#cc4117",
     ring: "#8752c1",
   },
@@ -252,7 +259,7 @@ export const irisTheme: DashboardTheme = {
     inputTokenAccent: "#4a154b",
     outputTokenAccent: "#206b22",
   },
-  swatchColors: ["#1d1d1d", "#4a154b", "#f4ede4"],
+  swatchColors: ["#1d1d1d", "#4a154b", "#8752c1", "#f4ede4"],
 };
 
 /**

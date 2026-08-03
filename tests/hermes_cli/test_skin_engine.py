@@ -82,6 +82,7 @@ class TestSkinManagement:
         assert "slate" in names
         assert "daylight" in names
         assert "warm-lightmode" in names
+        assert "iris" in names
         for s in skins:
             assert "source" in s
             assert s["source"] == "builtin"

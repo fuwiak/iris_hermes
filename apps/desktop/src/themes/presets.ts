@@ -276,8 +276,79 @@ export const slateTheme: DesktopTheme = {
   }
 }
 
+/**
+ * Iris CRM — cream canvas + aubergine primary. Matches the dashboard `iris`
+ * theme and CLI `iris` skin (client_segmentation design tokens).
+ */
+export const irisTheme: DesktopTheme = {
+  name: 'iris',
+  label: 'Iris',
+  description: 'Light cream canvas with aubergine Iris accents',
+  colors: {
+    background: '#f4ede4',
+    foreground: '#1d1d1d',
+    card: '#ffffff',
+    cardForeground: '#1d1d1d',
+    muted: '#f9f0ff',
+    mutedForeground: '#696969',
+    popover: '#ffffff',
+    popoverForeground: '#1d1d1d',
+    primary: '#4a154b',
+    primaryForeground: '#ffffff',
+    secondary: '#eee8f0',
+    secondaryForeground: '#1d1d1d',
+    accent: '#f9f0ff',
+    accentForeground: '#4a154b',
+    border: '#e6e6e6',
+    input: '#e6e6e6',
+    ring: '#8752c1',
+    midground: '#8752c1',
+    composerRing: '#4a154b',
+    destructive: '#cc4117',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#f9f0ff',
+    sidebarBorder: '#eee8f0',
+    userBubble: '#eee8f0',
+    userBubbleBorder: '#d9bdde'
+  },
+  darkColors: {
+    background: '#2a0f2e',
+    foreground: '#f4ede4',
+    card: '#3a1840',
+    cardForeground: '#f4ede4',
+    muted: '#481a54',
+    mutedForeground: '#d9bdde',
+    popover: '#3a1840',
+    popoverForeground: '#f4ede4',
+    primary: '#8752c1',
+    primaryForeground: '#ffffff',
+    secondary: '#592466',
+    secondaryForeground: '#f4ede4',
+    accent: '#611f69',
+    accentForeground: '#f9f0ff',
+    border: '#592466',
+    input: '#481a54',
+    ring: '#8752c1',
+    midground: '#8752c1',
+    composerRing: '#d9bdde',
+    destructive: '#cc4117',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#220c26',
+    sidebarBorder: '#481a54',
+    userBubble: '#481a54',
+    userBubbleBorder: '#8752c1'
+  },
+  typography: {
+    fontSans: `"Lato", ${SYSTEM_SANS}`,
+    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
+    fontUrl:
+      'https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
+  }
+}
+
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
   nous: nousTheme,
+  iris: irisTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,
