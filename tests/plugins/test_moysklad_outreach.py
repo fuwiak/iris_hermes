@@ -482,3 +482,105 @@ def test_iter_personalize_batch_events_yields_per_client(monkeypatch):
     assert names == {"Аня", "Боря"}
     assert events[-1]["type"] == "batch_done"
     assert events[-1]["ok_count"] == 2
+
+
+def test_heuristic_bouquet_names_historical_product():
+    from plugins.moysklad.outreach import heuristic_bouquet_suggestion
+
+    detail = build_client_detail(_sample_row())
+    out = heuristic_bouquet_suggestion(detail, channel="telegram", seller_name="Анна")
+    assert out["source"] == "heuristic_bouquet"
+    msg = out["message"] or ""
+    assert "Пионы" in msg or "пионы" in msg.lower()
+    assert out.get("bouquet")
+
+
+def test_heuristic_paraphrase_differs_from_draft():
+    from plugins.moysklad.outreach import _too_similar, heuristic_paraphrase
+
+    draft = (
+        "Здравствуйте, Мария! Это Анна. В прошлый раз у вас были пионы. "
+        "Напишите, если удобно подобрать букет."
+    )
+    out = heuristic_paraphrase(draft, channel="telegram")
+    assert out
+    assert not _too_similar(out, draft, threshold=0.95)
+
+
+def test_suggest_bouquet_routes_llm(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from plugins.moysklad.outreach import suggest_historical_bouquet_message
+
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://egress.test/t/x/api/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    class _FakeMessage:
+        content = (
+            '{"message":"Здравствуйте, Мария! Это Анна. '
+            'В прошлый раз у вас были Пионы — соберём снова?",'
+            '"grounding_notes":"пионы"}'
+        )
+        reasoning = None
+
+    class _FakeChoice:
+        message = _FakeMessage()
+
+    class _FakeResponse:
+        choices = [_FakeChoice()]
+
+    class _FakeCompletions:
+        def create(self, **_kwargs):
+            return _FakeResponse()
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    def _fake_openai(**kwargs):
+        client = MagicMock()
+        client.chat = _FakeChat()
+        client.base_url = kwargs.get("base_url")
+        return client
+
+    detail = build_client_detail(_sample_row())
+    with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
+         patch("agent.auxiliary_client.OpenAI", side_effect=_fake_openai):
+        result = suggest_historical_bouquet_message(
+            detail, channel="telegram", seller_name="Анна"
+        )
+    assert result.get("source") == "llm_bouquet"
+    assert "Пионы" in (result.get("message") or "")
+
+
+def test_paraphrase_rejects_near_duplicate(monkeypatch):
+    from plugins.moysklad.outreach import paraphrase_outreach_message
+
+    draft = "Здравствуйте, Мария! Это Анна. Пионы ждали вас. Напишите."
+    calls = {"n": 0}
+
+    def _fake_call_llm(**_kwargs):
+        calls["n"] += 1
+
+        class _Msg:
+            content = (
+                '{"message":"Здравствуйте, Мария! Это Анна. Пионы ждали вас. Напишите.",'
+                '"grounding_notes":"same"}'
+            )
+            reasoning = None
+
+        class _Ch:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Ch()]
+
+        return _Resp()
+
+    monkeypatch.setattr("agent.auxiliary_client.call_llm", _fake_call_llm)
+    detail = build_client_detail(_sample_row())
+    out = paraphrase_outreach_message(
+        draft, channel="telegram", seller_name="Анна", detail=detail
+    )
+    assert calls["n"] >= 2  # retry once when too similar
+    assert out.get("source") in ("heuristic_paraphrase", "llm_paraphrase")
+    assert (out.get("message") or "").strip() != draft

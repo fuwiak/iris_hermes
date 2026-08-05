@@ -1428,6 +1428,8 @@ function CampaignsPage() {
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [rewriting, setRewriting] = useState(false)
+  const [suggestingBouquet, setSuggestingBouquet] = useState(false)
+  const [paraphrasing, setParaphrasing] = useState(false)
   const [checkingSanity, setCheckingSanity] = useState(false)
   const [sanity, setSanity] = useState<SanityResult | null>(null)
   const [error, setError] = useState('')
@@ -1849,6 +1851,184 @@ function CampaignsPage() {
       setActionStatus('')
     } finally {
       setRewriting(false)
+    }
+  }
+
+  const suggestHistoricalBouquet = async () => {
+    if (!selectedClientId) {
+      setError('Сначала выберите клиента — нужна история заказов.')
+
+      return
+    }
+
+    setSuggestingBouquet(true)
+    setError('')
+    applyOfferText('', 'Подбираем конкретный букет из истории…')
+    setSanity(null)
+
+    try {
+      let streamed = ''
+
+      await callStream('/campaigns/suggest-bouquet/stream', {
+        method: 'POST',
+        timeoutMs: OUTREACH_AI_TIMEOUT_MS,
+        body: {
+          client_id: selectedClientId,
+          channel,
+          refresh_ai: false,
+          seller_name: sellerName,
+          seller_facts: sellerFacts
+        },
+        onEvent: raw => {
+          if (!raw || typeof raw !== 'object') {
+            return
+          }
+
+          const ev = raw as Record<string, unknown>
+          const type = String(ev.type || '')
+
+          if (type === 'status' && typeof ev.text === 'string') {
+            setActionStatus(ev.text)
+          } else if (type === 'delta' && typeof ev.text === 'string') {
+            streamed += ev.text
+            applyOfferText(streamed, 'Букет из истории… (поток)')
+          } else if (type === 'replace' && typeof ev.text === 'string') {
+            streamed = ev.text
+            applyOfferText(streamed, 'Текст обновлён')
+          } else if (type === 'error') {
+            setError(String(ev.error || 'stream error'))
+          } else if (type === 'done') {
+            const msg = pickOutreachMessage(ev) || streamed
+            streamed = msg
+            applyOfferText(
+              msg || '',
+              msg
+                ? 'Предложен конкретный букет из истории заказов.'
+                : 'Не удалось предложить букет — проверьте историю.'
+            )
+
+            if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
+              setGroundingNotes(ev.grounding_notes)
+            }
+
+            if (typeof ev.source === 'string' && ev.source) {
+              setGenSource(ev.source)
+            }
+
+            if (ev.facts && typeof ev.facts === 'object') {
+              setFacts(ev.facts as ClientFacts)
+            }
+
+            if (ev.sanity && typeof ev.sanity === 'object') {
+              setSanity(ev.sanity as SanityResult)
+            }
+
+            if (typeof ev.error === 'string' && ev.error) {
+              setError(
+                /403|security policy|access denied/i.test(ev.error)
+                  ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
+                  : `LLM: ${ev.error}`
+              )
+            }
+          }
+        }
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
+    } finally {
+      setSuggestingBouquet(false)
+    }
+  }
+
+  const paraphraseDraft = async () => {
+    const draft = offerRef.current.trim()
+
+    if (!draft) {
+      setError('Сначала введите или сгенерируйте текст сообщения.')
+
+      return
+    }
+
+    setParaphrasing(true)
+    setError('')
+    applyOfferText('', 'Полная парафраза — другой текст, тот же смысл…')
+    setSanity(null)
+
+    try {
+      let streamed = ''
+
+      await callStream('/campaigns/paraphrase/stream', {
+        method: 'POST',
+        timeoutMs: OUTREACH_AI_TIMEOUT_MS,
+        body: {
+          message: draft,
+          channel,
+          client_id: selectedClientId || '',
+          seller_name: sellerName,
+          seller_facts: sellerFacts
+        },
+        onEvent: raw => {
+          if (!raw || typeof raw !== 'object') {
+            return
+          }
+
+          const ev = raw as Record<string, unknown>
+          const type = String(ev.type || '')
+
+          if (type === 'status' && typeof ev.text === 'string') {
+            setActionStatus(ev.text)
+          } else if (type === 'delta' && typeof ev.text === 'string') {
+            streamed += ev.text
+            applyOfferText(streamed, 'Парафраза… (поток)')
+          } else if (type === 'replace' && typeof ev.text === 'string') {
+            streamed = ev.text
+            applyOfferText(streamed, 'Текст обновлён')
+          } else if (type === 'error') {
+            setError(String(ev.error || 'stream error'))
+          } else if (type === 'done') {
+            const msg = pickOutreachMessage(ev) || streamed || draft
+            streamed = msg
+            const same = msg.trim() === draft
+            applyOfferText(
+              msg,
+              same
+                ? 'Парафраза почти совпала с исходником — попробуйте ещё раз.'
+                : 'Полная парафраза: формулировки сменены, факты те же.'
+            )
+
+            if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
+              setGroundingNotes(ev.grounding_notes)
+            }
+
+            if (typeof ev.source === 'string' && ev.source) {
+              setGenSource(ev.source)
+            }
+
+            if (ev.facts && typeof ev.facts === 'object') {
+              setFacts(ev.facts as ClientFacts)
+            }
+
+            if (ev.sanity && typeof ev.sanity === 'object') {
+              setSanity(ev.sanity as SanityResult)
+            }
+
+            if (typeof ev.error === 'string' && ev.error) {
+              setError(
+                /403|security policy|access denied/i.test(ev.error)
+                  ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
+                  : `LLM: ${ev.error}`
+              )
+            }
+          }
+        }
+      })
+    } catch (err) {
+      applyOfferText(draft, '')
+      setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
+    } finally {
+      setParaphrasing(false)
     }
   }
 
@@ -2420,16 +2600,38 @@ function CampaignsPage() {
             {selectedClientId ? (
               <button
                 className="ms-btn"
-                disabled={generating || rewriting || checkingSanity}
+                disabled={
+                  generating || rewriting || checkingSanity || suggestingBouquet || paraphrasing
+                }
                 onClick={() => void regenerateAi()}
                 type="button"
               >
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
+            {selectedClientId ? (
+              <button
+                className="ms-btn"
+                disabled={
+                  generating || rewriting || checkingSanity || suggestingBouquet || paraphrasing
+                }
+                onClick={() => void suggestHistoricalBouquet()}
+                title="Назвать конкретный букет из прошлых заказов клиента"
+                type="button"
+              >
+                {suggestingBouquet ? 'Подбираем букет…' : 'Букет из истории'}
+              </button>
+            ) : null}
             <button
               className="ms-btn"
-              disabled={rewriting || generating || checkingSanity || !offer.trim()}
+              disabled={
+                rewriting ||
+                generating ||
+                checkingSanity ||
+                suggestingBouquet ||
+                paraphrasing ||
+                !offer.trim()
+              }
               onClick={() => void humanizeDraft()}
               type="button"
             >
@@ -2437,7 +2639,30 @@ function CampaignsPage() {
             </button>
             <button
               className="ms-btn"
-              disabled={checkingSanity || generating || rewriting || !offer.trim()}
+              disabled={
+                paraphrasing ||
+                generating ||
+                rewriting ||
+                checkingSanity ||
+                suggestingBouquet ||
+                !offer.trim()
+              }
+              onClick={() => void paraphraseDraft()}
+              title="Полная парафраза: другой текст, не generate и не sales-rewrite"
+              type="button"
+            >
+              {paraphrasing ? 'Парафраза…' : 'Полная парафраза'}
+            </button>
+            <button
+              className="ms-btn"
+              disabled={
+                checkingSanity ||
+                generating ||
+                rewriting ||
+                suggestingBouquet ||
+                paraphrasing ||
+                !offer.trim()
+              }
               onClick={() => void runSanityCheck()}
               type="button"
             >
@@ -2446,7 +2671,14 @@ function CampaignsPage() {
             {selectedClientId ? (
               <button
                 className="ms-btn"
-                disabled={checkingSanity || generating || rewriting || !offer.trim()}
+                disabled={
+                  checkingSanity ||
+                  generating ||
+                  rewriting ||
+                  suggestingBouquet ||
+                  paraphrasing ||
+                  !offer.trim()
+                }
                 onClick={() => void markSentToConversation()}
                 type="button"
               >
@@ -2458,7 +2690,14 @@ function CampaignsPage() {
             <button
               className="ms-btn ms-btn-primary"
               disabled={
-                saving || loading || generating || rewriting || checkingSanity || audience < 1
+                saving ||
+                loading ||
+                generating ||
+                rewriting ||
+                checkingSanity ||
+                suggestingBouquet ||
+                paraphrasing ||
+                audience < 1
               }
               type="submit"
             >

@@ -12,6 +12,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Iterator, Optional
 
 from plugins.moysklad.client_card import (
@@ -127,9 +128,52 @@ _SANITY_SYSTEM = """Ты — контролёр смысла исходящих 
 {"ok": true, "issues": [], "revised_text": null}
 """
 
+
+_BOUQUET_SYSTEM = """Ты — флорист-консультант цветочного магазина.
+Задача: предложить клиенту КОНКРЕТНЫЙ букет из ЕГО истории заказов
+(название/состав из product_snippet в JSON). Не абстрактный «букет», а именно
+тот, что уже был — или явно названный вариант из списка исторических сниппетов.
+Отвечай строго на русском.
+
+ЖЁСТКИЕ ПРАВИЛА:
+1. Только факты из JSON orders/client/risks + подпись продавца. Никаких выдуманных
+   названий букетов, скидок, акций, наличия на складе.
+2. В сообщении ОБЯЗАТЕЛЬНО назови конкретный исторический букет/состав словами
+   из product_snippet (можно слегка смягчить падеж, но не меняй суть).
+3. Мягко предложи повторить / собрать похожий; 2–5 предложений; обращение по имени.
+4. Не хардкодь «Это Iris», если подпись другая. Не ярлык канала в конце.
+5. РИСКИ / ДОЛГ (do_not_upsell / has_debt): НЕ предлагай букет — только сверка оплаты.
+6. Ответ — строго JSON без markdown:
+{"message": "текст", "grounding_notes": "какой сниппет/заказ взят"}
+"""
+
+
+_PARAPHRASE_SYSTEM = """Ты — лингвист-редактор. Сделай ПОЛНУЮ ПАРАФРАЗУ черновика.
+Это НЕ «Сгенерировать AI» (не пиши новое креативное письмо с нуля по карточке)
+и НЕ «Продающе и по-человечески» (не усиливай продажи / CTA / ценность).
+
+Цель: тот же смысл и факты, но ДРУГОЙ текст — другая структура предложений,
+другие слова, другой порядок мыслей. Читатель должен сразу видеть, что формулировки
+сменились. Запрещено оставлять фразы почти дословно.
+
+Отвечай строго на русском.
+
+ЖЁСТКИЕ ПРАВИЛА:
+1. Сохрани все факты (имя, даты, суммы, букеты, долг) — ничего не выдумывай.
+2. Замени почти каждую фразу; поменяй порядок предложений, где уместно.
+3. Не делай текст «продающее» и не добавляй новый CTA ради продаж.
+4. Не копируй шаблон «Здравствуйте… Это… Последний заказ… Напишите».
+5. 2–5 предложений. Без ярлыка канала в конце. Без markdown.
+6. Если в фактах долг / do_not_upsell — не предлагай букеты; оставь сверку оплаты.
+7. Ответ — строго JSON без markdown:
+{"message": "полностью перефразированный текст", "grounding_notes": "что сохранили, как сменили форму"}
+"""
+
 # Creative generate / sales rewrite temperatures (OpenRouter DeepSeek flash).
 OUTREACH_GENERATE_TEMPERATURE = 0.85
 OUTREACH_REWRITE_TEMPERATURE = 0.95
+OUTREACH_BOUQUET_TEMPERATURE = 0.7
+OUTREACH_PARAPHRASE_TEMPERATURE = 0.9
 OUTREACH_SANITY_TEMPERATURE = 0.1
 
 _UPSELL_FLOWER_RE = re.compile(
@@ -982,6 +1026,404 @@ def rewrite_outreach_message(
         )
 
 
+def _normalize_compare(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _too_similar(a: str, b: str, *, threshold: float = 0.82) -> bool:
+    na, nb = _normalize_compare(a), _normalize_compare(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    return SequenceMatcher(None, na, nb).ratio() >= threshold
+
+
+def _historical_bouquet_candidates(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    """Concrete bouquets from order history (natural product snippets only)."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for order in list(detail.get("orders") or []):
+        if not isinstance(order, dict):
+            continue
+        snip = _natural_product_bit(
+            order.get("product_snippet") or order.get("name") or ""
+        )
+        if not snip:
+            continue
+        key = snip.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "product": snip,
+                "date": order.get("date"),
+                "date_human": _format_human_date(order.get("date")),
+                "sum": order.get("sum"),
+            }
+        )
+        if len(out) >= 8:
+            break
+    return out
+
+
+def heuristic_bouquet_suggestion(
+    detail: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> dict[str, Any]:
+    """Deterministic suggestion naming a real historical bouquet."""
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    channel = (channel or "telegram").strip().lower()
+    client = detail.get("client") or {}
+    name = str(client.get("name") or "").strip() or "клиент"
+    first = name.split()[0] if name else "клиент"
+    risks = _risks_from_detail(detail)
+    intro = _seller_intro(seller_name)
+    if risks.get("do_not_upsell"):
+        msg = _payment_reminder_message(detail, seller_name=seller_name)
+        return {
+            "message": msg,
+            "grounding_notes": "Долг/риск — без предложения букета.",
+            "source": "heuristic_bouquet",
+            "channel": channel,
+            "facts": facts_panel(detail),
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "ai": detail.get("ai"),
+            "bouquet": None,
+        }
+    cands = _historical_bouquet_candidates(detail)
+    if not cands:
+        msg = (
+            f"Здравствуйте, {first}! {intro} "
+            f"В карточке пока нет названия прошлого букета — "
+            f"напишите, какой состав помните, подберём похожий."
+        )
+        notes = "Нет natural product_snippet в истории заказов."
+        bouquet = None
+    else:
+        pick = cands[0]
+        when = pick.get("date_human") or ""
+        product = pick["product"]
+        when_bit = f" ({when})" if when else ""
+        msg = (
+            f"Здравствуйте, {first}! {intro} "
+            f"В прошлый раз{when_bit} у вас был «{product}». "
+            f"Можем снова собрать именно его или очень похожий — напишите, если актуально."
+        )
+        notes = f"Исторический сниппет: {product}."
+        bouquet = pick
+    return {
+        "message": _strip_channel_trailer(msg, channel),
+        "grounding_notes": notes,
+        "source": "heuristic_bouquet",
+        "channel": channel,
+        "facts": facts_panel(detail),
+        "seller_name": seller_name,
+        "seller_facts": seller_facts,
+        "ai": detail.get("ai"),
+        "bouquet": bouquet,
+        "bouquet_candidates": cands,
+    }
+
+
+def heuristic_paraphrase(draft: str, *, channel: str = "telegram") -> str:
+    """Force a visibly different wording without LLM."""
+    text = _strip_channel_trailer((draft or "").strip(), channel)
+    if not text:
+        return ""
+    # Split into sentences; reverse middle; soft synonym swaps.
+    parts = [p.strip() for p in re.split(r"(?<=[.!?…])\s+", text) if p.strip()]
+    if len(parts) >= 2:
+        parts = [parts[0]] + list(reversed(parts[1:]))
+    elif parts:
+        parts = parts
+    joined = " ".join(parts)
+    swaps = (
+        (r"\bЗдравствуйте\b", "Добрый день"),
+        (r"\bДобрый день\b", "Здравствуйте"),
+        (r"\bНапишите\b", "Ответьте, пожалуйста,"),
+        (r"\bнапишите\b", "дайте знать"),
+        (r"\bМожем\b", "Готовы"),
+        (r"\bможем\b", "готовы"),
+        (r"\bподберём\b", "соберём"),
+        (r"\bПодберём\b", "Соберём"),
+        (r"\bпожалуйста\b", "если удобно"),
+    )
+    out = joined
+    for pat, rep in swaps:
+        out2 = re.sub(pat, rep, out, count=1)
+        if out2 != out:
+            out = out2
+            break
+    if _too_similar(out, text, threshold=0.9):
+        out = (
+            f"Перефразируя: {out}" if not out.lower().startswith("перефразируя") else out
+        )
+        # Last resort: prefix + move last sentence first
+        if len(parts) >= 2:
+            out = " ".join([parts[-1]] + parts[:-1])
+    return _strip_channel_trailer(out.strip(), channel)
+
+
+def suggest_historical_bouquet_message(
+    detail: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> dict[str, Any]:
+    """Propose a concrete bouquet from the client's order history."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    detail = _prepare_generate_detail(detail)
+    fallback = heuristic_bouquet_suggestion(
+        detail,
+        channel=channel,
+        seller_name=seller_name,
+        seller_facts=seller_facts,
+    )
+    risks = _risks_from_detail(detail)
+    cands = list(fallback.get("bouquet_candidates") or _historical_bouquet_candidates(detail))
+    payload = {
+        "channel": channel,
+        "channel_label": _channel_label(channel),
+        "seller_name": seller_name,
+        "seller_facts": seller_facts,
+        "client": (detail.get("client") or {}),
+        "historical_bouquets": cands,
+        "orders": (detail.get("orders") or [])[:8],
+        "risks": {
+            "has_debt": bool(risks.get("has_debt")),
+            "do_not_upsell": bool(risks.get("do_not_upsell")),
+            "flags": list(risks.get("flags") or []),
+        },
+        "ai": {
+            "recommendation": (detail.get("ai") or {}).get("recommendation"),
+            "occasion_intent": (detail.get("ai") or {}).get("occasion_intent"),
+        },
+    }
+    user = (
+        "Предложи клиенту КОНКРЕТНЫЙ букет из historical_bouquets "
+        "(обязательно назови продукт из списка).\n"
+        f"Канал: {_channel_label(channel)}.\n"
+        f"Подпись: {seller_name or '(не задана)'}.\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+    try:
+        from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+
+        response = call_llm(
+            task="compression",
+            messages=[
+                {"role": "system", "content": _BOUQUET_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=700,
+            temperature=OUTREACH_BOUQUET_TEMPERATURE,
+            timeout=45.0,
+        )
+        text = (extract_content_or_reasoning(response) or "").strip()
+        parsed = _parse_outreach_json(text)
+        if not parsed:
+            return _apply_sanity(
+                fallback,
+                detail,
+                channel=channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            )
+        message = _strip_channel_trailer(parsed["message"], channel)
+        # Prefer naming a known historical product; else keep heuristic.
+        if cands and not risks.get("do_not_upsell"):
+            named = any(
+                str(c["product"]).casefold() in message.casefold() for c in cands
+            )
+            if not named:
+                log.warning("moysklad bouquet AI omitted historical product; heuristic")
+                return _apply_sanity(
+                    fallback,
+                    detail,
+                    channel=channel,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                )
+        result = {
+            "message": message,
+            "grounding_notes": parsed.get("grounding_notes")
+            or fallback.get("grounding_notes")
+            or "",
+            "source": "llm_bouquet",
+            "channel": channel,
+            "facts": facts_panel(detail),
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "ai": detail.get("ai"),
+            "bouquet": fallback.get("bouquet"),
+            "bouquet_candidates": cands,
+        }
+        return _apply_sanity(
+            result,
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+    except Exception as exc:
+        log.warning("moysklad bouquet suggest unavailable: %s", exc)
+        return _apply_sanity(
+            {**fallback, "error": str(exc)},
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+
+
+def paraphrase_outreach_message(
+    draft: str,
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+    detail: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Full paraphrase — must differ from generate and sales-rewrite styles."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    draft = (draft or "").strip()
+    facts_block = facts_panel(detail) if detail else {}
+    if not draft:
+        return {
+            "message": "",
+            "grounding_notes": "Пустой черновик — нечего парафразировать.",
+            "source": "empty",
+            "channel": channel,
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "facts": facts_block,
+        }
+    risks = _risks_from_detail(detail)
+    fallback_msg = heuristic_paraphrase(draft, channel=channel)
+    if risks.get("do_not_upsell") and _UPSELL_FLOWER_RE.search(draft):
+        fallback_msg = _payment_reminder_message(
+            detail or {}, seller_name=seller_name
+        )
+    user = (
+        "Сделай ПОЛНУЮ парафразу (не sales-rewrite и не generate с нуля).\n"
+        f"Канал: {_channel_label(channel)}.\n"
+        f"Подпись: {seller_name or '(не задана)'}.\n"
+        f"Факты магазина: {seller_facts or '(нет)'}.\n"
+    )
+    if detail:
+        user += (
+            "Факты клиента:\n"
+            + json.dumps(
+                {
+                    "client": (detail.get("client") or {}),
+                    "orders": (detail.get("orders") or [])[:5],
+                    "risks": {
+                        "has_debt": bool(risks.get("has_debt")),
+                        "do_not_upsell": bool(risks.get("do_not_upsell")),
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+    user += f"Исходный черновик:\n{draft}"
+    try:
+        from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+
+        response = call_llm(
+            task="compression",
+            messages=[
+                {"role": "system", "content": _PARAPHRASE_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=700,
+            temperature=OUTREACH_PARAPHRASE_TEMPERATURE,
+            timeout=45.0,
+        )
+        text = (extract_content_or_reasoning(response) or "").strip()
+        parsed = _parse_outreach_json(text)
+        message = ""
+        notes = ""
+        if parsed:
+            message = _strip_channel_trailer(parsed["message"], channel)
+            notes = parsed.get("grounding_notes") or ""
+        if not message or _too_similar(message, draft):
+            # One stricter retry
+            response2 = call_llm(
+                task="compression",
+                messages=[
+                    {"role": "system", "content": _PARAPHRASE_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": user
+                        + "\n\nПРЕДЫДУЩИЙ ОТВЕТ СЛИШКОМ ПОХОЖ. "
+                        "Перепиши ещё раз — другие слова и другой порядок фраз.",
+                    },
+                ],
+                max_tokens=700,
+                temperature=min(1.0, OUTREACH_PARAPHRASE_TEMPERATURE + 0.05),
+                timeout=45.0,
+            )
+            text2 = (extract_content_or_reasoning(response2) or "").strip()
+            parsed2 = _parse_outreach_json(text2)
+            if parsed2:
+                message2 = _strip_channel_trailer(parsed2["message"], channel)
+                if message2 and not _too_similar(message2, draft):
+                    message = message2
+                    notes = parsed2.get("grounding_notes") or notes
+        if not message or _too_similar(message, draft):
+            message = fallback_msg
+            notes = (notes + " Heuristic paraphrase (similarity guard).").strip()
+            source = "heuristic_paraphrase"
+        else:
+            source = "llm_paraphrase"
+        return _apply_sanity(
+            {
+                "message": message,
+                "grounding_notes": notes or "Полная парафраза с сохранением фактов.",
+                "source": source,
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+    except Exception as exc:
+        log.warning("moysklad paraphrase unavailable: %s", exc)
+        return _apply_sanity(
+            {
+                "message": fallback_msg,
+                "grounding_notes": "Heuristic paraphrase (LLM unavailable).",
+                "source": "heuristic_paraphrase",
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "error": str(exc),
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+
+
 def build_outreach_for_row(
     row: dict[str, Any],
     *,
@@ -1509,6 +1951,243 @@ def iter_rewrite_outreach_events(
                 "message": fallback_msg,
                 "grounding_notes": "Heuristic cleanup (LLM unavailable).",
                 "source": "heuristic_rewrite",
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "error": str(exc),
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        yield {"type": "replace", "text": result.get("message") or fallback_msg}
+        yield {"type": "done", "ok": True, **result}
+
+
+def iter_suggest_bouquet_events(
+    detail: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> Iterator[dict[str, Any]]:
+    """NDJSON events: suggest concrete historical bouquet."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    detail = _prepare_generate_detail(detail)
+    fallback = heuristic_bouquet_suggestion(
+        detail,
+        channel=channel,
+        seller_name=seller_name,
+        seller_facts=seller_facts,
+    )
+    risks = _risks_from_detail(detail)
+    cands = list(fallback.get("bouquet_candidates") or _historical_bouquet_candidates(detail))
+    payload = {
+        "channel": channel,
+        "channel_label": _channel_label(channel),
+        "seller_name": seller_name,
+        "seller_facts": seller_facts,
+        "client": (detail.get("client") or {}),
+        "historical_bouquets": cands,
+        "orders": (detail.get("orders") or [])[:8],
+        "risks": {
+            "has_debt": bool(risks.get("has_debt")),
+            "do_not_upsell": bool(risks.get("do_not_upsell")),
+            "flags": list(risks.get("flags") or []),
+        },
+        "ai": {
+            "recommendation": (detail.get("ai") or {}).get("recommendation"),
+            "occasion_intent": (detail.get("ai") or {}).get("occasion_intent"),
+        },
+    }
+    user = (
+        "Предложи клиенту КОНКРЕТНЫЙ букет из historical_bouquets "
+        "(обязательно назови продукт из списка).\n"
+        f"Канал: {_channel_label(channel)}.\n"
+        f"Подпись: {seller_name or '(не задана)'}.\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+    try:
+        raw_holder: dict[str, Any] = {}
+        for ev in _stream_llm_message_events(
+            system=_BOUQUET_SYSTEM,
+            user=user,
+            temperature=OUTREACH_BOUQUET_TEMPERATURE,
+            status_text="Подбираем букет из истории…",
+        ):
+            if ev.get("type") == "_raw":
+                raw_holder = ev
+                continue
+            yield ev
+        message, notes = _finalize_streamed_message(
+            str(raw_holder.get("raw") or ""),
+            raw_holder.get("extractor") or ProgressiveJsonMessage(),
+            channel=channel,
+            mode=raw_holder.get("mode"),
+        )
+        use_fallback = not message
+        if (
+            not use_fallback
+            and cands
+            and not risks.get("do_not_upsell")
+            and not any(str(c["product"]).casefold() in message.casefold() for c in cands)
+        ):
+            use_fallback = True
+        if use_fallback:
+            result = _apply_sanity(
+                fallback,
+                detail,
+                channel=channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            )
+            yield {"type": "replace", "text": result.get("message") or fallback["message"]}
+            yield {"type": "done", "ok": True, **result}
+            return
+        result = _apply_sanity(
+            {
+                "message": message,
+                "grounding_notes": notes or fallback.get("grounding_notes") or "",
+                "source": "llm_bouquet",
+                "channel": channel,
+                "facts": facts_panel(detail),
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "ai": detail.get("ai"),
+                "bouquet": fallback.get("bouquet"),
+                "bouquet_candidates": cands,
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        if result.get("message") and result["message"] != message:
+            yield {"type": "replace", "text": result["message"]}
+        yield {"type": "done", "ok": True, **result}
+    except Exception as exc:
+        log.warning("moysklad bouquet stream unavailable: %s", exc)
+        result = _apply_sanity(
+            {**fallback, "error": str(exc)},
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        yield {"type": "replace", "text": result.get("message") or fallback["message"]}
+        yield {"type": "done", "ok": True, **result}
+
+
+def iter_paraphrase_outreach_events(
+    draft: str,
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+    detail: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """NDJSON events for full paraphrase (must differ from draft)."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    draft = (draft or "").strip()
+    facts_block = facts_panel(detail) if detail else {}
+    if not draft:
+        yield {
+            "type": "done",
+            "ok": True,
+            "message": "",
+            "grounding_notes": "Пустой черновик — нечего парафразировать.",
+            "source": "empty",
+            "channel": channel,
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "facts": facts_block,
+        }
+        return
+    risks = _risks_from_detail(detail)
+    if risks.get("do_not_upsell") and _UPSELL_FLOWER_RE.search(draft):
+        fallback_msg = _payment_reminder_message(detail or {}, seller_name=seller_name)
+    else:
+        fallback_msg = heuristic_paraphrase(draft, channel=channel)
+    user = (
+        "Сделай ПОЛНУЮ парафразу (не sales-rewrite и не generate с нуля).\n"
+        f"Канал: {_channel_label(channel)}.\n"
+        f"Подпись: {seller_name or '(не задана)'}.\n"
+        f"Факты магазина: {seller_facts or '(нет)'}.\n"
+    )
+    if detail:
+        user += (
+            "Факты клиента:\n"
+            + json.dumps(
+                {
+                    "client": (detail.get("client") or {}),
+                    "orders": (detail.get("orders") or [])[:5],
+                    "risks": {
+                        "has_debt": bool(risks.get("has_debt")),
+                        "do_not_upsell": bool(risks.get("do_not_upsell")),
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+    user += f"Исходный черновик:\n{draft}"
+    try:
+        raw_holder: dict[str, Any] = {}
+        for ev in _stream_llm_message_events(
+            system=_PARAPHRASE_SYSTEM,
+            user=user,
+            temperature=OUTREACH_PARAPHRASE_TEMPERATURE,
+            status_text="Делаем полную парафразу…",
+        ):
+            if ev.get("type") == "_raw":
+                raw_holder = ev
+                continue
+            yield ev
+        message, notes = _finalize_streamed_message(
+            str(raw_holder.get("raw") or ""),
+            raw_holder.get("extractor") or ProgressiveJsonMessage(),
+            channel=channel,
+            mode=raw_holder.get("mode"),
+        )
+        if not message or _too_similar(message, draft):
+            message = fallback_msg
+            notes = (notes + " Heuristic paraphrase (similarity guard).").strip()
+            source = "heuristic_paraphrase"
+            yield {"type": "replace", "text": message}
+        else:
+            source = "llm_paraphrase"
+        result = _apply_sanity(
+            {
+                "message": message,
+                "grounding_notes": notes or "Полная парафраза с сохранением фактов.",
+                "source": source,
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        if result.get("message") and result["message"] != message:
+            yield {"type": "replace", "text": result["message"]}
+        yield {"type": "done", "ok": True, **result}
+    except Exception as exc:
+        log.warning("moysklad paraphrase stream unavailable: %s", exc)
+        result = _apply_sanity(
+            {
+                "message": fallback_msg,
+                "grounding_notes": "Heuristic paraphrase (LLM unavailable).",
+                "source": "heuristic_paraphrase",
                 "channel": channel,
                 "facts": facts_block,
                 "seller_name": seller_name,

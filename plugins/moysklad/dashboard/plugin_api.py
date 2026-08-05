@@ -103,11 +103,15 @@ from plugins.moysklad.outreach import (
     facts_panel,
     generate_outreach_message,
     iter_generate_outreach_for_row_events,
+    iter_paraphrase_outreach_events,
     iter_personalize_batch_events,
     iter_rewrite_outreach_events,
+    iter_suggest_bouquet_events,
     normalize_seller_fields,
+    paraphrase_outreach_message,
     rewrite_outreach_message,
     sanity_check_outreach_message,
+    suggest_historical_bouquet_message,
 )
 
 log = logging.getLogger(__name__)
@@ -1146,6 +1150,192 @@ def post_campaign_rewrite_stream(body: OutreachRewriteBody) -> Any:
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/rewrite/stream failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/suggest-bouquet")
+def post_campaign_suggest_bouquet(body: OutreachGenerateBody) -> dict[str, Any]:
+    """Suggest a concrete bouquet from the client's order history."""
+    try:
+        client_id = (body.client_id or "").strip()
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail = build_client_detail(row)
+        result = suggest_historical_bouquet_message(
+            detail,
+            channel=body.channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        result["client_id"] = (detail.get("client") or {}).get("id")
+        result["client_name"] = (detail.get("client") or {}).get("name")
+        return _attach_cache_meta({"ok": True, **result}, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/suggest-bouquet failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/suggest-bouquet/stream")
+def post_campaign_suggest_bouquet_stream(body: OutreachGenerateBody) -> Any:
+    """NDJSON stream for historical bouquet suggestion."""
+    try:
+        client_id = (body.client_id or "").strip()
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, _meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail = build_client_detail(row)
+        client_id_out = (detail.get("client") or {}).get("id")
+        client_name_out = (detail.get("client") or {}).get("name")
+
+        def _events() -> Iterator[dict[str, Any]]:
+            try:
+                for ev in iter_suggest_bouquet_events(
+                    detail,
+                    channel=body.channel,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                ):
+                    if ev.get("type") == "done":
+                        ev = {
+                            **ev,
+                            "client_id": client_id_out,
+                            "client_name": client_name_out,
+                        }
+                    yield ev
+            except Exception as exc:  # pragma: no cover
+                log.exception("moysklad /campaigns/suggest-bouquet/stream mid-stream")
+                yield {"type": "error", "error": str(exc)}
+
+        return _ndjson_response(_events())
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/suggest-bouquet/stream failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/paraphrase")
+def post_campaign_paraphrase(body: OutreachRewriteBody) -> dict[str, Any]:
+    """Full paraphrase — must differ from generate and sales rewrite."""
+    try:
+        draft = (body.message or "").strip()
+        if not draft:
+            raise HTTPException(status_code=400, detail="message required")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail: dict[str, Any] | None = None
+        client_id = (body.client_id or "").strip()
+        meta = None
+        if client_id:
+            catalog, meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+        result = paraphrase_outreach_message(
+            draft,
+            channel=body.channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+            detail=detail,
+        )
+        if meta is not None:
+            return _attach_cache_meta({"ok": True, **result}, meta)
+        return {"ok": True, **result}
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/paraphrase failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/paraphrase/stream")
+def post_campaign_paraphrase_stream(body: OutreachRewriteBody) -> Any:
+    """NDJSON stream for full paraphrase."""
+    try:
+        draft = (body.message or "").strip()
+        if not draft:
+            raise HTTPException(status_code=400, detail="message required")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail: dict[str, Any] | None = None
+        client_id = (body.client_id or "").strip()
+        if client_id:
+            catalog, _meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+
+        def _events() -> Iterator[dict[str, Any]]:
+            try:
+                yield from iter_paraphrase_outreach_events(
+                    draft,
+                    channel=body.channel,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                    detail=detail,
+                )
+            except Exception as exc:  # pragma: no cover
+                log.exception("moysklad /campaigns/paraphrase/stream mid-stream")
+                yield {"type": "error", "error": str(exc)}
+
+        return _ndjson_response(_events())
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/paraphrase/stream failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
