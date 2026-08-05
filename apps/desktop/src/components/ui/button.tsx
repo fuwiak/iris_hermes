@@ -18,8 +18,7 @@ const buttonVariants = cva(
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
         // button-outline — aubergine surface, violet ring
-        outline:
-          'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#c084fc] hover:bg-[#481a54] hover:text-[#f4ede4]',
+        outline: 'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#c084fc] hover:bg-[#481a54] hover:text-[#f4ede4]',
         // button-secondary-pill — deep lavender + cream
         secondary: 'bg-[#481a54] text-[#f4ede4] hover:bg-[color-mix(in_srgb,#c084fc_22%,#481a54)] hover:text-[#f4ede4]',
         ghost: 'text-(--ui-text-secondary) hover:bg-[#481a54] hover:text-[#f4ede4]',

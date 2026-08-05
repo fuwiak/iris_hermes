@@ -98,36 +98,36 @@ export function PluginsSettings() {
   return (
     <SettingsContent>
       <div className="iris-plugins-settings">
-      <SectionHeading icon={Package} meta={p.count(rows.length)} title={p.title} />
-      <p className="mb-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">{p.blurb}</p>
+        <SectionHeading icon={Package} meta={p.count(rows.length)} title={p.title} />
+        <p className="mb-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">{p.blurb}</p>
 
-      <div className="mb-4 flex items-center gap-2">
-        <Button onClick={() => void revealPluginsDir()} size="sm" variant="outline">
-          <Codicon name="folder-opened" size="0.8rem" />
-          {p.openFolder}
-        </Button>
-        <Button
-          onClick={() => {
-            triggerHaptic('selection')
-            void discoverRuntimePlugins()
-          }}
-          size="sm"
-          variant="outline"
-        >
-          <Codicon name="refresh" size="0.8rem" />
-          {p.rescan}
-        </Button>
-      </div>
-
-      {rows.length === 0 ? (
-        <EmptyState title={p.empty} />
-      ) : (
-        <div className="divide-y divide-(--ui-stroke-tertiary) rounded-xl border border-(--ui-stroke-tertiary) bg-[#3a1840] px-1">
-          {rows.map(record => (
-            <PluginRow key={record.id} record={record} />
-          ))}
+        <div className="mb-4 flex items-center gap-2">
+          <Button onClick={() => void revealPluginsDir()} size="sm" variant="outline">
+            <Codicon name="folder-opened" size="0.8rem" />
+            {p.openFolder}
+          </Button>
+          <Button
+            onClick={() => {
+              triggerHaptic('selection')
+              void discoverRuntimePlugins()
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Codicon name="refresh" size="0.8rem" />
+            {p.rescan}
+          </Button>
         </div>
-      )}
+
+        {rows.length === 0 ? (
+          <EmptyState title={p.empty} />
+        ) : (
+          <div className="divide-y divide-(--ui-stroke-tertiary) rounded-xl border border-(--ui-stroke-tertiary) bg-[#3a1840] px-1">
+            {rows.map(record => (
+              <PluginRow key={record.id} record={record} />
+            ))}
+          </div>
+        )}
       </div>
     </SettingsContent>
   )

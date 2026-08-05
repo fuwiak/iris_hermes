@@ -1,9 +1,6 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import {
-  STANDARD_DESKTOP_PRIMARY_NAV_IDS,
-  STANDARD_NAV_PLUGIN_PATHS
-} from '@hermes/shared'
+import { STANDARD_DESKTOP_PRIMARY_NAV_IDS, STANDARD_NAV_PLUGIN_PATHS } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -13,7 +10,6 @@ import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { useAppControlTools } from '@/app/shell/titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
-import { Switch } from '@/components/ui/switch'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { KbdGroup } from '@/components/ui/kbd'
@@ -27,6 +23,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from '@/components/ui/sidebar'
+import { Switch } from '@/components/ui/switch'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { searchSessions, type SessionInfo, type SessionSearchResult } from '@/hermes'
@@ -66,6 +63,7 @@ import {
   SIDEBAR_SESSIONS_PAGE_SIZE,
   toggleSidebarMessagingOpen
 } from '@/store/layout'
+import { $navMode, setNavMode } from '@/store/nav-mode'
 import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import {
   $activeProjectId,
@@ -100,7 +98,6 @@ import {
   setCurrentCwd
 } from '@/store/session'
 import { $focusedStoredSessionId, $workingSessionIds, type SplitDir } from '@/store/session-states'
-import { $navMode, setNavMode } from '@/store/nav-mode'
 
 import {
   type AppView,
@@ -271,8 +268,7 @@ export function ChatSidebar({
   const { t } = useI18n()
   const s = t.sidebar
 
-  const embed =
-    typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
+  const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
 
   const appControlTools = useAppControlTools()
 
@@ -283,9 +279,7 @@ export function ChatSidebar({
         .filter(tool => !tool.hidden)
         .map(tool => ({
           active: tool.active,
-          icon: ({ className }: { className?: string }) => (
-            <span className={className}>{tool.icon}</span>
-          ),
+          icon: ({ className }: { className?: string }) => <span className={className}>{tool.icon}</span>,
           id: `app-control-${tool.id}`,
           keybindActionId: tool.actionId,
           label: tool.label,
@@ -298,7 +292,11 @@ export function ChatSidebar({
 
   const primaryNav = useMemo(() => {
     const all = [...SIDEBAR_NAV, ...webAppControlNav]
-    if (isProNav) return all
+
+    if (isProNav) {
+      return all
+    }
+
     // standard: Chat + Settings — hide Discover/Office/Kanban/Schedules + other embed tools
     return all.filter(item => STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(item.id))
   }, [isProNav, webAppControlNav])

@@ -1,5 +1,3 @@
-import { atom } from 'nanostores'
-
 import {
   NAV_MODE_CHANGE_EVENT,
   NAV_MODE_STORAGE_KEY,
@@ -8,6 +6,7 @@ import {
   readNavMode,
   writeNavMode
 } from '@hermes/shared'
+import { atom } from 'nanostores'
 
 /** Left-nav density — shared key with web dashboard (`hermes-nav-mode`). */
 export const $navMode = atom<NavMode>(readNavMode())
@@ -23,7 +22,9 @@ function syncFromStorage() {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', e => {
-    if (e.key !== null && e.key !== NAV_MODE_STORAGE_KEY) return
+    if (e.key !== null && e.key !== NAV_MODE_STORAGE_KEY) {
+      return
+    }
     syncFromStorage()
   })
   window.addEventListener(NAV_MODE_CHANGE_EVENT, e => {
