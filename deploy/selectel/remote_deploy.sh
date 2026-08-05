@@ -51,6 +51,9 @@ fi
 cd "$DEPLOY_DIR"
 docker compose pull || true
 docker compose build hermes
+# Force recreate hermes so compose env_file + entrypoint volume .env sync
+# pick up rotated OPENROUTER_API_KEY (plain `up -d` can leave a stale container).
+docker compose up -d --force-recreate hermes
 docker compose up -d
 
 # Basic health

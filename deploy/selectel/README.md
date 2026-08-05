@@ -50,7 +50,8 @@ Fix (pick one):
 1. Set GitHub secret `SELECTEL_IRIS_OPENROUTER_API_KEY` to the new key and push
    (deploy patches `/root/deploy.env`; entrypoint syncs into the volume).
 2. Or edit `/root/deploy.env` on the VDS, then
-   `docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml up -d --force-recreate hermes`.
+   `docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml up -d --force-recreate hermes`
+   (plain `up -d` can leave a stale container env / volume key).
 3. Or switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`).
 
 Updating only a local laptop `.env` does **not** fix production.

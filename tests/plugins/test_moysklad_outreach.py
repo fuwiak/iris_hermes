@@ -133,6 +133,47 @@ def test_heuristic_sanity_rejects_flower_upsell_on_debt():
     assert not ok["issues"]
 
 
+def test_heuristic_sanity_rejects_gift_upsell_on_debt():
+    row = _sample_row(balance=-5000.0)
+    detail = build_client_detail(row)
+    bad = (
+        "Здравствуйте, Мария! Это Анна. Хотим сделать вам подарок и скидку "
+        "на следующий букет — напишите!"
+    )
+    sanity = heuristic_sanity_check(bad, detail, seller_name="Анна")
+    assert sanity["ok"] is False
+    assert any("долг" in i.lower() or "оплат" in i.lower() for i in sanity["issues"])
+    rev = (sanity["revised_text"] or "").lower()
+    assert "подарок" not in rev
+    assert "скидк" not in rev
+    assert "оплат" in rev or "свер" in rev
+
+
+def test_outreach_temperatures_are_creative_and_sales():
+    from plugins.moysklad.outreach import (
+        OUTREACH_GENERATE_TEMPERATURE,
+        OUTREACH_REWRITE_TEMPERATURE,
+        OUTREACH_SANITY_TEMPERATURE,
+    )
+
+    assert OUTREACH_GENERATE_TEMPERATURE >= 0.8
+    assert OUTREACH_REWRITE_TEMPERATURE >= 0.9
+    assert OUTREACH_SANITY_TEMPERATURE <= 0.2
+    assert OUTREACH_REWRITE_TEMPERATURE > OUTREACH_GENERATE_TEMPERATURE
+
+
+def test_outreach_system_prompts_cover_debt_and_creativity():
+    from plugins.moysklad.outreach import _REWRITE_SYSTEM, _SANITY_SYSTEM
+
+    prompt = _OUTREACH_SYSTEM("Анна", "")
+    assert "КРЕАТИВНЫЙ" in prompt or "креатив" in prompt.lower()
+    assert "долг" in prompt.lower()
+    assert "подар" in prompt.lower()
+    assert "продающ" in _REWRITE_SYSTEM.lower()
+    assert "здрав" in _SANITY_SYSTEM.lower() or "долг" in _SANITY_SYSTEM.lower()
+    assert "подар" in _SANITY_SYSTEM.lower()
+
+
 def test_heuristic_outreach_cites_facts_not_discounts():
     detail = build_client_detail(_sample_row())
     out = heuristic_outreach_message(
@@ -203,6 +244,8 @@ def test_outreach_system_prompt_includes_seller_fields():
     assert "ул. Цветочная 1" in prompt
     assert "Это Iris" in prompt  # instruction: don't hardcode unless signature says so
     assert "навязанных скидок" in prompt
+    assert "КРЕАТИВНЫЙ" in prompt or "креатив" in prompt.lower()
+    assert "подар" in prompt.lower()
 
 
 def test_rewrite_heuristic_removes_robot_meta():

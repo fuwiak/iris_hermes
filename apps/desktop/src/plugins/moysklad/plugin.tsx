@@ -1580,6 +1580,14 @@ function CampaignsPage() {
       setError('')
       setActionStatus(runAi ? 'Генерируем текст…' : '')
 
+      if (runAi) {
+        // Clear immediately so seller sees a fresh creative pass, not stale draft.
+        applyOfferText('', 'Генерируем креативный текст…')
+        setSanity(null)
+        setGroundingNotes('')
+        setGenSource('')
+      }
+
       try {
         if (runAi) {
           const data = await call<{
@@ -1589,6 +1597,7 @@ function CampaignsPage() {
             facts?: ClientFacts
             client_name?: string
             sanity?: SanityResult
+            error?: string
           }>('/campaigns/generate', {
             method: 'POST',
             timeoutMs: OUTREACH_AI_TIMEOUT_MS,
@@ -1613,11 +1622,19 @@ function CampaignsPage() {
               msg,
               data.sanity?.auto_revised
                 ? 'AI сгенерировал текст (sanity поправил формулировку).'
-                : 'AI сгенерировал текст — можно править вручную.'
+                : 'AI сгенерировал креативный текст — можно править вручную.'
             )
           } else {
             setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
             setActionStatus('')
+          }
+
+          if (data.error) {
+            setError(
+              /403|security policy|access denied/i.test(data.error)
+                ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${data.error}`
+                : `LLM: ${data.error}`
+            )
           }
 
           if (data.client_name) {
@@ -1694,7 +1711,9 @@ function CampaignsPage() {
 
     setRewriting(true)
     setError('')
-    setActionStatus('Переписываем продающе и по-человечески…')
+    // Wipe draft while rewriting — seller sees the new sales pass replace it.
+    applyOfferText('', 'Переписываем продающе и по-человечески…')
+    setSanity(null)
 
     try {
       const data = await call<{
@@ -1703,6 +1722,7 @@ function CampaignsPage() {
         source?: string
         facts?: ClientFacts
         sanity?: SanityResult
+        error?: string
       }>('/campaigns/rewrite', {
         method: 'POST',
         timeoutMs: OUTREACH_AI_TIMEOUT_MS,
@@ -1738,7 +1758,17 @@ function CampaignsPage() {
       if (data.sanity) {
         setSanity(data.sanity)
       }
+
+      if (data.error) {
+        setError(
+          /403|security policy|access denied/i.test(data.error)
+            ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${data.error}`
+            : `LLM: ${data.error}`
+        )
+      }
     } catch (err) {
+      // Restore draft if rewrite failed after we cleared the field.
+      applyOfferText(draft, '')
       setError(err instanceof Error ? err.message : String(err))
       setActionStatus('')
     } finally {
