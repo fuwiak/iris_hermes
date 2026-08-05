@@ -590,6 +590,43 @@
                     },
                     "События",
                   ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn ms-btn-primary",
+                      onClick: function () {
+                        var sales = "all";
+                        var st = String(client.sales_type || "").toLowerCase();
+                        if (st.indexOf("маркет") >= 0) sales = "marketplace";
+                        else if (st.indexOf("прям") >= 0) sales = "direct";
+                        var ch = "telegram";
+                        var primary = String(
+                          msg.primary_channel || client.primary_channel || "",
+                        ).toLowerCase();
+                        if (primary.indexOf("whatsapp") >= 0) ch = "whatsapp";
+                        try {
+                          sessionStorage.setItem(
+                            "moysklad.draftPrefill",
+                            JSON.stringify({
+                              clientId: clientId,
+                              channel: ch,
+                              salesFilter: sales,
+                            }),
+                          );
+                        } catch (_) {}
+                        try {
+                          var url = new URL(window.location.href);
+                          url.searchParams.set("view", "campaigns");
+                          url.searchParams.set("client_id", clientId);
+                          window.location.assign(url.pathname + url.search);
+                        } catch (_) {
+                          onClose();
+                        }
+                      },
+                    },
+                    "Черновик рассылки",
+                  ),
                 ),
                 note ? h("p", { className: "ms-note" }, note) : null,
                 h("p", { className: "ms-muted" }, msg.hint || ""),
@@ -961,6 +998,89 @@
     );
   }
 
+  function moneyFmt(n) {
+    var v = Number(n) || 0;
+    try {
+      return new Intl.NumberFormat("ru-RU", {
+        style: "currency",
+        currency: "RUB",
+        maximumFractionDigits: 0,
+      }).format(v);
+    } catch (_) {
+      return String(Math.round(v)) + " ₽";
+    }
+  }
+
+  function FactsPanel({ facts, notes }) {
+    if (!facts) {
+      return h(
+        "aside",
+        { className: "ms-facts-panel" },
+        h("h3", null, "Факты клиента"),
+        h(
+          "p",
+          { className: "ms-muted" },
+          "Выберите клиента из аудитории или из карточки — здесь заказы, чек и теги для сверки с AI.",
+        ),
+      );
+    }
+    var last = facts.last_order;
+    return h(
+      "aside",
+      { className: "ms-facts-panel" },
+      h("h3", null, "Факты · " + (facts.name || "клиент")),
+      facts.data_thin
+        ? h("p", { className: "ms-muted" }, "Данных мало — текст должен быть осторожным.")
+        : null,
+      h(
+        "div",
+        { className: "ms-kv-grid" },
+        h("span", { className: "ms-muted" }, "Заказов"),
+        h("span", null, String(facts.order_count || 0)),
+        h("span", { className: "ms-muted" }, "Средний чек"),
+        h("span", null, moneyFmt(facts.avg_check)),
+        h("span", { className: "ms-muted" }, "Каналы"),
+        h(
+          "span",
+          null,
+          (facts.channels || []).join(", ") || facts.primary_channel || "—",
+        ),
+        h("span", { className: "ms-muted" }, "VIP"),
+        h("span", null, facts.vip ? "да" : "нет"),
+        h("span", { className: "ms-muted" }, "Телефон"),
+        h("span", null, facts.phone || "—"),
+        h("span", { className: "ms-muted" }, "Telegram"),
+        h("span", null, facts.tg_nick || "—"),
+      ),
+      last
+        ? h(
+            "div",
+            { className: "ms-last-order" },
+            h("strong", null, "Последний заказ"),
+            h(
+              "div",
+              { className: "ms-muted" },
+              String(last.date || "").slice(0, 16).replace("T", " ") +
+                " · " +
+                moneyFmt(last.sum) +
+                (last.channel ? " · " + last.channel : ""),
+            ),
+            last.product_snippet ? h("div", null, last.product_snippet) : null,
+          )
+        : null,
+      h(TagPills, { items: facts.event_tags || [], className: "ms-tag-row ms-tag-event" }),
+      facts.recommendation
+        ? h(
+            "div",
+            null,
+            h("p", { className: "ms-ai-label" }, "Рекомендация (контекст)"),
+            h("p", { className: "ms-facts-rec" }, facts.recommendation),
+          )
+        : null,
+      notes ? h("p", { className: "ms-muted ms-grounding" }, notes) : null,
+    );
+  }
+
   function CampaignsPage() {
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -971,20 +1091,56 @@
     const [offer, setOffer] = useState("");
     const [salesFilter, setSalesFilter] = useState("direct");
     const [saving, setSaving] = useState(false);
+    const [generating, setGenerating] = useState(false);
     const [counts, setCounts] = useState(null);
     const [audience, setAudience] = useState(0);
+    const [audiencePreview, setAudiencePreview] = useState([]);
+    const [selectedClientId, setSelectedClientId] = useState(null);
+    const [facts, setFacts] = useState(null);
+    const [groundingNotes, setGroundingNotes] = useState("");
+    const [genSource, setGenSource] = useState("");
+    const [prefillReady, setPrefillReady] = useState(false);
+
+    useEffect(function () {
+      var cid = null;
+      var ch = null;
+      var sf = null;
+      try {
+        var sp = new URLSearchParams(window.location.search);
+        cid = sp.get("client_id");
+        var raw = sessionStorage.getItem("moysklad.draftPrefill");
+        if (raw) {
+          sessionStorage.removeItem("moysklad.draftPrefill");
+          var parsed = JSON.parse(raw);
+          if (parsed && parsed.clientId) {
+            cid = parsed.clientId;
+            ch = parsed.channel || ch;
+            sf = parsed.salesFilter || sf;
+          }
+        }
+      } catch (_) {}
+      if (cid) {
+        setSelectedClientId(cid);
+        setMode("auto");
+        setTitle("Черновик · клиент");
+        if (ch) setChannel(ch);
+        if (sf) setSalesFilter(sf);
+      }
+      setPrefillReady(true);
+    }, []);
 
     const refresh = useCallback(function () {
       setLoading(true);
       setError("");
       Promise.all([
         api("/campaigns"),
-        api("/clients?sales_filter=" + encodeURIComponent(salesFilter) + "&limit=1"),
+        api("/clients?sales_filter=" + encodeURIComponent(salesFilter) + "&limit=12"),
       ])
         .then(function (pair) {
           setCampaigns((pair[0] && pair[0].campaigns) || []);
           setCounts((pair[1] && pair[1].counts) || null);
           setAudience((pair[1] && pair[1].matched_total) || 0);
+          setAudiencePreview((pair[1] && pair[1].clients) || []);
         })
         .catch(function (err) {
           setError((err && err.message) || String(err));
@@ -997,6 +1153,44 @@
     useEffect(function () {
       refresh();
     }, [refresh]);
+
+    const loadOutreach = useCallback(
+      function (clientId, nextChannel) {
+        setGenerating(true);
+        setError("");
+        api("/campaigns/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: clientId,
+            channel: nextChannel || channel,
+            refresh_ai: true,
+          }),
+        })
+          .then(function (data) {
+            setFacts(data.facts || null);
+            setGroundingNotes(data.grounding_notes || "");
+            setGenSource(data.source || "");
+            if (data.message) setOffer(data.message);
+            if (data.client_name) setTitle("Черновик · " + data.client_name);
+          })
+          .catch(function (err) {
+            setError((err && err.message) || String(err));
+          })
+          .finally(function () {
+            setGenerating(false);
+          });
+      },
+      [channel],
+    );
+
+    useEffect(
+      function () {
+        if (!prefillReady || !selectedClientId) return;
+        loadOutreach(selectedClientId, channel);
+      },
+      [prefillReady, selectedClientId],
+    );
 
     function createDraft(e) {
       e.preventDefault();
@@ -1011,10 +1205,12 @@
           mode: mode,
           offer: offer,
           sales_filter: salesFilter,
+          client_id: selectedClientId || "",
+          generate_ai: mode === "auto" && !String(offer || "").trim(),
         }),
       })
         .then(function () {
-          setOffer("");
+          if (!selectedClientId) setOffer("");
           refresh();
         })
         .catch(function (err) {
@@ -1044,7 +1240,7 @@
           h(
             "p",
             { className: "ms-muted" },
-            "Telegram / WhatsApp черновики по аудитории МойСклад (как на kinetic-ai /campaigns).",
+            "Черновики Telegram / WhatsApp · аудитория = кэш Клиентов",
           ),
         ),
         h(
@@ -1064,7 +1260,66 @@
         { className: "ms-muted" },
         "Аудитория: ",
         h("strong", null, String(audience)),
+        selectedClientId
+          ? [
+              " · выбран ",
+              h("strong", { key: "n" }, (facts && facts.name) || selectedClientId),
+              h(
+                "button",
+                {
+                  key: "x",
+                  type: "button",
+                  className: "ms-link-btn",
+                  style: { marginLeft: "0.5rem" },
+                  onClick: function () {
+                    setSelectedClientId(null);
+                    setFacts(null);
+                    setGroundingNotes("");
+                    setTitle("Рассылка по фильтрам");
+                  },
+                },
+                "сбросить",
+              ),
+            ]
+          : null,
       ),
+      audiencePreview.length
+        ? h(
+            "div",
+            { className: "ms-audience-pick" },
+            h(
+              "p",
+              { className: "ms-muted" },
+              "Клиенты из того же фильтра (клик → персональный черновик):",
+            ),
+            h(
+              "div",
+              { className: "ms-chips" },
+              audiencePreview.map(function (row) {
+                return h(
+                  "button",
+                  {
+                    key: row.id || row.name,
+                    type: "button",
+                    className:
+                      "ms-chip" + (selectedClientId === row.id ? " is-active" : ""),
+                    onClick: function () {
+                      if (!row.id) return;
+                      setSelectedClientId(row.id);
+                      setMode("auto");
+                      if (row.phone && !row.tg_nick) setChannel("whatsapp");
+                      else setChannel("telegram");
+                    },
+                  },
+                  row.name || row.id,
+                  row.order_count != null
+                    ? h("span", null, String(row.order_count))
+                    : null,
+                );
+              }),
+            ),
+          )
+        : null,
       h(
         "div",
         { className: "ms-filter-tabs", role: "tablist" },
@@ -1092,65 +1347,86 @@
         ),
       ),
       h(
-        "form",
-        { className: "ms-campaign-form", onSubmit: createDraft },
+        "div",
+        { className: "ms-compose-split" },
         h(
-          "label",
-          null,
-          "Название",
-          h("input", {
-            value: title,
-            required: true,
-            onChange: function (e) {
-              setTitle(e.target.value);
-            },
-          }),
-        ),
-        h(
-          "label",
-          null,
-          "Канал",
+          "form",
+          { className: "ms-campaign-form", onSubmit: createDraft },
           h(
-            "select",
-            {
-              value: channel,
+            "label",
+            null,
+            "Название",
+            h("input", {
+              value: title,
+              required: true,
               onChange: function (e) {
-                setChannel(e.target.value);
+                setTitle(e.target.value);
               },
-            },
-            h("option", { value: "telegram" }, "Telegram (личные)"),
-            h("option", { value: "telegram_channel" }, "Telegram-канал"),
-            h("option", { value: "whatsapp" }, "WhatsApp"),
+            }),
           ),
-        ),
-        mode === "manual"
-          ? h(
-              "label",
-              null,
-              "Текст сообщения",
-              h("textarea", {
-                rows: 4,
-                value: offer,
-                placeholder: "Текст рассылки…",
+          h(
+            "label",
+            null,
+            "Канал",
+            h(
+              "select",
+              {
+                value: channel,
                 onChange: function (e) {
-                  setOffer(e.target.value);
+                  setChannel(e.target.value);
                 },
-              }),
-            )
-          : h(
-              "p",
-              { className: "ms-muted" },
-              "Текст для каждого клиента подставится из шаблона AI при создании черновика.",
+              },
+              h("option", { value: "telegram" }, "Telegram (личные)"),
+              h("option", { value: "telegram_channel" }, "Telegram-канал"),
+              h("option", { value: "whatsapp" }, "WhatsApp"),
             ),
-        h(
-          "button",
-          {
-            type: "submit",
-            className: "ms-btn ms-btn-primary",
-            disabled: saving || loading,
-          },
-          mode === "auto" ? "Создать авто-черновик" : "Создать черновик",
+          ),
+          h(
+            "label",
+            null,
+            "Текст сообщения",
+            h("textarea", {
+              rows: 8,
+              value: offer,
+              placeholder:
+                mode === "auto"
+                  ? "Выберите клиента или нажмите «Сгенерировать AI»…"
+                  : "Текст рассылки…",
+              onChange: function (e) {
+                setOffer(e.target.value);
+              },
+            }),
+          ),
+          h(
+            "div",
+            { className: "ms-compose-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-btn",
+                disabled: generating || !selectedClientId,
+                onClick: function () {
+                  if (selectedClientId) loadOutreach(selectedClientId, channel);
+                },
+              },
+              generating ? "Генерация…" : "Сгенерировать AI",
+            ),
+            h(
+              "button",
+              {
+                type: "submit",
+                className: "ms-btn ms-btn-primary",
+                disabled: saving || loading || generating,
+              },
+              mode === "auto" ? "Создать авто-черновик" : "Создать черновик",
+            ),
+          ),
+          genSource
+            ? h("p", { className: "ms-muted" }, "Источник текста: " + genSource)
+            : null,
         ),
+        h(FactsPanel, { facts: facts, notes: groundingNotes }),
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "Черновики"),
@@ -1189,8 +1465,10 @@
                       c.mode +
                       " · аудитория " +
                       String(c.audience_count || 0) +
+                      (c.client_name ? " · " + c.client_name : "") +
                       " · " +
-                      (c.status || "draft"),
+                      (c.status || "draft") +
+                      (c.ai_source ? " · AI " + c.ai_source : ""),
                   ),
                   c.offer
                     ? h("p", { className: "ms-campaign-offer" }, c.offer)

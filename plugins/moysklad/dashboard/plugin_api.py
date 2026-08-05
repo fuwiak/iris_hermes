@@ -69,6 +69,11 @@ from plugins.moysklad.client_card import (
     find_row_in_catalog,
     generate_ai_for_detail,
 )
+from plugins.moysklad.outreach import (
+    build_outreach_for_row,
+    facts_panel,
+    generate_outreach_message,
+)
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +106,18 @@ class CampaignCreateBody(BaseModel):
     sales_filter: str = "all"
     group: str = ""
     q: str = ""
+    client_id: str = ""
     include_preview: bool = True
+    generate_ai: bool = False
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
+class OutreachGenerateBody(BaseModel):
+    client_id: str = ""
+    channel: str = "telegram"
+    refresh_ai: bool = True
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -452,51 +468,162 @@ def get_campaigns() -> dict[str, Any]:
     return {"ok": True, "campaigns": list_campaigns()}
 
 
+@router.post("/campaigns/generate")
+def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
+    """AI (or heuristic) outreach text + facts panel for one client.
+
+    Uses the same durable catalog cache as /clients (marketplace/direct).
+    """
+    try:
+        client_id = (body.client_id or "").strip()
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        outreach = build_outreach_for_row(
+            row,
+            channel=body.channel,
+            refresh_ai=bool(body.refresh_ai),
+        )
+        return _attach_cache_meta({"ok": True, **outreach}, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/generate failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/campaigns")
 def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
+    """Create a draft. Audience filters share the Clients catalog cache.
+
+    Pass ``client_id`` for a personalized 1:1 draft (facts + optional AI text).
+    ``mode=auto`` without offer runs outreach generation when client_id is set.
+    """
     try:
         catalog, _meta = _get_catalog(
             max_orders=body.max_orders,
             max_counterparties=body.max_counterparties,
             include_archived=body.include_archived,
         )
-        page = clients_page(
-            _client(),
-            sales_filter=body.sales_filter,
-            group=body.group,
-            q=body.q,
-            limit=20 if body.include_preview else 1,
-            offset=0,
-            catalog=catalog,
-        )
-        preview = []
-        if body.include_preview:
-            for row in page.get("clients") or []:
-                preview.append(
-                    {
-                        "id": row.get("id"),
-                        "name": row.get("name"),
-                        "phone": row.get("phone"),
-                        "email": row.get("email"),
-                        "sales_type": row.get("sales_type"),
-                    }
-                )
+        client_id = (body.client_id or "").strip()
+        facts: dict[str, Any] = {}
+        recommendation = ""
+        grounding_notes = ""
+        ai_source = ""
+        client_name = ""
         offer = body.offer
-        if body.mode == "auto" and not (offer or "").strip():
-            offer = (
-                "Здравствуйте! Специально для вас — персональное предложение "
-                "от Iris. Напишите, если удобно продолжить диалог."
+        preview: list[dict[str, Any]] = []
+        audience_count = 0
+        sales_filter = body.sales_filter or "all"
+
+        if client_id:
+            row = find_row_in_catalog(catalog, client_id)
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="client not found in catalog"
+                )
+            detail = build_client_detail(row)
+            client = detail.get("client") or {}
+            client_name = str(client.get("name") or "")
+            sales_filter = str(client.get("sales_type") or sales_filter)
+            # Normalize UI filter ids when sales_type is a display label.
+            st = sales_filter.lower().replace("ё", "е")
+            if "маркет" in st:
+                sales_filter = "marketplace"
+            elif "прям" in st:
+                sales_filter = "direct"
+            facts = facts_panel(detail)
+            recommendation = str((detail.get("ai") or {}).get("recommendation") or "")
+            want_ai = body.mode == "auto" or body.generate_ai or not (offer or "").strip()
+            if want_ai and not (offer or "").strip():
+                outreach = generate_outreach_message(
+                    detail, channel=body.channel, refresh_ai=True
+                )
+                offer = outreach.get("message") or ""
+                facts = outreach.get("facts") or facts
+                grounding_notes = str(outreach.get("grounding_notes") or "")
+                ai_source = str(outreach.get("source") or "")
+                recommendation = str(
+                    (outreach.get("ai") or detail.get("ai") or {}).get(
+                        "recommendation"
+                    )
+                    or recommendation
+                )
+            preview = [
+                {
+                    "id": client.get("id"),
+                    "name": client_name,
+                    "phone": client.get("phone"),
+                    "email": client.get("email"),
+                    "sales_type": client.get("sales_type"),
+                }
+            ]
+            audience_count = 1
+            title = body.title
+            if not (title or "").strip() or title == "Рассылка":
+                title = f"Черновик · {client_name or client_id}"
+        else:
+            page = clients_page(
+                _client(),
+                sales_filter=body.sales_filter,
+                group=body.group,
+                q=body.q,
+                limit=20 if body.include_preview else 1,
+                offset=0,
+                catalog=catalog,
             )
+            sales_filter = page.get("sales_filter") or body.sales_filter
+            audience_count = int(page.get("matched_total") or 0)
+            if body.include_preview:
+                for row in page.get("clients") or []:
+                    preview.append(
+                        {
+                            "id": row.get("id"),
+                            "name": row.get("name"),
+                            "phone": row.get("phone"),
+                            "email": row.get("email"),
+                            "sales_type": row.get("sales_type"),
+                        }
+                    )
+            if body.mode == "auto" and not (offer or "").strip():
+                # Filter-level auto without a picked client: grounded stub only.
+                offer = (
+                    "Здравствуйте! Это Iris, цветочный магазин. "
+                    "Напишите, если удобно подобрать букет под ваш повод — "
+                    "без выдуманных скидок. "
+                    "(Выберите клиента в карточке для персонального AI-текста.)"
+                )
+                ai_source = "filter_stub"
+            title = body.title
+
         item = create_draft(
-            title=body.title,
+            title=title,
             channel=body.channel,
             mode=body.mode,
             offer=offer,
-            sales_filter=page.get("sales_filter") or body.sales_filter,
+            sales_filter=sales_filter,
             group=body.group,
             q=body.q,
-            audience_count=int(page.get("matched_total") or 0),
+            audience_count=audience_count,
             audience_preview=preview,
+            client_id=client_id,
+            client_name=client_name,
+            facts=facts,
+            recommendation=recommendation,
+            grounding_notes=grounding_notes,
+            ai_source=ai_source,
         )
         return {"ok": True, "campaign": item}
     except HTTPException:

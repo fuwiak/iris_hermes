@@ -619,6 +619,71 @@
   font-size: 0.85rem;
 }
 
+.ms-compose-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(16rem, 0.85fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.ms-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ms-facts-panel {
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  background: color-mix(in srgb, #c084fc 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 12rem;
+}
+
+.ms-facts-panel h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ms-facts-rec {
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+.ms-grounding {
+  font-size: 0.8rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  padding-top: 0.45rem;
+}
+
+.ms-audience-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ms-link-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #c084fc;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .ms-compose-split {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
   .ms-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

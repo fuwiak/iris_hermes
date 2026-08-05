@@ -68,7 +68,20 @@ Example prompts:
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
 6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 
-API mounts under `/api/plugins/moysklad/` (`GET /clients`, `POST /sync`, campaigns, groups).
+API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
+`POST /clients/{id}/ai`, `POST /sync`, `GET|POST /campaigns`,
+`POST /campaigns/generate`, groups).
+
+### Рассылки ↔ Клиенты
+
+Audience filters on **Рассылки** use the **same durable catalog cache** and
+marketplace/direct classification as **Клиенты**. Personalized drafts:
+
+1. Open a client card → **Черновик рассылки** (or pick a chip in Рассылки).
+2. **Авто (AI)** calls `POST /campaigns/generate` with client facts + card
+   recommendation; text is editable before save.
+3. Side **Факты** panel shows orders / avg check / channels / tags / last order
+   so a human can audit grounding (no invented discounts/phones).
 
 ### Clients catalog cache
 
