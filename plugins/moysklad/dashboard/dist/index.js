@@ -21,6 +21,27 @@
   const API = "/api/plugins/moysklad";
   const PAGE_SIZE = 50;
 
+
+  function pickOutreachMessage(data) {
+    if (!data || typeof data !== "object") return "";
+    var nested = data.result && typeof data.result === "object" ? data.result : null;
+    var sanity = data.sanity && typeof data.sanity === "object" ? data.sanity : null;
+    var candidates = [
+      data.message,
+      data.text,
+      data.offer,
+      data.draft,
+      sanity && sanity.revised_text,
+      nested && nested.message,
+      nested && nested.text,
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var c = candidates[i];
+      if (typeof c === "string" && c.trim()) return c;
+    }
+    return "";
+  }
+
   function api(path, options) {
     return SDK.fetchJSON(API + path, options);
   }
@@ -1459,6 +1480,9 @@
     const [personalize, setPersonalize] = useState(false);
     const [mode, setMode] = useState("manual");
     const [offer, setOffer] = useState("");
+    const [actionStatus, setActionStatus] = useState("");
+    const offerRef = useRef("");
+    useEffect(function () { offerRef.current = offer; }, [offer]);
     const [salesFilter, setSalesFilter] = useState("direct");
     const [saving, setSaving] = useState(false);
     const [generating, setGenerating] = useState(false);
@@ -1683,6 +1707,7 @@
       function (clientId, nextChannel) {
         setGenerating(true);
         setError("");
+        setActionStatus("Генерируем текст…");
         api("/campaigns/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1699,7 +1724,18 @@
             setGroundingNotes(data.grounding_notes || "");
             setGenSource(data.source || "");
             setSanity(data.sanity || null);
-            if (data.message) setOffer(data.message);
+            var msg = pickOutreachMessage(data);
+            if (msg) {
+              setOffer(msg);
+              setActionStatus(
+                data.sanity && data.sanity.auto_revised
+                  ? "AI сгенерировал текст (sanity поправил формулировку)."
+                  : "AI сгенерировал текст — можно править вручную."
+              );
+            } else {
+              setError("Сервер не вернул текст сообщения. Попробуйте ещё раз.");
+              setActionStatus("");
+            }
             if (data.client_name) setTitle("Черновик · " + data.client_name);
           })
           .catch(function (err) {
@@ -1713,17 +1749,19 @@
     );
 
     function humanizeDraft() {
-      if (!String(offer || "").trim()) {
+      var draft = String(offerRef.current || offer || "").trim();
+      if (!draft) {
         setError("Сначала введите или сгенерируйте текст сообщения.");
         return;
       }
       setRewriting(true);
       setError("");
+      setActionStatus("Переписываем продающе и по-человечески…");
       api("/campaigns/rewrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: offer,
+          message: draft,
           channel: channel,
           client_id: selectedClientId || "",
           seller_name: sellerName,
@@ -1731,7 +1769,14 @@
         }),
       })
         .then(function (data) {
-          if (data.message) setOffer(data.message);
+          var draft = String(offerRef.current || "").trim();
+          var msg = pickOutreachMessage(data) || draft;
+          setOffer(msg);
+          setActionStatus(
+            msg.trim() === draft
+              ? "Переписали тон (текст почти тот же — правки лёгкие)."
+              : "Текст обновлён: продающе и по-человечески."
+          );
           if (data.grounding_notes) setGroundingNotes(data.grounding_notes);
           if (data.source) setGenSource(data.source);
           if (data.facts) setFacts(data.facts);
@@ -1739,6 +1784,7 @@
         })
         .catch(function (err) {
           setError((err && err.message) || String(err));
+          setActionStatus("");
         })
         .finally(function () {
           setRewriting(false);
@@ -1746,17 +1792,19 @@
     }
 
     function runSanityCheck() {
-      if (!String(offer || "").trim()) {
+      var draft = String(offerRef.current || offer || "").trim();
+      if (!draft) {
         setError("Сначала введите или сгенерируйте текст сообщения.");
         return;
       }
       setCheckingSanity(true);
       setError("");
+      setActionStatus("Проверяем смысл…");
       api("/campaigns/sanity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: offer,
+          message: draft,
           channel: channel,
           client_id: selectedClientId || "",
           seller_name: sellerName,
@@ -1765,12 +1813,23 @@
         }),
       })
         .then(function (data) {
-          if (data.message) setOffer(data.message);
+          var draft = String(offerRef.current || "").trim();
+          var msg = pickOutreachMessage(data) || draft;
+          var revised = !!(data.sanity && (data.sanity.auto_revised || (msg.trim() && msg.trim() !== draft)));
+          setOffer(msg);
+          setActionStatus(
+            revised
+              ? "Смысл: текст скорректирован (см. замечания)."
+              : data.sanity && data.sanity.ok === false
+                ? "Смысл: " + ((data.sanity.issues || []).join("; ") || "есть замечания") + "."
+                : "Смысл в порядке — текст оставлен как есть."
+          );
           if (data.sanity) setSanity(data.sanity);
           if (data.facts && Object.keys(data.facts).length) setFacts(data.facts);
         })
         .catch(function (err) {
           setError((err && err.message) || String(err));
+          setActionStatus("");
         })
         .finally(function () {
           setCheckingSanity(false);
@@ -1782,28 +1841,39 @@
         setError("Выберите клиента — исходящее пишется в его TG conversation.");
         return;
       }
-      if (!String(offer || "").trim()) {
+      var draft = String(offerRef.current || offer || "").trim();
+      if (!draft) {
         setError("Сначала введите или сгенерируйте текст сообщения.");
         return;
       }
       setCheckingSanity(true);
       setError("");
+      setActionStatus("Пишем исходящее в TG conversation…");
       api("/campaigns/mark-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: offer,
+          message: draft,
           channel: channel,
           client_id: selectedClientId,
           open_deep_link: true,
         }),
       })
         .then(function (data) {
+          var draft = String(offerRef.current || "").trim();
           if (data.facts) setFacts(data.facts);
+          else if (data.conversation) {
+            setFacts(function (prev) {
+              return prev ? Object.assign({}, prev, { conversation: data.conversation }) : prev;
+            });
+          }
+          setOffer(draft);
+          setActionStatus("✓ Исходящее добавлено в TG conversation (лейбл исходящее).");
           if (data.deep_link) window.open(data.deep_link, "_blank", "noopener");
         })
         .catch(function (err) {
           setError((err && err.message) || String(err));
+          setActionStatus("");
         })
         .finally(function () {
           setCheckingSanity(false);
@@ -2304,10 +2374,15 @@
                 ? "Сгенерируйте AI или введите текст…"
                 : "Общий текст для фильтрованной аудитории…",
               onChange: function (e) {
-                setOffer(e.target.value);
+                var v = e.target.value;
+                setOffer(v);
+                offerRef.current = v;
               },
             }),
           ),
+          actionStatus
+            ? h("p", { className: "ms-action-status" }, actionStatus)
+            : null,
           h(
             "label",
             { className: "ms-check" },

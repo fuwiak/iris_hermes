@@ -75,12 +75,12 @@ interface ClientDetail {
   data_thin?: boolean
 }
 
-type Rest = <T>(path: string, opts?: { method?: string; body?: unknown }) => Promise<T>
+type Rest = <T>(path: string, opts?: { method?: string; body?: unknown; timeoutMs?: number }) => Promise<T>
 
 let rest: null | Rest = null
 
 function useMsRest(): Rest {
-  return useCallback(async <T,>(path: string, opts?: { method?: string; body?: unknown }) => {
+  return useCallback(async <T,>(path: string, opts?: { method?: string; body?: unknown; timeoutMs?: number }) => {
     if (!rest) {
       throw new Error('MoySklad plugin REST not bound')
     }
@@ -88,6 +88,37 @@ function useMsRest(): Rest {
     return rest<T>(path, opts)
   }, [])
 }
+
+/** Pull outreach text from generate/rewrite/sanity payloads (tolerant to nesting). */
+function pickOutreachMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') {
+    return ''
+  }
+
+  const row = data as Record<string, unknown>
+  const nested = row.result && typeof row.result === 'object' ? (row.result as Record<string, unknown>) : null
+  const sanity =
+    row.sanity && typeof row.sanity === 'object' ? (row.sanity as Record<string, unknown>) : null
+  const candidates = [
+    row.message,
+    row.text,
+    row.offer,
+    row.draft,
+    sanity?.revised_text,
+    nested?.message,
+    nested?.text
+  ]
+
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      return c
+    }
+  }
+
+  return ''
+}
+
+const OUTREACH_AI_TIMEOUT_MS = 120_000
 
 interface Counts {
   total?: number
@@ -1263,6 +1294,9 @@ function CampaignsPage() {
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [personalize, setPersonalize] = useState(false)
   const [offer, setOffer] = useState('')
+  const [offerTick, setOfferTick] = useState(0)
+  const [actionStatus, setActionStatus] = useState('')
+  const offerRef = useRef('')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [audience, setAudience] = useState(0)
@@ -1291,6 +1325,18 @@ function CampaignsPage() {
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    offerRef.current = offer
+  }, [offer])
+
+  const applyOfferText = useCallback((next: string, status: string) => {
+    const text = (next || '').trim() ? next : ''
+    setOffer(text)
+    offerRef.current = text
+    setOfferTick(t => t + 1)
+    setActionStatus(status)
+  }, [])
 
   useEffect(() => {
     const prefill = readDraftPrefill()
@@ -1458,6 +1504,7 @@ function CampaignsPage() {
     async (clientId: string, nextChannel = channel, runAi = mode === 'auto') => {
       setGenerating(true)
       setError('')
+      setActionStatus(runAi ? 'Генерируем текст…' : '')
 
       try {
         if (runAi) {
@@ -1470,6 +1517,7 @@ function CampaignsPage() {
             sanity?: SanityResult
           }>('/campaigns/generate', {
             method: 'POST',
+            timeoutMs: OUTREACH_AI_TIMEOUT_MS,
             body: {
               client_id: clientId,
               channel: nextChannel,
@@ -1484,9 +1532,23 @@ function CampaignsPage() {
           setGenSource(data.source || '')
           setSanity(data.sanity || null)
 
-          if (data.message) {setOffer(data.message)}
+          const msg = pickOutreachMessage(data)
 
-          if (data.client_name) {setTitle(`Черновик · ${data.client_name}`)}
+          if (msg) {
+            applyOfferText(
+              msg,
+              data.sanity?.auto_revised
+                ? 'AI сгенерировал текст (sanity поправил формулировку).'
+                : 'AI сгенерировал текст — можно править вручную.'
+            )
+          } else {
+            setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
+            setActionStatus('')
+          }
+
+          if (data.client_name) {
+            setTitle(`Черновик · ${data.client_name}`)
+          }
 
           if (data.facts?.ai_source || data.source) {
             setFacts(prev =>
@@ -1525,19 +1587,26 @@ function CampaignsPage() {
           setGroundingNotes('')
           setGenSource('')
           setSanity(null)
+          setActionStatus('')
 
-          if (detail.client?.name) {setTitle(`Черновик · ${detail.client.name}`)}
+          if (detail.client?.name) {
+            setTitle(`Черновик · ${detail.client.name}`)
+          }
+
           const preferred = channelFromMessaging(detail.messaging?.primary_channel)
 
-          if (!selectedClientId) {setChannel(preferred)}
+          if (!selectedClientId) {
+            setChannel(preferred)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
+        setActionStatus('')
       } finally {
         setGenerating(false)
       }
     },
-    [call, channel, mode, selectedClientId, sellerFacts, sellerName]
+    [applyOfferText, call, channel, mode, selectedClientId, sellerFacts, sellerName]
   )
 
   useEffect(() => {
@@ -1567,7 +1636,9 @@ function CampaignsPage() {
   }
 
   const humanizeDraft = async () => {
-    if (!offer.trim()) {
+    const draft = offerRef.current.trim()
+
+    if (!draft) {
       setError('Сначала введите или сгенерируйте текст сообщения.')
 
       return
@@ -1575,6 +1646,7 @@ function CampaignsPage() {
 
     setRewriting(true)
     setError('')
+    setActionStatus('Переписываем продающе и по-человечески…')
 
     try {
       const data = await call<{
@@ -1585,8 +1657,9 @@ function CampaignsPage() {
         sanity?: SanityResult
       }>('/campaigns/rewrite', {
         method: 'POST',
+        timeoutMs: OUTREACH_AI_TIMEOUT_MS,
         body: {
-          message: offer,
+          message: draft,
           channel,
           client_id: selectedClientId || '',
           seller_name: sellerName,
@@ -1594,24 +1667,41 @@ function CampaignsPage() {
         }
       })
 
-      if (data.message) {setOffer(data.message)}
+      const msg = pickOutreachMessage(data) || draft
+      applyOfferText(
+        msg,
+        msg.trim() === draft
+          ? 'Переписали тон (текст почти тот же — правки лёгкие).'
+          : 'Текст обновлён: продающе и по-человечески.'
+      )
 
-      if (data.grounding_notes) {setGroundingNotes(data.grounding_notes)}
+      if (data.grounding_notes) {
+        setGroundingNotes(data.grounding_notes)
+      }
 
-      if (data.source) {setGenSource(data.source)}
+      if (data.source) {
+        setGenSource(data.source)
+      }
 
-      if (data.facts) {setFacts(data.facts)}
+      if (data.facts) {
+        setFacts(data.facts)
+      }
 
-      if (data.sanity) {setSanity(data.sanity)}
+      if (data.sanity) {
+        setSanity(data.sanity)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
     } finally {
       setRewriting(false)
     }
   }
 
   const runSanityCheck = async () => {
-    if (!offer.trim()) {
+    const draft = offerRef.current.trim()
+
+    if (!draft) {
       setError('Сначала введите или сгенерируйте текст сообщения.')
 
       return
@@ -1619,6 +1709,7 @@ function CampaignsPage() {
 
     setCheckingSanity(true)
     setError('')
+    setActionStatus('Проверяем смысл…')
 
     try {
       const data = await call<{
@@ -1627,8 +1718,9 @@ function CampaignsPage() {
         facts?: ClientFacts
       }>('/campaigns/sanity', {
         method: 'POST',
+        timeoutMs: OUTREACH_AI_TIMEOUT_MS,
         body: {
-          message: offer,
+          message: draft,
           channel,
           client_id: selectedClientId || '',
           seller_name: sellerName,
@@ -1637,13 +1729,29 @@ function CampaignsPage() {
         }
       })
 
-      if (data.message) {setOffer(data.message)}
+      const msg = pickOutreachMessage(data) || draft
+      const ok = data.sanity?.ok !== false
+      const revised = Boolean(data.sanity?.auto_revised || (msg.trim() && msg.trim() !== draft))
 
-      if (data.sanity) {setSanity(data.sanity)}
+      applyOfferText(
+        msg,
+        revised
+          ? 'Смысл: текст скорректирован (см. замечания справа).'
+          : ok
+            ? 'Смысл в порядке — текст оставлен как есть.'
+            : `Смысл: ${(data.sanity?.issues || []).join('; ') || 'есть замечания'}.`
+      )
 
-      if (data.facts && Object.keys(data.facts).length) {setFacts(data.facts)}
+      if (data.sanity) {
+        setSanity(data.sanity)
+      }
+
+      if (data.facts && Object.keys(data.facts).length) {
+        setFacts(data.facts)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
     } finally {
       setCheckingSanity(false)
     }
@@ -1656,7 +1764,9 @@ function CampaignsPage() {
       return
     }
 
-    if (!offer.trim()) {
+    const draft = offerRef.current.trim()
+
+    if (!draft) {
       setError('Сначала введите или сгенерируйте текст сообщения.')
 
       return
@@ -1664,6 +1774,7 @@ function CampaignsPage() {
 
     setCheckingSanity(true)
     setError('')
+    setActionStatus('Пишем исходящее в TG conversation…')
 
     try {
       const data = await call<{
@@ -1673,21 +1784,27 @@ function CampaignsPage() {
       }>('/campaigns/mark-sent', {
         method: 'POST',
         body: {
-          message: offer,
+          message: draft,
           channel,
           client_id: selectedClientId,
           open_deep_link: true
         }
       })
 
-      if (data.facts) {setFacts(data.facts)}
-      else if (data.conversation) {
+      if (data.facts) {
+        setFacts(data.facts)
+      } else if (data.conversation) {
         setFacts(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
       }
 
-      if (data.deep_link) {window.open(data.deep_link, '_blank', 'noopener')}
+      applyOfferText(draft, '✓ Исходящее добавлено в TG conversation (лейбл исходящее).')
+
+      if (data.deep_link) {
+        window.open(data.deep_link, '_blank', 'noopener')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
     } finally {
       setCheckingSanity(false)
     }
@@ -2000,7 +2117,12 @@ function CampaignsPage() {
           <label>
             Текст сообщения
             <textarea
-              onChange={e => setOffer(e.target.value)}
+              key={`offer-${offerTick}`}
+              onChange={e => {
+                const v = e.target.value
+                setOffer(v)
+                offerRef.current = v
+              }}
               placeholder={
                 selectedClientId
                   ? 'Нажмите «Сгенерировать AI» или введите текст…'
@@ -2012,6 +2134,7 @@ function CampaignsPage() {
               value={offer}
             />
           </label>
+          {actionStatus ? <p className="ms-action-status">{actionStatus}</p> : null}
           <label className="ms-check">
             <input
               checked={personalize}
@@ -2021,7 +2144,8 @@ function CampaignsPage() {
             />
             Персонализировать по клиентам (очередь — позже)
           </label>
-          <div className="ms-compose-actions">
+        </form>
+        <div className="ms-compose-actions">
             {selectedClientId ? (
               <button
                 className="ms-btn"
@@ -2063,7 +2187,10 @@ function CampaignsPage() {
               disabled={
                 saving || loading || generating || rewriting || checkingSanity || audience < 1
               }
-              type="submit"
+              onClick={() =>
+                void createDraft({ preventDefault() {} } as FormEvent)
+              }
+              type="button"
             >
               {selectedClientId
                 ? 'Создать 1:1 черновик'
@@ -2073,7 +2200,6 @@ function CampaignsPage() {
             </button>
           </div>
           {genSource ? <p className="ms-muted">Источник текста: {genSource}</p> : null}
-        </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
       {error ? <div className="ms-error">{error}</div> : null}
