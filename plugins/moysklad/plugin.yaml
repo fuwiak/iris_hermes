@@ -1,6 +1,6 @@
 name: moysklad
-version: 1.8.0
-description: "МойСклад Remap 1.2 — Clients + Campaigns (AI drafts, fact blocks, debt sanity, TG conversation), tools. Enabled by default on Iris. Token: MOYSKLAD_API_TOKEN."
+version: 1.8.2
+description: "МойСклад Remap 1.2 — Clients + Campaigns (AI drafts, Саммари AI in Факты, debt sanity, TG conversation), tools. Enabled by default on Iris. Token: MOYSKLAD_API_TOKEN."
 author: Hermes Agent
 kind: standalone
 platforms:

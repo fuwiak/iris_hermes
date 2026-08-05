@@ -1376,6 +1376,10 @@
       );
     }
     var last = facts.last_order;
+    var historyProse = String(facts.history_profile || "").trim();
+    var occasionProse = String(facts.occasion_intent || "").trim();
+    var recommendation = String(facts.recommendation || "").trim();
+    var hasAiSummary = !!(historyProse || occasionProse || recommendation);
     var historyBlock =
       facts.block_history_profile ||
       (facts.fact_blocks && facts.fact_blocks.history_profile) ||
@@ -1386,6 +1390,25 @@
       null;
     var risksBlock =
       facts.block_risks || (facts.fact_blocks && facts.fact_blocks.risks) || null;
+    var aiSummaryChildren = [h("p", { className: "ms-ai-label", key: "ai-h" }, "Саммари AI")];
+    if (historyProse) {
+      aiSummaryChildren.push(
+        h("p", { className: "ms-ai-label", key: "hp-l" }, "История и профиль клиента"),
+        h("p", { className: "ms-facts-rec", key: "hp-v" }, historyProse),
+      );
+    }
+    if (occasionProse) {
+      aiSummaryChildren.push(
+        h("p", { className: "ms-ai-label", key: "oi-l" }, "Повод и intent покупки"),
+        h("p", { className: "ms-facts-rec", key: "oi-v" }, occasionProse),
+      );
+    }
+    if (recommendation) {
+      aiSummaryChildren.push(
+        h("p", { className: "ms-ai-label", key: "rec-l" }, "Рекомендация AI"),
+        h("p", { className: "ms-facts-rec", key: "rec-v" }, recommendation),
+      );
+    }
     return h(
       "aside",
       { className: "ms-facts-panel" },
@@ -1413,8 +1436,11 @@
         h("span", { className: "ms-muted" }, "Telegram"),
         h("span", null, facts.tg_nick || "—"),
       ),
-      h(FactBlockView, { block: historyBlock }),
-      h(FactBlockView, { block: occasionBlock }),
+      hasAiSummary
+        ? h("div", { className: "ms-fact-block ms-facts-ai-summary" }, aiSummaryChildren)
+        : null,
+      !historyProse ? h(FactBlockView, { block: historyBlock }) : null,
+      !occasionProse ? h(FactBlockView, { block: occasionBlock }) : null,
       h(FactBlockView, { block: risksBlock }),
       h(ConversationThread, {
         conversation: facts.conversation,
@@ -1438,14 +1464,6 @@
           )
         : null,
       h(TagPills, { items: facts.event_tags || [], className: "ms-tag-row ms-tag-event" }),
-      facts.recommendation
-        ? h(
-            "div",
-            null,
-            h("p", { className: "ms-ai-label" }, "Рекомендация (контекст)"),
-            h("p", { className: "ms-facts-rec" }, facts.recommendation),
-          )
-        : null,
       sanity
         ? h(
             "div",
@@ -1462,6 +1480,7 @@
           )
         : null,
       notes ? h("p", { className: "ms-muted ms-grounding" }, notes) : null,
+      facts.ai_source ? h("p", { className: "ms-muted" }, "AI: " + facts.ai_source) : null,
     );
   }
 

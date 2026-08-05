@@ -71,6 +71,12 @@ interface ClientDetail {
     source?: string
     data_thin?: boolean
   }
+  risks?: ClientRisks
+  fact_blocks?: {
+    history_profile?: FactBlock
+    occasion_intent?: FactBlock
+    risks?: FactBlock
+  }
   conversation?: ClientConversation
   data_thin?: boolean
 }
@@ -482,6 +488,41 @@ function FragmentRow({ label, value }: { label?: string; value?: string }) {
   )
 }
 
+/** Map /clients/{id} detail → Facts panel payload (keeps AI prose + audit blocks). */
+function factsFromDetail(detail: ClientDetail): ClientFacts {
+  const blocks = detail.fact_blocks
+
+  return {
+    client_id: detail.client?.id,
+    name: detail.client?.name,
+    phone: detail.client?.phone,
+    email: detail.client?.email,
+    tg_nick: detail.client?.tg_nick,
+    sales_type: detail.client?.sales_type,
+    channels: detail.client?.channels,
+    primary_channel: detail.client?.primary_channel || detail.messaging?.primary_channel,
+    order_count: detail.stats?.order_count,
+    avg_check: detail.stats?.avg_check,
+    vip: detail.stats?.vip,
+    loyalty_points: detail.stats?.loyalty_points,
+    last_order: detail.stats?.last_order,
+    tags: detail.client?.tags,
+    event_tags: detail.client?.tag_buckets?.events,
+    orders_preview: detail.orders,
+    data_thin: detail.data_thin || detail.ai?.data_thin,
+    recommendation: detail.ai?.recommendation || null,
+    history_profile: detail.ai?.history_profile || null,
+    occasion_intent: detail.ai?.occasion_intent || null,
+    ai_source: detail.ai?.source || null,
+    risks: detail.risks,
+    block_history_profile: blocks?.history_profile,
+    block_occasion_intent: blocks?.occasion_intent,
+    block_risks: blocks?.risks,
+    fact_blocks: blocks,
+    conversation: detail.conversation
+  }
+}
+
 function FactsPanel({
   facts,
   notes,
@@ -504,6 +545,10 @@ function FactsPanel({
   }
 
   const last = facts.last_order
+  const historyProse = (facts.history_profile || '').trim()
+  const occasionProse = (facts.occasion_intent || '').trim()
+  const recommendation = (facts.recommendation || '').trim()
+  const hasAiSummary = Boolean(historyProse || occasionProse || recommendation)
 
   const historyBlock =
     facts.block_history_profile || facts.fact_blocks?.history_profile || null
@@ -535,8 +580,31 @@ function FactsPanel({
         <span className="ms-muted">Telegram</span>
         <span>{facts.tg_nick || '—'}</span>
       </div>
-      <FactBlockView block={historyBlock} />
-      <FactBlockView block={occasionBlock} />
+      {hasAiSummary ? (
+        <div className="ms-fact-block ms-facts-ai-summary">
+          <p className="ms-ai-label">Саммари AI</p>
+          {historyProse ? (
+            <>
+              <p className="ms-ai-label">История и профиль клиента</p>
+              <p className="ms-facts-rec">{historyProse}</p>
+            </>
+          ) : null}
+          {occasionProse ? (
+            <>
+              <p className="ms-ai-label">Повод и intent покупки</p>
+              <p className="ms-facts-rec">{occasionProse}</p>
+            </>
+          ) : null}
+          {recommendation ? (
+            <>
+              <p className="ms-ai-label">Рекомендация AI</p>
+              <p className="ms-facts-rec">{recommendation}</p>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {!historyProse ? <FactBlockView block={historyBlock} /> : null}
+      {!occasionProse ? <FactBlockView block={occasionBlock} /> : null}
       <FactBlockView block={risksBlock} />
       <ConversationThread
         compact
@@ -567,12 +635,6 @@ function FactsPanel({
             </div>
           ))}
         </div>
-      ) : null}
-      {facts.recommendation ? (
-        <>
-          <p className="ms-ai-label">Рекомендация (контекст)</p>
-          <p className="ms-facts-rec">{facts.recommendation}</p>
-        </>
       ) : null}
       {sanity ? (
         <div className={`ms-sanity${sanity.ok ? ' is-ok' : ' is-bad'}`}>
@@ -1557,33 +1619,7 @@ function CampaignsPage() {
           }
         } else {
           const detail = await call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
-
-          const panel: ClientFacts = {
-            client_id: detail.client?.id,
-            name: detail.client?.name,
-            phone: detail.client?.phone,
-            email: detail.client?.email,
-            tg_nick: detail.client?.tg_nick,
-            sales_type: detail.client?.sales_type,
-            channels: detail.client?.channels,
-            primary_channel: detail.client?.primary_channel || detail.messaging?.primary_channel,
-            order_count: detail.stats?.order_count,
-            avg_check: detail.stats?.avg_check,
-            vip: detail.stats?.vip,
-            loyalty_points: detail.stats?.loyalty_points,
-            last_order: detail.stats?.last_order,
-            tags: detail.client?.tags,
-            event_tags: detail.client?.tag_buckets?.events,
-            orders_preview: detail.orders,
-            data_thin: detail.data_thin,
-            recommendation: detail.ai?.recommendation,
-            history_profile: detail.ai?.history_profile,
-            occasion_intent: detail.ai?.occasion_intent,
-            ai_source: detail.ai?.source,
-            conversation: detail.conversation
-          }
-
-          setFacts(panel)
+          setFacts(factsFromDetail(detail))
           setGroundingNotes('')
           setGenSource('')
           setSanity(null)

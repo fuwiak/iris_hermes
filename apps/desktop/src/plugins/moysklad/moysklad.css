@@ -484,6 +484,15 @@
   gap: 0.3rem;
 }
 
+.ms-facts-ai-summary {
+  gap: 0.4rem;
+}
+
+.ms-facts-ai-summary > .ms-ai-label:first-child {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .ms-fact-block-risk {
   border-left: 3px solid #e8a0a0;
   padding-left: 0.55rem;
