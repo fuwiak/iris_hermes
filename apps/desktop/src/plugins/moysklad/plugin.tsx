@@ -11,6 +11,51 @@ import {
   type SidebarNavContribution
 } from '@hermes/plugin-sdk'
 
+interface ClientOrder {
+  id?: string
+  name?: string
+  date?: string
+  sum?: number
+  channel?: string
+  product_snippet?: string
+}
+
+interface ClientDetail {
+  client?: ClientRow & {
+    vip?: boolean
+    loyalty_points?: number | null
+    primary_channel?: string
+    tag_buckets?: {
+      marketplace?: string[]
+      loyalty?: string[]
+      events?: string[]
+      other?: string[]
+    }
+  }
+  orders?: ClientOrder[]
+  stats?: {
+    avg_check?: number
+    order_count?: number
+    vip?: boolean
+    loyalty_points?: number | null
+    last_order?: ClientOrder
+  }
+  messaging?: {
+    whatsapp_url?: string
+    telegram_url?: string
+    primary_channel?: string
+    hint?: string
+  }
+  ai?: {
+    history_profile?: string
+    occasion_intent?: string
+    recommendation?: string
+    source?: string
+    data_thin?: boolean
+  }
+  data_thin?: boolean
+}
+
 type Rest = <T>(path: string, opts?: { method?: string; body?: unknown }) => Promise<T>
 
 let rest: null | Rest = null
@@ -153,6 +198,257 @@ function FilterTabs({
   )
 }
 
+function TagPills({ items, className }: { items?: string[]; className?: string }) {
+  if (!items?.length) return null
+  return (
+    <div className={className || 'ms-tag-row'}>
+      {items.map(t => (
+        <span className="ms-tag-pill" key={t}>
+          {t}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ClientCardModal({
+  clientId,
+  onClose,
+  call
+}: {
+  clientId: string | null
+  onClose: () => void
+  call: Rest
+}) {
+  const [detail, setDetail] = useState<ClientDetail | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [ordersOpen, setOrdersOpen] = useState(false)
+  const [note, setNote] = useState('')
+
+  useEffect(() => {
+    if (!clientId) return
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    setDetail(null)
+    setOrdersOpen(false)
+    setNote('')
+    void call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
+      .then(payload => {
+        if (!cancelled) setDetail(payload)
+      })
+      .catch(err => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [call, clientId])
+
+  if (!clientId) return null
+
+  const client = detail?.client || {}
+  const stats = detail?.stats || {}
+  const orders = detail?.orders || []
+  const ai = detail?.ai || {}
+  const msg = detail?.messaging || {}
+  const buckets = client.tag_buckets || {}
+  const name = client.name || 'Клиент'
+  const shownOrders = ordersOpen ? orders : orders.slice(0, 5)
+
+  const refreshAi = async () => {
+    setAiLoading(true)
+    setError('')
+    try {
+      const payload = await call<{ ai?: ClientDetail['ai'] }>(
+        `/clients/${encodeURIComponent(clientId)}/ai`,
+        { method: 'POST' }
+      )
+      setDetail(prev => (prev ? { ...prev, ai: payload.ai || prev.ai } : prev))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  return (
+    <div
+      className="ms-modal-backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div aria-modal="true" className="ms-modal ms-client-card" role="dialog">
+        <div className="ms-card-head">
+          <h3>Заказы · {name}</h3>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        {error ? <div className="ms-error">{error}</div> : null}
+        {loading ? (
+          <p className="ms-muted">Загрузка карточки…</p>
+        ) : (
+          <div className="ms-card-body">
+            <section className="ms-card-section">
+              <div className="ms-card-name">{name}</div>
+              <div className="ms-muted">
+                {(client.role || '—') +
+                  (client.sex ? ` · ${client.sex}` : '') +
+                  (client.state ? ` · ${client.state}` : '')}
+              </div>
+              <TagPills
+                className="ms-tag-row ms-tag-channel"
+                items={[...(buckets.marketplace || []), ...(client.channels || [])]}
+              />
+              <TagPills items={[...(buckets.loyalty || []), ...(buckets.other || [])]} />
+              <TagPills className="ms-tag-row ms-tag-event" items={buckets.events || []} />
+            </section>
+            <section className="ms-card-section">
+              <h4>Контакты</h4>
+              <div className="ms-kv-grid">
+                <span className="ms-muted">Телефон</span>
+                <span>{client.phone || '—'}</span>
+                <span className="ms-muted">Email</span>
+                <span>{client.email || '—'}</span>
+                <span className="ms-muted">Telegram</span>
+                <span>{client.tg_nick || client.tg_conversation || '—'}</span>
+                <span className="ms-muted">Тип</span>
+                <span>{client.company_type || '—'}</span>
+                <span className="ms-muted">Осн. канал</span>
+                <span>{client.primary_channel || msg.primary_channel || '—'}</span>
+              </div>
+            </section>
+            <section className="ms-card-section">
+              <h4>Статистика</h4>
+              <div className="ms-stats-grid">
+                <div>
+                  <div className="ms-stat-val">{money(stats.avg_check)}</div>
+                  <div className="ms-muted">Средний чек</div>
+                </div>
+                <div>
+                  <div className="ms-stat-val">{String(stats.order_count || 0)}</div>
+                  <div className="ms-muted">Заказов</div>
+                </div>
+                <div>
+                  <div className="ms-stat-val">{stats.vip ? 'да' : 'нет'}</div>
+                  <div className="ms-muted">ВИП</div>
+                </div>
+                <div>
+                  <div className="ms-stat-val">
+                    {stats.loyalty_points != null ? String(stats.loyalty_points) : '—'}
+                  </div>
+                  <div className="ms-muted">Лояльность</div>
+                </div>
+              </div>
+              {stats.last_order ? (
+                <div className="ms-last-order">
+                  <strong>Последний заказ</strong>
+                  <div className="ms-muted">
+                    {(stats.last_order.date || '').slice(0, 16).replace('T', ' ')} ·{' '}
+                    {money(stats.last_order.sum)}
+                    {stats.last_order.channel ? ` · ${stats.last_order.channel}` : ''}
+                  </div>
+                  {stats.last_order.product_snippet ? (
+                    <div>{stats.last_order.product_snippet}</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+            <section className="ms-card-section">
+              <button className="ms-section-toggle" onClick={() => setOrdersOpen(v => !v)} type="button">
+                Все заказы ({orders.length}) {ordersOpen ? '▾' : '▸'}
+              </button>
+              <div className="ms-orders-list">
+                {shownOrders.length ? (
+                  shownOrders.map((o, idx) => (
+                    <div className="ms-order-row" key={`${o.id || ''}-${idx}`}>
+                      <strong>{o.name || o.id || 'Заказ'}</strong>
+                      <div className="ms-muted">
+                        {(o.date || '').slice(0, 16).replace('T', ' ')} · {money(o.sum)}
+                        {o.channel ? ` · ${o.channel}` : ''}
+                      </div>
+                      {o.product_snippet ? <div>{o.product_snippet}</div> : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="ms-muted">Заказов в кэше нет.</p>
+                )}
+              </div>
+            </section>
+            <section className="ms-card-section">
+              <div className="ms-card-head">
+                <h4>Саммари AI</h4>
+                <button className="ms-btn" disabled={aiLoading} onClick={() => void refreshAi()} type="button">
+                  {aiLoading ? 'Генерация…' : 'Обновить AI'}
+                </button>
+              </div>
+              {ai.data_thin ? <p className="ms-muted">Данных мало — выводы осторожные.</p> : null}
+              <p className="ms-ai-label">История и профиль</p>
+              <p>{ai.history_profile || '—'}</p>
+              <p className="ms-ai-label">Повод и intent покупки</p>
+              <p>{ai.occasion_intent || '—'}</p>
+              <h4>Рекомендация AI</h4>
+              <p>{ai.recommendation || '—'}</p>
+              <p className="ms-muted">Источник: {ai.source || 'heuristic'}</p>
+            </section>
+            <section className="ms-card-section">
+              <h4>Быстрые действия</h4>
+              <div className="ms-quick-actions">
+                <button
+                  className="ms-btn"
+                  onClick={() =>
+                    setNote(
+                      `Напоминание: связаться с ${name} (~5 дней до повода). Чек ≈ ${money(stats.avg_check)}`
+                    )
+                  }
+                  type="button"
+                >
+                  Напоминание
+                </button>
+                <button
+                  className="ms-btn ms-btn-primary"
+                  disabled={!msg.whatsapp_url}
+                  onClick={() => msg.whatsapp_url && window.open(msg.whatsapp_url, '_blank', 'noopener')}
+                  type="button"
+                >
+                  WhatsApp
+                </button>
+                <button
+                  className="ms-btn ms-btn-primary"
+                  disabled={!msg.telegram_url}
+                  onClick={() => msg.telegram_url && window.open(msg.telegram_url, '_blank', 'noopener')}
+                  type="button"
+                >
+                  Telegram
+                </button>
+                <button
+                  className="ms-btn"
+                  onClick={() => {
+                    setOrdersOpen(true)
+                    setNote(`События: ${(buckets.events || []).join(', ') || 'нет тегов событий'}`)
+                  }}
+                  type="button"
+                >
+                  События
+                </button>
+              </div>
+              {note ? <p className="ms-note">{note}</p> : null}
+              <p className="ms-muted">{msg.hint || ''}</p>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ClientsPage() {
   const call = useMsRest()
   const [salesFilter, setSalesFilter] = useState('direct')
@@ -166,6 +462,7 @@ function ClientsPage() {
   const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
   const [syncedLabel, setSyncedLabel] = useState('')
   const [fromCache, setFromCache] = useState(false)
+  const [cardClientId, setCardClientId] = useState<string | null>(null)
 
   const load = useCallback(
     async (opts?: { refresh?: boolean }) => {
@@ -282,6 +579,20 @@ function ClientsPage() {
                 <tr key={row.id || row.name}>
                   {CLIENT_COLUMNS.map(col => {
                     const value = col.render(row)
+                    if (col.key === 'name') {
+                      return (
+                        <td key={col.key}>
+                          <button
+                            className="ms-link-btn"
+                            onClick={() => row.id && setCardClientId(row.id)}
+                            title="Открыть карточку клиента"
+                            type="button"
+                          >
+                            {value || '—'}
+                          </button>
+                        </td>
+                      )
+                    }
                     return <td key={col.key}>{value || '—'}</td>
                   })}
                 </tr>
@@ -290,6 +601,7 @@ function ClientsPage() {
           </table>
         </div>
       )}
+      <ClientCardModal call={call} clientId={cardClientId} onClose={() => setCardClientId(null)} />
     </div>
   )
 }

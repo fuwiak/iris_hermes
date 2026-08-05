@@ -86,13 +86,20 @@ def build_enriched_catalog(
             channels_by_agent[agent_id].append(ch)
         amount = _minor_to_rub(order.get("sum"))
         month = _order_month(order)
+        desc = str(order.get("description") or "").strip()
+        oname = str(order.get("name") or "").strip()
+        snippet = (desc or oname)[:120]
         order_ctx_by_agent[agent_id].append({
+            "id": str(order.get("id") or "").strip(),
             "Канал продаж": ch or "",
+            "channel": ch or "",
             "Сумма": amount,
+            "sum": amount,
             "Дата": order.get("moment"),
             "moment": order.get("moment"),
-            "description": order.get("description") or "",
-            "name": order.get("name") or "",
+            "description": desc,
+            "name": oname,
+            "product_snippet": snippet,
             "_month": month,
         })
         if amount > 0:

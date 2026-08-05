@@ -1,0 +1,2777 @@
+{
+  "version": 1,
+  "generated_at": "2026-08-05T04:12:55Z",
+  "selection": {
+    "limit": 20,
+    "max_orders_scanned": 8000,
+    "counterparties_scanned": 9882,
+    "orders_scanned": 8000,
+    "candidates_ge_3_orders": 144,
+    "criteria": "Prefer counterparties with ≥3 orders; rank by order_count, distinct channels, seasonal months (02/03/09/12/01), tags+attrs richness, contacts, line-item coverage.",
+    "pii_note": "Contains shop-eval PII (phones/emails) for private iris_hermes eval. Do not commit API tokens. Re-export before publishing publicly."
+  },
+  "clients": [
+    {
+      "id": "d0a318fb-e277-11f0-0a80-15ae0012f1ef",
+      "name": "Мария Шелепова",
+      "phone": "+79639610961",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 19,
+      "avg_check": 8630.22,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram",
+        "Витрина",
+        "Прямые продажи",
+        "ФЛАВЕРИ Скл"
+      ],
+      "orders": [
+        {
+          "id": "65427257-81f5-11f1-0a80-140700137dfb",
+          "name": "1707-02",
+          "date": "2026-07-17 18:23:00.000",
+          "sum": 10000.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "1707-02",
+          "line_items": [
+            "Малина ×5.0",
+            "Пион ×3.0",
+            "Гортензия Колумбия ×1.0",
+            "Эустома/Лизиантус (белая/розовая/сиреневая) ×3.0",
+            "Оксипеталум/незабудка ×3.0"
+          ]
+        },
+        {
+          "id": "78f6b069-7c6b-11f1-0a80-170c00119654",
+          "name": "1007-01",
+          "date": "2026-07-10 17:26:00.000",
+          "sum": 490.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "1007-01",
+          "line_items": [
+            "Роза пинк флойд/готча ×1.0"
+          ]
+        },
+        {
+          "id": "618a1b8d-76c1-11f1-0a80-0ecf0008c2a2",
+          "name": "0307-01",
+          "date": "2026-07-03 12:20:00.000",
+          "sum": 8150.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "0307-01",
+          "line_items": [
+            "Воздушный букет с гортензиями и розами. Розовое облако ФД 10 ×1.0",
+            "открытка ×1.0"
+          ]
+        },
+        {
+          "id": "78088f19-5f11-11f1-0a80-0e4b0003356d",
+          "name": "0306-02",
+          "date": "2026-06-03 08:58:00.000",
+          "sum": 5500.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "0306-02",
+          "line_items": []
+        },
+        {
+          "id": "8fbaceda-5c0a-11f1-0a80-03030019095b",
+          "name": "3005-04",
+          "date": "2026-05-30 12:32:00.000",
+          "sum": 500.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "3005-04",
+          "line_items": []
+        },
+        {
+          "id": "1161403f-59f2-11f1-0a80-03be00006e93",
+          "name": "2705-03",
+          "date": "2026-05-27 20:31:00.000",
+          "sum": 1600.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "2705-03",
+          "line_items": []
+        },
+        {
+          "id": "722bb70e-4010-11f1-0a80-1b750013f61e",
+          "name": "2404-05",
+          "date": "2026-04-24 22:02:00.000",
+          "sum": 2000.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "2404-05",
+          "line_items": []
+        },
+        {
+          "id": "82548cd5-0f45-11f1-0a80-09f4001d3658",
+          "name": "2102-01",
+          "date": "2026-02-21 19:37:00.000",
+          "sum": 2890.0,
+          "channel": "Витрина",
+          "description": "личная продажа Катя",
+          "product_snippet": "личная продажа Катя",
+          "line_items": []
+        },
+        {
+          "id": "18d9caf2-fe7a-11f0-0a80-19eb0016cd8b",
+          "name": "#565579",
+          "date": "2026-01-31 10:52:00.000",
+          "sum": 15540.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "#565579",
+          "line_items": []
+        },
+        {
+          "id": "2c9c9035-f2e8-11f0-0a80-195e0011e50f",
+          "name": "#561430",
+          "date": "2026-01-16 17:28:00.000",
+          "sum": 3930.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "#561430",
+          "line_items": []
+        },
+        {
+          "id": "6af64541-f2e0-11f0-0a80-1c3f000fc95c",
+          "name": "#561397",
+          "date": "2026-01-16 16:34:00.000",
+          "sum": 5820.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "#561397",
+          "line_items": []
+        },
+        {
+          "id": "000e069d-f2e0-11f0-0a80-0456000fdec0",
+          "name": "#561367",
+          "date": "2026-01-16 16:27:00.000",
+          "sum": 5820.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "#561367",
+          "line_items": []
+        },
+        {
+          "id": "67f79f77-f1fd-11f0-0a80-1c3a000c4fd9",
+          "name": "561050",
+          "date": "2026-01-15 13:29:00.000",
+          "sum": 0.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "561050",
+          "line_items": []
+        },
+        {
+          "id": "630f0fd1-ef08-11f0-0a80-0e1000b58e06",
+          "name": "20927765",
+          "date": "2026-01-11 19:11:00.000",
+          "sum": 3467.0,
+          "channel": "",
+          "description": "",
+          "product_snippet": "20927765",
+          "line_items": []
+        },
+        {
+          "id": "1ec31fc0-e888-11f0-0a80-0d8e00603255",
+          "name": "558171",
+          "date": "2026-01-03 12:37:00.000",
+          "sum": 7440.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "558171",
+          "line_items": []
+        },
+        {
+          "id": "431231fa-e71a-11f0-0a80-1b84005748eb",
+          "name": "20816203",
+          "date": "2026-01-01 16:57:00.000",
+          "sum": 5380.0,
+          "channel": "",
+          "description": "",
+          "product_snippet": "20816203",
+          "line_items": []
+        },
+        {
+          "id": "3d2cf979-e718-11f0-0a80-18d10056ce2d",
+          "name": "20814391",
+          "date": "2026-01-01 16:43:00.000",
+          "sum": 3733.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20814391",
+          "line_items": []
+        },
+        {
+          "id": "5d8dff1a-e31c-11f0-0a80-15ae001b4141",
+          "name": "#556586",
+          "date": "2025-12-27 15:01:00.000",
+          "sum": 6084.0,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "#556586",
+          "line_items": []
+        },
+        {
+          "id": "48ba3b88-e327-11f0-0a80-0fda001cff34",
+          "name": "2712-02",
+          "date": "2025-12-27 11:12:00.000",
+          "sum": 67000.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "2712-02",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "9e416e44-0f58-11f0-0a80-11030001c0a7",
+      "name": "Виолетта",
+      "phone": "+79687707502",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие январь",
+        "событие октябрь",
+        "букет от 10 000",
+        "цветы для интерьера",
+        "событие август",
+        "флаувау",
+        "постоянный клиент"
+      ],
+      "actual_address": "125252, Россия, г Москва, Ходынский б-р, 20А",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 19,
+      "avg_check": 16426.41,
+      "channels": [
+        "Flow Wow Сокольники"
+      ],
+      "orders": [
+        {
+          "id": "5e21e82a-f4ba-11f0-0a80-1c3f0024eca2",
+          "name": "21034262",
+          "date": "2026-01-19 01:05:00.000",
+          "sum": 20970.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "лидия начала",
+          "product_snippet": "лидия начала",
+          "line_items": [
+            "Интерьерный букет с листьями магнолии и нутаном и гвоздиками. ×3.0"
+          ]
+        },
+        {
+          "id": "67f5593f-ef20-11f0-0a80-0c3700b834ad",
+          "name": "20922066",
+          "date": "2026-01-11 22:03:00.000",
+          "sum": 24980.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20922066",
+          "line_items": [
+            "Авторский букет с хризантемами, подсолнухами, красным эвкалиптом и ягодами шиповника. Veresk 407 ×2.0"
+          ]
+        },
+        {
+          "id": "1e33e1a7-e244-11f0-0a80-0fda000aee68",
+          "name": "20706902",
+          "date": "2025-12-26 13:14:00.000",
+          "sum": 33330.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20706902",
+          "line_items": [
+            "Авторский букет с хризантемами, подсолнухами, красным эвкалиптом и ягодами шиповника. Veresk 407 ×2.0",
+            "Волшебная композиция в тыкве с ягодами, нутаном, хризантемой и маттиолой (новый состав) ×1.0"
+          ]
+        },
+        {
+          "id": "5564543e-e0b2-11f0-0a80-0373000bcf04",
+          "name": "20670971",
+          "date": "2025-12-24 13:19:00.000",
+          "sum": 24980.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20670971",
+          "line_items": []
+        },
+        {
+          "id": "6be472c7-ab65-11f0-0a80-11fd0011d908",
+          "name": "19296564",
+          "date": "2025-10-17 17:24:00.000",
+          "sum": 8289.45,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19296564",
+          "line_items": []
+        },
+        {
+          "id": "797083e1-a5cb-11f0-0a80-1bbe000d2b05",
+          "name": "19171514",
+          "date": "2025-10-10 14:20:00.000",
+          "sum": 15388.62,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19171514",
+          "line_items": []
+        },
+        {
+          "id": "574e52e7-a2c4-11f0-0a80-07ab004cf161",
+          "name": "19111364",
+          "date": "2025-10-06 17:52:00.000",
+          "sum": 15004.73,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19111364",
+          "line_items": []
+        },
+        {
+          "id": "8cc1fd7f-a2aa-11f0-0a80-0f640048c8dc",
+          "name": "19108106",
+          "date": "2025-10-06 14:46:00.000",
+          "sum": 20907.07,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19108106",
+          "line_items": []
+        },
+        {
+          "id": "8cf703cf-8ca9-11f0-0a80-003d00329046",
+          "name": "18650172",
+          "date": "2025-09-08 14:44:00.000",
+          "sum": 13263.12,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18650172",
+          "line_items": []
+        },
+        {
+          "id": "5293772e-78fb-11f0-0a80-1521000b9416",
+          "name": "18260119",
+          "date": "2025-08-14 13:40:00.000",
+          "sum": 11418.84,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18260119",
+          "line_items": []
+        },
+        {
+          "id": "434db57c-5c39-11f0-0a80-1bd1000176db",
+          "name": "17755334",
+          "date": "2025-07-08 23:21:00.000",
+          "sum": 12942.66,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17755334",
+          "line_items": []
+        },
+        {
+          "id": "8cb9076f-58d9-11f0-0a80-1353001fdc5c",
+          "name": "17627535",
+          "date": "2025-06-30 12:07:00.000",
+          "sum": 12942.66,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17627535",
+          "line_items": []
+        },
+        {
+          "id": "25c29f8b-5be1-11f0-0a80-180500a55a52",
+          "name": "17465684",
+          "date": "2025-06-19 13:01:00.000",
+          "sum": 7167.79,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17465684",
+          "line_items": []
+        },
+        {
+          "id": "22920e15-5be1-11f0-0a80-083d00a5386a",
+          "name": "17465514",
+          "date": "2025-06-19 12:54:00.000",
+          "sum": 8436.6,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17465514",
+          "line_items": []
+        },
+        {
+          "id": "23883046-5be0-11f0-0a80-0cd500a4e26d",
+          "name": "17321984",
+          "date": "2025-06-09 14:36:00.000",
+          "sum": 12942.66,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17321984",
+          "line_items": []
+        },
+        {
+          "id": "6f30684b-5bdf-11f0-0a80-026900a6792b",
+          "name": "17010875",
+          "date": "2025-05-19 12:33:00.000",
+          "sum": 22549.92,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17010875",
+          "line_items": []
+        },
+        {
+          "id": "3eafb46f-5bde-11f0-0a80-00f700a5bf86",
+          "name": "16826743",
+          "date": "2025-05-06 13:09:00.000",
+          "sum": 22549.92,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16826743",
+          "line_items": []
+        },
+        {
+          "id": "1cb0e931-5bdd-11f0-0a80-0cd500a3f745",
+          "name": "16614905",
+          "date": "2025-04-20 17:58:00.000",
+          "sum": 12018.84,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16614905",
+          "line_items": []
+        },
+        {
+          "id": "91dbc8ce-5bdb-11f0-0a80-0cd500a39c74",
+          "name": "16352007",
+          "date": "2025-04-02 03:24:00.000",
+          "sum": 12018.84,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16352007",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "ba9170f5-63be-11ef-0a80-02930048ea4a",
+      "name": "Мария Байдак",
+      "phone": "+79857692696",
+      "email": "m.baydak@isource.ru",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие январь",
+        "событие декабрь",
+        "букет от 10 000",
+        "цветы для интерьера",
+        "флаувау",
+        "watsapp",
+        "постоянный клиент"
+      ],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 16,
+      "avg_check": 6972.58,
+      "channels": [
+        "Flow Wow Сокольники",
+        "WhatsApp/MAX",
+        "Витрина"
+      ],
+      "orders": [
+        {
+          "id": "7bb2c3e9-4f5a-11f1-0a80-16560003e483",
+          "name": "23851031",
+          "date": "2026-05-14 09:00:00.000",
+          "sum": 13490.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "13.490",
+          "product_snippet": "13.490",
+          "line_items": [
+            "Кризал ×1.0",
+            "Лента атласная ×2.0",
+            "Полиграфия ×1.0",
+            "Слюда ×1.0",
+            "Антирринум ×5.0"
+          ]
+        },
+        {
+          "id": "2a52389e-317f-11f1-0a80-135e0028843c",
+          "name": "23284628",
+          "date": "2026-04-06 09:06:00.000",
+          "sum": 5790.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "23284628",
+          "line_items": [
+            "Цветущая форзиция для интерьера ×1.0"
+          ]
+        },
+        {
+          "id": "0ee40518-0c8a-11f1-0a80-174900036e77",
+          "name": "21818968",
+          "date": "2026-02-18 08:22:00.000",
+          "sum": 5738.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "21818968",
+          "line_items": [
+            "Цветущая форзиция для интерьера ×1.0"
+          ]
+        },
+        {
+          "id": "7e457b32-c471-11f0-0a80-01d6000e259d",
+          "name": "19804832",
+          "date": "2025-11-19 14:25:00.000",
+          "sum": 7340.0,
+          "channel": "",
+          "description": "",
+          "product_snippet": "19804832",
+          "line_items": []
+        },
+        {
+          "id": "25f620e8-a299-11f0-0a80-16310043d7c2",
+          "name": "19105539",
+          "date": "2025-10-06 12:44:00.000",
+          "sum": 3224.87,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19105539",
+          "line_items": []
+        },
+        {
+          "id": "10004888-9dcd-11f0-0a80-13d20005c4a5",
+          "name": "18993156",
+          "date": "2025-09-30 10:12:00.000",
+          "sum": 7694.31,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18993156",
+          "line_items": []
+        },
+        {
+          "id": "8eb472ef-5bdf-11f0-0a80-196300a6054e",
+          "name": "2005-1",
+          "date": "2025-05-20 16:34:00.000",
+          "sum": 6750.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "2005-1",
+          "line_items": []
+        },
+        {
+          "id": "29fbc2f4-5bde-11f0-0a80-1aca00a5f96a",
+          "name": "0505-02",
+          "date": "2025-05-05 09:59:00.000",
+          "sum": 6580.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "0505-02",
+          "line_items": []
+        },
+        {
+          "id": "0c4682d5-5bc4-11f0-0a80-1aca009f6acf",
+          "name": "3004-02",
+          "date": "2025-04-28 08:43:00.000",
+          "sum": 6700.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "3004-02",
+          "line_items": []
+        },
+        {
+          "id": "0acc4b59-5bc4-11f0-0a80-01dd009d6229",
+          "name": "16546578817",
+          "date": "2025-04-21 09:08:00.000",
+          "sum": 7650.0,
+          "channel": "",
+          "description": "доставка к 12",
+          "product_snippet": "доставка к 12",
+          "line_items": []
+        },
+        {
+          "id": "6512e29c-5bc2-11f0-0a80-01dd009cfa7b",
+          "name": "1404-20",
+          "date": "2025-04-14 15:52:00.000",
+          "sum": 12340.05,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "1404-20",
+          "line_items": []
+        },
+        {
+          "id": "7e03ae76-5bc3-11f0-0a80-01dd009d3bec",
+          "name": "04475",
+          "date": "2025-03-24 16:31:00.000",
+          "sum": 6630.0,
+          "channel": "WhatsApp/MAX",
+          "description": "направить фото цветущих веток в вотсапе",
+          "product_snippet": "направить фото цветущих веток в вотсапе",
+          "line_items": []
+        },
+        {
+          "id": "66b43ff9-5bd9-11f0-0a80-0cd500a2e48e",
+          "name": "04190",
+          "date": "2025-03-12 12:16:00.000",
+          "sum": 3500.0,
+          "channel": "WhatsApp/MAX",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "687e45dc-5bc2-11f0-0a80-135300a002cc",
+          "name": "03006",
+          "date": "2025-02-03 10:32:00.000",
+          "sum": 8290.0,
+          "channel": "WhatsApp/MAX",
+          "description": "вотсап напрямую",
+          "product_snippet": "вотсап напрямую",
+          "line_items": []
+        },
+        {
+          "id": "21ba71fe-7975-11ef-0a80-0ccf001ac731",
+          "name": "00908",
+          "date": "2024-09-23 09:22:00.000",
+          "sum": 4975.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 12671616",
+          "product_snippet": "№ 12671616",
+          "line_items": []
+        },
+        {
+          "id": "54f8a87b-53f9-11ef-0a80-048f0017d8d4",
+          "name": "00095",
+          "date": "2024-08-07 15:40:00.000",
+          "sum": 4869.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 12065504",
+          "product_snippet": "№ 12065504",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "5300f641-84ae-11f0-0a80-0907001b7548",
+      "name": "Филипп",
+      "phone": "89042672716",
+      "email": "",
+      "state": "",
+      "company_type": "Юридическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 11,
+      "avg_check": 4305.65,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram",
+        "Витрина",
+        "Прямые продажи",
+        "Яндекс Маркет Скл"
+      ],
+      "orders": [
+        {
+          "id": "0d7d4f86-fd1c-11f0-0a80-030a00113a89",
+          "name": "2901-01",
+          "date": "2026-01-29 17:06:00.000",
+          "sum": 4700.0,
+          "channel": "Прямые продажи",
+          "description": "личная продажа Катя",
+          "product_snippet": "личная продажа Катя",
+          "line_items": [
+            "Амариллис ×3.0",
+            "Крафт ×2.0"
+          ]
+        },
+        {
+          "id": "2aaf1089-c79c-11f0-0a80-1b11001ad7b7",
+          "name": "2211-1",
+          "date": "2025-11-22 15:06:00.000",
+          "sum": 3858.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "2211-1",
+          "line_items": [
+            "Хризантема одноголовая ×3.0",
+            "Эустома/Лизиантус (белая/розовая/сиреневая) ×1.0",
+            "Хамелациум белый/розовый ×1.0",
+            "Бумага/пленка упаковочная цветная ×1.0",
+            "Тишью ×1.0"
+          ]
+        },
+        {
+          "id": "264d3aa7-b1b5-11f0-0a80-05bb001d9709",
+          "name": "18171942",
+          "date": "2025-10-25 18:10:00.000",
+          "sum": 2134.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "18171942",
+          "line_items": [
+            "Роза кустовая Мисти Баблс ×3.0",
+            "Хамелациум белый/розовый ×1.0"
+          ]
+        },
+        {
+          "id": "2201ac33-a759-11f0-0a80-19310020eb59",
+          "name": "18171915",
+          "date": "2025-10-12 13:47:00.000",
+          "sum": 400.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "18171915",
+          "line_items": []
+        },
+        {
+          "id": "85925605-9944-11f0-0a80-02c6000f4246",
+          "name": "18171846",
+          "date": "2025-09-25 15:38:00.000",
+          "sum": 8750.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "18171846",
+          "line_items": []
+        },
+        {
+          "id": "769b1f08-93e0-11f0-0a80-01550013d975",
+          "name": "18791991",
+          "date": "2025-09-17 19:06:00.000",
+          "sum": 4071.19,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18791991",
+          "line_items": []
+        },
+        {
+          "id": "32c1399c-8e24-11f0-0a80-1937001dad17",
+          "name": "48616596225",
+          "date": "2025-09-10 11:56:00.000",
+          "sum": 3601.83,
+          "channel": "Яндекс Маркет Скл",
+          "description": "",
+          "product_snippet": "48616596225",
+          "line_items": []
+        },
+        {
+          "id": "7653100e-8d88-11f0-0a80-141d001356d1",
+          "name": "18171771",
+          "date": "2025-09-09 17:21:00.000",
+          "sum": 7660.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "18171771",
+          "line_items": []
+        },
+        {
+          "id": "83970e1b-8d76-11f0-0a80-109d000f5c86",
+          "name": "48590294209",
+          "date": "2025-09-09 15:12:00.000",
+          "sum": 5665.8,
+          "channel": "Яндекс Маркет Скл",
+          "description": "",
+          "product_snippet": "48590294209",
+          "line_items": []
+        },
+        {
+          "id": "265801a1-8d6a-11f0-0a80-0049000cdbe4",
+          "name": "48588350914",
+          "date": "2025-09-09 13:44:00.000",
+          "sum": 3709.75,
+          "channel": "Яндекс Маркет Скл",
+          "description": "",
+          "product_snippet": "48588350914",
+          "line_items": []
+        },
+        {
+          "id": "6cb976e0-865d-11f0-0a80-0f550039476c",
+          "name": "18171732",
+          "date": "2025-08-31 14:25:00.000",
+          "sum": 2811.6,
+          "channel": "Яндекс Маркет Скл",
+          "description": "",
+          "product_snippet": "18171732",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "8bbf6d86-65e7-11ef-0a80-0bbe000d4d6f",
+      "name": "Ольга Врублевская",
+      "phone": "+79272595343",
+      "email": "",
+      "state": "",
+      "company_type": "Юридическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 11,
+      "avg_check": 6529.6,
+      "channels": [
+        "Telegram",
+        "WhatsApp/MAX",
+        "Витрина",
+        "Прямые продажи"
+      ],
+      "orders": [
+        {
+          "id": "2c8ca2c6-5b40-11f1-0a80-1cae00093bc3",
+          "name": "24096674",
+          "date": "2026-05-29 12:05:00.000",
+          "sum": 885.51,
+          "channel": "",
+          "description": "",
+          "product_snippet": "24096674",
+          "line_items": [
+            "Роза Кения Шармант одноголовая/фр ×3.0",
+            "Альстромерия ×2.0",
+            "Гвоздика / Диантус ×3.0",
+            "Хамелациум белый/розовый ×0.3",
+            "Роза кустовая Кения ×1.0"
+          ]
+        },
+        {
+          "id": "1b7b3e26-5462-11f1-0a80-156e0015fb7b",
+          "name": "2005-01",
+          "date": "2026-05-20 16:52:00.000",
+          "sum": 6500.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "2005-01",
+          "line_items": [
+            "Дельфиниум ×3.0",
+            "Роза Кения Шармант одноголовая/фр ×3.0",
+            "Сирень ×9.0"
+          ]
+        },
+        {
+          "id": "63930eca-1ae0-11f1-0a80-1d630023e8db",
+          "name": "0303-23",
+          "date": "2026-03-08 14:12:00.000",
+          "sum": 9760.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "0303-23",
+          "line_items": [
+            "Фрезия ×5.0",
+            "Оксипеталум/незабудка ×6.0",
+            "Роза кустовая Россия Пиони Баблс 40-50 см. желтая ×3.0",
+            "Тюльпан /не пионовидный/цвет любой ×5.0",
+            "Леукодендрон/сафари ×2.0"
+          ]
+        },
+        {
+          "id": "6175a300-ee06-11f0-0a80-02ea00a9bc29",
+          "name": "53104091715",
+          "date": "2026-01-10 12:07:00.000",
+          "sum": 7684.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "53104091715",
+          "line_items": []
+        },
+        {
+          "id": "29976a38-9004-11f0-0a80-082c00132aa2",
+          "name": "18171784",
+          "date": "2025-09-13 21:12:00.000",
+          "sum": 10000.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "18171784",
+          "line_items": []
+        },
+        {
+          "id": "2d0a6bd5-8748-11f0-0a80-01f700bb49aa",
+          "name": "48330755074",
+          "date": "2025-09-01 18:24:00.000",
+          "sum": 390.0,
+          "channel": "",
+          "description": "",
+          "product_snippet": "48330755074",
+          "line_items": []
+        },
+        {
+          "id": "750d09dd-6260-11f0-0a80-154b0013910d",
+          "name": "1205-32",
+          "date": "2025-07-16 19:02:00.000",
+          "sum": 9900.0,
+          "channel": "Витрина",
+          "description": "",
+          "product_snippet": "1205-32",
+          "line_items": []
+        },
+        {
+          "id": "3ea4c170-5d72-11f0-0a80-1ad400158efb",
+          "name": "04498",
+          "date": "2025-03-25 16:32:00.000",
+          "sum": 7520.0,
+          "channel": "Витрина",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "78c37f7f-5ccd-11f0-0a80-111f001c8393",
+          "name": "03714",
+          "date": "2025-03-04 20:29:00.000",
+          "sum": 0.0,
+          "channel": "",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "6fda60ff-9224-11ef-0a80-158d001ac845",
+          "name": "01363",
+          "date": "2024-10-24 19:19:00.000",
+          "sum": 4486.5,
+          "channel": "",
+          "description": "",
+          "product_snippet": "01363",
+          "line_items": []
+        },
+        {
+          "id": "5446b8cc-71a3-11ef-0a80-177400081bc5",
+          "name": "00743",
+          "date": "2024-09-13 10:39:00.000",
+          "sum": 8170.0,
+          "channel": "Витрина",
+          "description": "Оплата переводом",
+          "product_snippet": "Оплата переводом",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "39207832-5f98-11ef-0a80-09310009183b",
+      "name": "Наталия Сергеевна",
+      "phone": "+79268875488",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие октябрь",
+        "букет от 10 000",
+        "цветы для интерьера",
+        "watsapp",
+        "постоянный клиент"
+      ],
+      "actual_address": "125130, Россия, г Москва, ул Большая Академическая, 15 к 1",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 11,
+      "avg_check": 12276.3,
+      "channels": [
+        "Flow Wow Сокольники",
+        "WhatsApp/MAX",
+        "Сайт vereskflowers.ru"
+      ],
+      "orders": [
+        {
+          "id": "64b14b5f-ac23-11f0-0a80-03e2001a2d5f",
+          "name": "18171929",
+          "date": "2025-10-18 13:48:00.000",
+          "sum": 13700.0,
+          "channel": "Сайт vereskflowers.ru",
+          "description": "",
+          "product_snippet": "18171929",
+          "line_items": [
+            "Букет с необычными хризантемами и подсолнухами Лена 23.09 Veresk 165 ×1.0",
+            "Букет с необычными хризантемами и подсолнухами Лена 23.09 Veresk 165 ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "199248e0-5bc2-11f0-0a80-083d009d9c86",
+          "name": "17073308",
+          "date": "2025-05-23 10:54:00.000",
+          "sum": 12531.29,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17073308",
+          "line_items": [
+            "Майские ландыши 25 шт. ×1.0",
+            "Конвалария (Ландыши) ×25.0",
+            "Букет из пионов Корал шарм и вибурнума ×1.0"
+          ]
+        },
+        {
+          "id": "5f234b28-5bdc-11f0-0a80-180500a42642",
+          "name": "1404-6",
+          "date": "2025-04-11 19:25:00.000",
+          "sum": 17600.0,
+          "channel": "WhatsApp/MAX",
+          "description": "оплата переводом на карту Ольге\nНа ближайшее время\n+7 926 887-54-88 Наталия \nБольшая Академическая. 15к1, 272\n20 кампанулы розовой и 15 кампанулы белой",
+          "product_snippet": "оплата переводом на карту Ольге\nНа ближайшее время\n+7 926 887-54-88 Наталия \nБольшая Академическая. 15к1, 272\n20 кампану",
+          "line_items": [
+            "Колокольчик кампанула розовый 5шт ×5.0",
+            "Колокольчики белые кампанула 5шт ×3.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "22ac1cda-5d71-11f0-0a80-154000157d45",
+          "name": "03763",
+          "date": "2025-03-05 21:25:00.000",
+          "sum": 27000.0,
+          "channel": "WhatsApp/MAX",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "86420437-5bcc-11f0-0a80-044200a0bf1b",
+          "name": "03650",
+          "date": "2025-03-01 17:55:00.000",
+          "sum": 6494.22,
+          "channel": "Flow Wow Сокольники",
+          "description": "15365584",
+          "product_snippet": "15365584",
+          "line_items": []
+        },
+        {
+          "id": "82fe88b9-5bcc-11f0-0a80-1aca00a1c5f9",
+          "name": "03647",
+          "date": "2025-03-01 17:17:00.000",
+          "sum": 10267.8,
+          "channel": "Flow Wow Сокольники",
+          "description": "15359414",
+          "product_snippet": "15359414",
+          "line_items": []
+        },
+        {
+          "id": "5fa5d382-a360-11ef-0a80-0d53001408a2",
+          "name": "01669",
+          "date": "2024-11-15 17:43:00.000",
+          "sum": 6980.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 13423832",
+          "product_snippet": "№ 13423832",
+          "line_items": []
+        },
+        {
+          "id": "2d977fdf-9e6a-11ef-0a80-0dc400180fcf",
+          "name": "01580",
+          "date": "2024-11-09 10:05:00.000",
+          "sum": 8400.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 13327689",
+          "product_snippet": "№ 13327689",
+          "line_items": []
+        },
+        {
+          "id": "78aed5ca-8eb9-11ef-0a80-167a000ee673",
+          "name": "01308",
+          "date": "2024-10-20 10:50:00.000",
+          "sum": 11790.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 13054210",
+          "product_snippet": "№ 13054210",
+          "line_items": []
+        },
+        {
+          "id": "16eadca2-8858-11ef-0a80-1819004ec5e4",
+          "name": "01192",
+          "date": "2024-10-12 08:06:00.000",
+          "sum": 11550.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 12940592",
+          "product_snippet": "№ 12940592",
+          "line_items": []
+        },
+        {
+          "id": "84dda268-5f97-11ef-0a80-064d000916f4",
+          "name": "00297",
+          "date": "2024-08-21 11:34:00.000",
+          "sum": 8726.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№12243851",
+          "product_snippet": "№12243851",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "c96edc9e-c06f-11ef-0a80-118100235ccc",
+      "name": "Ольга Тупоногова-Волкова",
+      "phone": "+79262562792",
+      "email": "olga@tuponogova.com",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "сайт",
+        "букет от 10 000",
+        "watsapp",
+        "постоянный клиент"
+      ],
+      "actual_address": "117133, Россия, г Москва, ул Тёплый Стан, 12 к 2",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 9,
+      "avg_check": 6515.0,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram",
+        "WhatsApp/MAX",
+        "Сайт vereskflowers.ru"
+      ],
+      "orders": [
+        {
+          "id": "61dd2a88-2e80-11f1-0a80-1088000c3513",
+          "name": "23231977",
+          "date": "2026-04-02 13:34:00.000",
+          "sum": 6390.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "23231977",
+          "line_items": [
+            "Весенняя мимоза итальянская. Veresk 101 ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "4226ecbc-1e02-11f1-0a80-17c4000cc83e",
+          "name": "0303-32",
+          "date": "2026-03-12 13:49:00.000",
+          "sum": 9580.0,
+          "channel": "Telegram",
+          "description": "перевод",
+          "product_snippet": "перевод",
+          "line_items": [
+            "Доставка ×2.0",
+            "Мимоза ( Абхазия ) архив ×5.0",
+            "Бумага/пленка упаковочная цветная ×2.0",
+            "Лента атласная ×1.0"
+          ]
+        },
+        {
+          "id": "728e208a-df0d-11f0-0a80-0efa002e68fe",
+          "name": "52375472837",
+          "date": "2025-12-22 11:07:00.000",
+          "sum": 5362.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "52375472837",
+          "line_items": [
+            "Гвоздика / Диантус ×23.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "6cfb4306-b706-11f0-0a80-182e0007f11d",
+          "name": "19519391",
+          "date": "2025-11-01 10:18:00.000",
+          "sum": 10800.0,
+          "channel": "WhatsApp/MAX",
+          "description": "личная продажа Катя",
+          "product_snippet": "личная продажа Катя",
+          "line_items": []
+        },
+        {
+          "id": "0f751ed5-79cf-11f0-0a80-077d00228449",
+          "name": "1508-2",
+          "date": "2025-08-15 14:52:00.000",
+          "sum": 3750.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "1508-2",
+          "line_items": []
+        },
+        {
+          "id": "742e9d7a-60a0-11f0-0a80-14ab002ec381",
+          "name": "1407-2",
+          "date": "2025-07-14 13:49:00.000",
+          "sum": 5550.0,
+          "channel": "WhatsApp/MAX",
+          "description": "Оплата на карту",
+          "product_snippet": "Оплата на карту",
+          "line_items": []
+        },
+        {
+          "id": "304a6c72-5be1-11f0-0a80-00f700a6750e",
+          "name": "1205-14",
+          "date": "2025-06-19 17:40:00.000",
+          "sum": 10300.03,
+          "channel": "Сайт vereskflowers.ru",
+          "description": "оплачено Ольге на сбер",
+          "product_snippet": "оплачено Ольге на сбер",
+          "line_items": []
+        },
+        {
+          "id": "6e87323c-5bd9-11f0-0a80-165100a41a01",
+          "name": "04192",
+          "date": "2025-03-12 19:02:00.000",
+          "sum": 3920.73,
+          "channel": "Flow Wow Сокольники",
+          "description": "16088593",
+          "product_snippet": "16088593",
+          "line_items": []
+        },
+        {
+          "id": "888fe547-5bcc-11f0-0a80-1bcb009f6dbd",
+          "name": "03651",
+          "date": "2025-03-01 18:00:00.000",
+          "sum": 2982.24,
+          "channel": "Flow Wow Сокольники",
+          "description": "15365760",
+          "product_snippet": "15365760",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "342938ed-f061-11ef-0a80-0c6300106821",
+      "name": "Эвелина Дорошенко",
+      "phone": "+79102580815",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "цветы для интерьера",
+        "watsapp",
+        "постоянный клиент"
+      ],
+      "actual_address": "115035, Россия, г Москва, ул Садовническая, 57 стр 2",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 9,
+      "avg_check": 11576.6,
+      "channels": [
+        "Flow Wow Сокольники",
+        "WhatsApp/MAX"
+      ],
+      "orders": [
+        {
+          "id": "1bf3be32-9309-11f0-0a80-0dee0012f9e7",
+          "name": "18171795",
+          "date": "2025-09-26 17:21:00.000",
+          "sum": 9730.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "18171795",
+          "line_items": [
+            "Колокольчик/кампанула ×10.0",
+            "Гортензия Голландия ×3.0",
+            "Доставка ×1.0",
+            "Крафт ×2.0"
+          ]
+        },
+        {
+          "id": "21649b2a-9ac6-11f0-0a80-19d5000b5cc0",
+          "name": "18171854",
+          "date": "2025-09-26 12:37:00.000",
+          "sum": 16550.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "18171854",
+          "line_items": [
+            "Гортензия Голландия ×6.0",
+            "Колокольчик/кампанула ×10.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "755078fc-8574-11f0-0a80-0f55002cc8be",
+          "name": "18171721",
+          "date": "2025-08-30 10:19:00.000",
+          "sum": 15000.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "18171721",
+          "line_items": [
+            "Гортензия Голландия ×2.0",
+            "Колокольчик/кампанула ×10.0",
+            "Маттиола кустовая ×5.0",
+            "Малина ×6.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "1bb913b6-69e6-11f0-0a80-02b1001459b8",
+          "name": "17993371",
+          "date": "2025-07-26 08:56:00.000",
+          "sum": 14606.43,
+          "channel": "",
+          "description": "",
+          "product_snippet": "17993371",
+          "line_items": []
+        },
+        {
+          "id": "91332d9c-6478-11f0-0a80-155600158b37",
+          "name": "17901474",
+          "date": "2025-07-19 11:06:00.000",
+          "sum": 8625.6,
+          "channel": "",
+          "description": "",
+          "product_snippet": "17901474",
+          "line_items": []
+        },
+        {
+          "id": "38d86df1-62da-11f0-0a80-114c0004cb1e",
+          "name": "17872260",
+          "date": "2025-07-17 09:47:00.000",
+          "sum": 2602.92,
+          "channel": "",
+          "description": "",
+          "product_snippet": "17872260",
+          "line_items": []
+        },
+        {
+          "id": "06cc63e0-5bde-11f0-0a80-083d00a48228",
+          "name": "0506-01",
+          "date": "2025-06-05 15:46:00.000",
+          "sum": 15610.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "0506-01",
+          "line_items": []
+        },
+        {
+          "id": "107f7c64-5bc5-11f0-0a80-083d009e4c85",
+          "name": "17110565",
+          "date": "2025-05-25 19:39:00.000",
+          "sum": 7514.46,
+          "channel": "Flow Wow Сокольники",
+          "description": "Не упаковывайте, пожалуйста, в массу бумаги - только в один слой для доставки?",
+          "product_snippet": "Не упаковывайте, пожалуйста, в массу бумаги - только в один слой для доставки?",
+          "line_items": []
+        },
+        {
+          "id": "26b626b1-5bdc-11f0-0a80-180500a4175f",
+          "name": "0904-2",
+          "date": "2025-04-09 16:23:00.000",
+          "sum": 13950.0,
+          "channel": "WhatsApp/MAX",
+          "description": "",
+          "product_snippet": "0904-2",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "1ed0ae01-2431-11f0-0a80-1947003416aa",
+      "name": "Скайлофт",
+      "phone": "+79163011211",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 9,
+      "avg_check": 2015.58,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Прямые продажи"
+      ],
+      "orders": [
+        {
+          "id": "83ae59c9-c308-11f0-0a80-05300024487d",
+          "name": "19773342",
+          "date": "2025-11-16 19:17:00.000",
+          "sum": 2027.62,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19773342",
+          "line_items": [
+            "Осенний букет из винных хризантем и осенних листьев ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "290dd63c-bc76-11f0-0a80-0c2900165934",
+          "name": "19524634",
+          "date": "2025-11-01 10:25:00.000",
+          "sum": 2832.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19524634",
+          "line_items": [
+            "Набор шаров «Крутой кот» ×1.0",
+            "Мини-открытка \"С днем рождения\" торт ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "54bcdde3-b347-11f0-0a80-134f00379269",
+          "name": "18171950",
+          "date": "2025-10-27 18:11:00.000",
+          "sum": 1650.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "18171950",
+          "line_items": [
+            "Шар обычный хром серебро ×1.0",
+            "Шар обычный золото хром ×2.0",
+            "Шар обычный розовый хром ×1.0",
+            "Шар обычный прозрачный ×2.0",
+            "Шар обычный  белый металлик ×1.0"
+          ]
+        },
+        {
+          "id": "1805dd00-aa5f-11f0-0a80-0d4b00044962",
+          "name": "18171919",
+          "date": "2025-10-11 10:08:00.000",
+          "sum": 1154.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "18171919",
+          "line_items": []
+        },
+        {
+          "id": "3e8b7473-a380-11f0-0a80-17f30010a314",
+          "name": "19054522",
+          "date": "2025-10-05 16:17:00.000",
+          "sum": 1067.58,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19054522",
+          "line_items": []
+        },
+        {
+          "id": "6237511e-95e8-11f0-0a80-1bbe00153912",
+          "name": "18729083",
+          "date": "2025-09-18 09:02:00.000",
+          "sum": 1900.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18729083",
+          "line_items": []
+        },
+        {
+          "id": "52467ae2-94a0-11f0-0a80-07240027b267",
+          "name": "18786788",
+          "date": "2025-09-17 17:59:00.000",
+          "sum": 2000.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18786788",
+          "line_items": []
+        },
+        {
+          "id": "438c392b-8e39-11f0-0a80-17c5002205fd",
+          "name": "18171772",
+          "date": "2025-09-08 14:27:00.000",
+          "sum": 4519.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18171772",
+          "line_items": []
+        },
+        {
+          "id": "85cb0ac9-9c7d-11f0-0a80-150f00226247",
+          "name": "18171875",
+          "date": "2025-09-05 18:10:00.000",
+          "sum": 990.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "18171875",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "902f57b7-5403-11ef-0a80-147e001952aa",
+      "name": "Андрей",
+      "phone": "+79164512288",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "букет от 10 000",
+        "8 марта",
+        "watsapp"
+      ],
+      "actual_address": "125040, Россия, г Москва, ул Верхняя, 42",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 19179.38,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram",
+        "WhatsApp/MAX",
+        "Прямые продажи"
+      ],
+      "orders": [
+        {
+          "id": "83b0ed11-45eb-11f1-0a80-1cf80023dcf7",
+          "name": "56650626820",
+          "date": "2026-05-02 08:46:00.000",
+          "sum": 17680.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "56650626820",
+          "line_items": [
+            "Бумага/пленка упаковочная цветная ×2.0",
+            "Кризал ×1.0",
+            "Пакет аквапак ×1.0",
+            "Полиграфия ×1.0",
+            "Слюда ×1.0"
+          ]
+        },
+        {
+          "id": "30ca5298-2e92-11f1-0a80-16e2000ff523",
+          "name": "23219669",
+          "date": "2026-04-02 15:44:00.000",
+          "sum": 9300.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "23219669",
+          "line_items": [
+            "Ранункулюс Италия Кения ×9.0",
+            "Лента атласная ×1.0",
+            "Бумага/пленка упаковочная цветная ×1.0",
+            "Стифа ×5.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "1dd6bbe6-1a07-11f1-0a80-1a860018648e",
+          "name": "0303-15",
+          "date": "2026-03-07 12:18:00.000",
+          "sum": 23600.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "0303-15",
+          "line_items": [
+            "Мимоза Италия ×11.0",
+            "Тюльпан /не пионовидный/цвет любой ×10.0",
+            "Ранункулюс Италия Кения ×5.0",
+            "Цветущие ветки Айва (хеномилес) хеномелес ×1.0",
+            "Тюльпан /не пионовидный/цвет любой ×6.0"
+          ]
+        },
+        {
+          "id": "8509eede-09b2-11f1-0a80-1b15001db2f7",
+          "name": "14.02-06",
+          "date": "2026-02-14 19:13:00.000",
+          "sum": 23715.0,
+          "channel": "Telegram",
+          "description": "шмитовский проезд 39к8 катя 89099505346, артамоново 11к2 89690508889",
+          "product_snippet": "шмитовский проезд 39к8 катя 89099505346, артамоново 11к2 89690508889",
+          "line_items": []
+        },
+        {
+          "id": "2d5644a5-0809-11f1-0a80-0348000e6091",
+          "name": "05.02-8",
+          "date": "2026-02-13 14:40:00.000",
+          "sum": 14150.0,
+          "channel": "Telegram",
+          "description": "15 тюльп м 15 раников с эвкалиптом",
+          "product_snippet": "15 тюльп м 15 раников с эвкалиптом",
+          "line_items": []
+        },
+        {
+          "id": "7333f2c2-5d70-11f0-0a80-098d00148a2d",
+          "name": "03250",
+          "date": "2025-02-13 19:11:00.000",
+          "sum": 26082.0,
+          "channel": "WhatsApp/MAX",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "54538a50-d890-11ef-0a80-10c20004cddc",
+          "name": "02819",
+          "date": "2025-01-22 10:06:00.000",
+          "sum": 21808.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14560374",
+          "product_snippet": "14560374",
+          "line_items": []
+        },
+        {
+          "id": "4fe7337b-5405-11ef-0a80-18bf001a10b2",
+          "name": "00097",
+          "date": "2024-08-06 17:52:00.000",
+          "sum": 17100.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 12070192",
+          "product_snippet": "№ 12070192",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "7b5d89ad-f107-11f0-0a80-17d100031f6e",
+      "name": "Георгий Шарохвостов",
+      "phone": "+79165044944",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие январь",
+        "букет от 10 000",
+        "watsapp",
+        "флаувау"
+      ],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 13797.12,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram",
+        "Сайт vereskflowers.ru"
+      ],
+      "orders": [
+        {
+          "id": "350d8b45-4562-11f1-0a80-15d2001f7af9",
+          "name": "0105-02",
+          "date": "2026-05-01 16:19:00.000",
+          "sum": 6790.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "0105-02",
+          "line_items": [
+            "Букет ароматной сирени, 447 ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "1b4fe933-3bf4-11f1-0a80-107800236e6c",
+          "name": "1904-02",
+          "date": "2026-04-19 16:19:00.000",
+          "sum": 10890.0,
+          "channel": "Telegram",
+          "description": "Личная продажа Катя",
+          "product_snippet": "Личная продажа Катя",
+          "line_items": [
+            "Бумага/пленка упаковочная цветная ×2.0",
+            "Кризал ×1.0",
+            "Лента атласная ×1.0",
+            "Пакет аквапак ×1.0",
+            "Полиграфия ×1.0"
+          ]
+        },
+        {
+          "id": "085b19ff-16e8-11f1-0a80-04e1000c8773",
+          "name": "0303-03",
+          "date": "2026-03-16 12:59:00.000",
+          "sum": 19710.0,
+          "channel": "Telegram",
+          "description": "Доставка бесплатная по акции",
+          "product_snippet": "Доставка бесплатная по акции",
+          "line_items": [
+            "Кризал ×1.0",
+            "Лента атласная ×2.0",
+            "Пакет аквапак ×1.0",
+            "Полиграфия ×1.0",
+            "Маттиола одноголовая ×5.0"
+          ]
+        },
+        {
+          "id": "6b779ee4-16e7-11f1-0a80-00e3000c1c28",
+          "name": "0303-01",
+          "date": "2026-03-03 12:50:00.000",
+          "sum": 17955.0,
+          "channel": "Telegram",
+          "description": "Доставка бесплатная по акции",
+          "product_snippet": "Доставка бесплатная по акции",
+          "line_items": []
+        },
+        {
+          "id": "52c55f1c-0281-11f1-0a80-00d1000bbfdf",
+          "name": "05.02-2",
+          "date": "2026-02-14 13:52:00.000",
+          "sum": 14132.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "05.02-2",
+          "line_items": []
+        },
+        {
+          "id": "4ce3d707-f685-11f0-0a80-19a20002ad70",
+          "name": "13777",
+          "date": "2026-01-21 07:50:00.000",
+          "sum": 11920.0,
+          "channel": "Сайт vereskflowers.ru",
+          "description": "",
+          "product_snippet": "13777",
+          "line_items": []
+        },
+        {
+          "id": "606302d7-f36d-11f0-0a80-1be7001545f5",
+          "name": "1701-01",
+          "date": "2026-01-17 09:16:00.000",
+          "sum": 10190.0,
+          "channel": "Telegram",
+          "description": "личная продажа Катя",
+          "product_snippet": "личная продажа Катя",
+          "line_items": []
+        },
+        {
+          "id": "7cb5c518-f107-11f0-0a80-13140002dd49",
+          "name": "20962580",
+          "date": "2026-01-14 08:10:00.000",
+          "sum": 18790.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20962580",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "65ce0e9f-1cf1-11f0-0a80-1aa70003625c",
+      "name": "Александр Семин",
+      "phone": "+79160887169",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие ноябрь",
+        "букет от 10 000",
+        "событие сентябрь",
+        "событие август",
+        "watsapp",
+        "постоянный клиент"
+      ],
+      "actual_address": "Самовывоз",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 14394.32,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Сайт vereskflowers.ru"
+      ],
+      "orders": [
+        {
+          "id": "6028fcd4-4b88-11f1-0a80-1ac7002bb944",
+          "name": "14806",
+          "date": "2026-05-09 11:51:00.000",
+          "sum": 20790.0,
+          "channel": "Сайт vereskflowers.ru",
+          "description": "",
+          "product_snippet": "14806",
+          "line_items": [
+            "Пышный букет с пионами и ароматной маттиолой, 139 ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "828a361f-16c9-11f1-0a80-04e100054f5f",
+          "name": "22090255",
+          "date": "2026-03-03 09:21:00.000",
+          "sum": 25480.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "22090255",
+          "line_items": [
+            "Ароматный лавандовый букет из фрезий и маттиолы. Veresk 302 ×1.0",
+            "Очаровательный букет с премиальными ранункулюсами, тюльпанами и цветущими веточками береза. Veresk 882, Лена 23.01 ×1.0"
+          ]
+        },
+        {
+          "id": "528d1989-0bd6-11f1-0a80-074300070237",
+          "name": "21803736",
+          "date": "2026-02-17 10:53:00.000",
+          "sum": 9490.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "21803736",
+          "line_items": [
+            "Пышный букет итальянской мимозы. Veresk 400 ×1.0"
+          ]
+        },
+        {
+          "id": "5d185ad0-0723-11f1-0a80-13b70006271e",
+          "name": "21426545",
+          "date": "2026-02-11 11:23:00.000",
+          "sum": 13990.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "21426545",
+          "line_items": []
+        },
+        {
+          "id": "70eb064f-b4ae-11f0-0a80-0f44001fedfa",
+          "name": "19487767",
+          "date": "2025-10-29 13:01:00.000",
+          "sum": 6172.45,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "19487767",
+          "line_items": []
+        },
+        {
+          "id": "4cc478c0-9776-11f0-0a80-0f420027105a",
+          "name": "18862693",
+          "date": "2025-09-22 08:36:00.000",
+          "sum": 12262.5,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18862693",
+          "line_items": []
+        },
+        {
+          "id": "3d06934a-8522-11f0-0a80-17b40029ba57",
+          "name": "18480751",
+          "date": "2025-08-30 00:49:00.000",
+          "sum": 10291.34,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18480751",
+          "line_items": []
+        },
+        {
+          "id": "06462135-5bdd-11f0-0a80-0cd500a3f20a",
+          "name": "16575062",
+          "date": "2025-04-20 01:00:00.000",
+          "sum": 16678.31,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16575062",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "1b042038-7b39-11ef-0a80-192b0019cc35",
+      "name": "Сиёвуш Джафаров",
+      "phone": "+971544685555",
+      "email": "sjafarov555@gmail.com",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "8 марта",
+        "telegram",
+        "постоянный клиент"
+      ],
+      "actual_address": "125424, Россия, г Москва, Волоколамское шоссе, 71/22 к 3",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 13795.1,
+      "channels": [
+        "Flow Wow Сокольники",
+        "Telegram"
+      ],
+      "orders": [
+        {
+          "id": "826afbca-7308-11f1-0a80-1a830022bfdf",
+          "name": "2806-02",
+          "date": "2026-06-28 18:19:00.000",
+          "sum": 9800.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "2806-02",
+          "line_items": [
+            "Бумага/пленка упаковочная цветная ×2.0",
+            "Кризал ×1.0",
+            "Лента атласная ×1.0",
+            "Пакет аквапак ×1.0",
+            "Тишью ×1.0"
+          ]
+        },
+        {
+          "id": "327c9f0c-698d-11f1-0a80-1bb1001327bd",
+          "name": "1606-1",
+          "date": "2026-06-16 17:08:00.000",
+          "sum": 10800.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "1606-1",
+          "line_items": [
+            "Пион ×11.0",
+            "Малина ×2.0",
+            "Доставка ×1.0",
+            "Коробка транспортировочная для цветов М (18*34*53) ×1.0"
+          ]
+        },
+        {
+          "id": "76f375cd-d514-11f0-0a80-0cf200511069",
+          "name": "09.12",
+          "date": "2025-12-09 18:18:00.000",
+          "sum": 10190.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "09.12",
+          "line_items": [
+            "Доставка ×1.0",
+            "Кризал ×1.0",
+            "Лента атласная ×2.0",
+            "Матовая пленка полупрозрачная ×4.0",
+            "Тишью ×2.0"
+          ]
+        },
+        {
+          "id": "5815e11a-8687-11f0-0a80-01f6003aa6d7",
+          "name": "18171737",
+          "date": "2025-08-31 19:26:00.000",
+          "sum": 16225.8,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "18171737",
+          "line_items": []
+        },
+        {
+          "id": "260cb904-7e7f-11f0-0a80-039e000ca4b2",
+          "name": "18171705",
+          "date": "2025-08-21 13:59:00.000",
+          "sum": 15305.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "18171705",
+          "line_items": []
+        },
+        {
+          "id": "8ab7557c-7b39-11ef-0a80-091e001466a1",
+          "name": "00940",
+          "date": "2024-09-25 15:06:00.000",
+          "sum": 8528.0,
+          "channel": "Telegram",
+          "description": "оплачено Ольга карта",
+          "product_snippet": "оплачено Ольга карта",
+          "line_items": []
+        },
+        {
+          "id": "650e31b9-6df3-11ef-0a80-175e002dd5eb",
+          "name": "00651",
+          "date": "2024-09-08 18:01:00.000",
+          "sum": 17612.0,
+          "channel": "Telegram",
+          "description": "С ТГ",
+          "product_snippet": "С ТГ",
+          "line_items": []
+        },
+        {
+          "id": "8b2dbf94-53ee-11ef-0a80-01ea0014a4c3",
+          "name": "00094",
+          "date": "2024-08-06 14:27:00.000",
+          "sum": 21900.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "№ 12067556",
+          "product_snippet": "№ 12067556",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "7f224cd9-694d-11ef-0a80-15dd004e39ba",
+      "name": "Екатерина Колегова",
+      "phone": "+79629993110",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "цветы для интерьера"
+      ],
+      "actual_address": "129323, Россия, г Москва, Лазоревый проезд, 1А к 1",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 9073.57,
+      "channels": [
+        "Flow Wow Сокольники",
+        "WhatsApp/MAX"
+      ],
+      "orders": [
+        {
+          "id": "2685510c-5bdf-11f0-0a80-196300a5e8bb",
+          "name": "16972874",
+          "date": "2025-05-16 16:55:00.000",
+          "sum": 7130.54,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16972874",
+          "line_items": [
+            "Ранункулюс Италия Кения ×5.0",
+            "Магнолия (ветки премиум) ×1.0"
+          ]
+        },
+        {
+          "id": "15cac17c-5bde-11f0-0a80-180500a495b9",
+          "name": "16786947",
+          "date": "2025-05-03 12:48:00.000",
+          "sum": 13772.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16786947",
+          "line_items": [
+            "Цветущие ветки Айва (хеномилес) хеномелес ×3.0",
+            "Фритилария ×5.0"
+          ]
+        },
+        {
+          "id": "326b1817-5d72-11f0-0a80-135d0015b4cc",
+          "name": "04477",
+          "date": "2025-03-24 18:18:00.000",
+          "sum": 12100.03,
+          "channel": "WhatsApp/MAX",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": [
+            "Ветки вишни/миндаля, белые цветочки архив ×5.0",
+            "Ранункулюс Краснодар ×7.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "0faba391-5bc9-11f0-0a80-00f700a034bd",
+          "name": "03001",
+          "date": "2025-02-02 17:53:00.000",
+          "sum": 9795.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14713605",
+          "product_snippet": "14713605",
+          "line_items": []
+        },
+        {
+          "id": "0e17ce48-5bc9-11f0-0a80-01dd009eb36a",
+          "name": "03000",
+          "date": "2025-02-02 17:42:00.000",
+          "sum": 3780.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14711703",
+          "product_snippet": "14711703",
+          "line_items": []
+        },
+        {
+          "id": "0c6f18ac-5bc9-11f0-0a80-196300a02e45",
+          "name": "02999",
+          "date": "2025-02-02 17:21:00.000",
+          "sum": 3445.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14707940",
+          "product_snippet": "14707940",
+          "line_items": []
+        },
+        {
+          "id": "0ad71f0b-5bc9-11f0-0a80-01dd009eb308",
+          "name": "02998",
+          "date": "2025-02-02 17:16:00.000",
+          "sum": 4208.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14703461",
+          "product_snippet": "14703461",
+          "line_items": []
+        },
+        {
+          "id": "08fe66b9-5bc9-11f0-0a80-0442009fe2eb",
+          "name": "02997",
+          "date": "2025-02-02 17:09:00.000",
+          "sum": 18358.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "14704183",
+          "product_snippet": "14704183",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "6896e314-510c-11f0-0a80-0dfd0012f651",
+      "name": "+79165701317",
+      "phone": "+79165701317",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие июль",
+        "постоянный клиент"
+      ],
+      "actual_address": "117593, Россия, г Москва, Соловьиный проезд, 2",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 9669.26,
+      "channels": [
+        "Flow Wow Сокольники"
+      ],
+      "orders": [
+        {
+          "id": "689b4a63-7223-11f1-0a80-1b03001a6c35",
+          "name": "24550198",
+          "date": "2026-06-27 15:24:00.000",
+          "sum": 13831.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "24550198",
+          "line_items": [
+            "Очаровывающий ароматами букет с французскими розами. Veresk 312 ×1.0",
+            "Клубника в шоколаде 9шт ×1.0"
+          ]
+        },
+        {
+          "id": "3219b315-065f-11f1-0a80-08d500091b8b",
+          "name": "21401698",
+          "date": "2026-02-10 11:59:00.000",
+          "sum": 9767.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "21401698",
+          "line_items": [
+            "Премиальный букет с ранункулюсами и пудровыми розами, размер М. Veresk 137 ×1.0"
+          ]
+        },
+        {
+          "id": "8fec8907-f86b-11f0-0a80-1a9a0011dfad",
+          "name": "21109693",
+          "date": "2026-01-23 17:51:00.000",
+          "sum": 10140.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "21109693",
+          "line_items": [
+            "Букет с гортензией и пионовидными розами, Veresk 883 ×1.0",
+            "Клубника в шоколаде 9шт ×1.0"
+          ]
+        },
+        {
+          "id": "4d22aa12-bef7-11f0-0a80-1598000fb74b",
+          "name": "19691511",
+          "date": "2025-11-11 15:06:00.000",
+          "sum": 14190.0,
+          "channel": "",
+          "description": "",
+          "product_snippet": "19691511",
+          "line_items": []
+        },
+        {
+          "id": "72785041-7dde-11f0-0a80-1b1f00283f06",
+          "name": "18350672",
+          "date": "2025-08-20 18:56:00.000",
+          "sum": 6540.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18350672",
+          "line_items": []
+        },
+        {
+          "id": "24f02ed9-7522-11f0-0a80-19eb001b382d",
+          "name": "18189771",
+          "date": "2025-08-09 16:06:00.000",
+          "sum": 6752.55,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18189771",
+          "line_items": []
+        },
+        {
+          "id": "4b3200f9-6e2f-11f0-0a80-15c000003798",
+          "name": "18068396",
+          "date": "2025-07-31 19:51:00.000",
+          "sum": 8606.6,
+          "channel": "",
+          "description": "",
+          "product_snippet": "18068396",
+          "line_items": []
+        },
+        {
+          "id": "76f6d385-5cd9-11f0-0a80-165600138a5d",
+          "name": "17769110",
+          "date": "2025-07-09 18:28:00.000",
+          "sum": 7526.89,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17769110",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "8391b730-03d1-11f0-0a80-17100006b499",
+      "name": "Василий",
+      "phone": "+79161100296",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "букет от 10 000",
+        "watsapp"
+      ],
+      "actual_address": "125310, Россия, г Москва, ул Муравская, 46 к 2",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 8,
+      "avg_check": 8157.54,
+      "channels": [
+        "Flow Wow Сокольники"
+      ],
+      "orders": [
+        {
+          "id": "6935357c-978b-11f0-0a80-16d9002bbf71",
+          "name": "18865651",
+          "date": "2025-09-22 11:08:00.000",
+          "sum": 4492.98,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18865651",
+          "line_items": [
+            "Букет с французскими розами и винными хризантемами 20.09 Лена ×1.0"
+          ]
+        },
+        {
+          "id": "920119da-8a24-11f0-0a80-081e0004aeaf",
+          "name": "18603325",
+          "date": "2025-09-05 09:46:00.000",
+          "sum": 7380.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18603325",
+          "line_items": [
+            "Нежные французские розы. 9 роз. Veresk 286 ×1.0"
+          ]
+        },
+        {
+          "id": "77b0c98f-78f4-11f0-0a80-026c000a12d0",
+          "name": "18258566",
+          "date": "2025-08-14 12:50:00.000",
+          "sum": 5167.91,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "18258566",
+          "line_items": [
+            "Букет из коралловых пионов и малины, 7шт. Veresk 341 ×1.0"
+          ]
+        },
+        {
+          "id": "8b18f853-58d9-11f0-0a80-01dd001f2e0f",
+          "name": "17626530",
+          "date": "2025-06-30 10:04:00.000",
+          "sum": 9802.15,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17626530",
+          "line_items": []
+        },
+        {
+          "id": "6f1025f9-5bdd-11f0-0a80-0cd500a41395",
+          "name": "16667636",
+          "date": "2025-04-24 13:23:00.000",
+          "sum": 9704.71,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16667636",
+          "line_items": []
+        },
+        {
+          "id": "8d9d0347-5bdc-11f0-0a80-1aca00a5a880",
+          "name": "16524290",
+          "date": "2025-04-14 13:40:00.000",
+          "sum": 4368.72,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16524290",
+          "line_items": []
+        },
+        {
+          "id": "62821baa-5bdb-11f0-0a80-071500a583b6",
+          "name": "16326383",
+          "date": "2025-03-31 09:22:00.000",
+          "sum": 9127.88,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "16326383",
+          "line_items": []
+        },
+        {
+          "id": "48f4bf5c-5bda-11f0-0a80-026900a5339e",
+          "name": "04371",
+          "date": "2025-03-18 11:19:00.000",
+          "sum": 15215.96,
+          "channel": "Flow Wow Сокольники",
+          "description": "16160883",
+          "product_snippet": "16160883",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "260dd9a3-4b00-11f1-0a80-1c8a0028987d",
+      "name": "Марат Аббясов",
+      "phone": "+79036199456",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "постоянный клиент"
+      ],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 7,
+      "avg_check": 23212.43,
+      "channels": [
+        "Telegram",
+        "Прямые продажи"
+      ],
+      "orders": [
+        {
+          "id": "81442332-8db8-11f1-0a80-15ee001bf5d8",
+          "name": "0108-01",
+          "date": "2026-08-01 17:49:00.000",
+          "sum": 29800.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "0108-01",
+          "line_items": [
+            "Пион ×4.0",
+            "Полиграфия ×3.0",
+            "Слюда ×3.0",
+            "Лента атласная ×6.0",
+            "Маттиола кустовая ×4.0"
+          ]
+        },
+        {
+          "id": "4115c6d7-7e10-11f1-0a80-170c0023dcf2",
+          "name": "1207-02",
+          "date": "2026-07-12 19:23:00.000",
+          "sum": 15990.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "1207-02",
+          "line_items": [
+            "Гортензия Голландия ×5.0",
+            "Антуриум ×2.0",
+            "Леукодендрон/сафари ×5.0",
+            "Малина ×7.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "0c0c1c40-7d18-11f1-0a80-1a770019ae19",
+          "name": "1107-01",
+          "date": "2026-07-11 13:58:00.000",
+          "sum": 19000.0,
+          "channel": "Telegram",
+          "description": "17 - 20 тыс, денюжка в плюс доставки за амми и ахиллея",
+          "product_snippet": "17 - 20 тыс, денюжка в плюс доставки за амми и ахиллея",
+          "line_items": [
+            "Лента атласная ×3.0",
+            "Слюда ×2.0",
+            "Коробка транспортировочная XS 250*150*470 ×1.0",
+            "Доставка ×1.0",
+            "Лилия ×5.0"
+          ]
+        },
+        {
+          "id": "815391d3-58cc-11f1-0a80-194800421864",
+          "name": "2605-01",
+          "date": "2026-05-26 09:20:00.000",
+          "sum": 15000.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "2605-01",
+          "line_items": []
+        },
+        {
+          "id": "5d1235c1-5531-11f1-0a80-09cd002a872b",
+          "name": "2105-01",
+          "date": "2026-05-21 19:20:00.000",
+          "sum": 18690.0,
+          "channel": "Прямые продажи",
+          "description": "",
+          "product_snippet": "2105-01",
+          "line_items": []
+        },
+        {
+          "id": "6297f992-4e26-11f1-0a80-0454000068cc",
+          "name": "1205-03",
+          "date": "2026-05-12 20:13:00.000",
+          "sum": 40000.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "1205-03",
+          "line_items": []
+        },
+        {
+          "id": "1f9cd600-4b90-11f1-0a80-014b002b15b9",
+          "name": "0805-01",
+          "date": "2026-05-08 19:26:00.000",
+          "sum": 24007.0,
+          "channel": "Telegram",
+          "description": "",
+          "product_snippet": "0805-01",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "9b07a75d-4d07-11f0-0a80-00b7000f705d",
+      "name": "Анна Дмитриевна",
+      "phone": "+79994560305",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "событие январь",
+        "букет от 10 000",
+        "цветы для интерьера",
+        "событие июнь",
+        "событие август",
+        "флаувау",
+        "постоянный клиент"
+      ],
+      "actual_address": "111250, Россия, г Москва, пр-д Невельского, 3 к 1",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 7,
+      "avg_check": 9387.02,
+      "channels": [
+        "Flow Wow Сокольники"
+      ],
+      "orders": [
+        {
+          "id": "3a5bfbe2-7085-11f1-0a80-1350000ca029",
+          "name": "24514481",
+          "date": "2026-06-25 13:59:00.000",
+          "sum": 11990.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "24514481",
+          "line_items": [
+            "Композиция в плетеной корзине с подсолнухами, ромашкой и малиной, 477 ×1.0"
+          ]
+        },
+        {
+          "id": "190dd223-6c9f-11f1-0a80-09a5001a0821",
+          "name": "24438118",
+          "date": "2026-06-20 14:55:00.000",
+          "sum": 12359.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "24438118",
+          "line_items": [
+            "Корзина лукошко береста М ×1.0",
+            "Лента атласная ×2.0",
+            "Оазис ×1.0",
+            "Полиграфия ×1.0",
+            "Слюда ×1.0"
+          ]
+        },
+        {
+          "id": "87a992d1-eeea-11f0-0a80-08de00b3c4e5",
+          "name": "20926588",
+          "date": "2026-01-11 15:38:00.000",
+          "sum": 10611.0,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "20926588",
+          "line_items": [
+            "Пышный осенний букет с хризантемами, эвкалиптом и эустомой, размер М. Veresk 333 ×1.0"
+          ]
+        },
+        {
+          "id": "383f2983-908b-11f0-0a80-17cb00191a80",
+          "name": "18727305",
+          "date": "2025-09-13 13:16:00.000",
+          "sum": 10189.32,
+          "channel": "Flow Wow Сокольники",
+          "description": "открытка",
+          "product_snippet": "открытка",
+          "line_items": []
+        },
+        {
+          "id": "675ff488-7076-11f0-0a80-15c000222504",
+          "name": "18104165",
+          "date": "2025-08-03 17:30:00.000",
+          "sum": 7505.96,
+          "channel": "",
+          "description": "",
+          "product_snippet": "18104165",
+          "line_items": []
+        },
+        {
+          "id": "47abb98a-5be1-11f0-0a80-037e00a6c4c4",
+          "name": "17481257",
+          "date": "2025-06-20 13:05:00.000",
+          "sum": 6526.92,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17481257",
+          "line_items": []
+        },
+        {
+          "id": "2bcacd39-5be1-11f0-0a80-044200a5d90d",
+          "name": "17468267",
+          "date": "2025-06-19 15:19:00.000",
+          "sum": 6526.92,
+          "channel": "Flow Wow Сокольники",
+          "description": "открытка",
+          "product_snippet": "открытка",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "d01a978e-fc08-11ef-0a80-01b1001700cf",
+      "name": "Физ.лицо",
+      "phone": "",
+      "email": "",
+      "state": "",
+      "company_type": "Физическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [
+        "цветы для интерьера",
+        "8 марта",
+        "событие июнь"
+      ],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 6,
+      "avg_check": 7997.56,
+      "channels": [
+        "Flow Wow Сокольники",
+        "ФЛАВЕРИ Скл"
+      ],
+      "orders": [
+        {
+          "id": "76417f8a-8390-11f0-0a80-14bb0001980f",
+          "name": "505574",
+          "date": "2025-09-01 00:53:00.000",
+          "sum": 4744.4,
+          "channel": "ФЛАВЕРИ Скл",
+          "description": "",
+          "product_snippet": "505574",
+          "line_items": [
+            "Нежные ранункулюсы с эвкалиптом. Veresk 389 ×1.0",
+            "Доставка ×1.0"
+          ]
+        },
+        {
+          "id": "8d57a6be-5720-11f0-0a80-1343000877fb",
+          "name": "17658436",
+          "date": "2025-07-02 11:42:00.000",
+          "sum": 5676.07,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17658436",
+          "line_items": [
+            "Кашпо из рогоза Д20-23см ×1.0",
+            "Лента атласная ×2.0",
+            "Оазис ×1.0",
+            "Полиграфия ×1.0",
+            "Слюда ×2.0"
+          ]
+        },
+        {
+          "id": "20040e53-5720-11f0-0a80-0e6e000819eb",
+          "name": "17652544",
+          "date": "2025-07-02 11:39:00.000",
+          "sum": 9800.19,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17652544",
+          "line_items": [
+            "Воздушный букет из пионов и маттиолы. Veresk 139 ×1.0"
+          ]
+        },
+        {
+          "id": "888b3c5a-5be1-11f0-0a80-1bcb00a52121",
+          "name": "17515471",
+          "date": "2025-06-23 00:41:00.000",
+          "sum": 4551.19,
+          "channel": "Flow Wow Сокольники",
+          "description": "",
+          "product_snippet": "17515471",
+          "line_items": []
+        },
+        {
+          "id": "6d2b62d3-5bda-11f0-0a80-1bcb00a33e0f",
+          "name": "04399",
+          "date": "2025-03-19 18:16:00.000",
+          "sum": 15215.96,
+          "channel": "Flow Wow Сокольники",
+          "description": "...",
+          "product_snippet": "...",
+          "line_items": []
+        },
+        {
+          "id": "55a96132-ff2b-11ef-0a80-1391000a6f4b",
+          "name": "04194",
+          "date": "2025-03-08 13:18:00.000",
+          "sum": 0.0,
+          "channel": "",
+          "description": "15795687",
+          "product_snippet": "15795687",
+          "line_items": []
+        }
+      ]
+    },
+    {
+      "id": "6fd183f1-0add-11f0-0a80-0035001a0cbd",
+      "name": "ООО СЗ ОКТЯБРЬ В САО",
+      "phone": "+79999143675",
+      "email": "",
+      "state": "",
+      "company_type": "Юридическое лицо",
+      "sex": "",
+      "role": "",
+      "tags": [],
+      "actual_address": "",
+      "tg_nick": "",
+      "tg_conversation": "",
+      "bonus_points": "",
+      "attributes": {},
+      "order_count": 6,
+      "avg_check": 6570.0,
+      "channels": [
+        "WhatsApp/MAX",
+        "Прямые продажи"
+      ],
+      "orders": [
+        {
+          "id": "5e7c5016-720b-11f0-0a80-063e00139af8",
+          "name": "1508-1",
+          "date": "2025-08-25 17:46:00.000",
+          "sum": 10320.0,
+          "channel": "Прямые продажи",
+          "description": "18-го доставили ранункулюсы, 25-го подсолнухи.\nСделать новый акт и передать 25го вместе с предыдущим актом и цветами",
+          "product_snippet": "18-го доставили ранункулюсы, 25-го подсолнухи.\nСделать новый акт и передать 25го вместе с предыдущим актом и цветами",
+          "line_items": [
+            "Подсолнух/Хелиантус ×7.0",
+            "Доставка ×2.0",
+            "Ранункулюс Италия Кения ×7.0"
+          ]
+        },
+        {
+          "id": "8a9da755-70f8-11f0-0a80-1bab0026cd74",
+          "name": "18081260",
+          "date": "2025-08-04 08:59:00.000",
+          "sum": 4500.0,
+          "channel": "WhatsApp/MAX",
+          "description": "георгины бесплатно согласовано с Ольгой",
+          "product_snippet": "георгины бесплатно согласовано с Ольгой",
+          "line_items": [
+            "Георгин/Дахлия ×7.0"
+          ]
+        },
+        {
+          "id": "28ceec1f-609e-11f0-0a80-18a3002e50de",
+          "name": "1407-1",
+          "date": "2025-07-28 13:34:00.000",
+          "sum": 10000.0,
+          "channel": "WhatsApp/MAX",
+          "description": "Отправляем двумя доставками: первая подсолнухи 14.07, вторая георгины, отгрузил 28.07.\nАкт не отправлен!!!!!!!",
+          "product_snippet": "Отправляем двумя доставками: первая подсолнухи 14.07, вторая георгины, отгрузил 28.07.\nАкт не отправлен!!!!!!!",
+          "line_items": [
+            "Доставка ×1.0",
+            "Георгин/Дахлия ×7.0",
+            "Подсолнухи 9шт. ×1.0"
+          ]
+        },
+        {
+          "id": "2ccb48a7-5a89-11f0-0a80-096b00219391",
+          "name": "1205-07",
+          "date": "2025-07-07 19:48:00.000",
+          "sum": 5000.0,
+          "channel": "WhatsApp/MAX",
+          "description": "ОПЛАЧЕН. Документы передли",
+          "product_snippet": "ОПЛАЧЕН. Документы передли",
+          "line_items": []
+        },
+        {
+          "id": "303db86c-575c-11f0-0a80-036900237829",
+          "name": "2806-4",
+          "date": "2025-07-03 11:34:00.000",
+          "sum": 4300.0,
+          "channel": "WhatsApp/MAX",
+          "description": "Осталось отгрузить Оетябрю 19 гербер (оплачено)",
+          "product_snippet": "Осталось отгрузить Оетябрю 19 гербер (оплачено)",
+          "line_items": []
+        },
+        {
+          "id": "0ffa5c8a-5bdc-11f0-0a80-00f700a5398b",
+          "name": "1404-1",
+          "date": "2025-04-07 19:41:00.000",
+          "sum": 5300.0,
+          "channel": "WhatsApp/MAX",
+          "description": "доставка с 10 до 12, вместе с букетом закрывающие документы",
+          "product_snippet": "доставка с 10 до 12, вместе с букетом закрывающие документы",
+          "line_items": []
+        }
+      ]
+    }
+  ]
+}

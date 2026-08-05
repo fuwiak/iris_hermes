@@ -64,6 +64,11 @@ from plugins.moysklad.catalog_cache import (
 )
 from plugins.moysklad.classify import build_enriched_catalog, clients_page
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
+from plugins.moysklad.client_card import (
+    build_client_detail,
+    find_row_in_catalog,
+    generate_ai_for_detail,
+)
 
 log = logging.getLogger(__name__)
 
@@ -255,6 +260,84 @@ def get_clients(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/{client_id}")
+def get_client_detail(
+    client_id: str,
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+    ai: bool = Query(False),
+) -> dict[str, Any]:
+    """Client card from durable catalog cache (orders + stats + messaging).
+
+    Pass ``ai=true`` to also run the guarded LLM summary/recommendation.
+    Without it, a deterministic heuristic AI block is always included.
+    """
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        detail = build_client_detail(row)
+        if ai:
+            detail["ai"] = generate_ai_for_detail(detail)
+        return _attach_cache_meta(detail, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/{id} failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/{client_id}/ai")
+def post_client_ai(
+    client_id: str,
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+) -> dict[str, Any]:
+    """Generate AI summary + sales recommendation for a client card."""
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        detail = build_client_detail(row)
+        ai_block = generate_ai_for_detail(detail)
+        return _attach_cache_meta(
+            {
+                "ok": True,
+                "client_id": client_id,
+                "ai": ai_block,
+                "data_thin": detail.get("data_thin"),
+            },
+            meta,
+        )
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/{id}/ai failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

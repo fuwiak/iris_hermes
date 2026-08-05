@@ -183,7 +183,18 @@
     { key: "tg_conversation", label: "TG conversation" },
   ];
 
-  function ClientsTable({ clients }) {
+  function TagPills({ items, className }) {
+    if (!items || !items.length) return null;
+    return h(
+      "div",
+      { className: className || "ms-tag-row" },
+      items.map(function (t) {
+        return h("span", { key: t, className: "ms-tag-pill" }, t);
+      }),
+    );
+  }
+
+  function ClientsTable({ clients, onOpenClient }) {
     if (!clients || !clients.length) {
       return h("p", { className: "ms-muted" }, "Клиенты не найдены.");
     }
@@ -213,11 +224,377 @@
               { key: c.id },
               CLIENT_COLUMNS.map(function (col) {
                 var raw = col.from ? col.from(c) : c[col.key];
+                if (col.key === "name") {
+                  return h(
+                    "td",
+                    { key: col.key },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "ms-link-btn",
+                        title: "Открыть карточку клиента",
+                        onClick: function () {
+                          if (onOpenClient) onOpenClient(c);
+                        },
+                      },
+                      String(raw || "—"),
+                    ),
+                  );
+                }
                 return h("td", { key: col.key }, cell(raw));
               }),
             );
           }),
         ),
+      ),
+    );
+  }
+
+  function OrdersList({ orders, limit }) {
+    var list = orders || [];
+    var shown = limit != null ? list.slice(0, limit) : list;
+    if (!shown.length) {
+      return h("p", { className: "ms-muted" }, "Заказов в кэше нет.");
+    }
+    return h(
+      "div",
+      { className: "ms-orders-list" },
+      shown.map(function (o, idx) {
+        return h(
+          "div",
+          { key: (o.id || "") + "-" + idx, className: "ms-order-row" },
+          h(
+            "div",
+            { className: "ms-order-main" },
+            h("strong", null, o.name || o.id || "Заказ"),
+            h(
+              "span",
+              { className: "ms-muted" },
+              formatDate(o.date) + " · " + money(o.sum) + (o.channel ? " · " + o.channel : ""),
+            ),
+          ),
+          o.product_snippet
+            ? h("div", { className: "ms-order-snippet" }, o.product_snippet)
+            : null,
+        );
+      }),
+    );
+  }
+
+  function ClientCardModal({ open, clientId, onClose }) {
+    const [detail, setDetail] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [aiLoading, setAiLoading] = useState(false);
+    const [ordersOpen, setOrdersOpen] = useState(false);
+    const [note, setNote] = useState("");
+
+    useEffect(
+      function () {
+        if (!open || !clientId) return;
+        setLoading(true);
+        setError(null);
+        setDetail(null);
+        setOrdersOpen(false);
+        setNote("");
+        api("/clients/" + encodeURIComponent(clientId))
+          .then(function (payload) {
+            setDetail(payload);
+          })
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+          })
+          .finally(function () {
+            setLoading(false);
+          });
+      },
+      [open, clientId],
+    );
+
+    const refreshAi = useCallback(
+      function () {
+        if (!clientId) return;
+        setAiLoading(true);
+        setError(null);
+        api("/clients/" + encodeURIComponent(clientId) + "/ai", { method: "POST" })
+          .then(function (payload) {
+            setDetail(function (prev) {
+              if (!prev) return prev;
+              return Object.assign({}, prev, { ai: payload.ai || payload });
+            });
+          })
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+          })
+          .finally(function () {
+            setAiLoading(false);
+          });
+      },
+      [clientId],
+    );
+
+    if (!open) return null;
+
+    var client = (detail && detail.client) || {};
+    var stats = (detail && detail.stats) || {};
+    var orders = (detail && detail.orders) || [];
+    var ai = (detail && detail.ai) || {};
+    var msg = (detail && detail.messaging) || {};
+    var buckets = client.tag_buckets || {};
+    var name = client.name || "Клиент";
+
+    function openUrl(url) {
+      if (!url) return;
+      try {
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch (_) {}
+    }
+
+    return h(
+      "div",
+      {
+        className: "ms-modal-backdrop",
+        onClick: function (e) {
+          if (e.target === e.currentTarget) onClose();
+        },
+      },
+      h(
+        "div",
+        {
+          className: "ms-modal ms-client-card",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": "Карточка клиента",
+        },
+        h(
+          "div",
+          { className: "ms-card-head" },
+          h("h3", null, "Заказы · " + name),
+          h(
+            "button",
+            { type: "button", className: "ms-btn", onClick: onClose },
+            "Закрыть",
+          ),
+        ),
+        error ? h("div", { className: "ms-error" }, error) : null,
+        loading
+          ? h("p", { className: "ms-muted" }, "Загрузка карточки…")
+          : h(
+              "div",
+              { className: "ms-card-body" },
+              h(
+                "section",
+                { className: "ms-card-section ms-card-hero" },
+                h("div", { className: "ms-card-name" }, name),
+                h(
+                  "div",
+                  { className: "ms-muted" },
+                  (client.role || "—") +
+                    (client.sex ? " · " + client.sex : "") +
+                    (client.state ? " · " + client.state : ""),
+                ),
+                h(TagPills, {
+                  items: [].concat(
+                    buckets.marketplace || [],
+                    client.channels || [],
+                  ),
+                  className: "ms-tag-row ms-tag-channel",
+                }),
+                h(TagPills, {
+                  items: [].concat(buckets.loyalty || [], buckets.other || []),
+                }),
+                h(TagPills, {
+                  items: buckets.events || [],
+                  className: "ms-tag-row ms-tag-event",
+                }),
+              ),
+              h(
+                "section",
+                { className: "ms-card-section" },
+                h("h4", null, "Контакты"),
+                h(
+                  "div",
+                  { className: "ms-kv-grid" },
+                  h("span", { className: "ms-muted" }, "Телефон"),
+                  h("span", null, client.phone || "—"),
+                  h("span", { className: "ms-muted" }, "Email"),
+                  h("span", null, client.email || "—"),
+                  h("span", { className: "ms-muted" }, "Telegram"),
+                  h("span", null, client.tg_nick || client.tg_conversation || "—"),
+                  h("span", { className: "ms-muted" }, "Тип"),
+                  h("span", null, client.company_type || "—"),
+                  h("span", { className: "ms-muted" }, "Статус"),
+                  h("span", null, client.state || "—"),
+                  h("span", { className: "ms-muted" }, "Осн. канал"),
+                  h(
+                    "span",
+                    null,
+                    client.primary_channel || msg.primary_channel || "—",
+                  ),
+                ),
+              ),
+              h(
+                "section",
+                { className: "ms-card-section" },
+                h("h4", null, "Статистика"),
+                h(
+                  "div",
+                  { className: "ms-stats-grid" },
+                  h("div", null, h("div", { className: "ms-stat-val" }, money(stats.avg_check)), h("div", { className: "ms-muted" }, "Средний чек")),
+                  h("div", null, h("div", { className: "ms-stat-val" }, String(stats.order_count || 0)), h("div", { className: "ms-muted" }, "Заказов")),
+                  h("div", null, h("div", { className: "ms-stat-val" }, stats.vip ? "да" : "нет"), h("div", { className: "ms-muted" }, "ВИП")),
+                  h(
+                    "div",
+                    null,
+                    h(
+                      "div",
+                      { className: "ms-stat-val" },
+                      stats.loyalty_points != null ? String(stats.loyalty_points) : "—",
+                    ),
+                    h("div", { className: "ms-muted" }, "Лояльность"),
+                  ),
+                ),
+                stats.last_order
+                  ? h(
+                      "div",
+                      { className: "ms-last-order" },
+                      h("strong", null, "Последний заказ"),
+                      h(
+                        "div",
+                        { className: "ms-muted" },
+                        formatDate(stats.last_order.date) +
+                          " · " +
+                          money(stats.last_order.sum) +
+                          (stats.last_order.channel ? " · " + stats.last_order.channel : ""),
+                      ),
+                      stats.last_order.product_snippet
+                        ? h("div", null, stats.last_order.product_snippet)
+                        : null,
+                    )
+                  : null,
+              ),
+              h(
+                "section",
+                { className: "ms-card-section" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-section-toggle",
+                    onClick: function () {
+                      setOrdersOpen(!ordersOpen);
+                    },
+                  },
+                  "Все заказы (" + orders.length + ") " + (ordersOpen ? "▾" : "▸"),
+                ),
+                h(OrdersList, {
+                  orders: orders,
+                  limit: ordersOpen ? null : 5,
+                }),
+              ),
+              h(
+                "section",
+                { className: "ms-card-section ms-ai-block" },
+                h(
+                  "div",
+                  { className: "ms-card-head" },
+                  h("h4", null, "Саммари AI"),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      disabled: aiLoading,
+                      onClick: refreshAi,
+                    },
+                    aiLoading ? "Генерация…" : "Обновить AI",
+                  ),
+                ),
+                ai.data_thin
+                  ? h("p", { className: "ms-muted" }, "Данных мало — выводы осторожные.")
+                  : null,
+                h("p", { className: "ms-ai-label" }, "История и профиль"),
+                h("p", null, ai.history_profile || "—"),
+                h("p", { className: "ms-ai-label" }, "Повод и intent покупки"),
+                h("p", null, ai.occasion_intent || "—"),
+                h("h4", null, "Рекомендация AI"),
+                h("p", null, ai.recommendation || "—"),
+                h(
+                  "p",
+                  { className: "ms-muted" },
+                  "Источник: " + (ai.source || "heuristic"),
+                ),
+              ),
+              h(
+                "section",
+                { className: "ms-card-section" },
+                h("h4", null, "Быстрые действия"),
+                h(
+                  "div",
+                  { className: "ms-quick-actions" },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      onClick: function () {
+                        setNote(
+                          "Напоминание: связаться с " +
+                            name +
+                            " (~5 дней до повода). Чек ≈ " +
+                            money(stats.avg_check),
+                        );
+                      },
+                    },
+                    "Напоминание",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn ms-btn-primary",
+                      disabled: !msg.whatsapp_url,
+                      title: msg.whatsapp_url || "Телефон не указан",
+                      onClick: function () {
+                        openUrl(msg.whatsapp_url);
+                      },
+                    },
+                    "WhatsApp",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn ms-btn-primary",
+                      disabled: !msg.telegram_url,
+                      title: msg.telegram_url || "Telegram не указан",
+                      onClick: function () {
+                        openUrl(msg.telegram_url);
+                      },
+                    },
+                    "Telegram",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      onClick: function () {
+                        setOrdersOpen(true);
+                        setNote(
+                          "События: " +
+                            ((buckets.events || []).join(", ") || "нет тегов событий"),
+                        );
+                      },
+                    },
+                    "События",
+                  ),
+                ),
+                note ? h("p", { className: "ms-note" }, note) : null,
+                h("p", { className: "ms-muted" }, msg.hint || ""),
+              ),
+            ),
       ),
     );
   }
@@ -299,6 +676,7 @@
     const [assignLoading, setAssignLoading] = useState(false);
     const [assignData, setAssignData] = useState(null);
     const [assignError, setAssignError] = useState(null);
+    const [cardClientId, setCardClientId] = useState(null);
 
     const load = useCallback(
       function (opts) {
@@ -524,7 +902,12 @@
       error ? h("div", { className: "ms-error" }, error) : null,
       loading && !data
         ? h("p", { className: "ms-muted" }, "Загрузка клиентов из МойСклад…")
-        : h(ClientsTable, { clients: (data && data.clients) || [] }),
+        : h(ClientsTable, {
+            clients: (data && data.clients) || [],
+            onOpenClient: function (c) {
+              if (c && c.id) setCardClientId(c.id);
+            },
+          }),
       h(
         "div",
         { className: "ms-pager" },
@@ -567,6 +950,13 @@
           setModalOpen(false);
         },
         onPush: pushAssign,
+      }),
+      h(ClientCardModal, {
+        open: !!cardClientId,
+        clientId: cardClientId,
+        onClose: function () {
+          setCardClientId(null);
+        },
       }),
     );
   }
