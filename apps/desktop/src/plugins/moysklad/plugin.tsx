@@ -2180,8 +2180,7 @@ function CampaignsPage() {
             />
             Персонализировать по клиентам (очередь — позже)
           </label>
-        </form>
-        <div className="ms-compose-actions">
+          <div className="ms-compose-actions">
             {selectedClientId ? (
               <button
                 className="ms-btn"
@@ -2223,10 +2222,7 @@ function CampaignsPage() {
               disabled={
                 saving || loading || generating || rewriting || checkingSanity || audience < 1
               }
-              onClick={() =>
-                void createDraft({ preventDefault() {} } as FormEvent)
-              }
-              type="button"
+              type="submit"
             >
               {selectedClientId
                 ? 'Создать 1:1 черновик'
@@ -2236,6 +2232,7 @@ function CampaignsPage() {
             </button>
           </div>
           {genSource ? <p className="ms-muted">Источник текста: {genSource}</p> : null}
+        </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
       {error ? <div className="ms-error">{error}</div> : null}
