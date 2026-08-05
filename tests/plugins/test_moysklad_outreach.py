@@ -328,6 +328,7 @@ def test_outreach_generate_routes_llm_via_openrouter_egress(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-outreach-test")
 
     captured: dict = {}
+    llm_calls = {"n": 0}
 
     class _FakeMessage:
         content = (
@@ -344,6 +345,7 @@ def test_outreach_generate_routes_llm_via_openrouter_egress(monkeypatch):
 
     class _FakeCompletions:
         def create(self, **_kwargs):
+            llm_calls["n"] += 1
             return _FakeResponse()
 
     class _FakeChat:
@@ -358,27 +360,46 @@ def test_outreach_generate_routes_llm_via_openrouter_egress(monkeypatch):
         return client
 
     detail = build_client_detail(_sample_row())
-    # Skip nested card AI so we only exercise outreach generate → call_llm.
-    monkeypatch.setattr(
-        "plugins.moysklad.outreach.generate_ai_for_detail",
-        lambda _d: {"summary": "ok", "source": "heuristic"},
-    )
-    monkeypatch.setattr(
-        "plugins.moysklad.outreach.sanity_check_outreach_message",
-        lambda *a, **k: {"ok": True, "issues": [], "source": "heuristic"},
-    )
 
     with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
          patch("agent.auxiliary_client.OpenAI", side_effect=_fake_openai):
         result = generate_outreach_message(
             detail,
             channel="telegram",
+            refresh_ai=True,
             seller_name="Анна",
             seller_facts="цветы",
         )
 
     assert captured.get("base_url") == proxy
     assert "openrouter.ai" not in str(captured.get("base_url") or "")
+    # One message LLM only — not card AI + message + sanity (was 3 serial calls).
+    assert llm_calls["n"] == 1
     assert result.get("source") == "llm"
+    assert (result.get("sanity") or {}).get("source") == "heuristic"
     assert "Мария" in (result.get("message") or "")
     assert result.get("error") is None or "403" not in str(result.get("error"))
+
+
+def test_auto_sanity_after_generate_is_heuristic_not_llm(monkeypatch):
+    """«Проверить смысл» uses LLM; auto post-generate sanity must not."""
+    from plugins.moysklad.outreach import sanity_check_outreach_message
+
+    detail = build_client_detail(_sample_row())
+    called = {"llm": False}
+
+    def _boom(*_a, **_k):
+        called["llm"] = True
+        raise AssertionError("LLM should not run for use_llm=False")
+
+    monkeypatch.setattr(
+        "agent.auxiliary_client.call_llm",
+        _boom,
+    )
+    out = sanity_check_outreach_message(
+        "Здравствуйте, Мария!",
+        detail,
+        use_llm=False,
+    )
+    assert out["source"] == "heuristic"
+    assert called["llm"] is False

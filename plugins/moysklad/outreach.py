@@ -18,7 +18,7 @@ from plugins.moysklad.client_card import (
     build_client_detail,
     build_fact_blocks,
     compute_risks,
-    generate_ai_for_detail,
+    heuristic_ai,
 )
 
 log = logging.getLogger(__name__)
@@ -535,8 +535,13 @@ def sanity_check_outreach_message(
     channel: str = "telegram",
     seller_name: str = "",
     seller_facts: str = "",
+    use_llm: bool = True,
 ) -> dict[str, Any]:
-    """Second-pass LLM (or heuristic) sanity check on outreach text."""
+    """Second-pass sanity check on outreach text.
+
+    ``use_llm=False`` → heuristic only (fast path after generate/rewrite).
+    Explicit «Проверить смысл» keeps ``use_llm=True``.
+    """
     channel = (channel or "telegram").strip().lower()
     seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
     msg = (message or "").strip()
@@ -548,6 +553,8 @@ def sanity_check_outreach_message(
             "revised_text": None,
             "source": "empty",
         }
+    if not use_llm:
+        return fallback
 
     risks = _risks_from_detail(detail)
     panel = facts_panel(detail) if detail else {}
@@ -637,13 +644,18 @@ def _apply_sanity(
     seller_name: str,
     seller_facts: str,
     auto_revise: bool = True,
+    use_llm_sanity: bool = False,
 ) -> dict[str, Any]:
+    # Default: heuristic only. Generate/rewrite already spent one LLM round-trip;
+    # a second LLM sanity pass made «Сгенерировать AI» ~2–3× slower than chat.
+    # Full LLM sanity stays on POST /campaigns/sanity («Проверить смысл»).
     sanity = sanity_check_outreach_message(
         str(result.get("message") or ""),
         detail,
         channel=channel,
         seller_name=seller_name,
         seller_facts=seller_facts,
+        use_llm=use_llm_sanity,
     )
     out = {**result, "sanity": sanity}
     if (
@@ -667,11 +679,36 @@ def generate_outreach_message(
     seller_name: str = "",
     seller_facts: str = "",
 ) -> dict[str, Any]:
-    """Generate editable outreach text; fall back to heuristic on LLM failure."""
+    """Generate editable outreach text; fall back to heuristic on LLM failure.
+
+    Latency: one LLM call for the message. Card-level AI and LLM sanity are
+    not chained here (chat feels fast because it is one streamed call;
+    previously generate ran card AI + message + sanity = 3 serial calls).
+    """
     channel = (channel or "telegram").strip().lower()
     seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
-    if refresh_ai or not (detail.get("ai") or {}).get("recommendation"):
-        detail = {**detail, "ai": generate_ai_for_detail(detail)}
+    if not (detail.get("ai") or {}).get("recommendation"):
+        # Heuristic card AI is enough for the prompt payload. Full LLM card
+        # summary is a separate «Обновить AI» action — do not block outreach.
+        client = detail.get("client") or {}
+        orders = list(detail.get("orders") or [])
+        data_thin = bool(detail.get("data_thin"))
+        risks = detail.get("risks") or compute_risks(
+            client, orders, data_thin=data_thin
+        )
+        detail = {
+            **detail,
+            "ai": heuristic_ai(
+                client,
+                orders,
+                vip=bool(client.get("vip")),
+                loyalty=client.get("loyalty_points"),
+                data_thin=data_thin,
+                risks=risks,
+            ),
+        }
+    # refresh_ai only means "new creative message" — ignore for card LLM.
+    _ = refresh_ai
 
     fallback = heuristic_outreach_message(
         detail,
