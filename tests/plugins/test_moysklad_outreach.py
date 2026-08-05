@@ -310,3 +310,75 @@ def test_create_draft_stores_client_facts(tmp_path, monkeypatch):
     assert listed[0]["facts"]["order_count"] == 2
     assert listed[0]["ai_source"] == "heuristic"
     assert item["offer"].startswith("Здравствуйте")
+
+
+def test_outreach_generate_routes_llm_via_openrouter_egress(monkeypatch):
+    """Regression: рассылки AI must use OPENROUTER_BASE_URL, not openrouter.ai.
+
+    Chat already worked through Railway egress; generate/rewrite/sanity used
+    auxiliary ``call_llm`` → ``_try_openrouter`` which dialed openrouter.ai
+    (Selectel RU → HTTP 403 security policy).
+    """
+    from unittest.mock import MagicMock, patch
+
+    from plugins.moysklad.outreach import generate_outreach_message
+
+    proxy = "https://openrouter-egress-production.up.railway.app/t/secret/api/v1"
+    monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-outreach-test")
+
+    captured: dict = {}
+
+    class _FakeMessage:
+        content = (
+            '{"message":"Здравствуйте, Мария! Пионы ждали вас.",'
+            '"grounding_notes":"order пионы"}'
+        )
+        reasoning = None
+
+    class _FakeChoice:
+        message = _FakeMessage()
+
+    class _FakeResponse:
+        choices = [_FakeChoice()]
+
+    class _FakeCompletions:
+        def create(self, **_kwargs):
+            return _FakeResponse()
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    def _fake_openai(**kwargs):
+        captured["base_url"] = kwargs.get("base_url")
+        captured["api_key"] = kwargs.get("api_key")
+        client = MagicMock()
+        client.chat = _FakeChat()
+        client.base_url = kwargs.get("base_url")
+        return client
+
+    detail = build_client_detail(_sample_row())
+    # Skip nested card AI so we only exercise outreach generate → call_llm.
+    monkeypatch.setattr(
+        "plugins.moysklad.outreach.generate_ai_for_detail",
+        lambda _d: {"summary": "ok", "source": "heuristic"},
+    )
+    monkeypatch.setattr(
+        "plugins.moysklad.outreach.sanity_check_outreach_message",
+        lambda *a, **k: {"ok": True, "issues": [], "source": "heuristic"},
+    )
+
+    with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
+         patch("agent.auxiliary_client.OpenAI", side_effect=_fake_openai):
+        result = generate_outreach_message(
+            detail,
+            channel="telegram",
+            seller_name="Анна",
+            seller_facts="цветы",
+        )
+
+    assert captured.get("base_url") == proxy
+    assert "openrouter.ai" not in str(captured.get("base_url") or "")
+    assert result.get("source") == "llm"
+    assert "Мария" in (result.get("message") or "")
+    assert result.get("error") is None or "403" not in str(result.get("error"))

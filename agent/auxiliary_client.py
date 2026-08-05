@@ -2504,11 +2504,23 @@ def _try_openrouter(
         _warn_paid_lane_once(or_model)
 
     or_base = _effective_openrouter_base_url(explicit_base_url)
+    # When OPENROUTER_BASE_URL / explicit egress is set (Selectel → Railway),
+    # it must win over a credential-pool entry that still points at
+    # https://openrouter.ai/api/v1 — otherwise MoySklad outreach call_llm
+    # keeps dialing openrouter.ai from a RU IP and gets HTTP 403 while chat
+    # (runtime_provider) already works through the proxy.
+    egress_override = bool(
+        (explicit_base_url or "").strip()
+        or (os.environ.get("OPENROUTER_BASE_URL") or "").strip()
+    )
     pool_present, entry = _select_pool_entry("openrouter")
     if pool_present:
         or_key = explicit_api_key or _pool_runtime_api_key(entry)
         if or_key:
-            base_url = _pool_runtime_base_url(entry, or_base) or or_base
+            if egress_override:
+                base_url = or_base
+            else:
+                base_url = _pool_runtime_base_url(entry, or_base) or or_base
             logger.debug("Auxiliary client: OpenRouter via pool (%s)", base_url)
             return _create_openai_client(api_key=or_key, base_url=base_url,
                            default_headers=build_or_headers()), or_model

@@ -1014,7 +1014,40 @@ class TestExplicitProviderRouting:
             _try_openrouter(explicit_base_url="https://explicit-proxy.example/api/v1")
         assert mock_openai.call_args.kwargs["base_url"] == "https://explicit-proxy.example/api/v1"
 
-class TestOpenRouterPaidLaneGuard:
+    def test_try_openrouter_egress_env_beats_pool_stock_openrouter_url(self, monkeypatch):
+        """Regression: pool entry pointing at openrouter.ai must not override
+        OPENROUTER_BASE_URL (Selectel outreach kept getting 403 while chat worked)."""
+        proxy = "https://openrouter-egress-production.up.railway.app/t/secret/api/v1"
+        monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        pool_entry = MagicMock()
+        pool_entry.runtime_api_key = "sk-or-pool"
+        pool_entry.runtime_base_url = "https://openrouter.ai/api/v1"
+        pool_entry.inference_base_url = None
+        pool_entry.base_url = "https://openrouter.ai/api/v1"
+        pool_entry.provider = "openrouter"
+        with patch("agent.auxiliary_client._select_pool_entry", return_value=(True, pool_entry)), \
+             patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            mock_openai.return_value = MagicMock()
+            client, _model = _try_openrouter()
+        assert client is not None
+        assert mock_openai.call_args.kwargs["base_url"] == proxy
+        assert mock_openai.call_args.kwargs["api_key"] == "sk-or-pool"
+        assert "openrouter.ai" not in mock_openai.call_args.kwargs["base_url"]
+
+    def test_resolve_provider_client_openrouter_uses_egress_env(self, monkeypatch):
+        from agent.auxiliary_client import resolve_provider_client
+
+        proxy = "https://egress.example/t/tok/api/v1"
+        monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-r")
+        with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
+             patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            mock_openai.return_value = MagicMock()
+            client, _model = resolve_provider_client("openrouter", "deepseek/deepseek-v4-flash-0731")
+        assert client is not None
+        assert mock_openai.call_args.kwargs["base_url"] == proxy
+
     """Issue #75803: auxiliary auto-chain OpenRouter fallback must be
     configurable and never silently engage a PAID model."""
 
