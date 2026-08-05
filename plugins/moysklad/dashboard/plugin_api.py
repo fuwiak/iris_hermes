@@ -48,6 +48,12 @@ from plugins.moysklad.assign_groups import (
     propose_groups_for_rows,
     push_merged_tags,
 )
+from plugins.moysklad.recalculate_groups import (
+    assign_to_taxonomy,
+    load_taxonomy,
+    propose_taxonomy,
+    save_taxonomy,
+)
 from plugins.moysklad.campaigns import (
     create_draft,
     delete_campaign,
@@ -98,6 +104,37 @@ class PushBody(BaseModel):
     only_changed: bool = True
 
 
+class RecalculateProposeBody(BaseModel):
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    channel_kind: str = ""
+    require_phone: bool = False
+    require_telegram: bool = False
+    vip_only: bool = False
+    birthday_soon: bool = False
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
+class RecalculateApplyBody(BaseModel):
+    groups: list[str] = Field(default_factory=list)
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    channel_kind: str = ""
+    require_phone: bool = False
+    require_telegram: bool = False
+    vip_only: bool = False
+    birthday_soon: bool = False
+    dry_run: bool = True
+    push: bool = False
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
 class CampaignCreateBody(BaseModel):
     title: str = "Рассылка"
     channel: str = "telegram"
@@ -106,6 +143,12 @@ class CampaignCreateBody(BaseModel):
     sales_filter: str = "all"
     group: str = ""
     q: str = ""
+    channel_kind: str = ""
+    require_phone: bool = False
+    require_telegram: bool = False
+    vip_only: bool = False
+    birthday_soon: bool = False
+    personalize: bool = False
     client_id: str = ""
     include_preview: bool = True
     generate_ai: bool = False
@@ -241,6 +284,11 @@ def get_clients(
     sales_filter: str = Query("all"),
     group: str = Query(""),
     q: str = Query(""),
+    channel_kind: str = Query(""),
+    require_phone: bool = Query(False),
+    require_telegram: bool = Query(False),
+    vip_only: bool = Query(False),
+    birthday_soon: bool = Query(False),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(5000, ge=0, le=100_000),
@@ -260,6 +308,11 @@ def get_clients(
             sales_filter=sales_filter,
             group=group,
             q=q,
+            channel_kind=channel_kind,
+            require_phone=require_phone,
+            require_telegram=require_telegram,
+            vip_only=vip_only,
+            birthday_soon=birthday_soon,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -463,6 +516,114 @@ def post_groups_push(body: PushBody) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/groups/taxonomy")
+def get_groups_taxonomy() -> dict[str, Any]:
+    return {"ok": True, "groups": load_taxonomy()}
+
+
+@router.post("/groups/recalculate/propose")
+def post_groups_recalculate_propose(body: RecalculateProposeBody) -> dict[str, Any]:
+    """LLM (or heuristic) proposes a new group taxonomy for the current audience."""
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+        )
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter,
+            group=body.group,
+            q=body.q,
+            channel_kind=body.channel_kind,
+            require_phone=body.require_phone,
+            require_telegram=body.require_telegram,
+            vip_only=body.vip_only,
+            birthday_soon=body.birthday_soon,
+            limit=0,
+            offset=0,
+            catalog=catalog,
+        )
+        rows = list(page.get("_rows") or [])
+        proposal = propose_taxonomy(rows, sales_filter=body.sales_filter)
+        proposal["cached"] = meta.get("cached")
+        return proposal
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /groups/recalculate/propose failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/groups/recalculate/apply")
+def post_groups_recalculate_apply(body: RecalculateApplyBody) -> dict[str, Any]:
+    """Persist taxonomy and reassign labels; optional push to MoySklad."""
+    try:
+        if not body.groups:
+            raise HTTPException(status_code=400, detail="groups required")
+        saved = save_taxonomy(body.groups)
+        catalog, _meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+        )
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter,
+            group=body.group,
+            q=body.q,
+            channel_kind=body.channel_kind,
+            require_phone=body.require_phone,
+            require_telegram=body.require_telegram,
+            vip_only=body.vip_only,
+            birthday_soon=body.birthday_soon,
+            limit=0,
+            offset=0,
+            catalog=catalog,
+        )
+        rows = list(page.get("_rows") or [])
+        assignments = assign_to_taxonomy(rows, saved)
+        changed = [a for a in assignments if a.get("changed")]
+        result: dict[str, Any] = {
+            "ok": True,
+            "dry_run": bool(body.dry_run),
+            "groups": saved,
+            "total": len(assignments),
+            "changed": len(changed),
+            "assignments": changed[:200],
+        }
+        if not body.dry_run and body.push:
+            push = push_merged_tags(_client(), changed, only_changed=True)
+            result["push"] = push
+            if push.get("pushed"):
+                _invalidate_cache(
+                    max_orders=body.max_orders,
+                    max_counterparties=body.max_counterparties,
+                    include_archived=body.include_archived,
+                )
+        elif not body.dry_run:
+            # Taxonomy saved; invalidate so facet counts refresh on next read.
+            _invalidate_cache(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+            )
+        return result
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /groups/recalculate/apply failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/campaigns")
 def get_campaigns() -> dict[str, Any]:
     return {"ok": True, "campaigns": list_campaigns()}
@@ -580,6 +741,11 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                 sales_filter=body.sales_filter,
                 group=body.group,
                 q=body.q,
+                channel_kind=body.channel_kind,
+                require_phone=body.require_phone,
+                require_telegram=body.require_telegram,
+                vip_only=body.vip_only,
+                birthday_soon=body.birthday_soon,
                 limit=20 if body.include_preview else 1,
                 offset=0,
                 catalog=catalog,
@@ -598,15 +764,44 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                         }
                     )
             if body.mode == "auto" and not (offer or "").strip():
-                # Filter-level auto without a picked client: grounded stub only.
-                offer = (
-                    "Здравствуйте! Это Iris, цветочный магазин. "
-                    "Напишите, если удобно подобрать букет под ваш повод — "
-                    "без выдуманных скидок. "
-                    "(Выберите клиента в карточке для персонального AI-текста.)"
+                # Mass filter auto: shared template for the group (not per-client).
+                tag_bit = (
+                    f' по тегу «{body.group}»'
+                    if (body.group or "").strip()
+                    else ""
                 )
-                ai_source = "filter_stub"
+                occasion = " к предстоящему поводу" if body.birthday_soon else ""
+                offer = (
+                    f"Здравствуйте! Это Iris, цветочный магазин{tag_bit}{occasion}. "
+                    "Напишите, если удобно подобрать букет — без выдуманных скидок. "
+                    f"(Общий текст для аудитории {audience_count} чел.; "
+                    "персонализация по клиентам — отдельным шагом.)"
+                )
+                ai_source = "filter_group_stub"
             title = body.title
+            if not (title or "").strip() or title in ("Рассылка", "Рассылка по фильтрам"):
+                bits = [sales_filter]
+                if body.channel_kind:
+                    bits.append(body.channel_kind)
+                if body.group:
+                    bits.append(body.group)
+                if body.birthday_soon:
+                    bits.append("др/событие")
+                if body.vip_only:
+                    bits.append("VIP")
+                title = "Массовая · " + " · ".join(bits)
+
+        audience_filters = {
+            "sales_filter": sales_filter,
+            "group": body.group or "",
+            "q": body.q or "",
+            "channel_kind": body.channel_kind or "",
+            "require_phone": bool(body.require_phone),
+            "require_telegram": bool(body.require_telegram),
+            "vip_only": bool(body.vip_only),
+            "birthday_soon": bool(body.birthday_soon),
+            "personalize": bool(body.personalize),
+        }
 
         item = create_draft(
             title=title,
@@ -618,12 +813,14 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
             q=body.q,
             audience_count=audience_count,
             audience_preview=preview,
+            audience_filters=audience_filters,
             client_id=client_id,
             client_name=client_name,
             facts=facts,
             recommendation=recommendation,
             grounding_notes=grounding_notes,
             ai_source=ai_source,
+            personalize_pending=bool(body.personalize) and not client_id,
         )
         return {"ok": True, "campaign": item}
     except HTTPException:

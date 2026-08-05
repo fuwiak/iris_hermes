@@ -65,12 +65,14 @@ def create_draft(
     q: str = "",
     audience_count: int = 0,
     audience_preview: list[dict[str, Any]] | None = None,
+    audience_filters: dict[str, Any] | None = None,
     client_id: str = "",
     client_name: str = "",
     facts: dict[str, Any] | None = None,
     recommendation: str = "",
     grounding_notes: str = "",
     ai_source: str = "",
+    personalize_pending: bool = False,
 ) -> dict[str, Any]:
     title = (title or "").strip() or "Рассылка"
     channel = (channel or "telegram").strip().lower()
@@ -87,6 +89,8 @@ def create_draft(
         "q": q or "",
         "audience_count": int(audience_count or 0),
         "audience_preview": list(audience_preview or [])[:20],
+        "audience_filters": dict(audience_filters or {}),
+        "personalize_pending": bool(personalize_pending),
         "client_id": (client_id or "").strip(),
         "client_name": (client_name or "").strip(),
         "facts": dict(facts or {}) if facts else {},

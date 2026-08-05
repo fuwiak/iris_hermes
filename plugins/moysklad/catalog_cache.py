@@ -143,9 +143,38 @@ def get_cached(key: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def set_cached(key: str, catalog: dict[str, Any], *, synced_at: float | None = None) -> dict[str, Any]:
-    """Persist catalog and return the stored envelope."""
-    envelope = _envelope(catalog, synced_at=synced_at or time.time())
+def set_cached(
+    key: str,
+    catalog: dict[str, Any],
+    *,
+    synced_at: float | None = None,
+    merge: bool = False,
+) -> dict[str, Any]:
+    """Persist catalog and return the stored envelope.
+
+    When ``merge=True``, stage-4 update-in-place merges into any existing
+    cached catalog (by canonical id / contact keys) instead of clobbering.
+    Full sync (default) replaces, but still runs dedupe on the payload.
+    """
+    from plugins.moysklad.dedupe import dedupe_catalog_rows, merge_catalogs, recompute_audience_counts
+
+    payload = dict(catalog or {})
+    if merge:
+        existing_env = None
+        with _LOCK:
+            existing_env = _MEMORY.get(key)
+        if existing_env is None:
+            # Peek durable store even if TTL-expired — merge needs prior rows.
+            existing_env = _peek_any(key)
+        prior = (existing_env or {}).get("catalog") if isinstance(existing_env, dict) else None
+        payload = merge_catalogs(prior if isinstance(prior, dict) else None, payload)
+    else:
+        rows = dedupe_catalog_rows(payload.get("rows") or [])
+        payload["rows"] = rows
+        payload["counts"] = recompute_audience_counts(rows)
+        payload["counterparties_deduped"] = len(rows)
+
+    envelope = _envelope(payload, synced_at=synced_at or time.time())
     ttl = int(envelope["ttl_seconds"])
 
     with _LOCK:
@@ -168,6 +197,29 @@ def set_cached(key: str, catalog: dict[str, Any], *, synced_at: float | None = N
         log.warning("MoySklad file cache write failed: %s", exc)
 
     return envelope
+
+
+def _peek_any(key: str) -> Optional[dict[str, Any]]:
+    """Read durable envelope ignoring TTL (for stage-4 merges)."""
+    client = _redis_client()
+    if client is not None:
+        try:
+            raw = client.get(key)
+            if raw:
+                envelope = json.loads(raw)
+                if isinstance(envelope, dict):
+                    return envelope
+        except Exception as exc:
+            log.warning("MoySklad Redis peek failed: %s", exc)
+    path = _file_path(key)
+    try:
+        if path.is_file():
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(envelope, dict):
+                return envelope
+    except Exception as exc:
+        log.warning("MoySklad file cache peek failed: %s", exc)
+    return None
 
 
 def invalidate(key: str | None = None) -> None:

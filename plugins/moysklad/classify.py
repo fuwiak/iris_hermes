@@ -5,8 +5,14 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from plugins.moysklad.audience import row_matches_audience_extras
 from plugins.moysklad.client import MoySkladClient
-from plugins.moysklad.groups import collect_featured_group_counts, row_has_group
+from plugins.moysklad.dedupe import (
+    dedupe_catalog_rows,
+    dedupe_entity_pages,
+    recompute_audience_counts,
+)
+from plugins.moysklad.groups import collect_featured_group_counts
 from plugins.moysklad.sales_channels import (
     channel_name_from_order,
     counterparty_row_from_api,
@@ -70,7 +76,8 @@ def build_enriched_catalog(
     channels_by_id = sales_channels_by_id(list(channels_payload.get("rows") or []))
 
     orders_payload = client.orders(fetch_all=True, limit=max_orders)
-    orders = list(orders_payload.get("rows") or [])
+    # Stage-1 safety on raw API pages (overlapping offsets / retries).
+    orders = dedupe_entity_pages(orders_payload.get("rows") or [])
 
     channels_by_agent: dict[str, list[str]] = defaultdict(list)
     order_ctx_by_agent: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -113,10 +120,9 @@ def build_enriched_catalog(
         limit=max_counterparties,
         include_archived=include_archived,
     )
-    counterparties = list(cps_payload.get("rows") or [])
+    counterparties = dedupe_entity_pages(cps_payload.get("rows") or [])
 
     rows: list[dict[str, Any]] = []
-    counts = {"direct": 0, "marketplace": 0, "other": 0, "total": 0}
 
     for cp in counterparties:
         cp_id = str(cp.get("id") or "").strip()
@@ -152,25 +158,18 @@ def build_enriched_catalog(
         if desc:
             row["description"] = str(desc)
             row["_comment_blob"] = str(desc)
-
-        is_direct = row_matches_sales_filter(row, "direct")
-        is_mp = row_matches_sales_filter(row, "marketplace")
-        counts["total"] += 1
-        if is_direct:
-            counts["direct"] += 1
-        if is_mp:
-            counts["marketplace"] += 1
-        if not is_direct and not is_mp:
-            counts["other"] += 1
-
-        row["_audience"] = {"direct": is_direct, "marketplace": is_mp}
         rows.append(row)
+
+    # Multi-stage dedupe (id → contact → fuzzy); counts after collapse.
+    rows = dedupe_catalog_rows(rows)
+    counts = recompute_audience_counts(rows)
 
     return {
         "rows": rows,
         "counts": counts,
         "orders_scanned": len(orders),
         "counterparties_scanned": len(counterparties),
+        "counterparties_deduped": len(rows),
     }
 
 
@@ -247,8 +246,17 @@ def clients_page(
     max_counterparties: int = 0,
     include_archived: bool = False,
     catalog: dict[str, Any] | None = None,
+    channel_kind: str = "",
+    require_phone: bool = False,
+    require_telegram: bool = False,
+    vip_only: bool = False,
+    birthday_soon: bool = False,
 ) -> dict[str, Any]:
-    """Dashboard /clients payload: filtered rows + group chip cloud."""
+    """Dashboard /clients payload: filtered rows + group chip cloud.
+
+    Extra audience knobs (channel_kind / require_* / vip / birthday) share the
+    same deduped catalog as the Clients table — ``matched_total`` is post-dedupe.
+    """
     filter_key = _normalize_filter_key(sales_filter)
     catalog = catalog or build_enriched_catalog(
         client,
@@ -267,30 +275,51 @@ def clients_page(
     group_options = collect_featured_group_counts(
         base_rows, sales_filter=filter_key, selected=group or ""
     )
-    if group:
-        matched = [r for r in base_rows if row_has_group(r, group)]
-    else:
-        matched = base_rows
+    matched = [
+        r
+        for r in base_rows
+        if row_matches_audience_extras(
+            r,
+            channel_kind=channel_kind,
+            require_phone=require_phone,
+            require_telegram=require_telegram,
+            vip_only=vip_only,
+            birthday_soon=birthday_soon,
+            group=group,
+        )
+    ]
 
     limit = max(0, min(int(limit), 500))
     offset = max(0, int(offset))
     page = matched[offset : offset + limit] if limit else matched[offset:]
+    matched_total = len(matched)
+    returned = len(page)
+    next_offset = offset + returned
+    has_more = next_offset < matched_total
 
     return {
         "ok": True,
         "sales_filter": filter_key,
         "group": group or "",
         "q": q or "",
+        "channel_kind": (channel_kind or "").strip().lower() or "any",
+        "require_phone": bool(require_phone),
+        "require_telegram": bool(require_telegram),
+        "vip_only": bool(vip_only),
+        "birthday_soon": bool(birthday_soon),
         "counts": counts,
         "groups_total": len(base_rows),
-        "matched_total": len(matched),
-        "returned": len(page),
+        "matched_total": matched_total,
+        "returned": returned,
         "offset": offset,
         "limit": limit,
+        "next_offset": next_offset,
+        "has_more": has_more,
         "group_options": group_options,
         "clients": [_public_client(r) for r in page],
         "orders_scanned": catalog.get("orders_scanned", 0),
         "counterparties_scanned": catalog.get("counterparties_scanned", 0),
+        "counterparties_deduped": catalog.get("counterparties_deduped", len(all_rows)),
         "_rows": matched,  # internal for assign (same filter)
         "_base_rows": base_rows,
         "_all_rows": all_rows,

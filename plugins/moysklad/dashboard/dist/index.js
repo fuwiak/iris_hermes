@@ -11,6 +11,12 @@
   const useEffect = hooks.useEffect;
   const useCallback = hooks.useCallback;
   const useMemo = hooks.useMemo;
+  const useRef =
+    hooks.useRef ||
+    function (v) {
+      const bag = { current: v };
+      return bag;
+    };
 
   const API = "/api/plugins/moysklad";
   const PAGE_SIZE = 50;
@@ -636,9 +642,15 @@
     );
   }
 
-  function AssignModal({ open, loading, data, error, onClose, onPush }) {
+  function AssignModal({ open, loading, data, error, onClose, onPush, onRecalcPreview, onRecalcApply, onGroupsEdit }) {
     if (!open) return null;
     const list = (data && data.assignments) || [];
+    const isRecalc = !!(data && data.recalculate);
+    const groupsText = isRecalc
+      ? ((data.groupsText != null
+          ? data.groupsText
+          : (data.groups || []).join("\n")))
+      : "";
     return h(
       "div",
       {
@@ -650,48 +662,80 @@
       h(
         "div",
         { className: "ms-modal", role: "dialog", "aria-modal": "true" },
-        h("h3", null, "Предложенные группы"),
+        h("h3", null, isRecalc ? "Пересчитать группы" : "Предложенные группы"),
         error ? h("div", { className: "ms-error" }, error) : null,
         loading
-          ? h("p", { className: "ms-muted" }, "Считаем эвристики…")
-          : h(
-              "p",
-              { className: "ms-muted" },
-              "Изменится: " +
-                ((data && data.changed) || 0) +
-                " из " +
-                ((data && data.total) || 0),
-            ),
-        h(
-          "div",
-          { className: "ms-modal-list" },
-          list.slice(0, 80).map(function (item) {
-            return h(
-              "div",
-              { key: item.id, className: "ms-modal-item" },
-              h("strong", null, item.name || item.id),
-              h(
-                "div",
+          ? h("p", { className: "ms-muted" }, isRecalc ? "Считаем taxonomy…" : "Считаем эвристики…")
+          : isRecalc
+            ? h(
+                "p",
                 { className: "ms-muted" },
-                "добавить: " + ((item.added || []).join(", ") || "—"),
+                "Источник: " +
+                  ((data && data.source) || "—") +
+                  (data && data.changed != null
+                    ? " · изменится " + data.changed + " из " + (data.total || 0)
+                    : ""),
+              )
+            : h(
+                "p",
+                { className: "ms-muted" },
+                "Изменится: " +
+                  ((data && data.changed) || 0) +
+                  " из " +
+                  ((data && data.total) || 0),
               ),
-            );
-          }),
-          list.length > 80
-            ? h("div", { className: "ms-muted" }, "…и ещё " + (list.length - 80))
-            : null,
-        ),
+        isRecalc
+          ? h("textarea", {
+              rows: 12,
+              style: { width: "100%" },
+              value: groupsText,
+              disabled: loading,
+              onChange: function (e) {
+                if (onGroupsEdit) onGroupsEdit(e.target.value);
+              },
+            })
+          : h(
+              "div",
+              { className: "ms-modal-list" },
+              list.slice(0, 80).map(function (item) {
+                return h(
+                  "div",
+                  { key: item.id, className: "ms-modal-item" },
+                  h("strong", null, item.name || item.id),
+                  h(
+                    "div",
+                    { className: "ms-muted" },
+                    "добавить: " + ((item.added || []).join(", ") || "—"),
+                  ),
+                );
+              }),
+              list.length > 80
+                ? h("div", { className: "ms-muted" }, "…и ещё " + (list.length - 80))
+                : null,
+            ),
         h(
           "div",
           { className: "ms-modal-actions" },
           h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
+          isRecalc
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "ms-btn",
+                  disabled: loading || !groupsText.trim(),
+                  onClick: onRecalcPreview,
+                },
+                "Превью",
+              )
+            : null,
           h(
             "button",
             {
               type: "button",
               className: "ms-btn ms-btn-primary",
-              disabled: loading || !list.length,
-              onClick: onPush,
+              disabled: loading || (isRecalc ? !groupsText.trim() : !list.length),
+              onClick: isRecalc ? onRecalcApply : onPush,
             },
             "Записать в МойСклад",
           ),
@@ -705,49 +749,112 @@
     const [group, setGroup] = useState("");
     const [qInput, setQInput] = useState("");
     const [q, setQ] = useState("");
-    const [offset, setOffset] = useState(0);
-    const [data, setData] = useState(null);
+    const [clients, setClients] = useState([]);
+    const [counts, setCounts] = useState(null);
+    const [matchedTotal, setMatchedTotal] = useState(0);
+    const [hasMore, setHasMore] = useState(false);
+    const [nextOffset, setNextOffset] = useState(0);
+    const [groupOptions, setGroupOptions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [assignLoading, setAssignLoading] = useState(false);
     const [assignData, setAssignData] = useState(null);
     const [assignError, setAssignError] = useState(null);
     const [cardClientId, setCardClientId] = useState(null);
+    const [syncedLabel, setSyncedLabel] = useState("");
+    const [fromCache, setFromCache] = useState(false);
+    const loadGen = useRef(0);
+    const loadingMoreRef = useRef(false);
+
+    const mergePages = useCallback(function (prev, incoming) {
+      const seen = {};
+      const out = [];
+      (prev || []).concat(incoming || []).forEach(function (row) {
+        const id = String((row && row.id) || "").trim();
+        if (id) {
+          if (seen[id]) return;
+          seen[id] = true;
+        }
+        out.push(row);
+      });
+      return out;
+    }, []);
 
     const load = useCallback(
       function (opts) {
+        const append = !!(opts && opts.append);
         const refresh = !!(opts && opts.refresh);
-        const nextOffset = opts && opts.offset != null ? opts.offset : offset;
-        setLoading(true);
-        setError(null);
+        const offset = append
+          ? opts && opts.offset != null
+            ? opts.offset
+            : nextOffset
+          : 0;
+        const gen = append ? loadGen.current : ++loadGen.current;
+        if (append) {
+          if (loadingMoreRef.current || !hasMore) return;
+          loadingMoreRef.current = true;
+          setLoadingMore(true);
+        } else {
+          setLoading(true);
+          setError(null);
+        }
         const params = new URLSearchParams({
           sales_filter: salesFilter,
           group: group || "",
           q: q || "",
           limit: String(PAGE_SIZE),
-          offset: String(nextOffset),
+          offset: String(offset),
         });
         if (refresh) params.set("refresh", "true");
         api("/clients?" + params.toString())
           .then(function (payload) {
-            setData(payload);
-            setOffset(nextOffset);
+            if (gen !== loadGen.current) return;
+            const page = (payload && payload.clients) || [];
+            setClients(function (prev) {
+              return append ? mergePages(prev, page) : page;
+            });
+            setCounts((payload && payload.counts) || null);
+            const total = (payload && payload.matched_total) || 0;
+            setMatchedTotal(total);
+            const computedNext =
+              payload && payload.next_offset != null
+                ? payload.next_offset
+                : offset + page.length;
+            setNextOffset(computedNext);
+            setHasMore(
+              payload && payload.has_more != null
+                ? !!payload.has_more
+                : computedNext < total,
+            );
+            if (!append) {
+              setGroupOptions((payload && payload.group_options) || []);
+              setFromCache(!!(payload && payload.cached));
+              setSyncedLabel(
+                (payload && (payload.synced_at_label || payload.synced_at)) || "",
+              );
+            }
           })
           .catch(function (err) {
+            if (gen !== loadGen.current) return;
             setError(String((err && err.message) || err));
-            setData(null);
+            if (!append) setClients([]);
           })
           .finally(function () {
-            setLoading(false);
+            if (append) {
+              loadingMoreRef.current = false;
+              setLoadingMore(false);
+            } else if (gen === loadGen.current) {
+              setLoading(false);
+            }
           });
       },
-      [salesFilter, group, q, offset],
+      [salesFilter, group, q, nextOffset, hasMore, mergePages],
     );
 
     useEffect(
       function () {
-        setOffset(0);
         load({ offset: 0 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
       },
@@ -766,89 +873,86 @@
       [qInput],
     );
 
-    const counts = (data && data.counts) || {};
-    const matchedTotal = (data && data.matched_total) || 0;
-    const canPrev = offset > 0;
-    const canNext = offset + PAGE_SIZE < matchedTotal;
-
-    const openAssign = useCallback(function () {
-      setModalOpen(true);
-      setAssignLoading(true);
-      setAssignError(null);
-      setAssignData(null);
-      api("/groups/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sales_filter: salesFilter,
-          group: group || "",
-          q: q || "",
-          dry_run: true,
-        }),
-      })
-        .then(function (payload) {
-          setAssignData(payload);
-        })
-        .catch(function (err) {
-          setAssignError(String((err && err.message) || err));
-        })
-        .finally(function () {
-          setAssignLoading(false);
-        });
-    }, [salesFilter, group, q]);
-
-    const pushAssign = useCallback(function () {
-      if (!assignData || !(assignData.assignments || []).length) return;
-      setAssignLoading(true);
-      setAssignError(null);
-      api("/groups/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assignments: assignData.assignments,
-          only_changed: true,
-        }),
-      })
-        .then(function (payload) {
-          if (!payload.ok && payload.errors && payload.errors.length) {
-            setAssignError(
-              "Ошибки: " +
-                payload.errors
-                  .slice(0, 3)
-                  .map(function (e) {
-                    return e.error;
-                  })
-                  .join("; "),
-            );
-          } else {
-            setModalOpen(false);
-            load({ offset: 0, refresh: true });
-          }
-        })
-        .catch(function (err) {
-          setAssignError(String((err && err.message) || err));
-        })
-        .finally(function () {
-          setAssignLoading(false);
-        });
-    }, [assignData, load]);
-
-    const pageLabel = useMemo(
+    const openAssign = useCallback(
       function () {
-        if (!matchedTotal) return "0";
-        const from = offset + 1;
-        const to = Math.min(offset + PAGE_SIZE, matchedTotal);
-        return from + "–" + to + " из " + matchedTotal;
+        setModalOpen(true);
+        setAssignLoading(true);
+        setAssignError(null);
+        setAssignData(null);
+        api("/groups/assign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sales_filter: salesFilter,
+            group: group || "",
+            q: q || "",
+            dry_run: true,
+          }),
+        })
+          .then(function (payload) {
+            setAssignData(payload);
+          })
+          .catch(function (err) {
+            setAssignError(String((err && err.message) || err));
+          })
+          .finally(function () {
+            setAssignLoading(false);
+          });
       },
-      [offset, matchedTotal],
+      [salesFilter, group, q],
     );
 
-    var syncedLabel =
-      (data && (data.synced_at_label || data.synced_at)) || "";
-    var cacheHint = data
-      ? (data.cached ? "из кэша" : "свежая выгрузка") +
-        (syncedLabel ? " · синхр. " + syncedLabel : "")
-      : "";
+    const pushAssign = useCallback(
+      function () {
+        if (!assignData || !(assignData.assignments || []).length) return;
+        setAssignLoading(true);
+        setAssignError(null);
+        api("/groups/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assignments: assignData.assignments,
+            only_changed: true,
+          }),
+        })
+          .then(function (payload) {
+            if (!payload.ok && payload.errors && payload.errors.length) {
+              setAssignError(
+                "Ошибки: " +
+                  payload.errors
+                    .slice(0, 3)
+                    .map(function (e) {
+                      return e.error;
+                    })
+                    .join("; "),
+              );
+            } else {
+              setModalOpen(false);
+              load({ offset: 0, refresh: true });
+            }
+          })
+          .catch(function (err) {
+            setAssignError(String((err && err.message) || err));
+          })
+          .finally(function () {
+            setAssignLoading(false);
+          });
+      },
+      [assignData, load],
+    );
+
+    function onScroll(e) {
+      const el = e.currentTarget;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 160) return;
+      if (!hasMore || loading || loadingMoreRef.current) return;
+      load({ append: true, offset: nextOffset });
+    }
+
+    var cacheHint = syncedLabel
+      ? (fromCache ? "из кэша" : "свежая выгрузка") + " · синхр. " + syncedLabel
+      : fromCache
+        ? "из кэша"
+        : "";
 
     return h(
       "div",
@@ -874,7 +978,7 @@
               className: "ms-btn",
               disabled: loading,
               onClick: function () {
-                load({ offset: offset });
+                load({ offset: 0 });
               },
             },
             "Обновить",
@@ -902,6 +1006,48 @@
             },
             "Предложить группы",
           ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-btn",
+              disabled: loading,
+              title: "LLM предложит новые имена групп",
+              onClick: function () {
+                setModalOpen(true);
+                setAssignLoading(true);
+                setAssignError(null);
+                setAssignData(null);
+                api("/groups/recalculate/propose", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sales_filter: salesFilter,
+                    group: group || "",
+                    q: q || "",
+                  }),
+                })
+                  .then(function (payload) {
+                    setAssignData({
+                      recalculate: true,
+                      groups: payload.groups || [],
+                      groupsText: (payload.groups || []).join("\n"),
+                      source: payload.source,
+                      assignments: [],
+                      changed: 0,
+                      total: 0,
+                    });
+                  })
+                  .catch(function (err) {
+                    setAssignError(String((err && err.message) || err));
+                  })
+                  .finally(function () {
+                    setAssignLoading(false);
+                  });
+              },
+            },
+            "Пересчитать группы",
+          ),
         ),
       ),
       h(FilterTabs, {
@@ -926,8 +1072,8 @@
         }),
       ),
       h(GroupCloud, {
-        options: (data && data.group_options) || [],
-        groupsTotal: (data && data.groups_total) || 0,
+        options: groupOptions || [],
+        groupsTotal: matchedTotal || 0,
         selected: group,
         onSelect: function (name) {
           setGroup(name);
@@ -937,47 +1083,35 @@
         },
       }),
       error ? h("div", { className: "ms-error" }, error) : null,
-      loading && !data
-        ? h("p", { className: "ms-muted" }, "Загрузка клиентов из МойСклад…")
-        : h(ClientsTable, {
-            clients: (data && data.clients) || [],
-            onOpenClient: function (c) {
-              if (c && c.id) setCardClientId(c.id);
-            },
-          }),
       h(
-        "div",
-        { className: "ms-pager" },
-        h("span", { className: "ms-muted" }, pageLabel),
-        h(
-          "div",
-          { className: "ms-clients-actions" },
-          h(
-            "button",
-            {
-              type: "button",
-              className: "ms-btn",
-              disabled: !canPrev || loading,
-              onClick: function () {
-                load({ offset: Math.max(0, offset - PAGE_SIZE) });
-              },
-            },
-            "Назад",
-          ),
-          h(
-            "button",
-            {
-              type: "button",
-              className: "ms-btn",
-              disabled: !canNext || loading,
-              onClick: function () {
-                load({ offset: offset + PAGE_SIZE });
-              },
-            },
-            "Вперёд",
-          ),
-        ),
+        "p",
+        { className: "ms-muted" },
+        "Найдено: " +
+          matchedTotal +
+          (clients.length ? " · показано " + clients.length : ""),
       ),
+      loading && !clients.length
+        ? h("p", { className: "ms-muted" }, "Загрузка клиентов из МойСклад…")
+        : h(
+            "div",
+            { className: "ms-table-wrap", onScroll: onScroll },
+            h(ClientsTable, {
+              clients: clients || [],
+              onOpenClient: function (c) {
+                if (c && c.id) setCardClientId(c.id);
+              },
+            }),
+            loadingMore
+              ? h("p", { className: "ms-muted ms-load-more" }, "Подгружаем ещё…")
+              : null,
+            !hasMore && clients.length
+              ? h(
+                  "p",
+                  { className: "ms-muted ms-load-more" },
+                  "Все " + matchedTotal + " клиентов загружены",
+                )
+              : null,
+          ),
       h(AssignModal, {
         open: modalOpen,
         loading: assignLoading,
@@ -987,6 +1121,95 @@
           setModalOpen(false);
         },
         onPush: pushAssign,
+        onGroupsEdit: function (text) {
+          setAssignData(function (prev) {
+            return Object.assign({}, prev || {}, {
+              recalculate: true,
+              groupsText: text,
+              groups: text
+                .split("\n")
+                .map(function (s) {
+                  return s.trim();
+                })
+                .filter(Boolean),
+            });
+          });
+        },
+        onRecalcPreview: function () {
+          if (!assignData) return;
+          setAssignLoading(true);
+          setAssignError(null);
+          const groups = (assignData.groupsText || (assignData.groups || []).join("\n"))
+            .split("\n")
+            .map(function (s) {
+              return s.trim();
+            })
+            .filter(Boolean);
+          api("/groups/recalculate/apply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              groups: groups,
+              sales_filter: salesFilter,
+              group: group || "",
+              q: q || "",
+              dry_run: true,
+              push: false,
+            }),
+          })
+            .then(function (payload) {
+              setAssignData(
+                Object.assign({}, assignData, {
+                  recalculate: true,
+                  groups: groups,
+                  groupsText: groups.join("\n"),
+                  changed: payload.changed,
+                  total: payload.total,
+                  assignments: payload.assignments || [],
+                  source: assignData.source,
+                }),
+              );
+            })
+            .catch(function (err) {
+              setAssignError(String((err && err.message) || err));
+            })
+            .finally(function () {
+              setAssignLoading(false);
+            });
+        },
+        onRecalcApply: function () {
+          if (!assignData) return;
+          setAssignLoading(true);
+          setAssignError(null);
+          const groups = (assignData.groupsText || (assignData.groups || []).join("\n"))
+            .split("\n")
+            .map(function (s) {
+              return s.trim();
+            })
+            .filter(Boolean);
+          api("/groups/recalculate/apply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              groups: groups,
+              sales_filter: salesFilter,
+              group: group || "",
+              q: q || "",
+              dry_run: false,
+              push: true,
+            }),
+          })
+            .then(function () {
+              setModalOpen(false);
+              load({ offset: 0, refresh: true });
+            })
+            .catch(function (err) {
+              setAssignError(String((err && err.message) || err));
+            })
+            .finally(function () {
+              setAssignLoading(false);
+            });
+        },
       }),
       h(ClientCardModal, {
         open: !!cardClientId,
@@ -1087,6 +1310,13 @@
     const [error, setError] = useState("");
     const [title, setTitle] = useState("Рассылка по фильтрам");
     const [channel, setChannel] = useState("telegram");
+    const [channelKind, setChannelKind] = useState("");
+    const [group, setGroup] = useState("");
+    const [requirePhone, setRequirePhone] = useState(false);
+    const [requireTelegram, setRequireTelegram] = useState(false);
+    const [vipOnly, setVipOnly] = useState(false);
+    const [birthdaySoon, setBirthdaySoon] = useState(false);
+    const [personalize, setPersonalize] = useState(false);
     const [mode, setMode] = useState("manual");
     const [offer, setOffer] = useState("");
     const [salesFilter, setSalesFilter] = useState("direct");
@@ -1095,6 +1325,13 @@
     const [counts, setCounts] = useState(null);
     const [audience, setAudience] = useState(0);
     const [audiencePreview, setAudiencePreview] = useState([]);
+    const [audienceQ, setAudienceQ] = useState("");
+    const [audienceQDebounced, setAudienceQDebounced] = useState("");
+    const [audienceHasMore, setAudienceHasMore] = useState(false);
+    const [audienceNextOffset, setAudienceNextOffset] = useState(0);
+    const [audienceLoadingMore, setAudienceLoadingMore] = useState(false);
+    const audienceLoadMoreRef = useRef(false);
+    const [groupOptions, setGroupOptions] = useState([]);
     const [selectedClientId, setSelectedClientId] = useState(null);
     const [facts, setFacts] = useState(null);
     const [groundingNotes, setGroundingNotes] = useState("");
@@ -1129,30 +1366,144 @@
       setPrefillReady(true);
     }, []);
 
-    const refresh = useCallback(function () {
-      setLoading(true);
-      setError("");
-      Promise.all([
-        api("/campaigns"),
-        api("/clients?sales_filter=" + encodeURIComponent(salesFilter) + "&limit=12"),
-      ])
-        .then(function (pair) {
-          setCampaigns((pair[0] && pair[0].campaigns) || []);
-          setCounts((pair[1] && pair[1].counts) || null);
-          setAudience((pair[1] && pair[1].matched_total) || 0);
-          setAudiencePreview((pair[1] && pair[1].clients) || []);
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setLoading(false);
-        });
-    }, [salesFilter]);
+    useEffect(
+      function () {
+        const t = setTimeout(function () {
+          setAudienceQDebounced((audienceQ || "").trim());
+        }, 280);
+        return function () {
+          clearTimeout(t);
+        };
+      },
+      [audienceQ],
+    );
 
-    useEffect(function () {
-      refresh();
-    }, [refresh]);
+    const audienceQs = useCallback(
+      function (opts) {
+        opts = opts || {};
+        const params = new URLSearchParams({
+          sales_filter: salesFilter,
+          group: group || "",
+          q: opts.q != null ? opts.q : audienceQDebounced,
+          limit: String(opts.limit != null ? opts.limit : 40),
+          offset: String(opts.offset != null ? opts.offset : 0),
+        });
+        if (channelKind) params.set("channel_kind", channelKind);
+        if (requirePhone) params.set("require_phone", "true");
+        if (requireTelegram) params.set("require_telegram", "true");
+        if (vipOnly) params.set("vip_only", "true");
+        if (birthdaySoon) params.set("birthday_soon", "true");
+        return params.toString();
+      },
+      [
+        salesFilter,
+        group,
+        channelKind,
+        requirePhone,
+        requireTelegram,
+        vipOnly,
+        birthdaySoon,
+        audienceQDebounced,
+      ],
+    );
+
+    const loadAudience = useCallback(
+      function (opts) {
+        const append = !!(opts && opts.append);
+        const offset = append ? audienceNextOffset : 0;
+        if (append) {
+          if (audienceLoadMoreRef.current || !audienceHasMore) return;
+          audienceLoadMoreRef.current = true;
+          setAudienceLoadingMore(true);
+        } else {
+          setLoading(true);
+          setError("");
+        }
+        api("/clients?" + audienceQs({ offset: offset, limit: 40 }))
+          .then(function (page) {
+            const rows = (page && page.clients) || [];
+            setAudiencePreview(function (prev) {
+              if (!append) return rows;
+              const seen = {};
+              const out = [];
+              (prev || []).concat(rows).forEach(function (row) {
+                const id = String((row && row.id) || "").trim();
+                if (id) {
+                  if (seen[id]) return;
+                  seen[id] = true;
+                }
+                out.push(row);
+              });
+              return out;
+            });
+            setAudience((page && page.matched_total) || 0);
+            setCounts((page && page.counts) || null);
+            if (!append) setGroupOptions((page && page.group_options) || []);
+            const next =
+              page && page.next_offset != null
+                ? page.next_offset
+                : offset + rows.length;
+            setAudienceNextOffset(next);
+            setAudienceHasMore(
+              page && page.has_more != null
+                ? !!page.has_more
+                : next < ((page && page.matched_total) || 0),
+            );
+          })
+          .catch(function (err) {
+            setError((err && err.message) || String(err));
+            if (!append) setAudiencePreview([]);
+          })
+          .finally(function () {
+            if (append) {
+              audienceLoadMoreRef.current = false;
+              setAudienceLoadingMore(false);
+            } else {
+              setLoading(false);
+            }
+          });
+      },
+      [audienceQs, audienceNextOffset, audienceHasMore],
+    );
+
+    const refresh = useCallback(
+      function () {
+        api("/campaigns")
+          .then(function (data) {
+            setCampaigns((data && data.campaigns) || []);
+          })
+          .catch(function () {});
+        loadAudience();
+      },
+      [loadAudience],
+    );
+
+    useEffect(
+      function () {
+        loadAudience();
+      },
+      [
+        salesFilter,
+        group,
+        channelKind,
+        requirePhone,
+        requireTelegram,
+        vipOnly,
+        birthdaySoon,
+        audienceQDebounced,
+      ],
+    );
+
+    useEffect(
+      function () {
+        api("/campaigns")
+          .then(function (data) {
+            setCampaigns((data && data.campaigns) || []);
+          })
+          .catch(function () {});
+      },
+      [],
+    );
 
     const loadOutreach = useCallback(
       function (clientId, nextChannel) {
@@ -1192,6 +1543,22 @@
       [prefillReady, selectedClientId],
     );
 
+    function syncDeliveryChannel(kind) {
+      setChannelKind(kind);
+      if (kind === "telegram") {
+        setChannel("telegram");
+        setRequireTelegram(true);
+        setRequirePhone(false);
+      } else if (kind === "whatsapp") {
+        setChannel("whatsapp");
+        setRequirePhone(true);
+        setRequireTelegram(false);
+      } else {
+        setRequirePhone(false);
+        setRequireTelegram(false);
+      }
+    }
+
     function createDraft(e) {
       e.preventDefault();
       setSaving(true);
@@ -1205,6 +1572,13 @@
           mode: mode,
           offer: offer,
           sales_filter: salesFilter,
+          group: group,
+          channel_kind: channelKind,
+          require_phone: requirePhone,
+          require_telegram: requireTelegram,
+          vip_only: vipOnly,
+          birthday_soon: birthdaySoon,
+          personalize: personalize,
           client_id: selectedClientId || "",
           generate_ai: mode === "auto" && !String(offer || "").trim(),
         }),
@@ -1235,17 +1609,24 @@
       h(
         "div",
         { className: "ms-clients-header" },
-        h("div", null,
+        h(
+          "div",
+          null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
           h(
             "p",
             { className: "ms-muted" },
-            "Черновики Telegram / WhatsApp · аудитория = кэш Клиентов",
+            "Массовые черновики · аудитория = дедуп-кэш Клиентов",
           ),
         ),
         h(
           "button",
-          { type: "button", className: "ms-btn", disabled: loading, onClick: refresh },
+          {
+            type: "button",
+            className: "ms-btn",
+            disabled: loading,
+            onClick: refresh,
+          },
           "Обновить",
         ),
       ),
@@ -1256,70 +1637,251 @@
         onChange: setSalesFilter,
       }),
       h(
-        "p",
-        { className: "ms-muted" },
-        "Аудитория: ",
-        h("strong", null, String(audience)),
-        selectedClientId
-          ? [
-              " · выбран ",
-              h("strong", { key: "n" }, (facts && facts.name) || selectedClientId),
-              h(
-                "button",
-                {
-                  key: "x",
-                  type: "button",
-                  className: "ms-link-btn",
-                  style: { marginLeft: "0.5rem" },
-                  onClick: function () {
-                    setSelectedClientId(null);
-                    setFacts(null);
-                    setGroundingNotes("");
-                    setTitle("Рассылка по фильтрам");
-                  },
-                },
-                "сбросить",
-              ),
-            ]
-          : null,
-      ),
-      audiencePreview.length
-        ? h(
-            "div",
-            { className: "ms-audience-pick" },
-            h(
-              "p",
-              { className: "ms-muted" },
-              "Клиенты из того же фильтра (клик → персональный черновик):",
-            ),
-            h(
-              "div",
-              { className: "ms-chips" },
-              audiencePreview.map(function (row) {
-                return h(
+        "section",
+        { className: "ms-audience-builder" },
+        h("h2", { className: "ms-section-title" }, "Аудитория массовой рассылки"),
+        h(
+          "p",
+          { className: "ms-muted" },
+          "Найдено (после дедупа): ",
+          h("strong", null, String(audience)),
+          loading ? " · обновляем…" : "",
+          selectedClientId
+            ? [
+                " · выбран ",
+                h(
+                  "strong",
+                  { key: "n" },
+                  (facts && facts.name) || selectedClientId,
+                ),
+                h(
                   "button",
                   {
-                    key: row.id || row.name,
+                    key: "x",
                     type: "button",
-                    className:
-                      "ms-chip" + (selectedClientId === row.id ? " is-active" : ""),
+                    className: "ms-link-btn",
+                    style: { marginLeft: "0.5rem" },
                     onClick: function () {
-                      if (!row.id) return;
-                      setSelectedClientId(row.id);
-                      setMode("auto");
-                      if (row.phone && !row.tg_nick) setChannel("whatsapp");
-                      else setChannel("telegram");
+                      setSelectedClientId(null);
+                      setFacts(null);
+                      setGroundingNotes("");
+                      setTitle("Рассылка по фильтрам");
                     },
                   },
-                  row.name || row.id,
-                  row.order_count != null
-                    ? h("span", null, String(row.order_count))
-                    : null,
-                );
-              }),
+                  "сбросить клиента",
+                ),
+              ]
+            : null,
+        ),
+        h(
+          "div",
+          { className: "ms-filter-block" },
+          h("span", { className: "ms-filter-label" }, "Канал доставки"),
+          h(
+            "div",
+            { className: "ms-filter-tabs", role: "group" },
+            [
+              { id: "", label: "Любой" },
+              { id: "telegram", label: "Только Telegram" },
+              { id: "whatsapp", label: "Только WhatsApp" },
+            ].map(function (opt) {
+              return h(
+                "button",
+                {
+                  key: opt.id || "any",
+                  type: "button",
+                  className:
+                    "ms-filter-tab" +
+                    (channelKind === opt.id ? " is-active" : ""),
+                  onClick: function () {
+                    syncDeliveryChannel(opt.id);
+                  },
+                },
+                opt.label,
+              );
+            }),
+          ),
+        ),
+        h(
+          "div",
+          { className: "ms-filter-block" },
+          h("span", { className: "ms-filter-label" }, "Дополнительно"),
+          h(
+            "div",
+            { className: "ms-chips" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-chip" + (vipOnly ? " is-active" : ""),
+                onClick: function () {
+                  setVipOnly(!vipOnly);
+                },
+              },
+              "VIP",
             ),
-          )
-        : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-chip" + (requirePhone ? " is-active" : ""),
+                onClick: function () {
+                  setRequirePhone(!requirePhone);
+                },
+              },
+              "Есть телефон",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-chip" + (requireTelegram ? " is-active" : ""),
+                onClick: function () {
+                  setRequireTelegram(!requireTelegram);
+                },
+              },
+              "Есть Telegram",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-chip" + (birthdaySoon ? " is-active" : ""),
+                onClick: function () {
+                  setBirthdaySoon(!birthdaySoon);
+                },
+              },
+              "ДР / события",
+            ),
+          ),
+        ),
+        groupOptions.length
+          ? h(
+              "div",
+              { className: "ms-filter-block" },
+              h("span", { className: "ms-filter-label" }, "Тег / повод"),
+              h(
+                "div",
+                { className: "ms-chips" },
+                groupOptions.slice(0, 20).map(function (opt) {
+                  return h(
+                    "button",
+                    {
+                      key: opt.name,
+                      type: "button",
+                      className:
+                        "ms-chip" + (group === opt.name ? " is-active" : ""),
+                      onClick: function () {
+                        setGroup(group === opt.name ? "" : opt.name);
+                      },
+                    },
+                    opt.name,
+                    h("span", null, String(opt.count)),
+                  );
+                }),
+              ),
+            )
+          : null,
+        h(
+          "div",
+          { className: "ms-audience-pick" },
+          h(
+            "p",
+            { className: "ms-muted" },
+            "Клиенты аудитории (поиск / подгрузка — доступны все " +
+              audience +
+              "):",
+          ),
+          h(
+            "div",
+            { className: "ms-search" },
+            h("input", {
+              type: "search",
+              placeholder: "Найти клиента в аудитории…",
+              value: audienceQ,
+              onChange: function (e) {
+                setAudienceQ(e.target.value);
+              },
+            }),
+          ),
+          audiencePreview.length
+            ? h(
+                "div",
+                {
+                  className: "ms-audience-list",
+                  onScroll: function (e) {
+                    const el = e.currentTarget;
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120)
+                      return;
+                    if (!audienceHasMore || audienceLoadMoreRef.current) return;
+                    loadAudience({ append: true });
+                  },
+                },
+                h(
+                  "div",
+                  { className: "ms-chips" },
+                  audiencePreview.map(function (row) {
+                    return h(
+                      "button",
+                      {
+                        key: row.id || row.name,
+                        type: "button",
+                        className:
+                          "ms-chip" +
+                          (selectedClientId === row.id ? " is-active" : ""),
+                        onClick: function () {
+                          if (!row.id) return;
+                          setSelectedClientId(row.id);
+                          setMode("auto");
+                          if (row.phone && !row.tg_nick) setChannel("whatsapp");
+                          else setChannel("telegram");
+                        },
+                      },
+                      row.name || row.phone || row.id,
+                      row.order_count != null
+                        ? h("span", null, String(row.order_count))
+                        : null,
+                    );
+                  }),
+                ),
+                audienceLoadingMore
+                  ? h(
+                      "p",
+                      { className: "ms-muted ms-load-more" },
+                      "Подгружаем клиентов…",
+                    )
+                  : null,
+                audienceHasMore
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "ms-btn",
+                        disabled: audienceLoadingMore,
+                        onClick: function () {
+                          loadAudience({ append: true });
+                        },
+                      },
+                      "Ещё клиенты",
+                    )
+                  : h(
+                      "p",
+                      { className: "ms-muted ms-load-more" },
+                      "Показано " +
+                        audiencePreview.length +
+                        " из " +
+                        audience,
+                    ),
+              )
+            : h(
+                "p",
+                { className: "ms-muted" },
+                loading
+                  ? "Загрузка аудитории…"
+                  : "Нет клиентов под текущие фильтры / поиск.",
+              ),
+        ),
+      ),
       h(
         "div",
         { className: "ms-filter-tabs", role: "tablist" },
@@ -1367,7 +1929,7 @@
           h(
             "label",
             null,
-            "Канал",
+            "Канал отправки",
             h(
               "select",
               {
@@ -1388,38 +1950,54 @@
             h("textarea", {
               rows: 8,
               value: offer,
-              placeholder:
-                mode === "auto"
-                  ? "Выберите клиента или нажмите «Сгенерировать AI»…"
-                  : "Текст рассылки…",
+              placeholder: selectedClientId
+                ? "Сгенерируйте AI или введите текст…"
+                : "Общий текст для фильтрованной аудитории…",
               onChange: function (e) {
                 setOffer(e.target.value);
               },
             }),
           ),
           h(
+            "label",
+            { className: "ms-check" },
+            h("input", {
+              type: "checkbox",
+              checked: personalize,
+              disabled: !!selectedClientId,
+              onChange: function (e) {
+                setPersonalize(!!e.target.checked);
+              },
+            }),
+            "Персонализировать по клиентам (очередь — позже)",
+          ),
+          h(
             "div",
             { className: "ms-compose-actions" },
-            h(
-              "button",
-              {
-                type: "button",
-                className: "ms-btn",
-                disabled: generating || !selectedClientId,
-                onClick: function () {
-                  if (selectedClientId) loadOutreach(selectedClientId, channel);
-                },
-              },
-              generating ? "Генерация…" : "Сгенерировать AI",
-            ),
+            selectedClientId
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-btn",
+                    disabled: generating,
+                    onClick: function () {
+                      loadOutreach(selectedClientId, channel);
+                    },
+                  },
+                  generating ? "Генерация…" : "Сгенерировать AI",
+                )
+              : null,
             h(
               "button",
               {
                 type: "submit",
                 className: "ms-btn ms-btn-primary",
-                disabled: saving || loading || generating,
+                disabled: saving || loading || generating || audience < 1,
               },
-              mode === "auto" ? "Создать авто-черновик" : "Создать черновик",
+              selectedClientId
+                ? "Создать 1:1 черновик"
+                : "Массовый черновик (" + audience + ")",
             ),
           ),
           genSource
@@ -1430,52 +2008,57 @@
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "Черновики"),
-      loading && !campaigns.length
-        ? h("p", { className: "ms-muted" }, "Загрузка…")
-        : !campaigns.length
-          ? h("p", { className: "ms-muted" }, "Пока нет рассылок.")
-          : h(
-              "ul",
-              { className: "ms-campaign-list" },
-              campaigns.map(function (c) {
-                return h(
-                  "li",
-                  { key: c.id, className: "ms-campaign-card" },
+      !campaigns.length
+        ? h(
+            "p",
+            { className: "ms-muted" },
+            loading ? "Загрузка…" : "Пока нет рассылок.",
+          )
+        : h(
+            "ul",
+            { className: "ms-campaign-list" },
+            campaigns.map(function (c) {
+              return h(
+                "li",
+                { key: c.id, className: "ms-campaign-card" },
+                h(
+                  "div",
+                  { className: "ms-campaign-card-head" },
+                  h("strong", null, c.title),
                   h(
-                    "div",
-                    { className: "ms-campaign-card-head" },
-                    h("strong", null, c.title),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "ms-btn",
-                        onClick: function () {
-                          remove(c.id);
-                        },
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      onClick: function () {
+                        remove(c.id);
                       },
-                      "Удалить",
-                    ),
+                    },
+                    "Удалить",
                   ),
-                  h(
-                    "div",
-                    { className: "ms-muted" },
-                    c.channel +
-                      " · " +
-                      c.mode +
-                      " · аудитория " +
-                      String(c.audience_count || 0) +
-                      (c.client_name ? " · " + c.client_name : "") +
-                      " · " +
-                      (c.status || "draft") +
-                      (c.ai_source ? " · AI " + c.ai_source : ""),
-                  ),
-                  c.offer
-                    ? h("p", { className: "ms-campaign-offer" }, c.offer)
-                    : null,
-                );
-              }),
-            ),
+                ),
+                h(
+                  "div",
+                  { className: "ms-muted" },
+                  c.channel +
+                    " · " +
+                    c.mode +
+                    " · аудитория " +
+                    (c.audience_count || 0) +
+                    (c.client_name ? " · " + c.client_name : "") +
+                    " · " +
+                    (c.status || "draft") +
+                    (c.ai_source ? " · AI " + c.ai_source : "") +
+                    (c.personalize_pending
+                      ? " · персонализация в очереди"
+                      : ""),
+                ),
+                c.offer
+                  ? h("p", { className: "ms-campaign-offer" }, c.offer)
+                  : null,
+              );
+            }),
+          ),
     );
   }
 

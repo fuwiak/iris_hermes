@@ -1,6 +1,6 @@
 import './moysklad.css'
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type UIEvent } from 'react'
 
 import {
   type HermesPlugin,
@@ -154,6 +154,8 @@ interface Campaign {
   grounding_notes?: string
   ai_source?: string
   facts?: ClientFacts
+  personalize_pending?: boolean
+  audience_filters?: Record<string, unknown>
 }
 
 interface ClientFacts {
@@ -607,61 +609,131 @@ function ClientCardModal({
   )
 }
 
+const CLIENTS_PAGE_SIZE = 50
+
+function mergeClientPages(prev: ClientRow[], incoming: ClientRow[]): ClientRow[] {
+  const seen = new Set<string>()
+  const out: ClientRow[] = []
+  for (const row of [...prev, ...incoming]) {
+    const id = String(row.id || '').trim()
+    if (id) {
+      if (seen.has(id)) continue
+      seen.add(id)
+    }
+    out.push(row)
+  }
+  return out
+}
+
 function ClientsPage() {
   const call = useMsRest()
   const [salesFilter, setSalesFilter] = useState('direct')
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [clients, setClients] = useState<ClientRow[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [matched, setMatched] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [nextOffset, setNextOffset] = useState(0)
   const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
   const [syncedLabel, setSyncedLabel] = useState('')
   const [fromCache, setFromCache] = useState(false)
   const [cardClientId, setCardClientId] = useState<string | null>(null)
+  const [recalcOpen, setRecalcOpen] = useState(false)
+  const [recalcLoading, setRecalcLoading] = useState(false)
+  const [recalcGroups, setRecalcGroups] = useState('')
+  const [recalcSource, setRecalcSource] = useState('')
+  const [recalcPreview, setRecalcPreview] = useState<{ changed?: number; total?: number } | null>(
+    null
+  )
+  const [recalcError, setRecalcError] = useState('')
+  const loadGen = useRef(0)
+  const loadingMoreRef = useRef(false)
 
   const load = useCallback(
-    async (opts?: { refresh?: boolean }) => {
-      setLoading(true)
-      setError('')
+    async (opts?: { refresh?: boolean; append?: boolean; offset?: number }) => {
+      const append = Boolean(opts?.append)
+      const offset = append ? (opts?.offset ?? nextOffset) : 0
+      const gen = append ? loadGen.current : ++loadGen.current
+      if (append) {
+        if (loadingMoreRef.current || !hasMore) return
+        loadingMoreRef.current = true
+        setLoadingMore(true)
+      } else {
+        setLoading(true)
+        setError('')
+      }
       try {
         const params = new URLSearchParams({
           sales_filter: salesFilter,
           q,
           group,
-          limit: '50',
-          offset: '0'
+          limit: String(CLIENTS_PAGE_SIZE),
+          offset: String(offset)
         })
         if (opts?.refresh) params.set('refresh', 'true')
         const data = await call<{
           clients?: ClientRow[]
           counts?: Counts
           matched_total?: number
+          has_more?: boolean
+          next_offset?: number
+          returned?: number
           group_options?: Array<{ name: string; count: number }>
           cached?: boolean
           synced_at_label?: string
           synced_at?: number
         }>(`/clients?${params}`)
-        setClients(data.clients || [])
+        if (gen !== loadGen.current) return
+        const page = data.clients || []
+        setClients(prev => (append ? mergeClientPages(prev, page) : page))
         setCounts(data.counts || null)
         setMatched(data.matched_total || 0)
-        setGroupOptions(data.group_options || [])
-        setFromCache(Boolean(data.cached))
-        setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
+        const computedNext =
+          data.next_offset != null ? data.next_offset : offset + page.length
+        setNextOffset(computedNext)
+        setHasMore(
+          data.has_more != null
+            ? Boolean(data.has_more)
+            : computedNext < (data.matched_total || 0)
+        )
+        if (!append) {
+          setGroupOptions(data.group_options || [])
+          setFromCache(Boolean(data.cached))
+          setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
+        }
       } catch (err) {
+        if (gen !== loadGen.current) return
         setError(err instanceof Error ? err.message : String(err))
+        if (!append) setClients([])
       } finally {
-        setLoading(false)
+        if (append) {
+          loadingMoreRef.current = false
+          setLoadingMore(false)
+        } else if (gen === loadGen.current) {
+          setLoading(false)
+        }
       }
     },
-    [call, group, q, salesFilter]
+    [call, group, hasMore, nextOffset, q, salesFilter]
   )
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [salesFilter, group, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+
+  const onTableScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      const el = event.currentTarget
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 160) return
+      if (!hasMore || loading || loadingMoreRef.current) return
+      void load({ append: true, offset: nextOffset })
+    },
+    [hasMore, load, loading, nextOffset]
+  )
 
   const cacheHint = syncedLabel
     ? `${fromCache ? 'из кэша' : 'свежая выгрузка'} · синхр. ${syncedLabel}`
@@ -689,6 +761,30 @@ function ClientsPage() {
             type="button"
           >
             Синхронизация
+          </button>
+          <button
+            className="ms-btn"
+            disabled={loading || recalcLoading}
+            onClick={() => {
+              setRecalcOpen(true)
+              setRecalcError('')
+              setRecalcPreview(null)
+              setRecalcLoading(true)
+              void call<{ groups?: string[]; source?: string }>('/groups/recalculate/propose', {
+                method: 'POST',
+                body: { sales_filter: salesFilter, group, q }
+              })
+                .then(data => {
+                  setRecalcGroups((data.groups || []).join('\n'))
+                  setRecalcSource(data.source || '')
+                })
+                .catch(err => setRecalcError(err instanceof Error ? err.message : String(err)))
+                .finally(() => setRecalcLoading(false))
+            }}
+            title="LLM предложит новые имена групп; подтверждение переназначит теги"
+            type="button"
+          >
+            Пересчитать группы
           </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
@@ -719,11 +815,110 @@ function ClientsPage() {
         </div>
       ) : null}
       {error ? <div className="ms-error">{error}</div> : null}
-      <p className="ms-muted">Найдено: {matched}</p>
+      <p className="ms-muted">
+        Найдено: {matched}
+        {clients.length ? ` · показано ${clients.length}` : ''}
+      </p>
+      {recalcOpen ? (
+        <div className="ms-modal-backdrop" onClick={() => setRecalcOpen(false)}>
+          <div
+            className="ms-modal"
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+          >
+            <div className="ms-card-head">
+              <h2 className="ms-section-title">Пересчитать группы</h2>
+              <button className="ms-btn" onClick={() => setRecalcOpen(false)} type="button">
+                Закрыть
+              </button>
+            </div>
+            <p className="ms-muted">
+              Отредактируйте названия (по одному на строку), затем подтвердите. Источник:{' '}
+              {recalcSource || '…'}
+            </p>
+            {recalcError ? <div className="ms-error">{recalcError}</div> : null}
+            <textarea
+              disabled={recalcLoading}
+              onChange={e => setRecalcGroups(e.target.value)}
+              rows={12}
+              style={{ width: '100%' }}
+              value={recalcGroups}
+            />
+            {recalcPreview ? (
+              <p className="ms-muted">
+                Превью: изменится {recalcPreview.changed ?? 0} из {recalcPreview.total ?? 0}
+              </p>
+            ) : null}
+            <div className="ms-compose-actions">
+              <button
+                className="ms-btn"
+                disabled={recalcLoading || !recalcGroups.trim()}
+                onClick={() => {
+                  setRecalcLoading(true)
+                  setRecalcError('')
+                  const groups = recalcGroups
+                    .split('\n')
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                  void call<{ changed?: number; total?: number }>('/groups/recalculate/apply', {
+                    method: 'POST',
+                    body: {
+                      groups,
+                      sales_filter: salesFilter,
+                      group,
+                      q,
+                      dry_run: true,
+                      push: false
+                    }
+                  })
+                    .then(data => setRecalcPreview({ changed: data.changed, total: data.total }))
+                    .catch(err => setRecalcError(err instanceof Error ? err.message : String(err)))
+                    .finally(() => setRecalcLoading(false))
+                }}
+                type="button"
+              >
+                Превью
+              </button>
+              <button
+                className="ms-btn ms-btn-primary"
+                disabled={recalcLoading || !recalcGroups.trim()}
+                onClick={() => {
+                  setRecalcLoading(true)
+                  setRecalcError('')
+                  const groups = recalcGroups
+                    .split('\n')
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                  void call('/groups/recalculate/apply', {
+                    method: 'POST',
+                    body: {
+                      groups,
+                      sales_filter: salesFilter,
+                      group,
+                      q,
+                      dry_run: false,
+                      push: true
+                    }
+                  })
+                    .then(() => {
+                      setRecalcOpen(false)
+                      void load({ refresh: true })
+                    })
+                    .catch(err => setRecalcError(err instanceof Error ? err.message : String(err)))
+                    .finally(() => setRecalcLoading(false))
+                }}
+                type="button"
+              >
+                Записать в МойСклад
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {loading && !clients.length ? (
         <p className="ms-muted">Загрузка клиентов…</p>
       ) : (
-        <div className="ms-table-wrap">
+        <div className="ms-table-wrap" onScroll={onTableScroll}>
           <table className="ms-table">
             <thead>
               <tr>
@@ -757,6 +952,10 @@ function ClientsPage() {
               ))}
             </tbody>
           </table>
+          {loadingMore ? <p className="ms-muted ms-load-more">Подгружаем ещё…</p> : null}
+          {!hasMore && clients.length > 0 ? (
+            <p className="ms-muted ms-load-more">Все {matched} клиентов загружены</p>
+          ) : null}
         </div>
       )}
       <ClientCardModal call={call} clientId={cardClientId} onClose={() => setCardClientId(null)} />
@@ -770,11 +969,24 @@ function CampaignsPage() {
   const [mode, setMode] = useState<'manual' | 'auto'>('manual')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
+  const [channelKind, setChannelKind] = useState('')
+  const [group, setGroup] = useState('')
+  const [requirePhone, setRequirePhone] = useState(false)
+  const [requireTelegram, setRequireTelegram] = useState(false)
+  const [vipOnly, setVipOnly] = useState(false)
+  const [birthdaySoon, setBirthdaySoon] = useState(false)
+  const [personalize, setPersonalize] = useState(false)
   const [offer, setOffer] = useState('')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [audience, setAudience] = useState(0)
   const [audiencePreview, setAudiencePreview] = useState<ClientRow[]>([])
+  const [audienceQ, setAudienceQ] = useState('')
+  const [audienceQDebounced, setAudienceQDebounced] = useState('')
+  const [audienceHasMore, setAudienceHasMore] = useState(false)
+  const [audienceNextOffset, setAudienceNextOffset] = useState(0)
+  const [audienceLoadingMore, setAudienceLoadingMore] = useState(false)
+  const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
   const [facts, setFacts] = useState<ClientFacts | null>(null)
   const [groundingNotes, setGroundingNotes] = useState('')
@@ -784,6 +996,7 @@ function CampaignsPage() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [prefillReady, setPrefillReady] = useState(false)
+  const audienceLoadMoreRef = useRef(false)
 
   useEffect(() => {
     const prefill = readDraftPrefill()
@@ -797,30 +1010,114 @@ function CampaignsPage() {
     setPrefillReady(true)
   }, [])
 
+  useEffect(() => {
+    const t = setTimeout(() => setAudienceQDebounced(audienceQ.trim()), 280)
+    return () => clearTimeout(t)
+  }, [audienceQ])
+
+  const audienceFilterParams = useCallback(
+    (opts?: { limit?: number; offset?: number; q?: string }) => {
+      const params = new URLSearchParams({
+        sales_filter: salesFilter,
+        group,
+        q: opts?.q ?? audienceQDebounced,
+        limit: String(opts?.limit ?? 40),
+        offset: String(opts?.offset ?? 0)
+      })
+      if (channelKind) params.set('channel_kind', channelKind)
+      if (requirePhone) params.set('require_phone', 'true')
+      if (requireTelegram) params.set('require_telegram', 'true')
+      if (vipOnly) params.set('vip_only', 'true')
+      if (birthdaySoon) params.set('birthday_soon', 'true')
+      return params
+    },
+    [
+      audienceQDebounced,
+      birthdaySoon,
+      channelKind,
+      group,
+      requirePhone,
+      requireTelegram,
+      salesFilter,
+      vipOnly
+    ]
+  )
+
+  const loadAudience = useCallback(
+    async (opts?: { append?: boolean }) => {
+      const append = Boolean(opts?.append)
+      const offset = append ? audienceNextOffset : 0
+      if (append) {
+        if (audienceLoadMoreRef.current || !audienceHasMore) return
+        audienceLoadMoreRef.current = true
+        setAudienceLoadingMore(true)
+      } else {
+        setLoading(true)
+        setError('')
+      }
+      try {
+        const page = await call<{
+          counts?: Counts
+          matched_total?: number
+          clients?: ClientRow[]
+          group_options?: Array<{ name: string; count: number }>
+          has_more?: boolean
+          next_offset?: number
+        }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`)
+        const rows = page.clients || []
+        setAudiencePreview(prev => (append ? mergeClientPages(prev, rows) : rows))
+        setAudience(page.matched_total || 0)
+        setCounts(page.counts || null)
+        if (!append) setGroupOptions(page.group_options || [])
+        const next = page.next_offset != null ? page.next_offset : offset + rows.length
+        setAudienceNextOffset(next)
+        setAudienceHasMore(
+          page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0)
+        )
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        if (!append) setAudiencePreview([])
+      } finally {
+        if (append) {
+          audienceLoadMoreRef.current = false
+          setAudienceLoadingMore(false)
+        } else {
+          setLoading(false)
+        }
+      }
+    },
+    [audienceFilterParams, audienceHasMore, audienceNextOffset, call]
+  )
+
   const refresh = useCallback(async () => {
-    setLoading(true)
     setError('')
     try {
-      const [list, page] = await Promise.all([
-        call<{ campaigns?: Campaign[] }>('/campaigns'),
-        call<{ counts?: Counts; matched_total?: number; clients?: ClientRow[] }>(
-          `/clients?sales_filter=${encodeURIComponent(salesFilter)}&limit=12`
-        )
-      ])
+      const list = await call<{ campaigns?: Campaign[] }>('/campaigns')
       setCampaigns(list.campaigns || [])
-      setCounts(page.counts || null)
-      setAudience(page.matched_total || 0)
-      setAudiencePreview(page.clients || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
     }
-  }, [call, salesFilter])
+    await loadAudience()
+  }, [call, loadAudience])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void loadAudience()
+  }, [
+    salesFilter,
+    group,
+    channelKind,
+    requirePhone,
+    requireTelegram,
+    vipOnly,
+    birthdaySoon,
+    audienceQDebounced
+  ]) // eslint-disable-line react-hooks/exhaustive-deps -- reload audience on filter/search
+
+  useEffect(() => {
+    void call<{ campaigns?: Campaign[] }>('/campaigns')
+      .then(list => setCampaigns(list.campaigns || []))
+      .catch(() => undefined)
+  }, [call])
 
   const loadOutreach = useCallback(
     async (clientId: string, nextChannel = channel, runAi = mode === 'auto') => {
@@ -925,6 +1222,13 @@ function CampaignsPage() {
           mode,
           offer,
           sales_filter: salesFilter,
+          group,
+          channel_kind: channelKind,
+          require_phone: requirePhone,
+          require_telegram: requireTelegram,
+          vip_only: vipOnly,
+          birthday_soon: birthdaySoon,
+          personalize,
           client_id: selectedClientId || '',
           generate_ai: mode === 'auto' && !offer.trim()
         }
@@ -938,59 +1242,190 @@ function CampaignsPage() {
     }
   }
 
+  const syncDeliveryChannel = (kind: string) => {
+    setChannelKind(kind)
+    if (kind === 'telegram') {
+      setChannel('telegram')
+      setRequireTelegram(true)
+      setRequirePhone(false)
+    } else if (kind === 'whatsapp') {
+      setChannel('whatsapp')
+      setRequirePhone(true)
+      setRequireTelegram(false)
+    } else {
+      setRequirePhone(false)
+      setRequireTelegram(false)
+    }
+  }
+
   return (
     <div className="ms-page" data-selectable-text="true">
       <div className="ms-page-header">
         <div>
           <h1>Рассылки</h1>
-          <p className="ms-muted">Черновики Telegram / WhatsApp · аудитория = кэш Клиентов</p>
+          <p className="ms-muted">Массовые черновики · аудитория = дедуп-кэш Клиентов</p>
         </div>
         <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
           ← Клиенты
         </button>
       </div>
       <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
-      <p className="ms-muted">
-        Аудитория: <strong>{audience}</strong>
-        {selectedClientId ? (
-          <>
-            {' '}
-            · выбран{' '}
-            <strong>{facts?.name || selectedClientId}</strong>
-            <button
-              className="ms-link-btn"
-              onClick={() => {
-                setSelectedClientId(null)
-                setFacts(null)
-                setGroundingNotes('')
-                setTitle('Рассылка по фильтрам')
-              }}
-              style={{ marginLeft: '0.5rem' }}
-              type="button"
-            >
-              сбросить
-            </button>
-          </>
-        ) : null}
-      </p>
-      {audiencePreview.length ? (
-        <div className="ms-audience-pick">
-          <p className="ms-muted">Клиенты из того же фильтра (клик → персональный черновик):</p>
-          <div className="ms-chips">
-            {audiencePreview.map(row => (
+
+      <section className="ms-audience-builder">
+        <h2 className="ms-section-title">Аудитория массовой рассылки</h2>
+        <p className="ms-muted">
+          Найдено (после дедупа): <strong>{audience}</strong>
+          {loading ? ' · обновляем…' : ''}
+          {selectedClientId ? (
+            <>
+              {' '}
+              · выбран <strong>{facts?.name || selectedClientId}</strong>
               <button
-                className={`ms-chip${selectedClientId === row.id ? ' is-active' : ''}`}
-                key={row.id || row.name}
-                onClick={() => selectAudienceClient(row)}
+                className="ms-link-btn"
+                onClick={() => {
+                  setSelectedClientId(null)
+                  setFacts(null)
+                  setGroundingNotes('')
+                  setTitle('Рассылка по фильтрам')
+                }}
+                style={{ marginLeft: '0.5rem' }}
                 type="button"
               >
-                {row.name || row.id}
-                {row.order_count != null ? <span>{row.order_count}</span> : null}
+                сбросить клиента
+              </button>
+            </>
+          ) : null}
+        </p>
+        <div className="ms-filter-block">
+          <span className="ms-filter-label">Канал доставки</span>
+          <div className="ms-filter-tabs" role="group">
+            {[
+              { id: '', label: 'Любой' },
+              { id: 'telegram', label: 'Только Telegram' },
+              { id: 'whatsapp', label: 'Только WhatsApp' }
+            ].map(opt => (
+              <button
+                className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
+                key={opt.id || 'any'}
+                onClick={() => syncDeliveryChannel(opt.id)}
+                type="button"
+              >
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
-      ) : null}
+        <div className="ms-filter-block">
+          <span className="ms-filter-label">Дополнительно</span>
+          <div className="ms-chips">
+            <button
+              className={`ms-chip${vipOnly ? ' is-active' : ''}`}
+              onClick={() => setVipOnly(v => !v)}
+              type="button"
+            >
+              VIP
+            </button>
+            <button
+              className={`ms-chip${requirePhone ? ' is-active' : ''}`}
+              onClick={() => setRequirePhone(v => !v)}
+              type="button"
+            >
+              Есть телефон
+            </button>
+            <button
+              className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
+              onClick={() => setRequireTelegram(v => !v)}
+              type="button"
+            >
+              Есть Telegram
+            </button>
+            <button
+              className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
+              onClick={() => setBirthdaySoon(v => !v)}
+              type="button"
+            >
+              ДР / события
+            </button>
+          </div>
+        </div>
+        {groupOptions.length > 0 ? (
+          <div className="ms-filter-block">
+            <span className="ms-filter-label">Тег / повод (группы МойСклад)</span>
+            <div className="ms-chips">
+              {groupOptions.slice(0, 20).map(opt => (
+                <button
+                  className={`ms-chip${group === opt.name ? ' is-active' : ''}`}
+                  key={opt.name}
+                  onClick={() => setGroup(group === opt.name ? '' : opt.name)}
+                  type="button"
+                >
+                  {opt.name} <span>{opt.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <div className="ms-audience-pick">
+          <p className="ms-muted">
+            Клиенты аудитории (поиск / подгрузка — доступны все {audience}):
+          </p>
+          <div className="ms-search">
+            <input
+              onChange={e => setAudienceQ(e.target.value)}
+              placeholder="Найти клиента в аудитории по имени / телефону…"
+              type="search"
+              value={audienceQ}
+            />
+          </div>
+          {audiencePreview.length ? (
+            <div
+              className="ms-audience-list"
+              onScroll={event => {
+                const el = event.currentTarget
+                if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
+                if (!audienceHasMore || audienceLoadMoreRef.current) return
+                void loadAudience({ append: true })
+              }}
+            >
+              <div className="ms-chips">
+                {audiencePreview.map(row => (
+                  <button
+                    className={`ms-chip${selectedClientId === row.id ? ' is-active' : ''}`}
+                    key={row.id || row.name}
+                    onClick={() => selectAudienceClient(row)}
+                    type="button"
+                  >
+                    {row.name || row.phone || row.id}
+                    {row.order_count != null ? <span>{row.order_count}</span> : null}
+                  </button>
+                ))}
+              </div>
+              {audienceLoadingMore ? (
+                <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
+              ) : null}
+              {audienceHasMore ? (
+                <button
+                  className="ms-btn"
+                  disabled={audienceLoadingMore}
+                  onClick={() => void loadAudience({ append: true })}
+                  type="button"
+                >
+                  Ещё клиенты
+                </button>
+              ) : audiencePreview.length ? (
+                <p className="ms-muted ms-load-more">
+                  Показано {audiencePreview.length} из {audience}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="ms-muted">
+              {loading ? 'Загрузка аудитории…' : 'Нет клиентов под текущие фильтры / поиск.'}
+            </p>
+          )}
+        </div>
+      </section>
+
       <div className="ms-filter-tabs" role="tablist">
         <button
           className={`ms-filter-tab${mode === 'manual' ? ' is-active' : ''}`}
@@ -1014,7 +1449,7 @@ function CampaignsPage() {
             <input onChange={e => setTitle(e.target.value)} required value={title} />
           </label>
           <label>
-            Канал
+            Канал отправки
             <select onChange={e => setChannel(e.target.value)} value={channel}>
               <option value="telegram">Telegram (личные)</option>
               <option value="telegram_channel">Telegram-канал</option>
@@ -1026,27 +1461,42 @@ function CampaignsPage() {
             <textarea
               onChange={e => setOffer(e.target.value)}
               placeholder={
-                mode === 'auto'
-                  ? 'Нажмите «Сгенерировать AI» или выберите клиента…'
-                  : 'Текст рассылки…'
+                selectedClientId
+                  ? 'Нажмите «Сгенерировать AI» или введите текст…'
+                  : mode === 'auto'
+                    ? 'Оставьте пустым — общий шаблон для фильтрованной аудитории'
+                    : 'Общий текст массовой рассылки…'
               }
               rows={8}
               value={offer}
             />
           </label>
+          <label className="ms-check">
+            <input
+              checked={personalize}
+              disabled={Boolean(selectedClientId)}
+              onChange={e => setPersonalize(e.target.checked)}
+              type="checkbox"
+            />
+            Персонализировать по клиентам (очередь — позже)
+          </label>
           <div className="ms-compose-actions">
-            {mode === 'auto' || selectedClientId ? (
+            {selectedClientId ? (
               <button
                 className="ms-btn"
-                disabled={generating || !selectedClientId}
+                disabled={generating}
                 onClick={() => void regenerateAi()}
                 type="button"
               >
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
-            <button className="ms-btn ms-btn-primary" disabled={saving || loading || generating} type="submit">
-              {mode === 'auto' ? 'Создать авто-черновик' : 'Создать черновик'}
+            <button className="ms-btn ms-btn-primary" disabled={saving || loading || generating || audience < 1} type="submit">
+              {selectedClientId
+                ? 'Создать 1:1 черновик'
+                : mode === 'auto'
+                  ? `Черновик на ${audience}`
+                  : `Массовый черновик (${audience})`}
             </button>
           </div>
           {genSource ? <p className="ms-muted">Источник текста: {genSource}</p> : null}
@@ -1077,6 +1527,7 @@ function CampaignsPage() {
                 {c.channel} · {c.mode} · аудитория {c.audience_count || 0}
                 {c.client_name ? ` · ${c.client_name}` : ''} · {c.status || 'draft'}
                 {c.ai_source ? ` · AI ${c.ai_source}` : ''}
+                {c.personalize_pending ? ' · персонализация в очереди' : ''}
               </div>
               {c.offer ? <p className="ms-campaign-offer">{c.offer}</p> : null}
               {c.recommendation ? (

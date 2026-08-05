@@ -477,3 +477,51 @@
   flex-direction: column;
   gap: 0.35rem;
 }
+
+.ms-audience-list {
+  max-height: min(40vh, 360px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+}
+
+.ms-load-more {
+  padding: 0.65rem 0.85rem;
+  text-align: center;
+}
+
+.ms-audience-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #592466;
+  border-radius: 1rem;
+  background: #3a1840;
+}
+
+.ms-filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ms-filter-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e4c8ea;
+}
+
+.ms-check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.ms-check input {
+  width: auto;
+}

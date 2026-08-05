@@ -91,6 +91,7 @@ enriched catalog and **does not re-hit MoySklad** on every table view:
 | Trigger | Behavior |
 |---|---|
 | Page load / filter / search | Serve durable cache if fresh |
+| Scroll near bottom | Fetch next `offset` page (`limit=50`); already-loaded rows stay in UI |
 | TTL expiry | Next read re-downloads from MoySklad |
 | **Синхронизация** button / `POST /sync` / `?refresh=true` | Force refresh + rewrite cache |
 
@@ -101,6 +102,37 @@ enriched catalog and **does not re-hit MoySklad** on every table view:
   fallback still works without the package).
 - Cache key includes a hash of the API token + query bounds
   (`max_orders` / `max_counterparties` / archived).
+- `/clients` returns `matched_total`, `has_more`, `next_offset` — counts are
+  **post-dedupe**.
+
+### Multi-stage client dedupe
+
+Applied when building/merging the catalog (`dedupe.py`):
+
+1. **Canonical id** — MoySklad counterparty `id` / href (update-in-place)
+2. **Contact keys** — normalized phone / email / telegram handle
+3. **Fuzzy name+phone** — same normalized name + phone stem in the batch
+4. **Cache merge** — never append duplicates; merge richer row into existing
+
+### Mass Рассылки filters
+
+Рассылки filter builder uses the same cached + deduped catalog:
+
+- Channel kind: только Telegram / только WhatsApp
+- Tags/occasions (chip cloud) + «ДР / события» — chips work on **Прямые** and
+  **Маркетплейс** (shared occasion allowlist; `букет от 10000` /
+  `событие март` normalize to one key)
+- VIP / есть телефон / есть Telegram
+- Live `matched_total` as filters change; mass draft = shared template for the
+  group (`personalize` flag queues per-client personalization for later)
+- Audience picker: search + infinite scroll / «Ещё клиенты» (not a hard 12-row
+  cap) — any client in the filtered audience is reachable
+
+### Пересчитать группы (LLM)
+
+Клиенты → **Пересчитать группы**: LLM proposes taxonomy → edit names → preview
+→ write merged tags to MoySklad (`POST /groups/recalculate/propose|apply`).
+Falls back to heuristic tag frequencies when LLM is unavailable.
 
 ## CRM tab rules (do not re-derive)
 
@@ -119,7 +151,9 @@ Full agent procedure: `skills/productivity/moysklad-crm-tabs/SKILL.md` and coloc
 | `client.py` | Remap 1.2 HTTP client |
 | `tools.py` | Schemas + handlers |
 | `sales_channels.py` / `classify.py` | Channel + CRM tab logic |
+| `dedupe.py` / `audience.py` | Multi-stage dedupe + mass audience filters |
 | `groups.py` / `assign_groups.py` | Group cloud + heuristic assign |
+| `recalculate_groups.py` | LLM/heuristic taxonomy propose + reassign |
 | `dashboard/` | Tab UI + `plugin_api.py` |
 | `SKILL.md` | Agent usage guide |
 

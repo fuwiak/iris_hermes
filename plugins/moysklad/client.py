@@ -175,6 +175,7 @@ class MoySkladClient:
         extra: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
         offset = 0
         unlimited = max_rows <= 0
         while unlimited or len(rows) < max_rows:
@@ -182,7 +183,16 @@ class MoySkladClient:
             batch, _ = self.get_page(path, limit=batch_limit, offset=offset, extra=extra)
             if not batch:
                 break
-            rows.extend(batch)
+            # Stage 1 at fetch: never append the same entity id twice across pages.
+            for item in batch:
+                rid = str((item or {}).get("id") or "").strip()
+                if rid:
+                    if rid in seen_ids:
+                        continue
+                    seen_ids.add(rid)
+                rows.append(item)
+                if not unlimited and len(rows) >= max_rows:
+                    break
             if len(batch) < batch_limit:
                 break
             offset += len(batch)
