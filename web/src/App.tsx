@@ -64,18 +64,10 @@ import { SelectionSwitcher } from "@nous-research/ui/ui/components/selection-swi
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
-import {
-  isStandardNavPluginPath,
-  STANDARD_MOYSKLAD_NAV_ITEMS,
-  STANDARD_NAV_PLUGIN_NAMES,
-  STANDARD_WEB_CORE_PATHS,
-  type NavMode,
-} from "@hermes/shared";
 import { cn } from "@/lib/utils";
 import { SidebarFooter } from "@/components/SidebarFooter";
 import { SidebarStatusStrip, gatewayLine } from "@/components/SidebarStatusStrip";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
-import { useNavMode } from "@/hooks/useNavMode";
 import { useSidebarStatus } from "@/hooks/useSidebarStatus";
 import { AuthWidget } from "@/components/AuthWidget";
 import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
@@ -331,48 +323,6 @@ function partitionSidebarNav(
   return { coreItems, pluginItems };
 }
 
-/** standard = Chat + Settings + MoySklad; pro = full menu. Routes stay registered. */
-function applyNavModeFilter(
-  partitioned: { coreItems: NavItem[]; pluginItems: NavItem[] },
-  manifests: PluginManifest[],
-  mode: NavMode,
-): { coreItems: NavItem[]; pluginItems: NavItem[] } {
-  if (mode === "pro") return partitioned;
-
-  const moyskladPaths = new Set(
-    manifests
-      .filter((m) => STANDARD_NAV_PLUGIN_NAMES.has(m.name) && !m.tab.hidden)
-      .map((m) => m.tab.override ?? m.tab.path),
-  );
-
-  const coreItems = partitioned.coreItems.filter((item) =>
-    STANDARD_WEB_CORE_PATHS.has(item.path),
-  );
-
-  const pluginItems = partitioned.pluginItems.filter(
-    (item) => moyskladPaths.has(item.path) || isStandardNavPluginPath(item.path),
-  );
-
-  // Seed Клиенты/Рассылки when the dashboard manifest is late/missing so
-  // standard mode never drops MoySklad (Hermes One owns the pages).
-  const have = new Set(pluginItems.map((item) => item.path));
-  for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
-    if (have.has(seed.path)) continue;
-    const manifest = manifests.find(
-      (m) =>
-        STANDARD_NAV_PLUGIN_NAMES.has(m.name) &&
-        (m.tab.override ?? m.tab.path) === seed.path,
-    );
-    pluginItems.push({
-      path: seed.path,
-      label: manifest?.label ?? seed.label,
-      icon: resolveIcon(manifest?.icon ?? seed.icon),
-    });
-  }
-
-  return { coreItems, pluginItems };
-}
-
 function buildRoutes(
   builtinRoutes: Record<string, ComponentType>,
   manifests: PluginManifest[],
@@ -463,7 +413,6 @@ export default function App() {
       return next;
     });
   }, []);
-  const [navMode, setNavMode] = useNavMode();
   const isMobile = useBelowBreakpoint(1024);
   const isDesktopCollapsed = collapsed && !isMobile;
   const tooltipWarmRef = useRef(0);
@@ -540,13 +489,8 @@ export default function App() {
   }, [showTokenAnalytics]);
 
   const sidebarNav = useMemo(
-    () =>
-      applyNavModeFilter(
-        partitionSidebarNav(builtinNav, manifests),
-        manifests,
-        navMode,
-      ),
-    [builtinNav, manifests, navMode],
+    () => partitionSidebarNav(builtinNav, manifests),
+    [builtinNav, manifests],
   );
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
@@ -735,12 +679,6 @@ export default function App() {
 
             <ProfileSwitcher collapsed={isDesktopCollapsed} />
 
-            <NavModeToggle
-              collapsed={isDesktopCollapsed}
-              mode={navMode}
-              onChange={setNavMode}
-            />
-
             <nav
               className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
               aria-label={t.app.navigation}
@@ -791,14 +729,12 @@ export default function App() {
               )}
             </nav>
 
-            {navMode === "pro" ? (
-              <SidebarSystemActions
-                collapsed={isDesktopCollapsed}
-                onNavigate={closeMobile}
-                status={sidebarStatus}
-                tooltipWarmRef={tooltipWarmRef}
-              />
-            ) : null}
+            <SidebarSystemActions
+              collapsed={isDesktopCollapsed}
+              onNavigate={closeMobile}
+              status={sidebarStatus}
+              tooltipWarmRef={tooltipWarmRef}
+            />
 
             <div
               className={cn(
@@ -954,82 +890,6 @@ export default function App() {
 function ProfileKeyedRoutes({ children }: { children: ReactNode }) {
   const { profile } = useProfileScope();
   return <div key={profile || "__own__"} className="contents">{children}</div>;
-}
-
-function NavModeToggle({
-  collapsed,
-  mode,
-  onChange,
-}: {
-  collapsed: boolean;
-  mode: NavMode;
-  onChange: (mode: NavMode) => void;
-}) {
-  const { t } = useI18n();
-  const labels = t.app.navMode ?? {
-    ariaLabel: "Menu mode: standard / pro",
-    label: "standard / pro",
-    standard: "standard",
-    pro: "pro",
-  };
-  const isPro = mode === "pro";
-
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 flex-col gap-1.5 border-t border-current/20 px-3 py-2.5",
-        collapsed && "lg:items-center lg:px-1",
-      )}
-    >
-      <span
-        className={cn(
-          "font-sans text-display text-[0.65rem] tracking-[0.14em] text-text-tertiary lowercase",
-          collapsed && "lg:hidden",
-        )}
-      >
-        {labels.label ?? "standard / pro"}
-      </span>
-      {/*
-        Button pair — not Radix Switch. Switch-in-label double-fired and left
-        users stuck in empty-looking standard mode.
-      */}
-      <div
-        role="group"
-        aria-label={labels.ariaLabel}
-        className={cn(
-          "flex min-w-0 items-center gap-1",
-          collapsed && "lg:flex-col",
-        )}
-      >
-        <button
-          type="button"
-          aria-pressed={!isPro}
-          onClick={() => onChange("standard")}
-          className={cn(
-            "rounded-sm px-2 py-1 font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase transition-colors",
-            !isPro
-              ? "bg-current/10 text-midground font-medium"
-              : "text-text-tertiary hover:text-midground",
-          )}
-        >
-          {labels.standard}
-        </button>
-        <button
-          type="button"
-          aria-pressed={isPro}
-          onClick={() => onChange("pro")}
-          className={cn(
-            "rounded-sm px-2 py-1 font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase transition-colors",
-            isPro
-              ? "bg-current/10 text-midground font-medium"
-              : "text-text-tertiary hover:text-midground",
-          )}
-        >
-          {labels.pro}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function SidebarNavLink({

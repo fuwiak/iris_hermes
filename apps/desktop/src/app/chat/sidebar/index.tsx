@@ -1,10 +1,5 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import {
-  isStandardDesktopPrimaryNavId,
-  isStandardNavPluginContribution,
-  STANDARD_MOYSKLAD_NAV_ITEMS
-} from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -66,7 +61,6 @@ import {
   SIDEBAR_SESSIONS_PAGE_SIZE,
   toggleSidebarMessagingOpen
 } from '@/store/layout'
-import { $navMode, setNavMode } from '@/store/nav-mode'
 import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import {
   $activeProjectId,
@@ -290,20 +284,9 @@ export function ChatSidebar({
         }))
     : []
 
-  const navMode = useStore($navMode)
-  const isProNav = navMode === 'pro'
-
   const primaryNav = useMemo(() => {
-    const all = [...SIDEBAR_NAV, ...webAppControlNav]
-
-    if (isProNav) {
-      return all
-    }
-
-    // standard: Chat + Settings — hide Discover/Office/Kanban/Schedules + other embed tools
-    // Settings arrives as `app-control-settings` in dashboard embed (see useAppControlTools).
-    return all.filter(item => isStandardDesktopPrimaryNavId(item.id))
-  }, [isProNav, webAppControlNav])
+    return [...SIDEBAR_NAV, ...webAppControlNav]
+  }, [webAppControlNav])
 
   const navLabel = (item: SidebarNavItem) => {
     const labels: Record<string, string> = {
@@ -323,7 +306,7 @@ export function ChatSidebar({
   const navContributions = useContributions(SIDEBAR_NAV_AREA)
 
   const contributedNav = useMemo<SidebarNavItem[]>(() => {
-    const fromPlugins = navContributions.flatMap(c => {
+    return navContributions.flatMap(c => {
       const data = c.data as Partial<SidebarNavContribution> | undefined
 
       if (!data?.path?.startsWith('/') || !data.label) {
@@ -332,18 +315,6 @@ export function ChatSidebar({
 
       // Primary nav already owns /kanban — skip the plugin duplicate.
       if (data.path === '/kanban') {
-        return []
-      }
-
-      // standard: MoySklad Клиенты/Рассылки only — hide Plugins and other contribs
-      if (
-        !isProNav &&
-        !isStandardNavPluginContribution({
-          id: c.id,
-          path: data.path,
-          source: c.source
-        })
-      ) {
         return []
       }
 
@@ -358,28 +329,7 @@ export function ChatSidebar({
         }
       ]
     })
-
-    // Seed Клиенты/Рассылки when the bundled plugin is late/disabled so
-    // standard mode never ships an empty MoySklad strip.
-    if (!isProNav) {
-      const have = new Set(fromPlugins.map(item => item.route).filter(Boolean))
-
-      for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
-        if (have.has(seed.path)) {
-          continue
-        }
-
-        fromPlugins.push({
-          id: `moysklad-seed:${seed.path}`,
-          label: seed.label,
-          icon: (props: { className?: string }) => <Codicon name={seed.codicon} {...props} />,
-          route: seed.path
-        })
-      }
-    }
-
-    return fromPlugins
-  }, [isProNav, navContributions])
+  }, [navContributions])
 
   const panesFlipped = useStore($panesFlipped)
   const agentsGrouped = useStore($sidebarAgentsGrouped)
@@ -1198,45 +1148,7 @@ export function ChatSidebar({
       collapsible="none"
     >
       <SidebarContent className="gap-0 overflow-hidden bg-transparent px-2.5">
-        <div className="flex shrink-0 flex-col gap-1 px-2 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)] [-webkit-app-region:no-drag]">
-          <span className="text-[0.65rem] tracking-[0.12em] text-(--ui-text-tertiary) lowercase">
-            {s.navMode.label}
-          </span>
-          {/*
-            Button pair — not Radix Switch (Switch-in-label double-fired and
-            left users stuck with an empty-looking standard menu).
-          */}
-          <div aria-label={s.navMode.ariaLabel} className="flex min-w-0 items-center gap-1" role="group">
-            <button
-              aria-pressed={!isProNav}
-              className={cn(
-                'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
-                !isProNav
-                  ? 'bg-foreground/10 font-medium text-foreground'
-                  : 'text-(--ui-text-tertiary) hover:text-foreground'
-              )}
-              onClick={() => setNavMode('standard')}
-              type="button"
-            >
-              {s.navMode.standard}
-            </button>
-            <button
-              aria-pressed={isProNav}
-              className={cn(
-                'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
-                isProNav
-                  ? 'bg-foreground/10 font-medium text-foreground'
-                  : 'text-(--ui-text-tertiary) hover:text-foreground'
-              )}
-              onClick={() => setNavMode('pro')}
-              type="button"
-            >
-              {s.navMode.pro}
-            </button>
-          </div>
-        </div>
-
-        <SidebarGroup className="shrink-0 p-0 pb-2">
+        <SidebarGroup className="shrink-0 p-0 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
               {[...primaryNav, ...contributedNav].map(item => {
