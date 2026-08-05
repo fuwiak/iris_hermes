@@ -478,6 +478,18 @@
   gap: 0.35rem;
 }
 
+.ms-audience-pick-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ms-audience-pick-head .ms-muted {
+  margin: 0;
+}
+
 .ms-audience-list {
   max-height: min(40vh, 360px);
   overflow: auto;

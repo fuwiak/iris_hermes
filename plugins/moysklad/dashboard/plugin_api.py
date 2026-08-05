@@ -21,6 +21,9 @@ except Exception:  # pragma: no cover — unit tests without fastapi
         def post(self, *_a, **_k):
             return lambda fn: fn
 
+        def put(self, *_a, **_k):
+            return lambda fn: fn
+
         def delete(self, *_a, **_k):
             return lambda fn: fn
 
@@ -57,7 +60,9 @@ from plugins.moysklad.recalculate_groups import (
 from plugins.moysklad.campaigns import (
     create_draft,
     delete_campaign,
+    get_seller_settings,
     list_campaigns,
+    save_seller_settings,
 )
 from plugins.moysklad.catalog_cache import (
     cache_backend_name,
@@ -79,6 +84,8 @@ from plugins.moysklad.outreach import (
     build_outreach_for_row,
     facts_panel,
     generate_outreach_message,
+    normalize_seller_fields,
+    rewrite_outreach_message,
 )
 
 log = logging.getLogger(__name__)
@@ -152,6 +159,8 @@ class CampaignCreateBody(BaseModel):
     client_id: str = ""
     include_preview: bool = True
     generate_ai: bool = False
+    seller_name: str = ""
+    seller_facts: str = ""
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -161,9 +170,35 @@ class OutreachGenerateBody(BaseModel):
     client_id: str = ""
     channel: str = "telegram"
     refresh_ai: bool = True
+    seller_name: str = ""
+    seller_facts: str = ""
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
+
+
+class OutreachRewriteBody(BaseModel):
+    message: str = ""
+    channel: str = "telegram"
+    client_id: str = ""
+    seller_name: str = ""
+    seller_facts: str = ""
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
+class SellerSettingsBody(BaseModel):
+    seller_name: str = ""
+    seller_facts: str = ""
+
+
+def _resolve_seller(body_name: str = "", body_facts: str = "") -> tuple[str, str]:
+    """Body fields win; empty body falls back to persisted shop settings."""
+    stored = get_seller_settings()
+    name = (body_name or "").strip() or stored.get("seller_name") or ""
+    facts = (body_facts or "").strip() or stored.get("seller_facts") or ""
+    return normalize_seller_fields(name, facts)
 
 
 def _client() -> MoySkladClient:
@@ -629,6 +664,20 @@ def get_campaigns() -> dict[str, Any]:
     return {"ok": True, "campaigns": list_campaigns()}
 
 
+@router.get("/campaigns/seller-settings")
+def get_campaign_seller_settings() -> dict[str, Any]:
+    return {"ok": True, **get_seller_settings()}
+
+
+@router.put("/campaigns/seller-settings")
+def put_campaign_seller_settings(body: SellerSettingsBody) -> dict[str, Any]:
+    saved = save_seller_settings(
+        seller_name=body.seller_name,
+        seller_facts=body.seller_facts,
+    )
+    return {"ok": True, **saved}
+
+
 @router.post("/campaigns/generate")
 def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
     """AI (or heuristic) outreach text + facts panel for one client.
@@ -648,10 +697,15 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
         row = find_row_in_catalog(catalog, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
         outreach = build_outreach_for_row(
             row,
             channel=body.channel,
             refresh_ai=bool(body.refresh_ai),
+            seller_name=seller_name,
+            seller_facts=seller_facts,
         )
         return _attach_cache_meta({"ok": True, **outreach}, meta)
     except HTTPException:
@@ -662,6 +716,50 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/generate failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/rewrite")
+def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
+    """Rewrite current draft to be more sales-oriented and human."""
+    try:
+        draft = (body.message or "").strip()
+        if not draft:
+            raise HTTPException(status_code=400, detail="message required")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail: dict[str, Any] | None = None
+        client_id = (body.client_id or "").strip()
+        meta = None
+        if client_id:
+            catalog, meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+        result = rewrite_outreach_message(
+            draft,
+            channel=body.channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+            detail=detail,
+        )
+        if meta is not None:
+            return _attach_cache_meta({"ok": True, **result}, meta)
+        return {"ok": True, **result}
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/rewrite failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -707,10 +805,21 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                 sales_filter = "direct"
             facts = facts_panel(detail)
             recommendation = str((detail.get("ai") or {}).get("recommendation") or "")
+            seller_name, seller_facts = _resolve_seller(
+                body.seller_name, body.seller_facts
+            )
+            if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+                save_seller_settings(
+                    seller_name=seller_name, seller_facts=seller_facts
+                )
             want_ai = body.mode == "auto" or body.generate_ai or not (offer or "").strip()
             if want_ai and not (offer or "").strip():
                 outreach = generate_outreach_message(
-                    detail, channel=body.channel, refresh_ai=True
+                    detail,
+                    channel=body.channel,
+                    refresh_ai=True,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
                 )
                 offer = outreach.get("message") or ""
                 facts = outreach.get("facts") or facts
@@ -765,6 +874,14 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                     )
             if body.mode == "auto" and not (offer or "").strip():
                 # Mass filter auto: shared template for the group (not per-client).
+                seller_name, _seller_facts = _resolve_seller(
+                    body.seller_name, body.seller_facts
+                )
+                intro = (
+                    f"Это {seller_name}"
+                    if seller_name
+                    else "Пишем из цветочного магазина"
+                )
                 tag_bit = (
                     f' по тегу «{body.group}»'
                     if (body.group or "").strip()
@@ -772,8 +889,8 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                 )
                 occasion = " к предстоящему поводу" if body.birthday_soon else ""
                 offer = (
-                    f"Здравствуйте! Это Iris, цветочный магазин{tag_bit}{occasion}. "
-                    "Напишите, если удобно подобрать букет — без выдуманных скидок. "
+                    f"Здравствуйте! {intro}{tag_bit}{occasion}. "
+                    "Если удобно подобрать букет — напишите, подберём спокойно. "
                     f"(Общий текст для аудитории {audience_count} чел.; "
                     "персонализация по клиентам — отдельным шагом.)"
                 )

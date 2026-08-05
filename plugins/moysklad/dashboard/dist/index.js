@@ -1322,6 +1322,7 @@
     const [salesFilter, setSalesFilter] = useState("direct");
     const [saving, setSaving] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [rewriting, setRewriting] = useState(false);
     const [counts, setCounts] = useState(null);
     const [audience, setAudience] = useState(0);
     const [audiencePreview, setAudiencePreview] = useState([]);
@@ -1331,11 +1332,16 @@
     const [audienceNextOffset, setAudienceNextOffset] = useState(0);
     const [audienceLoadingMore, setAudienceLoadingMore] = useState(false);
     const audienceLoadMoreRef = useRef(false);
+    const sellerSaveTimer = useRef(null);
     const [groupOptions, setGroupOptions] = useState([]);
     const [selectedClientId, setSelectedClientId] = useState(null);
     const [facts, setFacts] = useState(null);
     const [groundingNotes, setGroundingNotes] = useState("");
     const [genSource, setGenSource] = useState("");
+    const [sellerName, setSellerName] = useState("");
+    const [sellerFacts, setSellerFacts] = useState("");
+    const [sellerLoaded, setSellerLoaded] = useState(false);
+    const [contactsOpen, setContactsOpen] = useState(true);
     const [prefillReady, setPrefillReady] = useState(false);
 
     useEffect(function () {
@@ -1365,6 +1371,32 @@
       }
       setPrefillReady(true);
     }, []);
+
+    useEffect(function () {
+      api("/campaigns/seller-settings")
+        .then(function (data) {
+          setSellerName((data && data.seller_name) || "");
+          setSellerFacts((data && data.seller_facts) || "");
+        })
+        .catch(function () {})
+        .finally(function () {
+          setSellerLoaded(true);
+        });
+    }, []);
+
+    function persistSellerSettings(name, factsText) {
+      if (sellerSaveTimer.current) clearTimeout(sellerSaveTimer.current);
+      sellerSaveTimer.current = setTimeout(function () {
+        api("/campaigns/seller-settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            seller_name: name,
+            seller_facts: factsText,
+          }),
+        }).catch(function () {});
+      }, 450);
+    }
 
     useEffect(
       function () {
@@ -1516,6 +1548,8 @@
             client_id: clientId,
             channel: nextChannel || channel,
             refresh_ai: true,
+            seller_name: sellerName,
+            seller_facts: sellerFacts,
           }),
         })
           .then(function (data) {
@@ -1532,8 +1566,40 @@
             setGenerating(false);
           });
       },
-      [channel],
+      [channel, sellerName, sellerFacts],
     );
+
+    function humanizeDraft() {
+      if (!String(offer || "").trim()) {
+        setError("Сначала введите или сгенерируйте текст сообщения.");
+        return;
+      }
+      setRewriting(true);
+      setError("");
+      api("/campaigns/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: offer,
+          channel: channel,
+          client_id: selectedClientId || "",
+          seller_name: sellerName,
+          seller_facts: sellerFacts,
+        }),
+      })
+        .then(function (data) {
+          if (data.message) setOffer(data.message);
+          if (data.grounding_notes) setGroundingNotes(data.grounding_notes);
+          if (data.source) setGenSource(data.source);
+          if (data.facts) setFacts(data.facts);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setRewriting(false);
+        });
+    }
 
     useEffect(
       function () {
@@ -1581,6 +1647,8 @@
           personalize: personalize,
           client_id: selectedClientId || "",
           generate_ai: mode === "auto" && !String(offer || "").trim(),
+          seller_name: sellerName,
+          seller_facts: sellerFacts,
         }),
       })
         .then(function () {
@@ -1786,99 +1854,140 @@
           "div",
           { className: "ms-audience-pick" },
           h(
-            "p",
-            { className: "ms-muted" },
-            "Клиенты аудитории (поиск / подгрузка — доступны все " +
-              audience +
-              "):",
-          ),
-          h(
             "div",
-            { className: "ms-search" },
-            h("input", {
-              type: "search",
-              placeholder: "Найти клиента в аудитории…",
-              value: audienceQ,
-              onChange: function (e) {
-                setAudienceQ(e.target.value);
-              },
-            }),
-          ),
-          audiencePreview.length
-            ? h(
-                "div",
-                {
-                  className: "ms-audience-list",
-                  onScroll: function (e) {
-                    const el = e.currentTarget;
-                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120)
-                      return;
-                    if (!audienceHasMore || audienceLoadMoreRef.current) return;
-                    loadAudience({ append: true });
+            { className: "ms-audience-pick-head" },
+            h(
+              "p",
+              { className: "ms-muted" },
+              "Клиенты аудитории (поиск / подгрузка — доступны все " +
+                audience +
+                "):",
+            ),
+            audiencePreview.length
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-link-btn",
+                    onClick: function () {
+                      setContactsOpen(!contactsOpen);
+                    },
                   },
-                },
+                  contactsOpen ? "Скрыть контакты" : "Показать контакты",
+                )
+              : null,
+          ),
+          contactsOpen
+            ? h(
+                React.Fragment,
+                null,
                 h(
                   "div",
-                  { className: "ms-chips" },
-                  audiencePreview.map(function (row) {
-                    return h(
-                      "button",
-                      {
-                        key: row.id || row.name,
-                        type: "button",
-                        className:
-                          "ms-chip" +
-                          (selectedClientId === row.id ? " is-active" : ""),
-                        onClick: function () {
-                          if (!row.id) return;
-                          setSelectedClientId(row.id);
-                          setMode("auto");
-                          if (row.phone && !row.tg_nick) setChannel("whatsapp");
-                          else setChannel("telegram");
-                        },
-                      },
-                      row.name || row.phone || row.id,
-                      row.order_count != null
-                        ? h("span", null, String(row.order_count))
-                        : null,
-                    );
+                  { className: "ms-search" },
+                  h("input", {
+                    type: "search",
+                    placeholder: "Найти клиента в аудитории…",
+                    value: audienceQ,
+                    onChange: function (e) {
+                      setAudienceQ(e.target.value);
+                    },
                   }),
                 ),
-                audienceLoadingMore
+                audiencePreview.length
                   ? h(
-                      "p",
-                      { className: "ms-muted ms-load-more" },
-                      "Подгружаем клиентов…",
-                    )
-                  : null,
-                audienceHasMore
-                  ? h(
-                      "button",
+                      "div",
                       {
-                        type: "button",
-                        className: "ms-btn",
-                        disabled: audienceLoadingMore,
-                        onClick: function () {
+                        className: "ms-audience-list",
+                        onScroll: function (e) {
+                          const el = e.currentTarget;
+                          if (
+                            el.scrollHeight - el.scrollTop - el.clientHeight >
+                            120
+                          )
+                            return;
+                          if (!audienceHasMore || audienceLoadMoreRef.current)
+                            return;
                           loadAudience({ append: true });
                         },
                       },
-                      "Ещё клиенты",
+                      h(
+                        "div",
+                        { className: "ms-chips" },
+                        audiencePreview.map(function (row) {
+                          return h(
+                            "button",
+                            {
+                              key: row.id || row.name,
+                              type: "button",
+                              className:
+                                "ms-chip" +
+                                (selectedClientId === row.id
+                                  ? " is-active"
+                                  : ""),
+                              onClick: function () {
+                                if (!row.id) return;
+                                setSelectedClientId(row.id);
+                                setMode("auto");
+                                if (row.phone && !row.tg_nick)
+                                  setChannel("whatsapp");
+                                else setChannel("telegram");
+                              },
+                            },
+                            row.name || row.phone || row.id,
+                            row.order_count != null
+                              ? h("span", null, String(row.order_count))
+                              : null,
+                          );
+                        }),
+                      ),
+                      audienceLoadingMore
+                        ? h(
+                            "p",
+                            { className: "ms-muted ms-load-more" },
+                            "Подгружаем клиентов…",
+                          )
+                        : null,
+                      audienceHasMore
+                        ? h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-btn",
+                              disabled: audienceLoadingMore,
+                              onClick: function () {
+                                loadAudience({ append: true });
+                              },
+                            },
+                            "Ещё клиенты",
+                          )
+                        : h(
+                            "p",
+                            { className: "ms-muted ms-load-more" },
+                            "Показано " +
+                              audiencePreview.length +
+                              " из " +
+                              audience,
+                          ),
                     )
                   : h(
                       "p",
-                      { className: "ms-muted ms-load-more" },
-                      "Показано " +
-                        audiencePreview.length +
-                        " из " +
-                        audience,
+                      { className: "ms-muted" },
+                      loading
+                        ? "Загрузка аудитории…"
+                        : "Нет клиентов под текущие фильтры / поиск.",
                     ),
               )
             : h(
                 "p",
                 { className: "ms-muted" },
-                loading
-                  ? "Загрузка аудитории…"
-                  : "Нет клиентов под текущие фильтры / поиск.",
+                "Контакты скрыты" +
+                  (audiencePreview.length
+                    ? " · загружено " +
+                      audiencePreview.length +
+                      " из " +
+                      audience
+                    : "") +
+                  ".",
               ),
         ),
       ),
@@ -1946,6 +2055,38 @@
           h(
             "label",
             null,
+            "Имя продавца / подпись",
+            h("input", {
+              value: sellerName,
+              disabled: !sellerLoaded,
+              placeholder: "Напр. «Анна из Iris» или название магазина",
+              onChange: function (e) {
+                var v = e.target.value;
+                setSellerName(v);
+                persistSellerSettings(v, sellerFacts);
+              },
+            }),
+          ),
+          h(
+            "label",
+            null,
+            "Факты о продавце / магазине",
+            h("textarea", {
+              rows: 3,
+              value: sellerFacts,
+              disabled: !sellerLoaded,
+              placeholder:
+                "Адрес, специализация, тон, что можно упомянуть…",
+              onChange: function (e) {
+                var v = e.target.value;
+                setSellerFacts(v);
+                persistSellerSettings(sellerName, v);
+              },
+            }),
+          ),
+          h(
+            "label",
+            null,
             "Текст сообщения",
             h("textarea", {
               rows: 8,
@@ -1980,7 +2121,7 @@
                   {
                     type: "button",
                     className: "ms-btn",
-                    disabled: generating,
+                    disabled: generating || rewriting,
                     onClick: function () {
                       loadOutreach(selectedClientId, channel);
                     },
@@ -1991,9 +2132,20 @@
             h(
               "button",
               {
+                type: "button",
+                className: "ms-btn",
+                disabled: rewriting || generating || !String(offer || "").trim(),
+                onClick: humanizeDraft,
+              },
+              rewriting ? "Переписываем…" : "Продающе и по-человечески",
+            ),
+            h(
+              "button",
+              {
                 type: "submit",
                 className: "ms-btn ms-btn-primary",
-                disabled: saving || loading || generating || audience < 1,
+                disabled:
+                  saving || loading || generating || rewriting || audience < 1,
               },
               selectedClientId
                 ? "Создать 1:1 черновик"

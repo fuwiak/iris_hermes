@@ -70,7 +70,10 @@ Example prompts:
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
 `POST /clients/{id}/ai`, `POST /sync`, `GET|POST /campaigns`,
-`POST /campaigns/generate`, groups).
+`POST /campaigns/generate`, `POST /campaigns/rewrite`,
+`GET|PUT /campaigns/seller-settings`, groups).
+Seller signature fields (`seller_name`, `seller_facts`) persist in
+`$HERMES_HOME/moysklad/seller_settings.json`.
 
 ### Рассылки ↔ Клиенты
 

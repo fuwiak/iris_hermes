@@ -991,12 +991,18 @@ function CampaignsPage() {
   const [facts, setFacts] = useState<ClientFacts | null>(null)
   const [groundingNotes, setGroundingNotes] = useState('')
   const [genSource, setGenSource] = useState('')
+  const [sellerName, setSellerName] = useState('')
+  const [sellerFacts, setSellerFacts] = useState('')
+  const [sellerLoaded, setSellerLoaded] = useState(false)
+  const [contactsOpen, setContactsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [rewriting, setRewriting] = useState(false)
   const [error, setError] = useState('')
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
+  const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const prefill = readDraftPrefill()
@@ -1009,6 +1015,29 @@ function CampaignsPage() {
     }
     setPrefillReady(true)
   }, [])
+
+  useEffect(() => {
+    void call<{ seller_name?: string; seller_facts?: string }>('/campaigns/seller-settings')
+      .then(data => {
+        setSellerName(data.seller_name || '')
+        setSellerFacts(data.seller_facts || '')
+      })
+      .catch(() => undefined)
+      .finally(() => setSellerLoaded(true))
+  }, [call])
+
+  const persistSellerSettings = useCallback(
+    (name: string, factsText: string) => {
+      if (sellerSaveTimer.current) clearTimeout(sellerSaveTimer.current)
+      sellerSaveTimer.current = setTimeout(() => {
+        void call('/campaigns/seller-settings', {
+          method: 'PUT',
+          body: { seller_name: name, seller_facts: factsText }
+        }).catch(() => undefined)
+      }, 450)
+    },
+    [call]
+  )
 
   useEffect(() => {
     const t = setTimeout(() => setAudienceQDebounced(audienceQ.trim()), 280)
@@ -1133,7 +1162,13 @@ function CampaignsPage() {
             client_name?: string
           }>('/campaigns/generate', {
             method: 'POST',
-            body: { client_id: clientId, channel: nextChannel, refresh_ai: true }
+            body: {
+              client_id: clientId,
+              channel: nextChannel,
+              refresh_ai: true,
+              seller_name: sellerName,
+              seller_facts: sellerFacts
+            }
           })
           setFacts(data.facts || null)
           setGroundingNotes(data.grounding_notes || '')
@@ -1183,7 +1218,7 @@ function CampaignsPage() {
         setGenerating(false)
       }
     },
-    [call, channel, mode, selectedClientId]
+    [call, channel, mode, selectedClientId, sellerFacts, sellerName]
   )
 
   useEffect(() => {
@@ -1209,6 +1244,40 @@ function CampaignsPage() {
     await loadOutreach(selectedClientId, channel, true)
   }
 
+  const humanizeDraft = async () => {
+    if (!offer.trim()) {
+      setError('Сначала введите или сгенерируйте текст сообщения.')
+      return
+    }
+    setRewriting(true)
+    setError('')
+    try {
+      const data = await call<{
+        message?: string
+        grounding_notes?: string
+        source?: string
+        facts?: ClientFacts
+      }>('/campaigns/rewrite', {
+        method: 'POST',
+        body: {
+          message: offer,
+          channel,
+          client_id: selectedClientId || '',
+          seller_name: sellerName,
+          seller_facts: sellerFacts
+        }
+      })
+      if (data.message) setOffer(data.message)
+      if (data.grounding_notes) setGroundingNotes(data.grounding_notes)
+      if (data.source) setGenSource(data.source)
+      if (data.facts) setFacts(data.facts)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRewriting(false)
+    }
+  }
+
   const createDraft = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
@@ -1230,7 +1299,9 @@ function CampaignsPage() {
           birthday_soon: birthdaySoon,
           personalize,
           client_id: selectedClientId || '',
-          generate_ai: mode === 'auto' && !offer.trim()
+          generate_ai: mode === 'auto' && !offer.trim(),
+          seller_name: sellerName,
+          seller_facts: sellerFacts
         }
       })
       if (!selectedClientId) setOffer('')
@@ -1366,61 +1437,84 @@ function CampaignsPage() {
           </div>
         ) : null}
         <div className="ms-audience-pick">
-          <p className="ms-muted">
-            Клиенты аудитории (поиск / подгрузка — доступны все {audience}):
-          </p>
-          <div className="ms-search">
-            <input
-              onChange={e => setAudienceQ(e.target.value)}
-              placeholder="Найти клиента в аудитории по имени / телефону…"
-              type="search"
-              value={audienceQ}
-            />
+          <div className="ms-audience-pick-head">
+            <p className="ms-muted">
+              Клиенты аудитории (поиск / подгрузка — доступны все {audience}):
+            </p>
+            {audiencePreview.length ? (
+              <button
+                className="ms-link-btn"
+                onClick={() => setContactsOpen(open => !open)}
+                type="button"
+              >
+                {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
+              </button>
+            ) : null}
           </div>
-          {audiencePreview.length ? (
-            <div
-              className="ms-audience-list"
-              onScroll={event => {
-                const el = event.currentTarget
-                if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
-                if (!audienceHasMore || audienceLoadMoreRef.current) return
-                void loadAudience({ append: true })
-              }}
-            >
-              <div className="ms-chips">
-                {audiencePreview.map(row => (
-                  <button
-                    className={`ms-chip${selectedClientId === row.id ? ' is-active' : ''}`}
-                    key={row.id || row.name}
-                    onClick={() => selectAudienceClient(row)}
-                    type="button"
-                  >
-                    {row.name || row.phone || row.id}
-                    {row.order_count != null ? <span>{row.order_count}</span> : null}
-                  </button>
-                ))}
+          {contactsOpen ? (
+            <>
+              <div className="ms-search">
+                <input
+                  onChange={e => setAudienceQ(e.target.value)}
+                  placeholder="Найти клиента в аудитории по имени / телефону…"
+                  type="search"
+                  value={audienceQ}
+                />
               </div>
-              {audienceLoadingMore ? (
-                <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
-              ) : null}
-              {audienceHasMore ? (
-                <button
-                  className="ms-btn"
-                  disabled={audienceLoadingMore}
-                  onClick={() => void loadAudience({ append: true })}
-                  type="button"
+              {audiencePreview.length ? (
+                <div
+                  className="ms-audience-list"
+                  onScroll={event => {
+                    const el = event.currentTarget
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
+                    if (!audienceHasMore || audienceLoadMoreRef.current) return
+                    void loadAudience({ append: true })
+                  }}
                 >
-                  Ещё клиенты
-                </button>
-              ) : audiencePreview.length ? (
-                <p className="ms-muted ms-load-more">
-                  Показано {audiencePreview.length} из {audience}
+                  <div className="ms-chips">
+                    {audiencePreview.map(row => (
+                      <button
+                        className={`ms-chip${selectedClientId === row.id ? ' is-active' : ''}`}
+                        key={row.id || row.name}
+                        onClick={() => selectAudienceClient(row)}
+                        type="button"
+                      >
+                        {row.name || row.phone || row.id}
+                        {row.order_count != null ? <span>{row.order_count}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                  {audienceLoadingMore ? (
+                    <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
+                  ) : null}
+                  {audienceHasMore ? (
+                    <button
+                      className="ms-btn"
+                      disabled={audienceLoadingMore}
+                      onClick={() => void loadAudience({ append: true })}
+                      type="button"
+                    >
+                      Ещё клиенты
+                    </button>
+                  ) : audiencePreview.length ? (
+                    <p className="ms-muted ms-load-more">
+                      Показано {audiencePreview.length} из {audience}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="ms-muted">
+                  {loading ? 'Загрузка аудитории…' : 'Нет клиентов под текущие фильтры / поиск.'}
                 </p>
-              ) : null}
-            </div>
+              )}
+            </>
           ) : (
             <p className="ms-muted">
-              {loading ? 'Загрузка аудитории…' : 'Нет клиентов под текущие фильтры / поиск.'}
+              Контакты скрыты
+              {audiencePreview.length
+                ? ` · загружено ${audiencePreview.length} из ${audience}`
+                : ''}
+              .
             </p>
           )}
         </div>
@@ -1457,6 +1551,33 @@ function CampaignsPage() {
             </select>
           </label>
           <label>
+            Имя продавца / подпись
+            <input
+              disabled={!sellerLoaded}
+              onChange={e => {
+                const v = e.target.value
+                setSellerName(v)
+                persistSellerSettings(v, sellerFacts)
+              }}
+              placeholder='Напр. «Анна из Iris» или название магазина'
+              value={sellerName}
+            />
+          </label>
+          <label>
+            Факты о продавце / магазине
+            <textarea
+              disabled={!sellerLoaded}
+              onChange={e => {
+                const v = e.target.value
+                setSellerFacts(v)
+                persistSellerSettings(sellerName, v)
+              }}
+              placeholder="Адрес, специализация, спой тон, что можно упомянуть…"
+              rows={3}
+              value={sellerFacts}
+            />
+          </label>
+          <label>
             Текст сообщения
             <textarea
               onChange={e => setOffer(e.target.value)}
@@ -1484,14 +1605,26 @@ function CampaignsPage() {
             {selectedClientId ? (
               <button
                 className="ms-btn"
-                disabled={generating}
+                disabled={generating || rewriting}
                 onClick={() => void regenerateAi()}
                 type="button"
               >
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
-            <button className="ms-btn ms-btn-primary" disabled={saving || loading || generating || audience < 1} type="submit">
+            <button
+              className="ms-btn"
+              disabled={rewriting || generating || !offer.trim()}
+              onClick={() => void humanizeDraft()}
+              type="button"
+            >
+              {rewriting ? 'Переписываем…' : 'Продающе и по-человечески'}
+            </button>
+            <button
+              className="ms-btn ms-btn-primary"
+              disabled={saving || loading || generating || rewriting || audience < 1}
+              type="submit"
+            >
               {selectedClientId
                 ? 'Создать 1:1 черновик'
                 : mode === 'auto'
