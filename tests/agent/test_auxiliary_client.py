@@ -975,6 +975,7 @@ class TestExplicitProviderRouting:
     def test_try_openrouter_pool_exhausted_falls_back_to_env(self, monkeypatch):
         """Pool present but exhausted → fall through to OPENROUTER_API_KEY env var."""
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env-fallback")
+        monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
         with patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)), \
              patch("agent.auxiliary_client.OpenAI") as mock_openai:
             mock_client = MagicMock(name="openrouter_client")
@@ -988,6 +989,30 @@ class TestExplicitProviderRouting:
         assert mock_openai.call_args.kwargs["api_key"] == "sk-or-env-fallback"
         assert mock_openai.call_args.kwargs["base_url"] == OPENROUTER_BASE_URL
 
+    def test_try_openrouter_honours_egress_base_url_env(self, monkeypatch):
+        """Selectel Railway egress: OPENROUTER_BASE_URL must reach aux OpenRouter."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-egress")
+        proxy = "https://openrouter-egress-production.up.railway.app/t/secret/api/v1"
+        monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+        with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
+             patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            mock_client = MagicMock(name="openrouter_egress_client")
+            mock_openai.return_value = mock_client
+
+            client, _model = _try_openrouter()
+
+        assert client is mock_client
+        assert mock_openai.call_args.kwargs["base_url"] == proxy
+        assert mock_openai.call_args.kwargs["api_key"] == "sk-or-egress"
+
+    def test_try_openrouter_explicit_base_url_beats_env(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+        monkeypatch.setenv("OPENROUTER_BASE_URL", "https://env-proxy.example/api/v1")
+        with patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)), \
+             patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            mock_openai.return_value = MagicMock()
+            _try_openrouter(explicit_base_url="https://explicit-proxy.example/api/v1")
+        assert mock_openai.call_args.kwargs["base_url"] == "https://explicit-proxy.example/api/v1"
 
 class TestOpenRouterPaidLaneGuard:
     """Issue #75803: auxiliary auto-chain OpenRouter fallback must be

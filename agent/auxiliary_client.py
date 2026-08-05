@@ -120,6 +120,24 @@ from utils import base_url_host_matches, base_url_hostname, env_float, model_for
 logger = logging.getLogger(__name__)
 
 
+def _effective_openrouter_base_url(explicit_base_url: Optional[str] = None) -> str:
+    """OpenRouter API root, honouring Selectel Railway egress via env.
+
+    Main chat resolves through ``runtime_provider`` (OPENROUTER_BASE_URL env
+    wins). Auxiliary ``call_llm`` / MoySklad outreach used to hardcode
+    ``hermes_constants.OPENROUTER_BASE_URL`` (openrouter.ai), so RU Selectel
+    IPs got HTTP 403 while chat already worked through the egress proxy.
+    """
+    for candidate in (
+        (explicit_base_url or "").strip().rstrip("/"),
+        (os.environ.get("OPENROUTER_BASE_URL") or "").strip().rstrip("/"),
+        OPENROUTER_BASE_URL,
+    ):
+        if candidate:
+            return candidate
+    return OPENROUTER_BASE_URL
+
+
 # ── resolve_provider_client fall-through dedup ───────────────────────────
 # Both fall-through warning sites in resolve_provider_client (the "unknown
 # provider" and "unhandled auth_type" branches) fire on every retry of a
@@ -2464,7 +2482,11 @@ def _warn_paid_lane_once(model: str) -> None:
     )
 
 
-def _try_openrouter(explicit_api_key: str = None, model: str = None) -> Tuple[Optional[OpenAI], Optional[str]]:
+def _try_openrouter(
+    explicit_api_key: str = None,
+    model: str = None,
+    explicit_base_url: str = None,
+) -> Tuple[Optional[OpenAI], Optional[str]]:
     free_only, cfg_model = _aux_openrouter_settings()
     or_model = model or cfg_model
     if free_only and not _is_free_model(or_model):
@@ -2481,12 +2503,13 @@ def _try_openrouter(explicit_api_key: str = None, model: str = None) -> Tuple[Op
     if not _is_free_model(or_model):
         _warn_paid_lane_once(or_model)
 
+    or_base = _effective_openrouter_base_url(explicit_base_url)
     pool_present, entry = _select_pool_entry("openrouter")
     if pool_present:
         or_key = explicit_api_key or _pool_runtime_api_key(entry)
         if or_key:
-            base_url = _pool_runtime_base_url(entry, OPENROUTER_BASE_URL) or OPENROUTER_BASE_URL
-            logger.debug("Auxiliary client: OpenRouter via pool")
+            base_url = _pool_runtime_base_url(entry, or_base) or or_base
+            logger.debug("Auxiliary client: OpenRouter via pool (%s)", base_url)
             return _create_openai_client(api_key=or_key, base_url=base_url,
                            default_headers=build_or_headers()), or_model
         # Pool exists but is exhausted (no usable runtime key) — fall through to
@@ -2497,8 +2520,8 @@ def _try_openrouter(explicit_api_key: str = None, model: str = None) -> Tuple[Op
     if not or_key:
         _mark_provider_unhealthy("openrouter", ttl=60)
         return None, None
-    logger.debug("Auxiliary client: OpenRouter")
-    return _create_openai_client(api_key=or_key, base_url=OPENROUTER_BASE_URL,
+    logger.debug("Auxiliary client: OpenRouter (%s)", or_base)
+    return _create_openai_client(api_key=or_key, base_url=or_base,
                    default_headers=build_or_headers()), or_model
 
 
@@ -5846,7 +5869,10 @@ def resolve_provider_client(
 
     # ── OpenRouter ───────────────────────────────────────────
     if provider == "openrouter":
-        client, default = _try_openrouter(explicit_api_key=explicit_api_key)
+        client, default = _try_openrouter(
+            explicit_api_key=explicit_api_key,
+            explicit_base_url=explicit_base_url,
+        )
         if client is None:
             logger.warning(
                 "resolve_provider_client: openrouter requested but %s",
