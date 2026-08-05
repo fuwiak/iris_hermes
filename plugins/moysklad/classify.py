@@ -92,16 +92,28 @@ def build_enriched_catalog(
         if ch:
             channels_by_agent[agent_id].append(ch)
         amount = _minor_to_rub(order.get("sum"))
+        payed = _minor_to_rub(order.get("payedSum"))
+        # Unpaid only when payedSum is present on the API row (never invent debt).
+        unpaid = None
+        if order.get("payedSum") is not None and order.get("payedSum") != "":
+            unpaid = round(max(0.0, amount - payed), 2)
         month = _order_month(order)
         desc = str(order.get("description") or "").strip()
         oname = str(order.get("name") or "").strip()
         snippet = (desc or oname)[:120]
+        state = order.get("state")
+        state_name = ""
+        if isinstance(state, dict):
+            state_name = str(state.get("name") or "").strip()
         order_ctx_by_agent[agent_id].append({
             "id": str(order.get("id") or "").strip(),
             "Канал продаж": ch or "",
             "channel": ch or "",
             "Сумма": amount,
             "sum": amount,
+            "payed_sum": payed if order.get("payedSum") is not None else None,
+            "unpaid": unpaid,
+            "state": state_name,
             "Дата": order.get("moment"),
             "moment": order.get("moment"),
             "description": desc,
@@ -227,6 +239,7 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         "sex": row.get("Пол") or "",
         "tg_nick": row.get("ТГ ник") or "",
         "tg_conversation": row.get("TG conversation") or "",
+        "balance": row.get("balance"),
         "audience": {
             "direct": bool(audience.get("direct")),
             "marketplace": bool(audience.get("marketplace")),

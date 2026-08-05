@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from plugins.moysklad.client_card import (
     build_client_detail,
+    build_fact_blocks,
+    compute_risks,
     heuristic_ai,
     messaging_links,
     _parse_ai_json,
@@ -153,3 +155,38 @@ def test_heuristic_ai_cites_order_facts():
     assert "2025-03-01" in ai["history_profile"]
     assert "3000" in ai["recommendation"] or "3000" in ai["history_profile"]
     assert ai["source"] == "heuristic"
+
+
+def test_debt_suppresses_upsell_recommendation():
+    row = _sample_row(balance=-8000.0)
+    detail = build_client_detail(row)
+    assert detail["risks"]["has_debt"] is True
+    assert detail["risks"]["do_not_upsell"] is True
+    rec = detail["ai"]["recommendation"].lower()
+    assert "не предлагать" in rec or "upsell" in rec or "задолжен" in rec or "оплат" in rec
+    assert "букет" not in rec or "не предлагать" in rec
+    blocks = detail["fact_blocks"]
+    assert blocks["history_profile"]["title"] == "История и профиль"
+    assert blocks["occasion_intent"]["title"] == "Повод и intent"
+    assert blocks["risks"]["title"] == "Риски / ограничения"
+    assert blocks["risks"]["do_not_upsell"] is True
+
+
+def test_unpaid_order_sets_do_not_upsell():
+    row = _sample_row()
+    row["balance"] = 0
+    row["_orders_context"] = [
+        {
+            "id": "o1",
+            "moment": "2025-03-05 12:00:00",
+            "sum": 5000,
+            "payed_sum": 1000,
+            "unpaid": 4000,
+            "channel": "Telegram",
+            "product_snippet": "Розы",
+        }
+    ]
+    detail = build_client_detail(row)
+    assert detail["risks"]["unpaid_order_count"] == 1
+    assert detail["risks"]["do_not_upsell"] is True
+    assert detail["orders"][0]["unpaid"] == 4000.0

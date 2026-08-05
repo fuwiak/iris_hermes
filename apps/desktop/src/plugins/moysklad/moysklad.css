@@ -466,6 +466,90 @@
   white-space: pre-wrap;
 }
 
+.ms-fact-block {
+  border-top: 1px solid #592466;
+  padding-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ms-fact-block-risk {
+  border-left: 3px solid #e8a0a0;
+  padding-left: 0.55rem;
+}
+
+.ms-fact-block-grid {
+  font-size: 0.85rem;
+}
+
+.ms-sanity {
+  border-top: 1px solid #592466;
+  padding-top: 0.45rem;
+}
+
+.ms-sanity.is-ok {
+  border-left: 3px solid #8fd19e;
+  padding-left: 0.55rem;
+}
+
+.ms-sanity.is-bad {
+  border-left: 3px solid #e8a0a0;
+  padding-left: 0.55rem;
+}
+
+.ms-conversation {
+  border-top: 1px solid #592466;
+  padding-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ms-conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ms-conversation-list.is-compact {
+  max-height: 180px;
+}
+
+.ms-conversation-msg {
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  background: #3a1444;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+.ms-conversation-msg.is-outbound {
+  border-left: 3px solid #9ec5e8;
+}
+
+.ms-conversation-msg.is-inbound {
+  border-left: 3px solid #8fd19e;
+}
+
+.ms-conversation-msg.is-system {
+  border-left: 3px solid #c4b5a0;
+}
+
+.ms-send-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.ms-send-note textarea {
+  width: 100%;
+  min-height: 4rem;
+}
+
 .ms-grounding {
   font-size: 0.8rem;
   border-top: 1px solid #592466;

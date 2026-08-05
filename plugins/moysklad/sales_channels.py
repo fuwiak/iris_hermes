@@ -474,6 +474,15 @@ def counterparty_row_from_api(
     attrs = _attributes_by_alias(cp)
     sex = _sex_label(cp.get("sex")) or _sex_label(attrs.get("sex"))
     actual_address = str(cp.get("actualAddress") or cp.get("actual_address") or "").strip()
+    # Remap balance is in kopecks; keep raw + rub for downstream risk facts.
+    # Negative balance ⇒ counterparty owes the company (долг). Never invent.
+    balance_raw = cp.get("balance")
+    balance_rub = None
+    if balance_raw is not None and balance_raw != "":
+        try:
+            balance_rub = round(float(balance_raw) / 100.0, 2)
+        except (TypeError, ValueError):
+            balance_rub = None
     return {
         "_moysklad_id": str(cp.get("id") or ""),
         "Наименование": str(cp.get("name") or "").strip(),
@@ -501,4 +510,6 @@ def counterparty_row_from_api(
         "Заказчик или получатель": attrs.get("role") or "",
         "ТГ ник": attrs.get("tg_nick") or "",
         "TG conversation": attrs.get("tg_conversation") or "",
+        "balance": balance_rub,
+        "balance_raw": balance_raw if balance_rub is not None else None,
     }

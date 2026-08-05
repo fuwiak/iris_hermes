@@ -80,12 +80,18 @@ from plugins.moysklad.client_card import (
     find_row_in_catalog,
     generate_ai_for_detail,
 )
+from plugins.moysklad.conversations import (
+    append_message,
+    enrich_clients,
+    get_thread,
+)
 from plugins.moysklad.outreach import (
     build_outreach_for_row,
     facts_panel,
     generate_outreach_message,
     normalize_seller_fields,
     rewrite_outreach_message,
+    sanity_check_outreach_message,
 )
 
 log = logging.getLogger(__name__)
@@ -186,6 +192,34 @@ class OutreachRewriteBody(BaseModel):
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
+
+
+class OutreachSanityBody(BaseModel):
+    message: str = ""
+    channel: str = "telegram"
+    client_id: str = ""
+    seller_name: str = ""
+    seller_facts: str = ""
+    apply_revision: bool = True
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
+class ConversationAppendBody(BaseModel):
+    text: str = ""
+    direction: str = "outbound"
+    channel: str = "telegram"
+    label: str = ""
+    source: str = "manual"
+    open_deep_link: bool = False
+
+
+class MarkSentBody(BaseModel):
+    message: str = ""
+    channel: str = "telegram"
+    client_id: str = ""
+    open_deep_link: bool = True
 
 
 class SellerSettingsBody(BaseModel):
@@ -355,6 +389,7 @@ def get_clients(
             include_archived=include_archived,
             catalog=catalog,
         )
+        page["clients"] = enrich_clients(list(page.get("clients") or []))
         return _attach_cache_meta(_strip_internal(page), meta)
     except HTTPException:
         raise
@@ -402,6 +437,135 @@ def get_client_detail(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id} failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/{client_id}/conversation")
+def get_client_conversation(client_id: str) -> dict[str, Any]:
+    """Local TG/WA thread for a client (MVP store; gateway sync later)."""
+    try:
+        catalog, meta = _get_catalog(force=False)
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            # Still allow lookup by id alone (orphaned local thread).
+            thread = get_thread(client_id=client_id)
+            return {"ok": True, "conversation": thread}
+        detail = build_client_detail(row)
+        return _attach_cache_meta(
+            {"ok": True, "conversation": detail.get("conversation") or {}},
+            meta,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/{id}/conversation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/{client_id}/conversation")
+def post_client_conversation(
+    client_id: str, body: ConversationAppendBody
+) -> dict[str, Any]:
+    """Append a message (outbound/inbound) to the local client thread."""
+    try:
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="text required")
+        catalog, _meta = _get_catalog(force=False)
+        row = find_row_in_catalog(catalog, client_id)
+        phone = ""
+        tg_nick = ""
+        client_name = ""
+        deep_link = ""
+        if row is not None:
+            detail = build_client_detail(row)
+            client = detail.get("client") or {}
+            phone = str(client.get("phone") or "")
+            tg_nick = str(client.get("tg_nick") or "")
+            client_name = str(client.get("name") or "")
+            msg = detail.get("messaging") or {}
+            ch = (body.channel or "telegram").strip().lower()
+            if ch == "whatsapp":
+                deep_link = str(msg.get("whatsapp_url") or "")
+            else:
+                deep_link = str(msg.get("telegram_url") or "")
+        thread = append_message(
+            client_id=client_id,
+            text=text,
+            direction=body.direction or "outbound",
+            channel=body.channel or "telegram",
+            label=body.label or "",
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+            source=body.source or "manual",
+        )
+        return {
+            "ok": True,
+            "conversation": thread,
+            "deep_link": deep_link if body.open_deep_link else "",
+        }
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad POST /clients/{id}/conversation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/mark-sent")
+def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
+    """Record outbound outreach text into the client TG conversation thread.
+
+    Optionally returns a WhatsApp/Telegram deep-link so the UI can open the
+    chat after appending (Green API / send_message skill remain agent-side).
+    """
+    try:
+        text = (body.message or "").strip()
+        client_id = (body.client_id or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="message required")
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, meta = _get_catalog(force=False)
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        detail = build_client_detail(row)
+        client = detail.get("client") or {}
+        msg = detail.get("messaging") or {}
+        channel = (body.channel or "telegram").strip().lower()
+        deep_link = ""
+        if channel == "whatsapp":
+            deep_link = str(msg.get("whatsapp_url") or "")
+        else:
+            deep_link = str(msg.get("telegram_url") or "")
+        thread = append_message(
+            client_id=client_id,
+            text=text,
+            direction="outbound",
+            channel=channel,
+            label="",
+            phone=str(client.get("phone") or ""),
+            tg_nick=str(client.get("tg_nick") or ""),
+            client_name=str(client.get("name") or ""),
+            source="campaign_send",
+        )
+        payload = {
+            "ok": True,
+            "conversation": thread,
+            "facts": facts_panel({**detail, "conversation": thread}),
+            "deep_link": deep_link if body.open_deep_link else "",
+            "channel": channel,
+        }
+        return _attach_cache_meta(payload, meta)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mark-sent failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -760,6 +924,61 @@ def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/rewrite failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/sanity")
+def post_campaign_sanity(body: OutreachSanityBody) -> dict[str, Any]:
+    """Second-pass meaning check: debt/risk must not produce flower upsell."""
+    try:
+        draft = (body.message or "").strip()
+        if not draft:
+            raise HTTPException(status_code=400, detail="message required")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        detail: dict[str, Any] | None = None
+        client_id = (body.client_id or "").strip()
+        meta = None
+        if client_id:
+            catalog, meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+        sanity = sanity_check_outreach_message(
+            draft,
+            detail,
+            channel=body.channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        message = draft
+        if body.apply_revision and not sanity.get("ok") and sanity.get("revised_text"):
+            message = str(sanity["revised_text"])
+            sanity = {**sanity, "auto_revised": True}
+        payload = {
+            "ok": True,
+            "message": message,
+            "sanity": sanity,
+            "facts": facts_panel(detail) if detail else {},
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "channel": (body.channel or "telegram").strip().lower(),
+        }
+        if meta is not None:
+            return _attach_cache_meta(payload, meta)
+        return payload
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/sanity failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

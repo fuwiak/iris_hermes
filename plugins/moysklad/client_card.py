@@ -35,13 +35,33 @@ _RU_OCCASIONS = (
     "годовщина свадьбы (только если есть в данных)",
 )
 
+_MONTH_LABELS_RU = {
+    "01": "январь",
+    "02": "февраль",
+    "03": "март",
+    "04": "апрель",
+    "05": "май",
+    "06": "июнь",
+    "07": "июль",
+    "08": "август",
+    "09": "сентябрь",
+    "10": "октябрь",
+    "11": "ноябрь",
+    "12": "декабрь",
+}
+
+_DEBT_TAG_RE = re.compile(
+    r"(долг|задолжен|неопл|просроч|коллекц|дебитор|к\s*оплате|не\s*плат)",
+    re.IGNORECASE,
+)
+
 _AI_SYSTEM = """Ты — помощник продавца цветочного магазина (квіти/цветы), B2B и розница.
 Отвечай строго на русском.
 
 ЖЁСТКИЕ ПРАВИЛА (нарушать нельзя):
 1. Используй ТОЛЬКО факты из JSON клиента и заказов. Ничего не выдумывай.
 2. Нельзя придумывать телефон, email, Telegram, VIP, баллы лояльности, каналы,
-   заказы, даты, суммы, адреса — если поля нет или пусто, так и скажи.
+   заказы, даты, суммы, адреса, долг — если поля нет или пусто, так и скажи.
 3. Цитируй реальные даты и суммы заказов из JSON (хотя бы 1–2 примера).
 4. Если данных мало (мало заказов / нет контактов) — явно напиши «данных мало».
 5. Рекомендации: когда связаться (~5 дней до ожидаемого повода/доставки),
@@ -49,13 +69,221 @@ _AI_SYSTEM = """Ты — помощник продавца цветочного 
 6. Праздники/поводы упоминай только если факты (месяцы заказов, теги, описание)
    это поддерживают. Известные поводы: """ + ", ".join(_RU_OCCASIONS) + """.
 7. Не предлагай каналы связи, которых нет в JSON.
-8. Ответ — строго JSON без markdown:
+8. РИСКИ / ДОЛГ (поле risks в JSON): если has_debt / unpaid_order_count /
+   do_not_upsell = true — НЕ рекомендуй дорогие букеты и upsell. В recommendation
+   пиши про сверку оплаты / напоминание о задолженности / закрытие открытых
+   неоплаченных заказов. Долг не выдумывай: только если risks это показывает.
+9. Ответ — строго JSON без markdown:
 {
   "history_profile": "2-5 предложений: история и профиль",
   "occasion_intent": "2-5 предложений: повод/intent, сезонность, окна касания",
   "recommendation": "2-6 предложений: что и когда предложить продавцу"
 }
 """
+
+
+def _parse_balance_rub(raw: Any) -> Optional[float]:
+    """MoySklad balance may already be rub (catalog) or kopecks (raw API)."""
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_risks(
+    client: dict[str, Any],
+    orders: list[dict[str, Any]],
+    *,
+    data_thin: bool = False,
+) -> dict[str, Any]:
+    """Grounded debt / unpaid / upsell-block flags. Never invents debt."""
+    balance = _parse_balance_rub(client.get("balance"))
+    # Negative balance ⇒ client owes the company (MoySklad Remap semantics).
+    has_debt = balance is not None and balance < -0.009
+    debt_amount = round(abs(balance), 2) if has_debt else 0.0
+
+    unpaid_orders: list[dict[str, Any]] = []
+    unpaid_total = 0.0
+    for o in orders or []:
+        unpaid = o.get("unpaid")
+        if unpaid is None:
+            continue
+        try:
+            unpaid_f = float(unpaid)
+        except (TypeError, ValueError):
+            continue
+        if unpaid_f > 0.009:
+            unpaid_orders.append(
+                {
+                    "id": o.get("id"),
+                    "date": (o.get("date") or "")[:16],
+                    "sum": o.get("sum"),
+                    "unpaid": round(unpaid_f, 2),
+                    "product_snippet": o.get("product_snippet") or None,
+                }
+            )
+            unpaid_total += unpaid_f
+
+    tags_blob = " ".join(str(t) for t in (client.get("tags") or []))
+    state_blob = str(client.get("state") or "")
+    debt_tag = bool(_DEBT_TAG_RE.search(tags_blob + " " + state_blob))
+
+    do_not_upsell = bool(has_debt or unpaid_orders or debt_tag)
+    flags: list[str] = []
+    if has_debt:
+        flags.append(f"долг по балансу ≈ {debt_amount:.0f} ₽")
+    if unpaid_orders:
+        flags.append(
+            f"неоплаченных заказов: {len(unpaid_orders)} "
+            f"(≈ {unpaid_total:.0f} ₽)"
+        )
+    if debt_tag:
+        flags.append("в тегах/статусе есть признак долга/неоплаты")
+    if data_thin:
+        flags.append("тонкая история — осторожные выводы")
+
+    return {
+        "balance": balance,
+        "has_debt": has_debt,
+        "debt_amount": debt_amount if has_debt else None,
+        "unpaid_order_count": len(unpaid_orders),
+        "unpaid_total": round(unpaid_total, 2) if unpaid_orders else 0.0,
+        "unpaid_orders_preview": unpaid_orders[:5],
+        "debt_tag": debt_tag,
+        "do_not_upsell": do_not_upsell,
+        "data_thin_warning": bool(data_thin),
+        "flags": flags,
+    }
+
+
+def _seasonality_months(orders: list[dict[str, Any]]) -> list[str]:
+    seen: list[str] = []
+    for o in orders or []:
+        d = str(o.get("date") or "")
+        if len(d) >= 7:
+            mm = d[5:7]
+            label = _MONTH_LABELS_RU.get(mm)
+            if label and label not in seen:
+                seen.append(label)
+    return seen
+
+
+def _touch_windows(months: list[str], event_tags: list[str]) -> list[str]:
+    """Human touch-window hints grounded only on months/tags present."""
+    windows: list[str] = []
+    joined = " ".join(months).lower()
+    tags_l = " ".join(event_tags).lower()
+    if "март" in joined or "март" in tags_l or "8" in tags_l:
+        windows.append("~5 дней до 8 Марта")
+    if "феврал" in joined or "валентин" in tags_l:
+        windows.append("~5 дней до 14 февраля")
+    if "сентябр" in joined or "сентябр" in tags_l or "знан" in tags_l:
+        windows.append("~5 дней до 1 сентября")
+    if "декабр" in joined or "январ" in joined or "новый" in tags_l:
+        windows.append("окно перед НГ (декабрь)")
+    return windows
+
+
+def build_fact_blocks(detail: dict[str, Any]) -> dict[str, Any]:
+    """Three structured audit blocks for «Факты клиента» (not AI prose)."""
+    client = detail.get("client") or {}
+    stats = detail.get("stats") or {}
+    orders = list(detail.get("orders") or [])
+    risks = detail.get("risks") or compute_risks(
+        client, orders, data_thin=bool(detail.get("data_thin"))
+    )
+    buckets = client.get("tag_buckets") or {}
+    event_tags = list(buckets.get("events") or [])
+    if not event_tags:
+        event_tags = [
+            t
+            for t in (client.get("tags") or [])
+            if _EVENT_TAG_RE.search(str(t))
+        ]
+    channels = list(client.get("channels") or [])
+    seasonality = _seasonality_months(orders)
+    role = str(client.get("role") or "").strip()
+    order_count = int(stats.get("order_count") or client.get("order_count") or 0)
+    avg = float(stats.get("avg_check") or client.get("avg_check") or 0)
+    vip = bool(stats.get("vip") or client.get("vip"))
+
+    history_lines: list[dict[str, str]] = []
+    if order_count:
+        history_lines.append({"label": "Заказов", "value": str(order_count)})
+    if channels:
+        history_lines.append({"label": "Каналы", "value": ", ".join(channels)})
+    if avg > 0:
+        history_lines.append({"label": "Средний чек", "value": f"{avg:.0f} ₽"})
+    history_lines.append({"label": "VIP / статус", "value": "VIP" if vip else (str(client.get("state") or "").strip() or "не отмечен")})
+    if seasonality:
+        history_lines.append({"label": "Сезонность", "value": ", ".join(seasonality)})
+
+    occasion_lines: list[dict[str, str]] = []
+    if event_tags:
+        occasion_lines.append({"label": "Теги повода", "value": ", ".join(event_tags)})
+    windows = _touch_windows(seasonality, event_tags)
+    if windows:
+        occasion_lines.append({"label": "Окна касания", "value": "; ".join(windows)})
+    if role:
+        occasion_lines.append({"label": "Роль", "value": role})
+
+    risk_lines: list[dict[str, str]] = []
+    if risks.get("has_debt") and risks.get("debt_amount") is not None:
+        risk_lines.append(
+            {"label": "Долг (баланс)", "value": f"{float(risks['debt_amount']):.0f} ₽"}
+        )
+    elif risks.get("balance") is not None:
+        bal = float(risks["balance"])
+        risk_lines.append(
+            {
+                "label": "Баланс",
+                "value": f"{bal:.0f} ₽" + (" (долга нет)" if bal >= 0 else ""),
+            }
+        )
+    if risks.get("unpaid_order_count"):
+        risk_lines.append(
+            {
+                "label": "Неоплаченные заказы",
+                "value": (
+                    f"{risks['unpaid_order_count']} "
+                    f"(≈ {float(risks.get('unpaid_total') or 0):.0f} ₽)"
+                ),
+            }
+        )
+    if risks.get("do_not_upsell"):
+        risk_lines.append(
+            {"label": "Upsell", "value": "не предлагать дорогие букеты"}
+        )
+    if risks.get("data_thin_warning"):
+        risk_lines.append({"label": "История", "value": "данных мало"})
+
+    return {
+        "history_profile": {
+            "title": "История и профиль",
+            "empty": not history_lines,
+            "lines": history_lines,
+            "note": None if history_lines else "Нет данных по заказам/профилю",
+        },
+        "occasion_intent": {
+            "title": "Повод и intent",
+            "empty": not occasion_lines,
+            "lines": occasion_lines,
+            "note": None
+            if occasion_lines
+            else "Повода/роли в тегах и месяцах не видно",
+        },
+        "risks": {
+            "title": "Риски / ограничения",
+            "empty": not risk_lines,
+            "lines": risk_lines,
+            "note": None
+            if risk_lines
+            else "Долг и неоплаченные заказы в данных не зафиксированы",
+            "do_not_upsell": bool(risks.get("do_not_upsell")),
+        },
+    }
 
 
 def _digits_phone(phone: str) -> str:
@@ -123,11 +351,28 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
     snippet = str(item.get("product_snippet") or "").strip()
     if not snippet:
         snippet = (desc or name)[:120]
+    payed_raw = item.get("payed_sum")
+    unpaid_raw = item.get("unpaid")
+    payed_f: Optional[float] = None
+    unpaid_f: Optional[float] = None
+    if payed_raw is not None and payed_raw != "":
+        try:
+            payed_f = round(float(payed_raw), 2)
+        except (TypeError, ValueError):
+            payed_f = None
+    if unpaid_raw is not None and unpaid_raw != "":
+        try:
+            unpaid_f = round(float(unpaid_raw), 2)
+        except (TypeError, ValueError):
+            unpaid_f = None
     return {
         "id": str(item.get("id") or "").strip(),
         "name": name,
         "date": moment,
         "sum": round(amount_f, 2),
+        "payed_sum": payed_f,
+        "unpaid": unpaid_f,
+        "state": str(item.get("state") or "").strip() or None,
         "channel": channel,
         "product_snippet": snippet,
         "description": desc,
@@ -208,17 +453,18 @@ def build_client_detail(row: dict[str, Any]) -> dict[str, Any]:
 
     last = orders[0] if orders else None
     data_thin = len(orders) < 2 and not (public.get("phone") or public.get("tg_nick"))
-
-    return {
+    client_body = {
+        **public,
+        "vip": vip,
+        "loyalty_points": loyalty,
+        "primary_channel": msg.get("primary_channel") or "",
+        "tag_buckets": tag_buckets,
+        "description": str(row.get("description") or ""),
+    }
+    risks = compute_risks(client_body, orders, data_thin=data_thin)
+    detail = {
         "ok": True,
-        "client": {
-            **public,
-            "vip": vip,
-            "loyalty_points": loyalty,
-            "primary_channel": msg.get("primary_channel") or "",
-            "tag_buckets": tag_buckets,
-            "description": str(row.get("description") or ""),
-        },
+        "client": client_body,
         "orders": orders,
         "stats": {
             "avg_check": float(public.get("avg_check") or 0),
@@ -226,11 +472,35 @@ def build_client_detail(row: dict[str, Any]) -> dict[str, Any]:
             "vip": vip,
             "loyalty_points": loyalty,
             "last_order": last,
+            "balance": client_body.get("balance"),
+            "has_debt": bool(risks.get("has_debt")),
+            "do_not_upsell": bool(risks.get("do_not_upsell")),
         },
         "messaging": msg,
         "data_thin": data_thin,
-        "ai": heuristic_ai(public, orders, vip=vip, loyalty=loyalty, data_thin=data_thin),
+        "risks": risks,
+        "ai": heuristic_ai(
+            client_body,
+            orders,
+            vip=vip,
+            loyalty=loyalty,
+            data_thin=data_thin,
+            risks=risks,
+        ),
     }
+    detail["fact_blocks"] = build_fact_blocks(detail)
+    try:
+        from plugins.moysklad.conversations import conversation_for_detail
+
+        detail["conversation"] = conversation_for_detail(detail)
+    except Exception:  # pragma: no cover — store must not break card
+        detail["conversation"] = {
+            "messages": [],
+            "message_count": 0,
+            "preview": "",
+            "empty": True,
+        }
+    return detail
 
 
 def heuristic_ai(
@@ -240,6 +510,7 @@ def heuristic_ai(
     vip: bool,
     loyalty: Optional[float],
     data_thin: bool,
+    risks: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Deterministic summary/recommendation from facts only (no LLM)."""
     name = client.get("name") or "Клиент"
@@ -251,6 +522,7 @@ def heuristic_ai(
         d = str(o.get("date") or "")
         if len(d) >= 7:
             months.append(d[5:7])
+    risks = risks or compute_risks(client, orders, data_thin=data_thin)
 
     facts = []
     if n:
@@ -311,10 +583,27 @@ def heuristic_ai(
     )
     if data_thin:
         history += " Данных мало — выводы осторожные."
+    if risks.get("has_debt") and risks.get("debt_amount") is not None:
+        history += f" В данных долг ≈ {float(risks['debt_amount']):.0f} ₽."
 
     occasion = " ".join(occasion_parts) + "."
 
-    if n and avg:
+    if risks.get("do_not_upsell"):
+        bits = []
+        if risks.get("has_debt") and risks.get("debt_amount") is not None:
+            bits.append(f"долг ≈ {float(risks['debt_amount']):.0f} ₽")
+        if risks.get("unpaid_order_count"):
+            bits.append(
+                f"неоплаченных заказов: {risks['unpaid_order_count']} "
+                f"(≈ {float(risks.get('unpaid_total') or 0):.0f} ₽)"
+            )
+        rec = (
+            "НЕ предлагать дорогие букеты / upsell. "
+            "Сначала мягко напомнить о сверке оплаты / закрытии задолженности"
+            + (f" ({'; '.join(bits)})" if bits else "")
+            + ". Тон спокойный, без давления; скидки и суммы долга не выдумывать."
+        )
+    elif n and avg:
         rec = (
             f"Связаться за ~5 дней до ожидаемого повода/доставки "
             f"(опираясь на даты последних заказов). "
@@ -342,11 +631,16 @@ def heuristic_ai(
         "recommendation": rec,
         "source": "heuristic",
         "data_thin": data_thin,
+        "do_not_upsell": bool(risks.get("do_not_upsell")),
     }
 
 
 def _facts_payload(detail: dict[str, Any]) -> dict[str, Any]:
     client = detail.get("client") or {}
+    orders = list(detail.get("orders") or [])
+    risks = detail.get("risks") or compute_risks(
+        client, orders, data_thin=bool(detail.get("data_thin"))
+    )
     return {
         "client": {
             "id": client.get("id"),
@@ -368,17 +662,38 @@ def _facts_payload(detail: dict[str, Any]) -> dict[str, Any]:
             "order_count": client.get("order_count"),
             "last_order_at": client.get("last_order_at") or None,
             "primary_channel": client.get("primary_channel") or None,
+            "balance": client.get("balance"),
         },
         "orders": [
             {
                 "id": o.get("id"),
                 "date": o.get("date"),
                 "sum": o.get("sum"),
+                "payed_sum": o.get("payed_sum"),
+                "unpaid": o.get("unpaid"),
                 "channel": o.get("channel") or None,
                 "product_snippet": o.get("product_snippet") or None,
             }
-            for o in (detail.get("orders") or [])[:40]
+            for o in orders[:40]
         ],
+        "risks": {
+            "has_debt": bool(risks.get("has_debt")),
+            "debt_amount": risks.get("debt_amount"),
+            "balance": risks.get("balance"),
+            "unpaid_order_count": int(risks.get("unpaid_order_count") or 0),
+            "unpaid_total": risks.get("unpaid_total"),
+            "do_not_upsell": bool(risks.get("do_not_upsell")),
+            "flags": list(risks.get("flags") or []),
+        },
+        "conversation": {
+            "message_count": int(
+                (detail.get("conversation") or {}).get("message_count") or 0
+            ),
+            "preview": (detail.get("conversation") or {}).get("preview") or "",
+            "messages": list(
+                (detail.get("conversation") or {}).get("messages") or []
+            )[-8:],
+        },
         "data_thin": bool(detail.get("data_thin")),
     }
 
@@ -423,8 +738,14 @@ def generate_ai_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
     vip = bool(client.get("vip"))
     loyalty = client.get("loyalty_points")
     data_thin = bool(detail.get("data_thin"))
+    risks = detail.get("risks") or compute_risks(client, orders, data_thin=data_thin)
     fallback = heuristic_ai(
-        client, orders, vip=vip, loyalty=loyalty, data_thin=data_thin
+        client,
+        orders,
+        vip=vip,
+        loyalty=loyalty,
+        data_thin=data_thin,
+        risks=risks,
     )
 
     facts = _facts_payload(detail)

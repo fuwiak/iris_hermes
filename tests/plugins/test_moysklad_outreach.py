@@ -8,6 +8,7 @@ from plugins.moysklad.outreach import (
     _OUTREACH_SYSTEM,
     facts_panel,
     heuristic_outreach_message,
+    heuristic_sanity_check,
     rewrite_outreach_message,
     _parse_outreach_json,
 )
@@ -61,6 +62,75 @@ def test_facts_panel_exposes_audit_fields():
     assert panel["phone"]
     assert len(panel["orders_preview"]) >= 1
     assert panel["recommendation"]
+    # Three structured audit blocks (not AI prose alone)
+    assert panel["block_history_profile"]["title"] == "История и профиль"
+    assert panel["block_occasion_intent"]["title"] == "Повод и intent"
+    assert panel["block_risks"]["title"] == "Риски / ограничения"
+    assert panel["block_history_profile"]["empty"] is False
+    assert panel["risks"]["has_debt"] is False
+    assert panel["risks"]["do_not_upsell"] is False
+
+
+def test_facts_panel_never_invents_debt():
+    detail = build_client_detail(_sample_row())
+    panel = facts_panel(detail)
+    assert panel["risks"]["balance"] is None or panel["risks"]["balance"] >= 0
+    assert panel["risks"]["has_debt"] is False
+    assert panel["block_risks"]["do_not_upsell"] is False
+    # Empty-risk note or non-debt lines only — never a fake долг amount
+    blob = " ".join(
+        f"{x.get('label')} {x.get('value')}"
+        for x in (panel["block_risks"].get("lines") or [])
+    )
+    assert "долг по балансу" not in blob.lower() or panel["risks"]["has_debt"]
+
+
+def test_debt_blocks_flower_upsell_heuristic():
+    row = _sample_row(balance=-12500.0)
+    detail = build_client_detail(row)
+    assert detail["risks"]["has_debt"] is True
+    assert detail["risks"]["do_not_upsell"] is True
+    out = heuristic_outreach_message(detail, channel="telegram", seller_name="Анна")
+    low = out["message"].lower()
+    assert "премиум" not in low
+    assert "пион" not in low and "роз" not in low
+    assert "оплат" in low or "свер" in low
+    # Reminder must itself pass the upsell heuristic.
+    assert heuristic_sanity_check(out["message"], detail, seller_name="Анна")["ok"]
+    panel = out["facts"]
+    assert panel["block_risks"]["do_not_upsell"] is True
+    assert any(
+        "долг" in (line.get("label") or "").lower()
+        or "долг" in (line.get("value") or "").lower()
+        for line in panel["block_risks"]["lines"]
+    )
+
+
+def test_heuristic_sanity_rejects_flower_upsell_on_debt():
+    row = _sample_row(balance=-5000.0)
+    detail = build_client_detail(row)
+    bad = (
+        "Здравствуйте, Мария! Это Анна. Подберём премиум-букет из роз "
+        "к вашему поводу — напишите, забронируем."
+    )
+    sanity = heuristic_sanity_check(bad, detail, seller_name="Анна")
+    assert sanity["ok"] is False
+    assert sanity["issues"]
+    assert sanity["revised_text"]
+    rev = sanity["revised_text"].lower()
+    assert "премиум" not in rev
+    assert "оплат" in rev or "свер" in rev
+    assert heuristic_sanity_check(sanity["revised_text"], detail, seller_name="Анна")[
+        "ok"
+    ]
+
+    ok_msg = (
+        "Здравствуйте, Мария! Это Анна. Хотели мягко свериться по оплате — "
+        "напишите, когда удобно закрыть вопрос."
+    )
+    ok = heuristic_sanity_check(ok_msg, detail, seller_name="Анна")
+    assert ok["ok"] is True
+    assert not ok["issues"]
 
 
 def test_heuristic_outreach_cites_facts_not_discounts():

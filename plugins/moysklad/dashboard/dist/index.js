@@ -347,6 +347,7 @@
     var orders = (detail && detail.orders) || [];
     var ai = (detail && detail.ai) || {};
     var msg = (detail && detail.messaging) || {};
+    var conversation = (detail && detail.conversation) || null;
     var buckets = client.tag_buckets || {};
     var name = client.name || "Клиент";
 
@@ -355,6 +356,39 @@
       try {
         window.open(url, "_blank", "noopener,noreferrer");
       } catch (_) {}
+    }
+
+    function sendAndRecord(channel) {
+      var text = String(note || "").trim();
+      if (!text) {
+        setError("Введите текст — он уйдёт в историю TG conversation.");
+        return;
+      }
+      setError(null);
+      api("/clients/" + encodeURIComponent(clientId) + "/conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: text,
+          direction: "outbound",
+          channel: channel,
+          source: "client_card_send",
+          open_deep_link: true,
+        }),
+      })
+        .then(function (data) {
+          if (data.conversation) {
+            setDetail(function (prev) {
+              if (!prev) return prev;
+              return Object.assign({}, prev, { conversation: data.conversation });
+            });
+          }
+          if (data.deep_link) openUrl(data.deep_link);
+          setNote("");
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
     }
 
     return h(
@@ -427,7 +461,7 @@
                   h("span", { className: "ms-muted" }, "Email"),
                   h("span", null, client.email || "—"),
                   h("span", { className: "ms-muted" }, "Telegram"),
-                  h("span", null, client.tg_nick || client.tg_conversation || "—"),
+                  h("span", null, client.tg_nick || "—"),
                   h("span", { className: "ms-muted" }, "Тип"),
                   h("span", null, client.company_type || "—"),
                   h("span", { className: "ms-muted" }, "Статус"),
@@ -439,6 +473,14 @@
                     client.primary_channel || msg.primary_channel || "—",
                   ),
                 ),
+              ),
+              h(
+                "section",
+                { className: "ms-card-section" },
+                h(ConversationThread, {
+                  conversation: conversation,
+                  title: "TG conversation",
+                }),
               ),
               h(
                 "section",
@@ -560,26 +602,24 @@
                     {
                       type: "button",
                       className: "ms-btn ms-btn-primary",
-                      disabled: !msg.whatsapp_url,
-                      title: msg.whatsapp_url || "Телефон не указан",
+                      disabled: !String(note || "").trim(),
                       onClick: function () {
-                        openUrl(msg.whatsapp_url);
+                        sendAndRecord("whatsapp");
                       },
                     },
-                    "WhatsApp",
+                    "WhatsApp → история",
                   ),
                   h(
                     "button",
                     {
                       type: "button",
                       className: "ms-btn ms-btn-primary",
-                      disabled: !msg.telegram_url,
-                      title: msg.telegram_url || "Telegram не указан",
+                      disabled: !String(note || "").trim(),
                       onClick: function () {
-                        openUrl(msg.telegram_url);
+                        sendAndRecord("telegram");
                       },
                     },
-                    "Telegram",
+                    "Telegram → история",
                   ),
                   h(
                     "button",
@@ -1234,7 +1274,74 @@
     }
   }
 
-  function FactsPanel({ facts, notes }) {
+  function FactBlockView({ block }) {
+    if (!block) return null;
+    var riskClass = block.do_not_upsell ? " ms-fact-block-risk" : "";
+    var lines = block.lines || [];
+    var kvChildren = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i] || {};
+      kvChildren.push(h("span", { className: "ms-muted", key: "l" + i }, line.label || "—"));
+      kvChildren.push(h("span", { key: "v" + i }, line.value || "—"));
+    }
+    return h(
+      "div",
+      { className: "ms-fact-block" + riskClass },
+      h("p", { className: "ms-ai-label" }, block.title || "Факты"),
+      block.empty || !lines.length
+        ? h("p", { className: "ms-muted" }, block.note || "Нет данных")
+        : h("div", { className: "ms-kv-grid ms-fact-block-grid" }, kvChildren),
+    );
+  }
+
+  function ConversationThread({ conversation, compact, title }) {
+    var messages = (conversation && conversation.messages) || [];
+    if (!messages.length) {
+      return h(
+        "div",
+        { className: "ms-conversation" },
+        h("p", { className: "ms-ai-label" }, title || "TG conversation"),
+        h(
+          "p",
+          { className: "ms-muted" },
+          "История пуста. После отправки текст попадёт сюда; sync с gateway — позже.",
+        ),
+      );
+    }
+    var shown = compact ? messages.slice(-6) : messages;
+    return h(
+      "div",
+      { className: "ms-conversation" },
+      h(
+        "p",
+        { className: "ms-ai-label" },
+        (title || "TG conversation") +
+          (conversation.message_count != null ? " · " + conversation.message_count : ""),
+      ),
+      h(
+        "div",
+        { className: "ms-conversation-list" + (compact ? " is-compact" : "") },
+        shown.map(function (m, idx) {
+          return h(
+            "div",
+            {
+              key: m.id || String(m.ts || "") + "-" + idx,
+              className: "ms-conversation-msg is-" + (m.direction || "outbound"),
+            },
+            h(
+              "div",
+              { className: "ms-muted" },
+              (m.label || m.direction || "сообщение") +
+                (m.ts ? " · " + String(m.ts).slice(0, 16).replace("T", " ") : ""),
+            ),
+            h("div", null, m.text),
+          );
+        }),
+      ),
+    );
+  }
+
+  function FactsPanel({ facts, notes, sanity }) {
     if (!facts) {
       return h(
         "aside",
@@ -1248,6 +1355,16 @@
       );
     }
     var last = facts.last_order;
+    var historyBlock =
+      facts.block_history_profile ||
+      (facts.fact_blocks && facts.fact_blocks.history_profile) ||
+      null;
+    var occasionBlock =
+      facts.block_occasion_intent ||
+      (facts.fact_blocks && facts.fact_blocks.occasion_intent) ||
+      null;
+    var risksBlock =
+      facts.block_risks || (facts.fact_blocks && facts.fact_blocks.risks) || null;
     return h(
       "aside",
       { className: "ms-facts-panel" },
@@ -1275,6 +1392,14 @@
         h("span", { className: "ms-muted" }, "Telegram"),
         h("span", null, facts.tg_nick || "—"),
       ),
+      h(FactBlockView, { block: historyBlock }),
+      h(FactBlockView, { block: occasionBlock }),
+      h(FactBlockView, { block: risksBlock }),
+      h(ConversationThread, {
+        conversation: facts.conversation,
+        compact: true,
+        title: "TG conversation",
+      }),
       last
         ? h(
             "div",
@@ -1300,6 +1425,21 @@
             h("p", { className: "ms-facts-rec" }, facts.recommendation),
           )
         : null,
+      sanity
+        ? h(
+            "div",
+            { className: "ms-sanity" + (sanity.ok ? " is-ok" : " is-bad") },
+            h("p", { className: "ms-ai-label" }, "Проверка смысла"),
+            h(
+              "p",
+              { className: "ms-muted" },
+              sanity.ok
+                ? "Ок — явных конфликтов с долгом/рисками нет."
+                : ((sanity.issues || []).join(" ") || "Есть замечания к тексту.") +
+                    (sanity.auto_revised ? " Текст автоматически скорректирован." : ""),
+            ),
+          )
+        : null,
       notes ? h("p", { className: "ms-muted ms-grounding" }, notes) : null,
     );
   }
@@ -1323,6 +1463,8 @@
     const [saving, setSaving] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [rewriting, setRewriting] = useState(false);
+    const [checkingSanity, setCheckingSanity] = useState(false);
+    const [sanity, setSanity] = useState(null);
     const [counts, setCounts] = useState(null);
     const [audience, setAudience] = useState(0);
     const [audiencePreview, setAudiencePreview] = useState([]);
@@ -1556,6 +1698,7 @@
             setFacts(data.facts || null);
             setGroundingNotes(data.grounding_notes || "");
             setGenSource(data.source || "");
+            setSanity(data.sanity || null);
             if (data.message) setOffer(data.message);
             if (data.client_name) setTitle("Черновик · " + data.client_name);
           })
@@ -1592,12 +1735,78 @@
           if (data.grounding_notes) setGroundingNotes(data.grounding_notes);
           if (data.source) setGenSource(data.source);
           if (data.facts) setFacts(data.facts);
+          if (data.sanity) setSanity(data.sanity);
         })
         .catch(function (err) {
           setError((err && err.message) || String(err));
         })
         .finally(function () {
           setRewriting(false);
+        });
+    }
+
+    function runSanityCheck() {
+      if (!String(offer || "").trim()) {
+        setError("Сначала введите или сгенерируйте текст сообщения.");
+        return;
+      }
+      setCheckingSanity(true);
+      setError("");
+      api("/campaigns/sanity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: offer,
+          channel: channel,
+          client_id: selectedClientId || "",
+          seller_name: sellerName,
+          seller_facts: sellerFacts,
+          apply_revision: true,
+        }),
+      })
+        .then(function (data) {
+          if (data.message) setOffer(data.message);
+          if (data.sanity) setSanity(data.sanity);
+          if (data.facts && Object.keys(data.facts).length) setFacts(data.facts);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setCheckingSanity(false);
+        });
+    }
+
+    function markSentToConversation() {
+      if (!selectedClientId) {
+        setError("Выберите клиента — исходящее пишется в его TG conversation.");
+        return;
+      }
+      if (!String(offer || "").trim()) {
+        setError("Сначала введите или сгенерируйте текст сообщения.");
+        return;
+      }
+      setCheckingSanity(true);
+      setError("");
+      api("/campaigns/mark-sent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: offer,
+          channel: channel,
+          client_id: selectedClientId,
+          open_deep_link: true,
+        }),
+      })
+        .then(function (data) {
+          if (data.facts) setFacts(data.facts);
+          if (data.deep_link) window.open(data.deep_link, "_blank", "noopener");
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setCheckingSanity(false);
         });
     }
 
@@ -2121,7 +2330,7 @@
                   {
                     type: "button",
                     className: "ms-btn",
-                    disabled: generating || rewriting,
+                    disabled: generating || rewriting || checkingSanity,
                     onClick: function () {
                       loadOutreach(selectedClientId, channel);
                     },
@@ -2134,7 +2343,11 @@
               {
                 type: "button",
                 className: "ms-btn",
-                disabled: rewriting || generating || !String(offer || "").trim(),
+                disabled:
+                  rewriting ||
+                  generating ||
+                  checkingSanity ||
+                  !String(offer || "").trim(),
                 onClick: humanizeDraft,
               },
               rewriting ? "Переписываем…" : "Продающе и по-человечески",
@@ -2142,10 +2355,45 @@
             h(
               "button",
               {
+                type: "button",
+                className: "ms-btn",
+                disabled:
+                  checkingSanity ||
+                  generating ||
+                  rewriting ||
+                  !String(offer || "").trim(),
+                onClick: runSanityCheck,
+              },
+              checkingSanity ? "Проверяем…" : "Проверить смысл",
+            ),
+            selectedClientId
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-btn",
+                    disabled:
+                      checkingSanity ||
+                      generating ||
+                      rewriting ||
+                      !String(offer || "").trim(),
+                    onClick: markSentToConversation,
+                  },
+                  "Отправить → в TG историю",
+                )
+              : null,
+            h(
+              "button",
+              {
                 type: "submit",
                 className: "ms-btn ms-btn-primary",
                 disabled:
-                  saving || loading || generating || rewriting || audience < 1,
+                  saving ||
+                  loading ||
+                  generating ||
+                  rewriting ||
+                  checkingSanity ||
+                  audience < 1,
               },
               selectedClientId
                 ? "Создать 1:1 черновик"
@@ -2156,7 +2404,7 @@
             ? h("p", { className: "ms-muted" }, "Источник текста: " + genSource)
             : null,
         ),
-        h(FactsPanel, { facts: facts, notes: groundingNotes }),
+        h(FactsPanel, { facts: facts, notes: groundingNotes, sanity: sanity }),
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "Черновики"),

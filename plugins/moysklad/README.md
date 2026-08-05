@@ -71,7 +71,7 @@ Example prompts:
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
 `POST /clients/{id}/ai`, `POST /sync`, `GET|POST /campaigns`,
 `POST /campaigns/generate`, `POST /campaigns/rewrite`,
-`GET|PUT /campaigns/seller-settings`, groups).
+`POST /campaigns/sanity`, `GET|PUT /campaigns/seller-settings`, groups).
 Seller signature fields (`seller_name`, `seller_facts`) persist in
 `$HERMES_HOME/moysklad/seller_settings.json`.
 
@@ -84,7 +84,22 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
 2. **Авто (AI)** calls `POST /campaigns/generate` with client facts + card
    recommendation; text is editable before save.
 3. Side **Факты** panel shows orders / avg check / channels / tags / last order
-   so a human can audit grounding (no invented discounts/phones).
+   plus three audit blocks (**История и профиль**, **Повод и intent**,
+   **Риски / ограничения**) so a human can audit grounding (no invented
+   discounts/phones/debt).
+4. After generate/rewrite a **sanity** pass runs (LLM + heuristic fallback):
+   if facts show debt / unpaid orders, flower upsell is rejected and the text
+   is revised toward payment reconcile. Button **Проверить смысл** calls
+   `POST /campaigns/sanity` explicitly.
+5. **TG conversation** — local thread per client under
+   `$HERMES_HOME/moysklad/conversations.json` (keys: `client_id` / phone /
+   tg nick). Column + client card + facts panel show the thread. Buttons
+   **Отправить → в TG историю** / **WhatsApp|Telegram → история** append
+   outbound text (label `исходящее · …`) then open the deep-link.
+   `POST /clients/{id}/conversation`, `POST /campaigns/mark-sent`.
+   Inbound replies can be appended with `direction=inbound`. Full live pull
+   from Hermes gateway Telegram sessions is a follow-up: match
+   `session_key` / peer phone or `@nick` to the same index keys and merge.
 
 ### Clients catalog cache
 
