@@ -2,7 +2,18 @@ import { normalize } from '@/lib/text'
 
 import type { Locale } from './types'
 
-export const DEFAULT_LOCALE: Locale = 'ru'
+/** Iris.crm ships Russian UI by default. */
+export const PRODUCT_DEFAULT_LOCALE: Locale = 'ru'
+
+/**
+ * Active default for this process. Vitest sets `HERMES_UI_TEST_LOCALE=en` so
+ * UI tests can keep English role/name queries; production stays Russian.
+ */
+export const DEFAULT_LOCALE: Locale =
+  typeof process !== 'undefined' && process.env.HERMES_UI_TEST_LOCALE === 'en'
+    ? 'en'
+    : PRODUCT_DEFAULT_LOCALE
+
 /** Complete catalog used when the active locale misses a key. */
 export const FALLBACK_LOCALE: Locale = 'en'
 

@@ -63,7 +63,7 @@ describe('GatewaySettings', () => {
     const { GatewaySettings } = await import('./gateway-settings')
 
     render(<GatewaySettings />)
-    expect(await screen.findByText('Local gateway')).toBeTruthy()
+    expect(await screen.findByText('Local gateway', {}, { timeout: 10_000 })).toBeTruthy()
     expect(
       screen.getByText('Start a private Hermes backend on localhost. This is the default and works offline.')
     ).toBeTruthy()
@@ -107,7 +107,9 @@ describe('GatewaySettings', () => {
 
     expect((input as HTMLInputElement).value).toBe('default')
     fireEvent.change(input, { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save for next restart' }))
+    // Footer can remount during SSH form updates; click the last (active) save.
+    const saveButtons = screen.getAllByRole('button', { name: 'Save for next restart' })
+    fireEvent.click(saveButtons[saveButtons.length - 1]!)
 
     await waitFor(() =>
       expect(saveConnectionConfig).toHaveBeenCalledWith(

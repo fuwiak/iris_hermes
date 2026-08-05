@@ -363,10 +363,12 @@ export function ChatSidebar({
     // standard mode never ships an empty MoySklad strip.
     if (!isProNav) {
       const have = new Set(fromPlugins.map(item => item.route).filter(Boolean))
+
       for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
         if (have.has(seed.path)) {
           continue
         }
+
         fromPlugins.push({
           id: `moysklad-seed:${seed.path}`,
           label: seed.label,
@@ -1204,30 +1206,30 @@ export function ChatSidebar({
             Button pair — not Radix Switch (Switch-in-label double-fired and
             left users stuck with an empty-looking standard menu).
           */}
-          <div className="flex min-w-0 items-center gap-1" aria-label={s.navMode.ariaLabel} role="group">
+          <div aria-label={s.navMode.ariaLabel} className="flex min-w-0 items-center gap-1" role="group">
             <button
-              type="button"
               aria-pressed={!isProNav}
-              onClick={() => setNavMode('standard')}
               className={cn(
                 'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
                 !isProNav
                   ? 'bg-foreground/10 font-medium text-foreground'
                   : 'text-(--ui-text-tertiary) hover:text-foreground'
               )}
+              onClick={() => setNavMode('standard')}
+              type="button"
             >
               {s.navMode.standard}
             </button>
             <button
-              type="button"
               aria-pressed={isProNav}
-              onClick={() => setNavMode('pro')}
               className={cn(
                 'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
                 isProNav
                   ? 'bg-foreground/10 font-medium text-foreground'
                   : 'text-(--ui-text-tertiary) hover:text-foreground'
               )}
+              onClick={() => setNavMode('pro')}
+              type="button"
             >
               {s.navMode.pro}
             </button>

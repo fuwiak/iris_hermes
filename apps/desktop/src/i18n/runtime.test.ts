@@ -28,12 +28,11 @@ describe('desktop i18n runtime translator', () => {
     expect(translateNow('notifications.updateReadyMessage', 2)).toBe('2 new changes available.')
   })
 
-  it('falls back to English UI strings for Russian until a full catalog ships', () => {
+  it('serves the Russian catalog when the runtime locale is ru', () => {
     setRuntimeI18nLocale('ru')
-    expect(translateNow('common.save')).toBe('Save')
-    expect(translateNow('cron.promptPlaceholder')).toBe(TRANSLATIONS.en.cron.promptPlaceholder)
-    expect(translateNow('settings.appearance.title')).toBe('Appearance')
-    expect(translateNow('settings.nav.providers')).toBe('Providers')
+    expect(translateNow('common.save')).toBe('Сохранить')
+    expect(translateNow('settings.appearance.title')).toBe(TRANSLATIONS.ru.settings.appearance.title)
+    expect(translateNow('settings.nav.providers')).toBe(TRANSLATIONS.ru.settings.nav.providers)
   })
 
   it('keeps translated settings field copy addressable from schema keys', () => {

@@ -15,7 +15,8 @@ export {
   isSupportedLocaleValue,
   LOCALE_OPTIONS,
   localeConfigValue,
-  normalizeLocale
+  normalizeLocale,
+  PRODUCT_DEFAULT_LOCALE
 } from './languages'
 export {
   createPluginI18n,

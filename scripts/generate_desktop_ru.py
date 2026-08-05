@@ -51,7 +51,7 @@ MANUAL: dict[str, str] = {
 
 cache: dict[str, str] = dict(MANUAL)
 if CACHE_FILE.exists():
-    cache.update(json.loads(CACHE_FILE.read_text()))
+    cache.update(json.loads(CACHE_FILE.read_text(encoding="utf-8")))
 
 _tls_translator: GoogleTranslator | None = None
 
@@ -64,7 +64,7 @@ def get_translator() -> GoogleTranslator:
 
 
 def save_cache() -> None:
-    CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=0))
+    CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=0), encoding="utf-8")
 
 
 def protect(text: str) -> tuple[str, list[tuple[str, str]]]:
@@ -218,7 +218,7 @@ def emit_root(data: dict[str, Any], indent: int = 1) -> str:
 
 
 def main() -> None:
-    data: dict[str, Any] = json.loads(EN_JSON.read_text())
+    data: dict[str, Any] = json.loads(EN_JSON.read_text(encoding="utf-8"))
     all_strings: set[str] = set()
     collect_strings(data, all_strings)
     parallel_translate(sorted(all_strings, key=len))
@@ -228,7 +228,7 @@ def main() -> None:
         "export const ru = defineLocale("
     )
     content = header + emit_root(data) + ")\n"
-    OUT.write_text(content)
+    OUT.write_text(content, encoding="utf-8")
     save_cache()
     print(f"Wrote {OUT}: {len(content.splitlines())} lines, {OUT.stat().st_size} bytes")
 

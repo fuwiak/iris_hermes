@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HermesConfigRecord } from '@/hermes'
 
+import { TRANSLATIONS } from './catalog'
 import { type I18nConfigClient, I18nProvider, useI18n } from './context'
+import { DEFAULT_LOCALE, PRODUCT_DEFAULT_LOCALE } from './languages'
 import type { Locale } from './types'
 
 function LanguageProbe({ target = 'ru' }: { target?: Locale }) {
@@ -30,15 +32,18 @@ describe('I18nProvider', () => {
     vi.restoreAllMocks()
   })
 
-  it('defaults to Russian without a config client', () => {
+  it('defaults to DEFAULT_LOCALE without a config client', () => {
+    // Vitest forces DEFAULT_LOCALE=en via HERMES_UI_TEST_LOCALE; product is ru.
+    expect(PRODUCT_DEFAULT_LOCALE).toBe('ru')
+
     render(
       <I18nProvider configClient={null}>
         <LanguageProbe />
       </I18nProvider>
     )
 
-    expect(screen.getByTestId('locale').textContent).toBe('ru')
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(screen.getByTestId('locale').textContent).toBe(DEFAULT_LOCALE)
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS[DEFAULT_LOCALE].language.label)
   })
 
   it('normalizes an initial locale alias and switches translations', async () => {
@@ -49,13 +54,12 @@ describe('I18nProvider', () => {
     )
 
     expect(screen.getByTestId('locale').textContent).toBe('ru')
-    // Desktop Russian currently falls back to English UI strings.
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS.ru.language.label)
 
     fireEvent.click(screen.getByRole('button', { name: 'switch' }))
 
     await waitFor(() => expect(screen.getByTestId('locale').textContent).toBe('en'))
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS.en.language.label)
   })
 
   it('loads the initial locale from display.language config', async () => {
@@ -73,7 +77,7 @@ describe('I18nProvider', () => {
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 
     expect(screen.getByTestId('locale').textContent).toBe('ru')
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS.ru.language.label)
     expect(configClient.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -91,8 +95,9 @@ describe('I18nProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 
-    expect(screen.getByTestId('locale').textContent).toBe('ru')
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    // Config failure resets to process DEFAULT_LOCALE (en under Vitest).
+    expect(screen.getByTestId('locale').textContent).toBe(DEFAULT_LOCALE)
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS[DEFAULT_LOCALE].language.label)
     expect(configClient.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -110,8 +115,9 @@ describe('I18nProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 
-    expect(screen.getByTestId('locale').textContent).toBe('ru')
-    expect(screen.getByTestId('label').textContent).toBe('Language')
+    // Unsupported config language → normalizeLocale → DEFAULT_LOCALE.
+    expect(screen.getByTestId('locale').textContent).toBe(DEFAULT_LOCALE)
+    expect(screen.getByTestId('label').textContent).toBe(TRANSLATIONS[DEFAULT_LOCALE].language.label)
     expect(configClient.saveConfig).not.toHaveBeenCalled()
   })
 

@@ -178,7 +178,10 @@ function closeBrowserShellSession(id: string, info?: { code: number | null; sign
 
 function createBrowserShellTerminalApi() {
   return {
-    cwd: async (_id: string) => null as string | null,
+    cwd: async (_id: string) => {
+      void _id;
+      return null as string | null;
+    },
     dispose: async (id: string) => {
       closeBrowserShellSession(String(id || ""));
       return true;
