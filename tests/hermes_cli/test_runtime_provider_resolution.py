@@ -784,6 +784,27 @@ def test_openrouter_base_url_proxy_keeps_openrouter_key(monkeypatch):
     assert resolved["api_key"] == "sk-or-v1-proxy-test"
 
 
+def test_openrouter_base_url_env_wins_over_stale_config(monkeypatch):
+    """Stale volume config.yaml pointing at openrouter.ai must not beat
+    OPENROUTER_BASE_URL (RU Selectel egress via Railway)."""
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openrouter")
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {
+        "provider": "auto",
+        "base_url": "https://openrouter.ai/api/v1",
+    })
+    proxy = "https://openrouter-egress-production.up.railway.app/t/x/api/v1"
+    monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-env-wins")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
+
+    resolved = rp.resolve_runtime_provider(requested="auto")
+
+    assert resolved["base_url"] == proxy
+    assert "openrouter.ai" not in resolved["base_url"]
+    assert resolved["api_key"] == "sk-or-v1-env-wins"
+
+
 
 
 

@@ -1,13 +1,17 @@
-# Railway deploy — slim dashboard image (Dockerfile.railway).
-# Persist state via Railway Volume mounted at /opt/data (HERMES_HOME).
-# Public URL: https://hermes-agent-pasha-production.up.railway.app
+# Railway project hermes-agent-pasha — OpenRouter egress ONLY.
+# Hermes UI runs on Selectel (hermes-agent-ai.ru); do not redeploy the old
+# Dockerfile.railway dashboard image here.
+#
+# Preferred: set service Root Directory to deploy/openrouter-egress and use
+# that directory's railway.toml. This root file is a safety net so
+# `railway up` from the repo root still builds the Caddy egress, not Hermes.
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.railway"
+dockerfilePath = "deploy/openrouter-egress/Dockerfile"
 
 [deploy]
-healthcheckPath = "/"
-healthcheckTimeout = 300
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

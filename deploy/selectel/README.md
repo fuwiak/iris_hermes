@@ -60,10 +60,15 @@ CSRF, Caddy, or Cloudflare. Common causes on this VDS:
 only LLM traffic leaves via Railway’s non-RU IP):
 
 1. Deploy `deploy/openrouter-egress/` as a Railway service (see that README).
-2. Set GitHub secret `SELECTEL_IRIS_OPENROUTER_BASE_URL` to
-   `https://<railway-host>/t/<EGRESS_TOKEN>/api/v1` (and keep
-   `SELECTEL_IRIS_OPENROUTER_API_KEY`).
-3. Push to `main` (deploy patches `/root/deploy.env`; entrypoint syncs volume).
+2. Set GitHub secrets:
+   - `SELECTEL_IRIS_OPENROUTER_BASE_URL` =
+     `https://<railway-host>/t/<EGRESS_TOKEN>/api/v1`
+   - `SELECTEL_IRIS_OPENROUTER_API_KEY` (working key)
+3. Push to `main` (deploy patches `/root/deploy.env`; entrypoint syncs volume
+   `.env` **and** rewrites `config.yaml` `model.base_url` to the egress URL).
+
+`OPENROUTER_BASE_URL` always wins over a stale `model.base_url:
+https://openrouter.ai/api/v1` on the volume.
 
 Other fixes:
 

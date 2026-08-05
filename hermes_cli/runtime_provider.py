@@ -1209,9 +1209,11 @@ def _resolve_openrouter_runtime(
 
     # Use config base_url when available and the provider context matches.
     # OPENAI_BASE_URL env var is no longer consulted — config.yaml is
-    # the single source of truth for endpoint URLs.
+    # the single source of truth for endpoint URLs *unless* OPENROUTER_BASE_URL
+    # is set (Selectel RU → Railway egress proxy must win over a stale
+    # model.base_url: https://openrouter.ai/api/v1 on the volume).
     use_config_base_url = False
-    if cfg_base_url.strip() and not explicit_base_url:
+    if cfg_base_url.strip() and not explicit_base_url and not env_openrouter_base_url:
         if requested_norm == "auto":
             if not cfg_provider or cfg_provider == "auto":
                 use_config_base_url = True
@@ -1223,8 +1225,8 @@ def _resolve_openrouter_runtime(
     base_url = (
         (explicit_base_url or "").strip()
         or env_custom_base_url
-        or (cfg_base_url.strip() if use_config_base_url else "")
         or env_openrouter_base_url
+        or (cfg_base_url.strip() if use_config_base_url else "")
         or OPENROUTER_BASE_URL
     ).rstrip("/")
 

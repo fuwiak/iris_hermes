@@ -30,15 +30,19 @@ fi
 
 # Iris defaults on the persistent volume: violet dashboard theme + MoySklad
 # plugin allow-list. Safe to re-run — never overrides an explicit disable.
+# OPENROUTER_BASE_URL (Railway egress) overrides model.base_url so Selectel
+# never dials openrouter.ai from a RU datacenter IP (HTTP 403 security policy).
+OR_BASE_URL="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
+OR_BASE_URL="${OR_BASE_URL%/}"
 if [ -x "$PY" ] && [ -f "$INSTALL_DIR/scripts/docker_config_migrate.py" ]; then
   if [ ! -f "$HERMES_HOME/config.yaml" ]; then
     # Minimal first-boot config so migrate + deep-merge have a file to own.
-    cat >"$HERMES_HOME/config.yaml" <<'YAML'
+    cat >"$HERMES_HOME/config.yaml" <<YAML
 _config_version: 34
 model:
   default: deepseek/deepseek-v4-flash-0731
   provider: openrouter
-  base_url: https://openrouter.ai/api/v1
+  base_url: ${OR_BASE_URL}
 agent:
   reasoning_effort: medium
 auxiliary:
@@ -59,9 +63,11 @@ YAML
     >/dev/null 2>&1 || true
   # Force-merge Iris theme + moysklad enable when volume has a stale empty list
   # (disk `plugins.enabled: []` replaces DEFAULT_CONFIG and hides MoySklad).
-  HERMES_HOME="$HERMES_HOME" "$PY" - <<'PY' || true
+  # Also pin model.base_url to OPENROUTER_BASE_URL when set (egress proxy).
+  OPENROUTER_BASE_URL="$OR_BASE_URL" HERMES_HOME="$HERMES_HOME" "$PY" - <<'PY' || true
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -105,12 +111,18 @@ if "moysklad" not in disabled_set and "moysklad" not in enabled:
 # Default chat model: DeepSeek V4 Flash 0731 · Med (OpenRouter catalog id).
 # Only fill when missing/empty — never clobber an explicit user pick.
 _IRIS_MODEL = "deepseek/deepseek-v4-flash-0731"
+_DEFAULT_OR = "https://openrouter.ai/api/v1"
+_or_base = (os.environ.get("OPENROUTER_BASE_URL") or _DEFAULT_OR).strip().rstrip("/") or _DEFAULT_OR
+# Env OPENROUTER_BASE_URL is authoritative on Selectel (Railway egress). When
+# it differs from the default, always rewrite model.base_url — even if the
+# volume still points at openrouter.ai from an older boot.
+_force_or_base = _or_base != _DEFAULT_OR
 model_cfg = raw.get("model")
 if model_cfg is None or model_cfg == "" or model_cfg == {}:
     raw["model"] = {
         "default": _IRIS_MODEL,
         "provider": "openrouter",
-        "base_url": "https://openrouter.ai/api/v1",
+        "base_url": _or_base,
     }
     changed = True
 elif isinstance(model_cfg, dict):
@@ -118,13 +130,17 @@ elif isinstance(model_cfg, dict):
     if not current:
         model_cfg["default"] = _IRIS_MODEL
         model_cfg.setdefault("provider", "openrouter")
-        model_cfg.setdefault("base_url", "https://openrouter.ai/api/v1")
+        model_cfg.setdefault("base_url", _or_base)
+        changed = True
+    if _force_or_base and (model_cfg.get("base_url") or "").rstrip("/") != _or_base:
+        model_cfg["base_url"] = _or_base
+        model_cfg.setdefault("provider", "openrouter")
         changed = True
 elif isinstance(model_cfg, str) and not model_cfg.strip():
     raw["model"] = {
         "default": _IRIS_MODEL,
         "provider": "openrouter",
-        "base_url": "https://openrouter.ai/api/v1",
+        "base_url": _or_base,
     }
     changed = True
 
