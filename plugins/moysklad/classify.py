@@ -124,10 +124,21 @@ def build_enriched_catalog(
         amounts = sums_by_agent.get(cp_id) or []
         order_count = len(ctx) if ctx else len(amounts)
         avg_check = (sum(amounts) / len(amounts)) if amounts else 0.0
+        last_order = ""
+        for item in ctx:
+            moment = str(
+                (item or {}).get("moment")
+                or (item or {}).get("Дата")
+                or ""
+            ).strip()
+            if moment and moment > last_order:
+                last_order = moment
         row["Всего заказов"] = order_count
         row["Средний чек"] = round(avg_check, 2)
+        row["Дата последнего заказа"] = last_order
         row["order_count"] = order_count
         row["avg_check"] = round(avg_check, 2)
+        row["last_order_at"] = last_order
         if not row.get("Наименование") and cp_id in names_by_agent:
             row["Наименование"] = names_by_agent[cp_id]
         desc = cp.get("description")
@@ -165,8 +176,12 @@ def _row_matches_query(row: dict[str, Any], q: str) -> bool:
         for x in (
             row.get("Наименование"),
             row.get("Телефон"),
+            row.get("email") or row.get("E-mail"),
             row.get("_moysklad_tags_display"),
-            row.get("Статус контрагента"),
+            row.get("Статус контрагента") or row.get("Статус"),
+            row.get("ТГ ник"),
+            row.get("TG conversation"),
+            row.get("Фактический адрес"),
         )
     ).lower()
     return needle in blob
@@ -175,16 +190,37 @@ def _row_matches_query(row: dict[str, Any], q: str) -> bool:
 def _public_client(row: dict[str, Any]) -> dict[str, Any]:
     channels = unique_sales_channels(row)
     audience = row.get("_audience") or {}
+    sales_type = (
+        row.get("Тип канала продаж")
+        or row.get("Тип продаж")
+        or sales_channel_type_from_channels(channels)
+    )
+    channel = row.get("Канал продаж") or (channels[0] if channels else "")
     return {
         "id": row.get("_moysklad_id") or "",
         "name": row.get("Наименование") or "",
         "phone": row.get("Телефон") or "",
-        "state": row.get("_moysklad_state") or "",
+        "email": row.get("email") or row.get("E-mail") or "",
+        "state": row.get("_moysklad_state") or row.get("Статус") or "",
         "tags": list(row.get("_moysklad_tags") or []),
+        "groups": row.get("Группы")
+        or ", ".join(str(t) for t in (row.get("_moysklad_tags") or []) if str(t).strip()),
         "channels": channels,
-        "sales_type": sales_channel_type_from_channels(channels),
+        "channel": channel,
+        "sales_type": sales_type,
         "order_count": int(row.get("order_count") or row.get("Всего заказов") or 0),
         "avg_check": float(row.get("avg_check") or row.get("Средний чек") or 0),
+        "last_order_at": row.get("last_order_at")
+        or row.get("Дата последнего заказа")
+        or "",
+        "bonus_points": row.get("Баллы начисленные") or "",
+        "role": row.get("Заказчик или получатель") or "",
+        "actual_address": row.get("Фактический адрес") or "",
+        "actual_address_comment": row.get("Фактический адрес (Комментарий)") or "",
+        "company_type": row.get("Тип контрагента") or "",
+        "sex": row.get("Пол") or "",
+        "tg_nick": row.get("ТГ ник") or "",
+        "tg_conversation": row.get("TG conversation") or "",
         "audience": {
             "direct": bool(audience.get("direct")),
             "marketplace": bool(audience.get("marketplace")),

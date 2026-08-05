@@ -138,6 +138,51 @@
     );
   }
 
+  function cell(value) {
+    if (value == null || value === "") {
+      return h("span", { className: "ms-muted" }, "—");
+    }
+    return String(value);
+  }
+
+  function formatDate(value) {
+    if (!value) return "";
+    var s = String(value);
+    // MoySklad moments look like 2024-05-01 12:30:00.000 — show date (+ time if present)
+    if (s.length >= 10) return s.slice(0, 16).replace("T", " ");
+    return s;
+  }
+
+  var CLIENT_COLUMNS = [
+    { key: "name", label: "Наименование" },
+    { key: "phone", label: "Телефон" },
+    { key: "state", label: "Статус" },
+    { key: "sales_type", label: "Тип канала продаж" },
+    { key: "channel", label: "Канал продаж", from: function (c) {
+      return c.channel || ((c.channels || []).length ? c.channels.join(", ") : "");
+    } },
+    { key: "avg_check", label: "Средний чек", from: function (c) { return money(c.avg_check); } },
+    { key: "last_order_at", label: "Дата последнего заказа", from: function (c) {
+      return formatDate(c.last_order_at);
+    } },
+    { key: "order_count", label: "Всего заказов", from: function (c) {
+      return String(c.order_count || 0);
+    } },
+    { key: "bonus_points", label: "Баллы начисленные" },
+    { key: "groups", label: "Группы", from: function (c) {
+      if (c.groups) return c.groups;
+      return (c.tags || []).join(", ");
+    } },
+    { key: "role", label: "Заказчик или получатель" },
+    { key: "actual_address", label: "Фактический адрес" },
+    { key: "actual_address_comment", label: "Фактический адрес (Комментарий)" },
+    { key: "company_type", label: "Тип контрагента" },
+    { key: "sex", label: "Пол" },
+    { key: "email", label: "E-mail" },
+    { key: "tg_nick", label: "ТГ ник" },
+    { key: "tg_conversation", label: "TG conversation" },
+  ];
+
   function ClientsTable({ clients }) {
     if (!clients || !clients.length) {
       return h("p", { className: "ms-muted" }, "Клиенты не найдены.");
@@ -154,12 +199,9 @@
           h(
             "tr",
             null,
-            h("th", null, "Клиент"),
-            h("th", null, "Группы"),
-            h("th", null, "Каналы"),
-            h("th", null, "Заказы"),
-            h("th", null, "Средний чек"),
-            h("th", null, "Статус"),
+            CLIENT_COLUMNS.map(function (col) {
+              return h("th", { key: col.key }, col.label);
+            }),
           ),
         ),
         h(
@@ -169,31 +211,10 @@
             return h(
               "tr",
               { key: c.id },
-              h(
-                "td",
-                null,
-                h("div", null, c.name || "—"),
-                c.phone ? h("div", { className: "ms-muted" }, c.phone) : null,
-              ),
-              h(
-                "td",
-                null,
-                (c.tags || []).length
-                  ? (c.tags || []).map(function (t) {
-                      return h("span", { key: t, className: "ms-tag-pill" }, t);
-                    })
-                  : h("span", { className: "ms-muted" }, "—"),
-              ),
-              h(
-                "td",
-                null,
-                (c.channels || []).length
-                  ? (c.channels || []).join(", ")
-                  : h("span", { className: "ms-muted" }, "—"),
-              ),
-              h("td", null, String(c.order_count || 0)),
-              h("td", null, money(c.avg_check)),
-              h("td", null, c.state || h("span", { className: "ms-muted" }, "—")),
+              CLIENT_COLUMNS.map(function (col) {
+                var raw = col.from ? col.from(c) : c[col.key];
+                return h("td", { key: col.key }, cell(raw));
+              }),
             );
           }),
         ),
@@ -407,13 +428,27 @@
       [offset, matchedTotal],
     );
 
+    var syncedLabel =
+      (data && (data.synced_at_label || data.synced_at)) || "";
+    var cacheHint = data
+      ? (data.cached ? "из кэша" : "свежая выгрузка") +
+        (syncedLabel ? " · синхр. " + syncedLabel : "")
+      : "";
+
     return h(
       "div",
-      { className: "ms-clients" },
+      { className: "ms-clients", "data-selectable-text": "true" },
       h(
         "div",
         { className: "ms-clients-header" },
-        h("h1", { className: "ms-clients-title" }, "Клиенты"),
+        h(
+          "div",
+          null,
+          h("h1", { className: "ms-clients-title" }, "Клиенты"),
+          cacheHint
+            ? h("p", { className: "ms-muted ms-sync-meta" }, cacheHint)
+            : null,
+        ),
         h(
           "div",
           { className: "ms-clients-actions" },
@@ -424,7 +459,7 @@
               className: "ms-btn",
               disabled: loading,
               onClick: function () {
-                load({ offset: offset, refresh: true });
+                load({ offset: offset });
               },
             },
             "Обновить",
@@ -434,6 +469,19 @@
             {
               type: "button",
               className: "ms-btn ms-btn-primary",
+              disabled: loading,
+              title: "Принудительно скачать данные из МойСклад и обновить кэш",
+              onClick: function () {
+                load({ offset: 0, refresh: true });
+              },
+            },
+            "Синхронизация",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-btn",
               disabled: loading,
               onClick: openAssign,
             },
@@ -785,7 +833,7 @@
 
     return h(
       "div",
-      { className: "ms-shell" },
+      { className: "ms-shell", "data-selectable-text": "true" },
       h(
         "nav",
         { className: "ms-topnav", "aria-label": "МойСклад" },

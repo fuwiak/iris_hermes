@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 try:
     from fastapi import APIRouter, HTTPException, Query
@@ -53,6 +53,15 @@ from plugins.moysklad.campaigns import (
     delete_campaign,
     list_campaigns,
 )
+from plugins.moysklad.catalog_cache import (
+    cache_backend_name,
+    cache_key,
+    cache_ttl_seconds,
+    format_synced_at,
+    get_cached,
+    invalidate,
+    set_cached,
+)
 from plugins.moysklad.classify import build_enriched_catalog, clients_page
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
 
@@ -60,11 +69,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-CACHE_TTL_SECONDS = 60
-_CACHE_LOCK = threading.Lock()
-_CATALOG_CACHE: Optional[dict[str, Any]] = None
-_CATALOG_CACHE_AT = 0.0
-_CATALOG_CACHE_KEY: tuple[Any, ...] = ()
+_SYNC_LOCK = threading.Lock()
 
 
 class AssignBody(BaseModel):
@@ -115,41 +120,89 @@ def _get_catalog(
     max_counterparties: int,
     include_archived: bool,
     force: bool = False,
-) -> dict[str, Any]:
-    global _CATALOG_CACHE, _CATALOG_CACHE_AT, _CATALOG_CACHE_KEY
-    key = (max_orders, max_counterparties, include_archived)
-    now = time.time()
-    with _CACHE_LOCK:
-        if (
-            not force
-            and _CATALOG_CACHE is not None
-            and _CATALOG_CACHE_KEY == key
-            and (now - _CATALOG_CACHE_AT) < CACHE_TTL_SECONDS
-        ):
-            return _CATALOG_CACHE
-    client = _client()
-    catalog = build_enriched_catalog(
-        client,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return ``(catalog, meta)`` where meta has sync/cache fields.
+
+    Fresh durable cache is served without hitting MoySklad unless
+    ``force=True`` (Синхронизация) or the TTL expired.
+    """
+    key = cache_key(
         max_orders=max_orders,
         max_counterparties=max_counterparties,
         include_archived=include_archived,
     )
-    with _CACHE_LOCK:
-        _CATALOG_CACHE = catalog
-        _CATALOG_CACHE_AT = time.time()
-        _CATALOG_CACHE_KEY = key
-    return catalog
+    if not force:
+        envelope = get_cached(key)
+        if envelope is not None:
+            synced_at = float(envelope.get("synced_at") or 0)
+            return envelope["catalog"], {
+                "cached": True,
+                "synced_at": synced_at,
+                "synced_at_label": format_synced_at(synced_at),
+                "cache_ttl_seconds": int(
+                    envelope.get("ttl_seconds") or cache_ttl_seconds()
+                ),
+                "cache_backend": cache_backend_name(),
+            }
+
+    with _SYNC_LOCK:
+        # Another request may have filled the cache while we waited.
+        if not force:
+            envelope = get_cached(key)
+            if envelope is not None:
+                synced_at = float(envelope.get("synced_at") or 0)
+                return envelope["catalog"], {
+                    "cached": True,
+                    "synced_at": synced_at,
+                    "synced_at_label": format_synced_at(synced_at),
+                    "cache_ttl_seconds": int(
+                        envelope.get("ttl_seconds") or cache_ttl_seconds()
+                    ),
+                    "cache_backend": cache_backend_name(),
+                }
+
+        client = _client()
+        catalog = build_enriched_catalog(
+            client,
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+        )
+        envelope = set_cached(key, catalog)
+        synced_at = float(envelope.get("synced_at") or time.time())
+        return catalog, {
+            "cached": False,
+            "synced_at": synced_at,
+            "synced_at_label": format_synced_at(synced_at),
+            "cache_ttl_seconds": int(
+                envelope.get("ttl_seconds") or cache_ttl_seconds()
+            ),
+            "cache_backend": cache_backend_name(),
+        }
 
 
-def _invalidate_cache() -> None:
-    global _CATALOG_CACHE, _CATALOG_CACHE_AT
-    with _CACHE_LOCK:
-        _CATALOG_CACHE = None
-        _CATALOG_CACHE_AT = 0.0
+def _invalidate_cache(
+    *,
+    max_orders: int = 5000,
+    max_counterparties: int = 0,
+    include_archived: bool = False,
+) -> None:
+    invalidate(
+        cache_key(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+        )
+    )
 
 
 def _strip_internal(page: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in page.items() if not k.startswith("_")}
+
+
+def _attach_cache_meta(out: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    out.update(meta)
+    return out
 
 
 @router.get("/health")
@@ -175,7 +228,7 @@ def get_clients(
     refresh: bool = Query(False),
 ) -> dict[str, Any]:
     try:
-        catalog = _get_catalog(
+        catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
             include_archived=include_archived,
@@ -193,10 +246,7 @@ def get_clients(
             include_archived=include_archived,
             catalog=catalog,
         )
-        out = _strip_internal(page)
-        out["cached"] = not refresh
-        out["cache_ttl_seconds"] = CACHE_TTL_SECONDS
-        return out
+        return _attach_cache_meta(_strip_internal(page), meta)
     except HTTPException:
         raise
     except MoySkladError as exc:
@@ -208,10 +258,43 @@ def get_clients(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/sync")
+def post_sync(
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+) -> dict[str, Any]:
+    """Force re-download from MoySklad and refresh durable cache."""
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=True,
+        )
+        return {
+            "ok": True,
+            "synced": True,
+            "counterparties_scanned": catalog.get("counterparties_scanned", 0),
+            "orders_scanned": catalog.get("orders_scanned", 0),
+            "counts": catalog.get("counts") or {},
+            **meta,
+        }
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /sync failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/groups/assign")
 def post_groups_assign(body: AssignBody) -> dict[str, Any]:
     try:
-        catalog = _get_catalog(
+        catalog, _meta = _get_catalog(
             max_orders=body.max_orders,
             max_counterparties=body.max_counterparties,
             include_archived=body.include_archived,
@@ -240,7 +323,11 @@ def post_groups_assign(body: AssignBody) -> dict[str, Any]:
             push = push_merged_tags(_client(), changed, only_changed=True)
             result["push"] = push
             if push.get("pushed"):
-                _invalidate_cache()
+                _invalidate_cache(
+                    max_orders=body.max_orders,
+                    max_counterparties=body.max_counterparties,
+                    include_archived=body.include_archived,
+                )
         return result
     except HTTPException:
         raise
@@ -285,7 +372,7 @@ def get_campaigns() -> dict[str, Any]:
 @router.post("/campaigns")
 def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
     try:
-        catalog = _get_catalog(
+        catalog, _meta = _get_catalog(
             max_orders=body.max_orders,
             max_counterparties=body.max_counterparties,
             include_archived=body.include_archived,

@@ -341,6 +341,123 @@ def sales_channels_by_id(channels: list[dict[str, Any]]) -> dict[str, str]:
     return result
 
 
+_COMPANY_TYPE_LABELS = {
+    "legal": "Юридическое лицо",
+    "entrepreneur": "Индивидуальный предприниматель",
+    "individual": "Физическое лицо",
+}
+
+_SEX_LABELS = {
+    "male": "Мужской",
+    "female": "Женский",
+    "м": "Мужской",
+    "ж": "Женский",
+    "мужской": "Мужской",
+    "женский": "Женский",
+}
+
+# Custom MoySklad attribute names → CRM column keys (case-insensitive match).
+_ATTR_ALIASES: dict[str, tuple[str, ...]] = {
+    "bonus_points": (
+        "баллы начисленные",
+        "баллы",
+        "начисленные баллы",
+        "бонусы",
+        "bonus",
+        "bonus points",
+    ),
+    "role": (
+        "заказчик или получатель",
+        "заказчик/получатель",
+        "роль",
+        "тип клиента",
+    ),
+    "actual_address_comment": (
+        "фактический адрес (комментарий)",
+        "фактический адрес комментарий",
+        "комментарий к адресу",
+        "адрес комментарий",
+    ),
+    "tg_nick": (
+        "тг ник",
+        "тг никнейм",
+        "telegram nick",
+        "telegram nickname",
+        "telegram",
+        "телеграм",
+        "tg",
+        "тг",
+    ),
+    "tg_conversation": (
+        "tg conversation",
+        "telegram conversation",
+        "tg chat",
+        "telegram chat",
+        "тг диалог",
+        "телеграм диалог",
+    ),
+    "sex": ("пол", "sex", "gender"),
+}
+
+
+def _attr_value_as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "да" if value else "нет"
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("name", "value", "fileName", "href"):
+            if value.get(key) not in (None, ""):
+                return str(value.get(key)).strip()
+        return ""
+    if isinstance(value, list):
+        parts = [_attr_value_as_text(v) for v in value]
+        return ", ".join(p for p in parts if p)
+    return str(value).strip()
+
+
+def _attributes_by_alias(cp: dict[str, Any]) -> dict[str, str]:
+    """Map MoySklad custom attributes onto CRM keys via Russian/English aliases."""
+    out: dict[str, str] = {}
+    raw = cp.get("attributes")
+    if not isinstance(raw, list):
+        return out
+    for attr in raw:
+        if not isinstance(attr, dict):
+            continue
+        name = str(attr.get("name") or "").strip().lower().replace("ё", "е")
+        if not name:
+            continue
+        text = _attr_value_as_text(attr.get("value"))
+        if not text:
+            continue
+        for key, aliases in _ATTR_ALIASES.items():
+            if key in out:
+                continue
+            if name in aliases or any(a in name for a in aliases if len(a) >= 4):
+                out[key] = text
+                break
+    return out
+
+
+def _company_type_label(raw: Any) -> str:
+    key = str(raw or "").strip().lower()
+    if not key:
+        return ""
+    return _COMPANY_TYPE_LABELS.get(key, str(raw).strip())
+
+
+def _sex_label(raw: Any) -> str:
+    key = str(raw or "").strip().lower().replace("ё", "е")
+    if not key:
+        return ""
+    return _SEX_LABELS.get(key, str(raw).strip())
+
+
 def counterparty_row_from_api(
     cp: dict[str, Any],
     *,
@@ -354,17 +471,34 @@ def counterparty_row_from_api(
         state_name = state.strip()
     tags = cp.get("tags") if isinstance(cp.get("tags"), list) else []
     channels = [c for c in (order_channels or []) if c]
+    attrs = _attributes_by_alias(cp)
+    sex = _sex_label(cp.get("sex")) or _sex_label(attrs.get("sex"))
+    actual_address = str(cp.get("actualAddress") or cp.get("actual_address") or "").strip()
     return {
         "_moysklad_id": str(cp.get("id") or ""),
         "Наименование": str(cp.get("name") or "").strip(),
         "Телефон": str(cp.get("phone") or "").strip(),
+        "E-mail": str(cp.get("email") or "").strip(),
+        "email": str(cp.get("email") or "").strip(),
         "Группы": ", ".join(str(t) for t in tags if str(t).strip()),
         "_moysklad_tags": list(tags),
         "_moysklad_tags_display": ", ".join(str(t) for t in tags if str(t).strip()),
         "_moysklad_state": state_name,
+        "Статус": state_name,
         "Статус контрагента": state_name,
         "_orders_context": [{"Канал продаж": c} for c in channels],
         "_order_channels_all": channels,
         "Канал продаж": channels[0] if channels else "",
+        "Тип канала продаж": sales_channel_type_from_channels(channels),
         "Тип продаж": sales_channel_type_from_channels(channels),
+        "Тип контрагента": _company_type_label(
+            cp.get("companyType") or cp.get("company_type")
+        ),
+        "Пол": sex,
+        "Фактический адрес": actual_address,
+        "Фактический адрес (Комментарий)": attrs.get("actual_address_comment") or "",
+        "Баллы начисленные": attrs.get("bonus_points") or "",
+        "Заказчик или получатель": attrs.get("role") or "",
+        "ТГ ник": attrs.get("tg_nick") or "",
+        "TG conversation": attrs.get("tg_conversation") or "",
     }

@@ -1,5 +1,5 @@
 name: moysklad
-version: 1.3.0
+version: 1.4.0
 description: "МойСклад Remap 1.2 — Clients + Campaigns dashboard, tools. Enabled by default on Iris. Token: MOYSKLAD_API_TOKEN."
 author: Hermes Agent
 kind: standalone
@@ -25,4 +25,12 @@ optional_env:
   - name: MOYSKLAD_API_URL
     description: "Remap base URL (default https://api.moysklad.ru/api/remap/1.2)"
     prompt: "MoySklad API URL"
+    password: false
+  - name: MOYSKLAD_CACHE_TTL_SECONDS
+    description: "Clients catalog cache TTL in seconds (default 21600 = 6h). Refresh via Синхронизация or when expired."
+    prompt: "MoySklad cache TTL seconds"
+    password: false
+  - name: REDIS_URL
+    description: "Optional Redis URL for durable Clients cache (falls back to $HERMES_HOME/moysklad/cache/)."
+    prompt: "Redis URL"
     password: false

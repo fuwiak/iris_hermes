@@ -34,11 +34,66 @@ interface ClientRow {
   id?: string
   name?: string
   phone?: string
+  email?: string
+  state?: string
   sales_type?: string
+  channel?: string
+  channels?: string[]
   tags?: string[]
+  groups?: string
   order_count?: number
   avg_check?: number
+  last_order_at?: string
+  bonus_points?: string | number
+  role?: string
+  actual_address?: string
+  actual_address_comment?: string
+  company_type?: string
+  sex?: string
+  tg_nick?: string
+  tg_conversation?: string
 }
+
+const CLIENT_COLUMNS: Array<{
+  key: keyof ClientRow | 'channel_display' | 'groups_display' | 'avg_display' | 'last_order_display' | 'orders_display'
+  label: string
+  render: (row: ClientRow) => string
+}> = [
+  { key: 'name', label: 'Наименование', render: r => r.name || '' },
+  { key: 'phone', label: 'Телефон', render: r => r.phone || '' },
+  { key: 'state', label: 'Статус', render: r => r.state || '' },
+  { key: 'sales_type', label: 'Тип канала продаж', render: r => r.sales_type || '' },
+  {
+    key: 'channel_display',
+    label: 'Канал продаж',
+    render: r => r.channel || (r.channels || []).join(', ')
+  },
+  { key: 'avg_display', label: 'Средний чек', render: r => money(r.avg_check) },
+  {
+    key: 'last_order_display',
+    label: 'Дата последнего заказа',
+    render: r => (r.last_order_at || '').slice(0, 16).replace('T', ' ')
+  },
+  { key: 'orders_display', label: 'Всего заказов', render: r => String(r.order_count ?? 0) },
+  { key: 'bonus_points', label: 'Баллы начисленные', render: r => String(r.bonus_points ?? '') },
+  {
+    key: 'groups_display',
+    label: 'Группы',
+    render: r => r.groups || (r.tags || []).join(', ')
+  },
+  { key: 'role', label: 'Заказчик или получатель', render: r => r.role || '' },
+  { key: 'actual_address', label: 'Фактический адрес', render: r => r.actual_address || '' },
+  {
+    key: 'actual_address_comment',
+    label: 'Фактический адрес (Комментарий)',
+    render: r => r.actual_address_comment || ''
+  },
+  { key: 'company_type', label: 'Тип контрагента', render: r => r.company_type || '' },
+  { key: 'sex', label: 'Пол', render: r => r.sex || '' },
+  { key: 'email', label: 'E-mail', render: r => r.email || '' },
+  { key: 'tg_nick', label: 'ТГ ник', render: r => r.tg_nick || '' },
+  { key: 'tg_conversation', label: 'TG conversation', render: r => r.tg_conversation || '' }
+]
 
 interface Campaign {
   id: string
@@ -109,51 +164,78 @@ function ClientsPage() {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [matched, setMatched] = useState(0)
   const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
+  const [syncedLabel, setSyncedLabel] = useState('')
+  const [fromCache, setFromCache] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams({
-        sales_filter: salesFilter,
-        q,
-        group,
-        limit: '50',
-        offset: '0'
-      })
-      const data = await call<{
-        clients?: ClientRow[]
-        counts?: Counts
-        matched_total?: number
-        group_options?: Array<{ name: string; count: number }>
-      }>(`/clients?${params}`)
-      setClients(data.clients || [])
-      setCounts(data.counts || null)
-      setMatched(data.matched_total || 0)
-      setGroupOptions(data.group_options || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [call, group, q, salesFilter])
+  const load = useCallback(
+    async (opts?: { refresh?: boolean }) => {
+      setLoading(true)
+      setError('')
+      try {
+        const params = new URLSearchParams({
+          sales_filter: salesFilter,
+          q,
+          group,
+          limit: '50',
+          offset: '0'
+        })
+        if (opts?.refresh) params.set('refresh', 'true')
+        const data = await call<{
+          clients?: ClientRow[]
+          counts?: Counts
+          matched_total?: number
+          group_options?: Array<{ name: string; count: number }>
+          cached?: boolean
+          synced_at_label?: string
+          synced_at?: number
+        }>(`/clients?${params}`)
+        setClients(data.clients || [])
+        setCounts(data.counts || null)
+        setMatched(data.matched_total || 0)
+        setGroupOptions(data.group_options || [])
+        setFromCache(Boolean(data.cached))
+        setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+      }
+    },
+    [call, group, q, salesFilter]
+  )
 
   useEffect(() => {
     void load()
   }, [load])
 
+  const cacheHint = syncedLabel
+    ? `${fromCache ? 'из кэша' : 'свежая выгрузка'} · синхр. ${syncedLabel}`
+    : fromCache
+      ? 'из кэша'
+      : ''
+
   return (
-    <div className="ms-page">
+    <div className="ms-page" data-selectable-text="true">
       <div className="ms-page-header">
         <div>
           <h1>Клиенты</h1>
-          <p className="ms-muted">МойСклад · Маркетплейс / Прямые (как kinetic-ai.ru/clients)</p>
+          <p className="ms-muted">МойСклад · Маркетплейс / Прямые</p>
+          {cacheHint ? <p className="ms-muted ms-sync-meta">{cacheHint}</p> : null}
         </div>
         <div className="ms-actions">
           <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
             Обновить
           </button>
-          <button className="ms-btn ms-btn-primary" onClick={() => host.navigate('/campaigns')} type="button">
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={loading}
+            onClick={() => void load({ refresh: true })}
+            title="Принудительно скачать данные из МойСклад и обновить кэш"
+            type="button"
+          >
+            Синхронизация
+          </button>
+          <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
           </button>
         </div>
@@ -184,27 +266,24 @@ function ClientsPage() {
       {error ? <div className="ms-error">{error}</div> : null}
       <p className="ms-muted">Найдено: {matched}</p>
       {loading && !clients.length ? (
-        <p className="ms-muted">Загрузка клиентов из МойСклад…</p>
+        <p className="ms-muted">Загрузка клиентов…</p>
       ) : (
         <div className="ms-table-wrap">
           <table className="ms-table">
             <thead>
               <tr>
-                <th>Клиент</th>
-                <th>Контакт</th>
-                <th>Тип</th>
-                <th>Заказы</th>
-                <th>Ср. чек</th>
+                {CLIENT_COLUMNS.map(col => (
+                  <th key={col.key}>{col.label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {clients.map(row => (
                 <tr key={row.id || row.name}>
-                  <td>{row.name || '—'}</td>
-                  <td>{row.phone || '—'}</td>
-                  <td>{row.sales_type || '—'}</td>
-                  <td>{row.order_count ?? 0}</td>
-                  <td>{money(row.avg_check)}</td>
+                  {CLIENT_COLUMNS.map(col => {
+                    const value = col.render(row)
+                    return <td key={col.key}>{value || '—'}</td>
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -272,7 +351,7 @@ function CampaignsPage() {
   }
 
   return (
-    <div className="ms-page">
+    <div className="ms-page" data-selectable-text="true">
       <div className="ms-page-header">
         <div>
           <h1>Рассылки</h1>

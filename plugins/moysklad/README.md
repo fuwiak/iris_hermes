@@ -65,9 +65,29 @@ Example prompts:
 2. `hermes dashboard` → **Клиенты**
 3. Tabs: Все / Маркетплейс / Прямые
 4. Chip cloud **Группы (МойСклад)** filters by tags
-5. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
+5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
+6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 
-API mounts under `/api/plugins/moysklad/`.
+API mounts under `/api/plugins/moysklad/` (`GET /clients`, `POST /sync`, campaigns, groups).
+
+### Clients catalog cache
+
+MoySklad counterparties + orders are expensive. The Clients tab caches the
+enriched catalog and **does not re-hit MoySklad** on every table view:
+
+| Trigger | Behavior |
+|---|---|
+| Page load / filter / search | Serve durable cache if fresh |
+| TTL expiry | Next read re-downloads from MoySklad |
+| **Синхронизация** button / `POST /sync` / `?refresh=true` | Force refresh + rewrite cache |
+
+- **TTL:** `MOYSKLAD_CACHE_TTL_SECONDS` (default `21600` = 6 hours)
+- **Backend:** Redis when `REDIS_URL` is set **and** the `redis` Python package
+  is installed; otherwise JSON files under `$HERMES_HOME/moysklad/cache/`
+  (Selectel compose already sets `REDIS_URL=redis://redis:6379/0` — file
+  fallback still works without the package).
+- Cache key includes a hash of the API token + query bounds
+  (`max_orders` / `max_counterparties` / archived).
 
 ## CRM tab rules (do not re-derive)
 
