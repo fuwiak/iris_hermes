@@ -3777,6 +3777,22 @@ OPTIONAL_ENV_VARS = {
         "category": "tool",
         "advanced": True,
     },
+    "MOYSKLAD_TELEGRAM_BOT_TOKEN": {
+        "description": "Telegram Business bot token for MoySklad Рассылки outbound send",
+        "prompt": "MoySklad Telegram Business bot token",
+        "url": "https://t.me/BotFather",
+        "password": True,
+        "category": "tool",
+        "advanced": True,
+    },
+    "MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID": {
+        "description": "Telegram business_connection_id for sendMessage on behalf of the shop",
+        "prompt": "Telegram business_connection_id",
+        "url": "https://core.telegram.org/bots/api#businessconnection",
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
 
     # ── Bundled skills (opt-in: only needed if the user uses that skill) ──
     # These use category="skill" (distinct from "tool") so the sandbox

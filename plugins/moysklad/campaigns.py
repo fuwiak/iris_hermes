@@ -1,7 +1,7 @@
 """Draft campaign store for MoySklad CRM (Iris /campaigns).
 
-Persists under ``HERMES_HOME/moysklad/campaigns.json``. Drafts only —
-send is left to messaging platforms / agent tools.
+Persists under ``HERMES_HOME/moysklad/campaigns.json``. Telegram delivery
+goes through ``telegram_send`` (Business bot) from mark-sent / client card.
 """
 
 from __future__ import annotations
@@ -32,18 +32,26 @@ def _seller_settings_path() -> Path:
 
 def get_seller_settings() -> dict[str, str]:
     """Persisted seller identity for outreach prompts (survives restarts)."""
+    empty = {
+        "seller_name": "",
+        "seller_facts": "",
+        "telegram_business_connection_id": "",
+    }
     path = _seller_settings_path()
     if not path.is_file():
-        return {"seller_name": "", "seller_facts": ""}
+        return dict(empty)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"seller_name": "", "seller_facts": ""}
+        return dict(empty)
     if not isinstance(raw, dict):
-        return {"seller_name": "", "seller_facts": ""}
+        return dict(empty)
     return {
         "seller_name": str(raw.get("seller_name") or "").strip(),
         "seller_facts": str(raw.get("seller_facts") or "").strip(),
+        "telegram_business_connection_id": str(
+            raw.get("telegram_business_connection_id") or ""
+        ).strip(),
     }
 
 
@@ -51,10 +59,18 @@ def save_seller_settings(
     *,
     seller_name: str = "",
     seller_facts: str = "",
+    telegram_business_connection_id: str | None = None,
 ) -> dict[str, str]:
+    prev = get_seller_settings()
+    biz = (
+        prev.get("telegram_business_connection_id") or ""
+        if telegram_business_connection_id is None
+        else str(telegram_business_connection_id or "").strip()
+    )
     item = {
         "seller_name": str(seller_name or "").strip(),
         "seller_facts": str(seller_facts or "").strip(),
+        "telegram_business_connection_id": biz,
     }
     path = _seller_settings_path()
     tmp = path.with_suffix(".tmp")

@@ -727,7 +727,7 @@ function ClientCardModal({
     const text = note.trim()
 
     if (!text) {
-      setError('Введите текст в поле ниже — он уйдёт в историю TG conversation.')
+      setError('Введите текст в поле ниже — он уйдёт в Telegram / историю.')
 
       return
     }
@@ -738,6 +738,7 @@ function ClientCardModal({
       const data = await call<{
         conversation?: ClientConversation
         deep_link?: string
+        delivery?: { ok?: boolean; detail?: string; error?: string }
       }>(`/clients/${encodeURIComponent(clientId)}/conversation`, {
         method: 'POST',
         body: {
@@ -751,6 +752,17 @@ function ClientCardModal({
 
       if (data.conversation) {
         setDetail(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
+      }
+
+      if (channel === 'telegram' && data.delivery?.ok) {
+        setNote('')
+
+        return
+      }
+
+      if (channel === 'telegram' && data.delivery && data.delivery.ok === false && !data.delivery.error?.includes('skipped')) {
+        const detail = data.delivery.detail || data.delivery.error || 'не отправлено'
+        setError(`Telegram Bot: ${detail}. Откроется deep-link, если есть.`)
       }
 
       if (data.deep_link) {window.open(data.deep_link, '_blank', 'noopener')}
@@ -1795,7 +1807,7 @@ function CampaignsPage() {
 
   const markSentToConversation = async () => {
     if (!selectedClientId) {
-      setError('Выберите клиента — исходящее пишется в его TG conversation.')
+      setError('Выберите клиента — исходящее уйдёт в Telegram / историю.')
 
       return
     }
@@ -1810,20 +1822,26 @@ function CampaignsPage() {
 
     setCheckingSanity(true)
     setError('')
-    setActionStatus('Пишем исходящее в TG conversation…')
+    setActionStatus(
+      channel.startsWith('telegram')
+        ? 'Отправка через Telegram Business bot…'
+        : 'Пишем исходящее в историю…'
+    )
 
     try {
       const data = await call<{
         conversation?: ClientConversation
         facts?: ClientFacts
         deep_link?: string
+        delivery?: { ok?: boolean; detail?: string; error?: string; skipped?: boolean }
       }>('/campaigns/mark-sent', {
         method: 'POST',
         body: {
           message: draft,
           channel,
           client_id: selectedClientId,
-          open_deep_link: true
+          open_deep_link: true,
+          deliver: true
         }
       })
 
@@ -1833,7 +1851,18 @@ function CampaignsPage() {
         setFacts(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
       }
 
-      applyOfferText(draft, '✓ Исходящее добавлено в TG conversation (лейбл исходящее).')
+      if (data.delivery?.ok) {
+        applyOfferText(draft, '✓ Отправлено в Telegram (Business bot) + история.')
+      } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
+        const detail = data.delivery.detail || data.delivery.error || 'ошибка'
+        applyOfferText(
+          draft,
+          `⚠ В историю записано; Bot API: ${detail}`
+        )
+        setError(`Telegram: ${detail}`)
+      } else {
+        applyOfferText(draft, '✓ Исходящее добавлено в историю (лейбл исходящее).')
+      }
 
       if (data.deep_link) {
         window.open(data.deep_link, '_blank', 'noopener')
@@ -2214,7 +2243,9 @@ function CampaignsPage() {
                 onClick={() => void markSentToConversation()}
                 type="button"
               >
-                Отправить → в TG историю
+                {channel.startsWith('telegram')
+                  ? 'Отправить в Telegram'
+                  : 'Отправить → в историю'}
               </button>
             ) : null}
             <button

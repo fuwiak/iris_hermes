@@ -93,9 +93,14 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
    `POST /campaigns/sanity` explicitly.
 5. **TG conversation** — local thread per client under
    `$HERMES_HOME/moysklad/conversations.json` (keys: `client_id` / phone /
-   tg nick). Column + client card + facts panel show the thread. Buttons
-   **Отправить → в TG историю** / **WhatsApp|Telegram → история** append
-   outbound text (label `исходящее · …`) then open the deep-link.
+   tg nick). Column + client card + facts panel show the thread. Button
+   **Отправить в Telegram** calls `POST /campaigns/mark-sent` with
+   `deliver=true`: Bot API `sendMessage` via
+   `MOYSKLAD_TELEGRAM_BOT_TOKEN` (Business bot, e.g.
+   `@BoberSystemsAssistant_bot`) + optional
+   `MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (or seller_settings). On
+   success the deep-link is skipped; on failure the text is still stored
+   and a deep-link may open for manual send.
    `POST /clients/{id}/conversation`, `POST /campaigns/mark-sent`.
    Inbound replies can be appended with `direction=inbound`. Full live pull
    from Hermes gateway Telegram sessions is a follow-up: match

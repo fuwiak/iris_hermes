@@ -33,6 +33,9 @@ MOYSKLAD_KEYS = (
     "MOYSKLAD_ENABLED",
     "MOYSKLAD_SYNC_LIMIT",
     "MOYSKLAD_SYNC_ORDERS_LIMIT",
+    "MOYSKLAD_TELEGRAM_BOT_TOKEN",
+    "MOYSKLAD_TELEGRAM_BOT_USERNAME",
+    "MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID",
 )
 
 # LLM provider keys that must follow compose/deploy.env after rotation.

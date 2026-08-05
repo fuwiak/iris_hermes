@@ -325,9 +325,9 @@ def messaging_links(
         "tg_nick": (tg_nick or "").strip(),
         "primary_channel": primary,
         "hint": (
-            "Чат и отправка — через WhatsApp / Telegram "
-            "(Green API, если настроен, или Hermes skills / send_message). "
-            "Кнопки открывают deep-link; массовая рассылка — раздел «Рассылки»."
+            "Чат и отправка — через Telegram Business bot "
+            "(MOYSKLAD_TELEGRAM_BOT_TOKEN) или WhatsApp deep-link. "
+            "Рассылки: кнопка «Отправить в Telegram»."
         ),
         "hermes_hint": (
             "В агенте: skill WhatsApp/Telegram или tool send_message "

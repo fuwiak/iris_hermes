@@ -382,7 +382,7 @@
     function sendAndRecord(channel) {
       var text = String(note || "").trim();
       if (!text) {
-        setError("Введите текст — он уйдёт в историю TG conversation.");
+        setError("Введите текст — он уйдёт в Telegram / историю.");
         return;
       }
       setError(null);
@@ -403,6 +403,22 @@
               if (!prev) return prev;
               return Object.assign({}, prev, { conversation: data.conversation });
             });
+          }
+          if (channel === "telegram" && data.delivery && data.delivery.ok) {
+            setNote("");
+            return;
+          }
+          if (
+            channel === "telegram" &&
+            data.delivery &&
+            data.delivery.ok === false &&
+            !(String(data.delivery.error || "").indexOf("skipped") >= 0)
+          ) {
+            setError(
+              "Telegram Bot: " +
+                (data.delivery.detail || data.delivery.error || "не отправлено") +
+                ". Откроется deep-link, если есть."
+            );
           }
           if (data.deep_link) openUrl(data.deep_link);
           setNote("");
@@ -1857,7 +1873,7 @@
 
     function markSentToConversation() {
       if (!selectedClientId) {
-        setError("Выберите клиента — исходящее пишется в его TG conversation.");
+        setError("Выберите клиента — исходящее уйдёт в Telegram / историю.");
         return;
       }
       var draft = String(offerRef.current || offer || "").trim();
@@ -1867,7 +1883,11 @@
       }
       setCheckingSanity(true);
       setError("");
-      setActionStatus("Пишем исходящее в TG conversation…");
+      setActionStatus(
+        String(channel || "").indexOf("telegram") === 0
+          ? "Отправка через Telegram Business bot…"
+          : "Пишем исходящее в историю…"
+      );
       api("/campaigns/mark-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1876,6 +1896,7 @@
           channel: channel,
           client_id: selectedClientId,
           open_deep_link: true,
+          deliver: true,
         }),
       })
         .then(function (data) {
@@ -1887,7 +1908,19 @@
             });
           }
           setOffer(draft);
-          setActionStatus("✓ Исходящее добавлено в TG conversation (лейбл исходящее).");
+          if (data.delivery && data.delivery.ok) {
+            setActionStatus("✓ Отправлено в Telegram (Business bot) + история.");
+          } else if (
+            String(channel || "").indexOf("telegram") === 0 &&
+            data.delivery &&
+            !data.delivery.skipped
+          ) {
+            var detail = data.delivery.detail || data.delivery.error || "ошибка";
+            setActionStatus("⚠ В историю записано; Bot API: " + detail);
+            setError("Telegram: " + detail);
+          } else {
+            setActionStatus("✓ Исходящее добавлено в историю (лейбл исходящее).");
+          }
           if (data.deep_link) window.open(data.deep_link, "_blank", "noopener");
         })
         .catch(function (err) {
@@ -2473,7 +2506,7 @@
                       !String(offer || "").trim(),
                     onClick: markSentToConversation,
                   },
-                  "Отправить → в TG историю",
+                  "Отправить в Telegram",
                 )
               : null,
             h(

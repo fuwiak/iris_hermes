@@ -1,0 +1,100 @@
+"""Tests for MoySklad Telegram Business outreach send."""
+
+from __future__ import annotations
+
+import json
+
+import plugins.moysklad.telegram_send as tg
+
+
+def test_resolve_chat_id_from_nick():
+    assert tg.resolve_telegram_chat_id(tg_nick="@maria_flowers") == "@maria_flowers"
+    assert tg.resolve_telegram_chat_id(tg_nick="maria") == "@maria"
+
+
+def test_resolve_chat_id_from_numeric_and_tme(monkeypatch):
+    assert tg.resolve_telegram_chat_id(tg_chat_id="123456789") == "123456789"
+    assert (
+        tg.resolve_telegram_chat_id(tg_conversation="https://t.me/some_user")
+        == "@some_user"
+    )
+    assert (
+        tg.resolve_telegram_chat_id(tg_conversation="tg://user?id=987654321")
+        == "987654321"
+    )
+
+
+def test_send_missing_token(monkeypatch):
+    monkeypatch.delenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    out = tg.send_telegram_message(text="hi", chat_id="@x")
+    assert out["ok"] is False
+    assert out["error"] == "telegram_token_missing"
+
+
+def test_send_posts_business_connection(monkeypatch):
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TESTTOKEN")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-abc")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_USERNAME", "BoberSystemsAssistant_bot")
+
+    captured: dict = {}
+
+    class _Resp:
+        content = b'{"ok":true,"result":{"message_id":7,"chat":{"id":42}}}'
+
+        def json(self):
+            return json.loads(self.content)
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None):
+            captured["url"] = url
+            captured["json"] = json
+            return _Resp()
+
+    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    out = tg.send_telegram_message(text="Здравствуйте!", chat_id="@client")
+    assert out["ok"] is True
+    assert out["message_id"] == 7
+    assert "1:TESTTOKEN" in captured["url"]
+    assert captured["json"]["chat_id"] == "@client"
+    assert captured["json"]["business_connection_id"] == "biz-abc"
+    assert captured["json"]["text"] == "Здравствуйте!"
+
+
+def test_outreach_uses_client_nick(monkeypatch):
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
+    monkeypatch.delenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", raising=False)
+
+    class _Resp:
+        content = b'{"ok":true,"result":{"message_id":1,"chat":{"id":1}}}'
+
+        def json(self):
+            return json.loads(self.content)
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None):
+            assert json["chat_id"] == "@nick"
+            assert "business_connection_id" not in json
+            return _Resp()
+
+    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    out = tg.send_outreach_to_client(text="ping", tg_nick="nick")
+    assert out["ok"] is True

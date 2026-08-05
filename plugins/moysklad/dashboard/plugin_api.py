@@ -64,6 +64,10 @@ from plugins.moysklad.campaigns import (
     list_campaigns,
     save_seller_settings,
 )
+from plugins.moysklad.telegram_send import (
+    send_outreach_to_client,
+    telegram_send_status,
+)
 from plugins.moysklad.catalog_cache import (
     cache_backend_name,
     cache_key,
@@ -220,11 +224,15 @@ class MarkSentBody(BaseModel):
     channel: str = "telegram"
     client_id: str = ""
     open_deep_link: bool = True
+    # When true (default for telegram), attempt Bot API send via Business bot.
+    deliver: bool = True
 
 
 class SellerSettingsBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
+    # None = leave unchanged; "" = clear stored business connection id.
+    telegram_business_connection_id: str | None = None
 
 
 def _resolve_seller(body_name: str = "", body_facts: str = "") -> tuple[str, str]:
@@ -466,7 +474,11 @@ def get_client_conversation(client_id: str) -> dict[str, Any]:
 def post_client_conversation(
     client_id: str, body: ConversationAppendBody
 ) -> dict[str, Any]:
-    """Append a message (outbound/inbound) to the local client thread."""
+    """Append a message (outbound/inbound) to the local client thread.
+
+    Outbound Telegram from the client card (``source=client_card_send``) also
+    attempts Bot API delivery via the Business outreach bot.
+    """
     try:
         text = (body.text or "").strip()
         if not text:
@@ -475,6 +487,8 @@ def post_client_conversation(
         row = find_row_in_catalog(catalog, client_id)
         phone = ""
         tg_nick = ""
+        tg_conversation = ""
+        tg_chat_id = ""
         client_name = ""
         deep_link = ""
         if row is not None:
@@ -482,6 +496,8 @@ def post_client_conversation(
             client = detail.get("client") or {}
             phone = str(client.get("phone") or "")
             tg_nick = str(client.get("tg_nick") or "")
+            tg_conversation = str(client.get("tg_conversation") or "")
+            tg_chat_id = str(client.get("tg_chat_id") or "")
             client_name = str(client.get("name") or "")
             msg = detail.get("messaging") or {}
             ch = (body.channel or "telegram").strip().lower()
@@ -489,21 +505,43 @@ def post_client_conversation(
                 deep_link = str(msg.get("whatsapp_url") or "")
             else:
                 deep_link = str(msg.get("telegram_url") or "")
+
+        channel = (body.channel or "telegram").strip().lower()
+        direction = (body.direction or "outbound").strip().lower()
+        source = body.source or "manual"
+        delivery: dict[str, Any] = {"ok": False, "skipped": True}
+        if (
+            direction == "outbound"
+            and channel.startswith("telegram")
+            and source.startswith(("client_card_send", "campaign"))
+        ):
+            delivery = send_outreach_to_client(
+                text=text,
+                tg_nick=tg_nick,
+                tg_conversation=tg_conversation,
+                tg_chat_id=tg_chat_id,
+            )
+            if delivery.get("ok"):
+                source = "client_card_telegram_bot"
+
         thread = append_message(
             client_id=client_id,
             text=text,
-            direction=body.direction or "outbound",
-            channel=body.channel or "telegram",
+            direction=direction,
+            channel=channel,
             label=body.label or "",
             phone=phone,
             tg_nick=tg_nick,
             client_name=client_name,
-            source=body.source or "manual",
+            source=source,
         )
+        open_link = bool(body.open_deep_link) and not delivery.get("ok")
         return {
             "ok": True,
             "conversation": thread,
-            "deep_link": deep_link if body.open_deep_link else "",
+            "deep_link": deep_link if open_link else "",
+            "delivery": delivery,
+            "telegram": telegram_send_status(),
         }
     except HTTPException:
         raise
@@ -516,10 +554,10 @@ def post_client_conversation(
 
 @router.post("/campaigns/mark-sent")
 def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
-    """Record outbound outreach text into the client TG conversation thread.
+    """Deliver outreach via Telegram Business bot (when configured) and record thread.
 
-    Optionally returns a WhatsApp/Telegram deep-link so the UI can open the
-    chat after appending (Green API / send_message skill remain agent-side).
+    WhatsApp still returns a deep-link only. Telegram: Bot API send first; on
+    failure or missing target, optionally open deep-link for manual send.
     """
     try:
         text = (body.message or "").strip()
@@ -541,6 +579,25 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             deep_link = str(msg.get("whatsapp_url") or "")
         else:
             deep_link = str(msg.get("telegram_url") or "")
+
+        delivery: dict[str, Any] = {"ok": False, "skipped": True}
+        if body.deliver and channel.startswith("telegram"):
+            delivery = send_outreach_to_client(
+                text=text,
+                tg_nick=str(client.get("tg_nick") or ""),
+                tg_conversation=str(client.get("tg_conversation") or ""),
+                tg_chat_id=str(
+                    client.get("tg_chat_id")
+                    or row.get("ТГ chat id")
+                    or row.get("tg_chat_id")
+                    or ""
+                ),
+            )
+
+        source = "campaign_send"
+        if delivery.get("ok"):
+            source = "campaign_telegram_bot"
+
         thread = append_message(
             client_id=client_id,
             text=text,
@@ -550,14 +607,17 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             phone=str(client.get("phone") or ""),
             tg_nick=str(client.get("tg_nick") or ""),
             client_name=str(client.get("name") or ""),
-            source="campaign_send",
+            source=source,
         )
+        open_link = bool(body.open_deep_link) and not delivery.get("ok")
         payload = {
             "ok": True,
             "conversation": thread,
             "facts": facts_panel({**detail, "conversation": thread}),
-            "deep_link": deep_link if body.open_deep_link else "",
+            "deep_link": deep_link if open_link else "",
             "channel": channel,
+            "delivery": delivery,
+            "telegram": telegram_send_status(),
         }
         return _attach_cache_meta(payload, meta)
     except HTTPException:
@@ -830,7 +890,11 @@ def get_campaigns() -> dict[str, Any]:
 
 @router.get("/campaigns/seller-settings")
 def get_campaign_seller_settings() -> dict[str, Any]:
-    return {"ok": True, **get_seller_settings()}
+    return {
+        "ok": True,
+        **get_seller_settings(),
+        "telegram": telegram_send_status(),
+    }
 
 
 @router.put("/campaigns/seller-settings")
@@ -838,8 +902,9 @@ def put_campaign_seller_settings(body: SellerSettingsBody) -> dict[str, Any]:
     saved = save_seller_settings(
         seller_name=body.seller_name,
         seller_facts=body.seller_facts,
+        telegram_business_connection_id=body.telegram_business_connection_id,
     )
-    return {"ok": True, **saved}
+    return {"ok": True, **saved, "telegram": telegram_send_status()}
 
 
 @router.post("/campaigns/generate")
