@@ -329,11 +329,108 @@ interface SanityResult {
 }
 
 const DRAFT_PREFILL_KEY = 'moysklad.draftPrefill'
+const OUTREACH_DRAFT_CACHE_KEY = 'moysklad.outreachDraftCache.v1'
+const OUTREACH_DRAFT_CACHE_MAX = 40
+/** Status shown after successful generate (and restored from cache). */
+const AI_GENERATED_STATUS = 'AI сгенерировал креативный текст — можно править вручную.'
 
 interface DraftPrefill {
   clientId: string
   channel?: string
   salesFilter?: string
+}
+
+interface OutreachDraftCacheEntry {
+  message: string
+  groundingNotes: string
+  genSource: string
+  facts: ClientFacts | null
+  sanity: SanityResult | null
+  clientName: string
+  title: string
+  channel: string
+  status: string
+  savedAt: number
+}
+
+function outreachDraftCacheKey(clientId: string, channel: string): string {
+  return `${clientId}::${(channel || 'telegram').trim().toLowerCase()}`
+}
+
+function readOutreachDraftCache(): Record<string, OutreachDraftCacheEntry> {
+  try {
+    const raw = sessionStorage.getItem(OUTREACH_DRAFT_CACHE_KEY)
+
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, OutreachDraftCacheEntry>
+
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeOutreachDraftCache(map: Record<string, OutreachDraftCacheEntry>): void {
+  const pruned = Object.entries(map)
+    .filter(([, v]) => v && typeof v.message === 'string' && v.message.trim())
+    .sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0))
+    .slice(0, OUTREACH_DRAFT_CACHE_MAX)
+
+  try {
+    sessionStorage.setItem(OUTREACH_DRAFT_CACHE_KEY, JSON.stringify(Object.fromEntries(pruned)))
+  } catch {
+    // quota / private mode — in-memory still works via caller ref
+  }
+}
+
+function getCachedOutreachDraft(
+  clientId: string,
+  channel: string,
+  memory?: Record<string, OutreachDraftCacheEntry>
+): null | OutreachDraftCacheEntry {
+  const key = outreachDraftCacheKey(clientId, channel)
+  const hit = (memory && memory[key]) || readOutreachDraftCache()[key]
+
+  if (!hit || typeof hit.message !== 'string' || !hit.message.trim()) {
+    return null
+  }
+
+  return hit
+}
+
+function putCachedOutreachDraft(
+  clientId: string,
+  channel: string,
+  entry: Omit<OutreachDraftCacheEntry, 'savedAt' | 'channel'> & { status?: string },
+  memory?: Record<string, OutreachDraftCacheEntry>
+): void {
+  if (!clientId || !(entry.message || '').trim()) {
+    return
+  }
+
+  const key = outreachDraftCacheKey(clientId, channel)
+  const next: OutreachDraftCacheEntry = {
+    message: entry.message,
+    groundingNotes: entry.groundingNotes || '',
+    genSource: entry.genSource || '',
+    facts: entry.facts ?? null,
+    sanity: entry.sanity ?? null,
+    clientName: entry.clientName || '',
+    title: entry.title || (entry.clientName ? `Черновик · ${entry.clientName}` : ''),
+    channel: (channel || 'telegram').trim().toLowerCase(),
+    status: entry.status || AI_GENERATED_STATUS,
+    savedAt: Date.now()
+  }
+  const all = { ...(memory || readOutreachDraftCache()), [key]: next }
+
+  if (memory) {
+    memory[key] = next
+  }
+
+  writeOutreachDraftCache(all)
 }
 
 function readDraftPrefill(): DraftPrefill | null {
@@ -1441,6 +1538,14 @@ function CampaignsPage() {
   const outreachGenRef = useRef(0)
   const outreachAbortRef = useRef<AbortController | null>(null)
   const selectedClientNameRef = useRef('')
+  const selectedClientIdRef = useRef<string | null>(null)
+  const channelRef = useRef(channel)
+  const titleRef = useRef(title)
+  const factsRef = useRef<ClientFacts | null>(null)
+  const groundingNotesRef = useRef('')
+  const genSourceRef = useRef('')
+  const sanityRef = useRef<SanityResult | null>(null)
+  const draftCacheMemoryRef = useRef<Record<string, OutreachDraftCacheEntry>>(readOutreachDraftCache())
 
   useEffect(() => {
     offerRef.current = offer
@@ -1450,6 +1555,34 @@ function CampaignsPage() {
     selectedClientNameRef.current = selectedClientName
   }, [selectedClientName])
 
+  useEffect(() => {
+    selectedClientIdRef.current = selectedClientId
+  }, [selectedClientId])
+
+  useEffect(() => {
+    channelRef.current = channel
+  }, [channel])
+
+  useEffect(() => {
+    titleRef.current = title
+  }, [title])
+
+  useEffect(() => {
+    factsRef.current = facts
+  }, [facts])
+
+  useEffect(() => {
+    groundingNotesRef.current = groundingNotes
+  }, [groundingNotes])
+
+  useEffect(() => {
+    genSourceRef.current = genSource
+  }, [genSource])
+
+  useEffect(() => {
+    sanityRef.current = sanity
+  }, [sanity])
+
   const applyOfferText = useCallback((next: string, status: string) => {
     const text = (next || '').trim() ? next : ''
     setOffer(text)
@@ -1457,6 +1590,59 @@ function CampaignsPage() {
     setOfferTick(t => t + 1)
     setActionStatus(status)
   }, [])
+
+  const persistOutreachDraftCache = useCallback(
+    (
+      clientId: string,
+      nextChannel: string,
+      patch?: Partial<OutreachDraftCacheEntry>
+    ) => {
+      const message = (patch?.message ?? offerRef.current).trim()
+
+      if (!clientId || !message) {
+        return
+      }
+
+      putCachedOutreachDraft(
+        clientId,
+        nextChannel,
+        {
+          message,
+          groundingNotes: patch?.groundingNotes ?? groundingNotesRef.current,
+          genSource: patch?.genSource ?? genSourceRef.current,
+          facts: patch?.facts !== undefined ? patch.facts : factsRef.current,
+          sanity: patch?.sanity !== undefined ? patch.sanity : sanityRef.current,
+          clientName: patch?.clientName ?? selectedClientNameRef.current,
+          title: patch?.title ?? titleRef.current,
+          status: patch?.status ?? AI_GENERATED_STATUS
+        },
+        draftCacheMemoryRef.current
+      )
+    },
+    []
+  )
+
+  const restoreOutreachDraftCache = useCallback(
+    (entry: OutreachDraftCacheEntry) => {
+      const name = (entry.clientName || selectedClientNameRef.current || '').trim()
+
+      if (name) {
+        setSelectedClientName(name)
+        selectedClientNameRef.current = name
+        setTitle(entry.title || `Черновик · ${name}`)
+      } else if (entry.title) {
+        setTitle(entry.title)
+      }
+
+      setFacts(entry.facts || null)
+      setSanity(entry.sanity || null)
+      setGroundingNotes(entry.groundingNotes || '')
+      setGenSource(entry.genSource || 'cache')
+      setError('')
+      applyOfferText(entry.message, entry.status || AI_GENERATED_STATUS)
+    },
+    [applyOfferText]
+  )
 
   /** Sync title + clear draft fields immediately; generation catches up later. */
   const applyClientSelectionUi = useCallback(
@@ -1644,7 +1830,32 @@ function CampaignsPage() {
   }, [call])
 
   const loadOutreach = useCallback(
-    async (clientId: string, nextChannel = channel, runAi = mode === 'auto') => {
+    async (
+      clientId: string,
+      nextChannel = channel,
+      runAi = mode === 'auto',
+      opts?: { force?: boolean }
+    ) => {
+      const force = Boolean(opts?.force)
+
+      // Serve cached creative draft for already-visited contacts (instant).
+      if (runAi && !force) {
+        const hit = getCachedOutreachDraft(
+          clientId,
+          nextChannel,
+          draftCacheMemoryRef.current
+        )
+
+        if (hit) {
+          outreachAbortRef.current?.abort()
+          outreachGenRef.current += 1
+          restoreOutreachDraftCache(hit)
+          setGenerating(false)
+
+          return
+        }
+      }
+
       // Cancel in-flight generate for the previous client so stale deltas
       // cannot overwrite the newly selected title/draft.
       outreachAbortRef.current?.abort()
@@ -1721,32 +1932,40 @@ function CampaignsPage() {
                     : `LLM: ${err}`
                 )
               } else if (type === 'done') {
-                if (ev.facts && typeof ev.facts === 'object') {
-                  setFacts(ev.facts as ClientFacts)
+                const nextFacts =
+                  ev.facts && typeof ev.facts === 'object' ? (ev.facts as ClientFacts) : null
+                const nextSanity =
+                  ev.sanity && typeof ev.sanity === 'object'
+                    ? (ev.sanity as SanityResult)
+                    : null
+                const nextNotes =
+                  typeof ev.grounding_notes === 'string' ? ev.grounding_notes : ''
+                const nextSource = typeof ev.source === 'string' ? ev.source : ''
+
+                if (nextFacts) {
+                  setFacts(nextFacts)
                 }
 
-                if (typeof ev.grounding_notes === 'string') {
-                  setGroundingNotes(ev.grounding_notes)
+                if (nextNotes) {
+                  setGroundingNotes(nextNotes)
                 }
 
-                if (typeof ev.source === 'string') {
-                  setGenSource(ev.source)
+                if (nextSource) {
+                  setGenSource(nextSource)
                 }
 
-                if (ev.sanity && typeof ev.sanity === 'object') {
-                  setSanity(ev.sanity as SanityResult)
+                if (nextSanity) {
+                  setSanity(nextSanity)
                 }
 
                 const msg = pickOutreachMessage(ev) || streamed
+                const status = nextSanity?.auto_revised
+                  ? 'AI сгенерировал текст (sanity поправил формулировку).'
+                  : AI_GENERATED_STATUS
 
                 if (msg) {
                   streamed = msg
-                  applyOfferText(
-                    msg,
-                    (ev.sanity as SanityResult | undefined)?.auto_revised
-                      ? 'AI сгенерировал текст (sanity поправил формулировку).'
-                      : 'AI сгенерировал креативный текст — можно править вручную.'
-                  )
+                  applyOfferText(msg, status)
                 } else {
                   setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
                   setActionStatus('')
@@ -1764,6 +1983,7 @@ function CampaignsPage() {
                 const remoteName =
                   typeof ev.client_name === 'string' ? ev.client_name.trim() : ''
                 const localName = selectedClientNameRef.current.trim()
+                const resolvedName = localName || remoteName
 
                 if (remoteName && !localName) {
                   setSelectedClientName(remoteName)
@@ -1773,6 +1993,19 @@ function CampaignsPage() {
                   setTitle(`Черновик · ${localName}`)
                 } else if (remoteName) {
                   setTitle(`Черновик · ${remoteName}`)
+                }
+
+                if (msg) {
+                  persistOutreachDraftCache(clientId, nextChannel, {
+                    message: msg,
+                    groundingNotes: nextNotes,
+                    genSource: nextSource || 'llm',
+                    facts: nextFacts,
+                    sanity: nextSanity,
+                    clientName: resolvedName,
+                    title: resolvedName ? `Черновик · ${resolvedName}` : titleRef.current,
+                    status
+                  })
                 }
               }
             }
@@ -1821,7 +2054,18 @@ function CampaignsPage() {
         }
       }
     },
-    [applyOfferText, call, callStream, channel, mode, selectedClientId, sellerFacts, sellerName]
+    [
+      applyOfferText,
+      call,
+      callStream,
+      channel,
+      mode,
+      persistOutreachDraftCache,
+      restoreOutreachDraftCache,
+      selectedClientId,
+      sellerFacts,
+      sellerName
+    ]
   )
 
   useEffect(() => {
@@ -1834,12 +2078,37 @@ function CampaignsPage() {
   const selectAudienceClient = (row: ClientRow) => {
     if (!row.id) {return}
 
-    // 1) Title + fields sync immediately  2) generate runs in parallel after.
-    applyClientSelectionUi(row.id, row.name || '', true)
-    setMode('auto')
+    // Persist current contact draft before switching away.
+    const prevId = selectedClientIdRef.current
 
-    if (row.phone && !row.tg_nick) {setChannel('whatsapp')}
-    else {setChannel('telegram')}
+    if (prevId && offerRef.current.trim()) {
+      persistOutreachDraftCache(prevId, channelRef.current)
+    }
+
+    const nextChannel =
+      row.phone && !row.tg_nick ? 'whatsapp' : 'telegram'
+    setMode('auto')
+    setChannel(nextChannel)
+
+    const hit = getCachedOutreachDraft(row.id, nextChannel, draftCacheMemoryRef.current)
+
+    if (hit) {
+      // Instant restore — no «Генерируем…» wait for known contacts.
+      outreachAbortRef.current?.abort()
+      outreachGenRef.current += 1
+      setSelectedClientId(row.id)
+      setSelectedClientName((row.name || hit.clientName || '').trim())
+      selectedClientNameRef.current = (row.name || hit.clientName || '').trim()
+      restoreOutreachDraftCache({
+        ...hit,
+        clientName: row.name || hit.clientName,
+        title: row.name ? `Черновик · ${row.name}` : hit.title
+      })
+      setGenerating(false)
+    } else {
+      // 1) Title + fields sync immediately  2) generate runs in parallel after.
+      applyClientSelectionUi(row.id, row.name || '', true)
+    }
   }
 
   const regenerateAi = async () => {
@@ -1849,7 +2118,8 @@ function CampaignsPage() {
       return
     }
 
-    await loadOutreach(selectedClientId, channel, true)
+    // Force bypass cache — fresh creative pass.
+    await loadOutreach(selectedClientId, channel, true, { force: true })
   }
 
   const humanizeDraft = async () => {
@@ -1907,6 +2177,16 @@ function CampaignsPage() {
                 ? 'Переписали тон (текст почти тот же — правки лёгкие).'
                 : 'Текст обновлён: продающе и по-человечески.'
             )
+
+            if (selectedClientId && msg.trim()) {
+              persistOutreachDraftCache(selectedClientId, channel, {
+                message: msg,
+                status:
+                  msg.trim() === draft
+                    ? 'Переписали тон (текст почти тот же — правки лёгкие).'
+                    : 'Текст обновлён: продающе и по-человечески.'
+              })
+            }
 
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
@@ -1997,6 +2277,13 @@ function CampaignsPage() {
                 : 'Не удалось предложить букет — проверьте историю.'
             )
 
+            if (selectedClientId && msg.trim()) {
+              persistOutreachDraftCache(selectedClientId, channel, {
+                message: msg,
+                status: 'Предложен конкретный букет из истории заказов.'
+              })
+            }
+
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
             }
@@ -2086,6 +2373,13 @@ function CampaignsPage() {
                 ? 'Парафраза почти совпала с исходником — попробуйте ещё раз.'
                 : 'Полная парафраза: формулировки сменены, факты те же.'
             )
+
+            if (selectedClientId && msg.trim() && !same) {
+              persistOutreachDraftCache(selectedClientId, channel, {
+                message: msg,
+                status: 'Полная парафраза: формулировки сменены, факты те же.'
+              })
+            }
 
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
@@ -2430,6 +2724,12 @@ function CampaignsPage() {
               <button
                 className="ms-link-btn"
                 onClick={() => {
+                  const prevId = selectedClientIdRef.current
+
+                  if (prevId && offerRef.current.trim()) {
+                    persistOutreachDraftCache(prevId, channelRef.current)
+                  }
+
                   outreachAbortRef.current?.abort()
                   outreachGenRef.current += 1
                   setSelectedClientId(null)
@@ -2807,7 +3107,11 @@ function CampaignsPage() {
                   : `Массовый черновик (${audience})`}
             </button>
           </div>
-          {genSource ? <p className="ms-muted">Источник текста: {genSource}</p> : null}
+          {genSource ? (
+            <p className="ms-muted">
+              Источник текста: {genSource === 'cache' ? 'кэш (уже выбранный контакт)' : genSource}
+            </p>
+          ) : null}
         </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
