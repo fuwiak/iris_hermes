@@ -52,6 +52,9 @@ auxiliary:
   moysklad_outreach:
     model: deepseek/deepseek-v4-flash-0731
     reasoning_effort: none
+    extra_body:
+      reasoning:
+        enabled: false
 display:
   skin: iris
 dashboard:
@@ -162,6 +165,7 @@ if isinstance(aux, dict):
         changed = True
     # Outreach drafts must not inherit compression's medium reasoning —
     # that made campaign "Генерируем…" stall while chat already streamed.
+    # Covers: Сгенерировать AI / Букет / Продающе / Парафраза / Проверить смысл.
     outreach = aux.setdefault("moysklad_outreach", {})
     if isinstance(outreach, dict):
         if not (outreach.get("model") or "").strip():
@@ -174,6 +178,15 @@ if isinstance(aux, dict):
             "disabled",
         }:
             outreach["reasoning_effort"] = "none"
+            changed = True
+        eb = outreach.setdefault("extra_body", {})
+        if not isinstance(eb, dict):
+            eb = {}
+            outreach["extra_body"] = eb
+            changed = True
+        reasoning = eb.get("reasoning")
+        if not isinstance(reasoning, dict) or reasoning.get("enabled") is not False:
+            eb["reasoning"] = {"enabled": False}
             changed = True
 
 if changed:

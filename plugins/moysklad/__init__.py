@@ -70,6 +70,6 @@ def register(ctx) -> None:
             "model": "deepseek/deepseek-v4-flash-0731",
             "timeout": 45,
             "reasoning_effort": "none",
-            "extra_body": {},
+            "extra_body": {"reasoning": {"enabled": False}},
         },
     )

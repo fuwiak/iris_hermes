@@ -897,13 +897,14 @@ DEFAULT_CONFIG = {
             "reasoning_effort": "medium",
         },
         "moysklad_outreach": {
-            # Campaign generate/rewrite/bouquet/paraphrase — prioritize TTFT.
+            # All campaign UI buttons (generate / bouquet / rewrite / paraphrase /
+            # sanity) — prioritize TTFT over mid-reasoning depth.
             "provider": "auto",
             "model": "deepseek/deepseek-v4-flash-0731",
             "base_url": "",
             "api_key": "",
             "timeout": 45,
-            "extra_body": {},
+            "extra_body": {"reasoning": {"enabled": False}},
             "reasoning_effort": "none",
         },
         # Note: session_search no longer uses an auxiliary LLM (PR #27590 —

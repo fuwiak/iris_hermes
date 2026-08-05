@@ -1223,57 +1223,52 @@ def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
 @router.post("/campaigns/rewrite/stream")
 def post_campaign_rewrite_stream(body: OutreachRewriteBody) -> Any:
     """NDJSON stream for rewrite (same event shape as generate/stream)."""
-    try:
-        draft = (body.message or "").strip()
-        if not draft:
-            raise HTTPException(status_code=400, detail="message required")
-        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
-        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
-            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
-        detail: dict[str, Any] | None = None
-        client_id = (body.client_id or "").strip()
-        if client_id:
-            catalog, _meta = _get_catalog(
-                max_orders=body.max_orders,
-                max_counterparties=body.max_counterparties,
-                include_archived=body.include_archived,
-                force=False,
-            )
-            row = find_row_in_catalog(catalog, client_id)
-            if row is not None:
-                detail = build_client_detail(row)
+    draft = (body.message or "").strip()
+    if not draft:
+        raise HTTPException(status_code=400, detail="message required")
+    seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+    if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+        save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+    client_id = (body.client_id or "").strip()
 
-        def _events() -> Iterator[dict[str, Any]]:
-            try:
-                for ev in iter_rewrite_outreach_events(
-                    draft,
-                    channel=body.channel,
-                    seller_name=seller_name,
-                    seller_facts=seller_facts,
-                    detail=detail,
-                ):
-                    if ev.get("type") == "done":
-                        ev = _persist_outreach_draft_from_done(
-                            ev,
-                            client_id=client_id,
-                            channel=body.channel,
-                            status="Текст обновлён: продающе и по-человечески.",
-                        )
-                    yield ev
-            except Exception as exc:  # pragma: no cover
-                log.exception("moysklad /campaigns/rewrite/stream failed mid-stream")
-                yield {"type": "error", "error": str(exc)}
+    def _events() -> Iterator[dict[str, Any]]:
+        yield {"type": "status", "text": "Переписываем продающе…"}
+        try:
+            detail: dict[str, Any] | None = None
+            if client_id:
+                catalog, _meta = _get_catalog(
+                    max_orders=body.max_orders,
+                    max_counterparties=body.max_counterparties,
+                    include_archived=body.include_archived,
+                    force=False,
+                )
+                row = find_row_in_catalog(catalog, client_id)
+                if row is not None:
+                    detail = build_client_detail(row)
+            for ev in iter_rewrite_outreach_events(
+                draft,
+                channel=body.channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+                detail=detail,
+            ):
+                if ev.get("type") == "status":
+                    continue
+                if ev.get("type") == "done":
+                    ev = _persist_outreach_draft_from_done(
+                        ev,
+                        client_id=client_id,
+                        channel=body.channel,
+                        status="Текст обновлён: продающе и по-человечески.",
+                    )
+                yield ev
+        except MoySkladError as exc:
+            yield {"type": "error", "error": str(exc)}
+        except Exception as exc:  # pragma: no cover
+            log.exception("moysklad /campaigns/rewrite/stream failed mid-stream")
+            yield {"type": "error", "error": str(exc)}
 
-        return _ndjson_response(_events())
-    except HTTPException:
-        raise
-    except MoySkladError as exc:
-        raise HTTPException(
-            status_code=exc.status_code or 502, detail=str(exc)
-        ) from exc
-    except Exception as exc:  # pragma: no cover
-        log.exception("moysklad /campaigns/rewrite/stream failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _ndjson_response(_events())
 
 
 @router.post("/campaigns/suggest-bouquet")
@@ -1419,58 +1414,52 @@ def post_campaign_paraphrase(body: OutreachRewriteBody) -> dict[str, Any]:
 @router.post("/campaigns/paraphrase/stream")
 def post_campaign_paraphrase_stream(body: OutreachRewriteBody) -> Any:
     """NDJSON stream for full paraphrase."""
-    try:
-        draft = (body.message or "").strip()
-        if not draft:
-            raise HTTPException(status_code=400, detail="message required")
-        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
-        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
-            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
-        detail: dict[str, Any] | None = None
-        client_id = (body.client_id or "").strip()
-        if client_id:
-            catalog, _meta = _get_catalog(
-                max_orders=body.max_orders,
-                max_counterparties=body.max_counterparties,
-                include_archived=body.include_archived,
-                force=False,
-            )
-            row = find_row_in_catalog(catalog, client_id)
-            if row is not None:
-                detail = build_client_detail(row)
+    draft = (body.message or "").strip()
+    if not draft:
+        raise HTTPException(status_code=400, detail="message required")
+    seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+    if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+        save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+    client_id = (body.client_id or "").strip()
 
-        def _events() -> Iterator[dict[str, Any]]:
-            try:
-                for ev in iter_paraphrase_outreach_events(
-                    draft,
-                    channel=body.channel,
-                    seller_name=seller_name,
-                    seller_facts=seller_facts,
-                    detail=detail,
-                ):
-                    if ev.get("type") == "done":
-                        # Always freshly generated; still persist so next select loads it.
-                        ev = _persist_outreach_draft_from_done(
-                            ev,
-                            client_id=client_id,
-                            channel=body.channel,
-                            status="Полная парафраза: формулировки сменены, факты те же.",
-                        )
-                    yield ev
-            except Exception as exc:  # pragma: no cover
-                log.exception("moysklad /campaigns/paraphrase/stream mid-stream")
-                yield {"type": "error", "error": str(exc)}
+    def _events() -> Iterator[dict[str, Any]]:
+        yield {"type": "status", "text": "Делаем полную парафразу…"}
+        try:
+            detail: dict[str, Any] | None = None
+            if client_id:
+                catalog, _meta = _get_catalog(
+                    max_orders=body.max_orders,
+                    max_counterparties=body.max_counterparties,
+                    include_archived=body.include_archived,
+                    force=False,
+                )
+                row = find_row_in_catalog(catalog, client_id)
+                if row is not None:
+                    detail = build_client_detail(row)
+            for ev in iter_paraphrase_outreach_events(
+                draft,
+                channel=body.channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+                detail=detail,
+            ):
+                if ev.get("type") == "status":
+                    continue
+                if ev.get("type") == "done":
+                    ev = _persist_outreach_draft_from_done(
+                        ev,
+                        client_id=client_id,
+                        channel=body.channel,
+                        status="Полная парафраза: формулировки сменены, факты те же.",
+                    )
+                yield ev
+        except MoySkladError as exc:
+            yield {"type": "error", "error": str(exc)}
+        except Exception as exc:  # pragma: no cover
+            log.exception("moysklad /campaigns/paraphrase/stream mid-stream")
+            yield {"type": "error", "error": str(exc)}
 
-        return _ndjson_response(_events())
-    except HTTPException:
-        raise
-    except MoySkladError as exc:
-        raise HTTPException(
-            status_code=exc.status_code or 502, detail=str(exc)
-        ) from exc
-    except Exception as exc:  # pragma: no cover
-        log.exception("moysklad /campaigns/paraphrase/stream failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _ndjson_response(_events())
 
 
 @router.post("/campaigns/personalize/stream")

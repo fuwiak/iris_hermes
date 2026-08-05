@@ -178,11 +178,13 @@ OUTREACH_SANITY_TEMPERATURE = 0.1
 
 # Dedicated aux task (reasoning none). Do NOT use ``compression`` — Iris pins
 # that to reasoning_effort=medium for card summaries, which stalls TTFT here.
+# Used by every campaign button: generate / bouquet / rewrite / paraphrase / sanity.
 OUTREACH_LLM_TASK = "moysklad_outreach"
 OUTREACH_LLM_TIMEOUT = 30.0
 OUTREACH_LLM_MAX_TOKENS = 450
 # Belt-and-suspenders when plugin defaults / volume config lag behind.
 _OUTREACH_NO_REASONING = {"enabled": False, "effort": "none"}
+_OUTREACH_EXTRA_BODY = {"reasoning": {"enabled": False}}
 
 _PLAIN_STREAM_TAIL = (
     "\n\nSTREAM MODE: отвечай ТОЛЬКО текстом сообщения клиенту. "
@@ -678,6 +680,7 @@ def sanity_check_outreach_message(
             temperature=OUTREACH_SANITY_TEMPERATURE,
             timeout=OUTREACH_LLM_TIMEOUT,
             reasoning_config=_OUTREACH_NO_REASONING,
+            extra_body=_OUTREACH_EXTRA_BODY,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_sanity_json(text)
@@ -838,6 +841,7 @@ def generate_outreach_message(
             temperature=OUTREACH_GENERATE_TEMPERATURE,
             timeout=OUTREACH_LLM_TIMEOUT,
             reasoning_config=_OUTREACH_NO_REASONING,
+            extra_body=_OUTREACH_EXTRA_BODY,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1002,6 +1006,7 @@ def rewrite_outreach_message(
             temperature=OUTREACH_REWRITE_TEMPERATURE,
             timeout=OUTREACH_LLM_TIMEOUT,
             reasoning_config=_OUTREACH_NO_REASONING,
+            extra_body=_OUTREACH_EXTRA_BODY,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1261,6 +1266,7 @@ def suggest_historical_bouquet_message(
             temperature=OUTREACH_BOUQUET_TEMPERATURE,
             timeout=OUTREACH_LLM_TIMEOUT,
             reasoning_config=_OUTREACH_NO_REASONING,
+            extra_body=_OUTREACH_EXTRA_BODY,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1385,6 +1391,7 @@ def paraphrase_outreach_message(
             temperature=OUTREACH_PARAPHRASE_TEMPERATURE,
             timeout=OUTREACH_LLM_TIMEOUT,
             reasoning_config=_OUTREACH_NO_REASONING,
+            extra_body=_OUTREACH_EXTRA_BODY,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1410,6 +1417,7 @@ def paraphrase_outreach_message(
                 temperature=min(1.0, OUTREACH_PARAPHRASE_TEMPERATURE + 0.05),
                 timeout=OUTREACH_LLM_TIMEOUT,
                 reasoning_config=_OUTREACH_NO_REASONING,
+                extra_body=_OUTREACH_EXTRA_BODY,
             )
             text2 = (extract_content_or_reasoning(response2) or "").strip()
             parsed2 = _parse_outreach_json(text2)
@@ -1710,6 +1718,7 @@ def _stream_llm_message_events(
         temperature=temperature,
         timeout=OUTREACH_LLM_TIMEOUT,
         reasoning_config=_OUTREACH_NO_REASONING,
+        extra_body=_OUTREACH_EXTRA_BODY,
         stream=True,
     )
     extractor = ProgressiveJsonMessage()

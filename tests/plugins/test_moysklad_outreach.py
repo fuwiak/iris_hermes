@@ -438,6 +438,7 @@ def test_iter_generate_outreach_events_streams_deltas(monkeypatch):
         assert kwargs.get("stream") is True
         assert kwargs.get("task") == OUTREACH_LLM_TASK
         assert (kwargs.get("reasoning_config") or {}).get("enabled") is False
+        assert (kwargs.get("extra_body") or {}).get("reasoning", {}).get("enabled") is False
         return iter(_Chunk(c) for c in chunks)
 
     monkeypatch.setattr("agent.auxiliary_client.call_llm", _fake_call_llm)
@@ -469,7 +470,68 @@ def test_outreach_defaults_disable_reasoning():
     cfg = DEFAULT_CONFIG["auxiliary"]["moysklad_outreach"]
     assert cfg["reasoning_effort"] == "none"
     assert cfg["model"]
+    assert (cfg.get("extra_body") or {}).get("reasoning", {}).get("enabled") is False
     assert DEFAULT_CONFIG["auxiliary"]["compression"]["reasoning_effort"] == "medium"
+
+
+def test_all_campaign_button_paths_use_fast_outreach_task(monkeypatch):
+    """Сгенерировать / Букет / Продающе / Парафраза / Смысл → moysklad_outreach."""
+    from plugins.moysklad import outreach as o
+
+    seen: list[dict] = []
+
+    class _Delta:
+        def __init__(self, content):
+            self.content = content
+
+    class _Choice:
+        def __init__(self, content):
+            self.delta = _Delta(content)
+            self.message = type("M", (), {"content": content})()
+
+    class _Resp:
+        def __init__(self, content):
+            self.choices = [_Choice(content)]
+
+    def _fake_call_llm(**kwargs):
+        seen.append(kwargs)
+        if kwargs.get("stream"):
+            return iter([_Resp("Привет, Мария!")])
+        return _Resp('{"message":"Привет, Мария!","grounding_notes":"x","ok":true,"issues":[],"revised_text":null}')
+
+    monkeypatch.setattr("agent.auxiliary_client.call_llm", _fake_call_llm)
+    detail = build_client_detail(_sample_row())
+
+    list(o.iter_generate_outreach_events(detail, channel="telegram", seller_name="Анна"))
+    list(o.iter_suggest_bouquet_events(detail, channel="telegram", seller_name="Анна"))
+    list(
+        o.iter_rewrite_outreach_events(
+            "Здравствуйте!",
+            channel="telegram",
+            seller_name="Анна",
+            detail=detail,
+        )
+    )
+    list(
+        o.iter_paraphrase_outreach_events(
+            "Здравствуйте!",
+            channel="telegram",
+            seller_name="Анна",
+            detail=detail,
+        )
+    )
+    o.sanity_check_outreach_message(
+        "Здравствуйте, Мария!",
+        detail,
+        use_llm=True,
+        seller_name="Анна",
+    )
+
+    assert len(seen) >= 5
+    for kwargs in seen:
+        assert kwargs.get("task") == o.OUTREACH_LLM_TASK
+        assert (kwargs.get("reasoning_config") or {}).get("enabled") is False
+        assert (kwargs.get("extra_body") or {}).get("reasoning", {}).get("enabled") is False
 
 
 def test_iter_personalize_batch_events_yields_per_client(monkeypatch):
