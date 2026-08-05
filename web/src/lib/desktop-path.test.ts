@@ -19,6 +19,8 @@ describe("dashboardPathToDesktop", () => {
     expect(dashboardPathToDesktop("/agents")).toBe("/agents");
     expect(dashboardPathToDesktop("/starmap")).toBe("/starmap");
     expect(dashboardPathToDesktop("/command-center")).toBe("/command-center");
+    expect(dashboardPathToDesktop("/clients")).toBe("/clients");
+    expect(dashboardPathToDesktop("/campaigns")).toBe("/campaigns");
   });
 
   it("renames the surfaces the desktop app labels differently", () => {
@@ -53,6 +55,8 @@ describe("isDesktopEmbedPath", () => {
       "/agents",
       "/starmap",
       "/command-center",
+      "/clients",
+      "/campaigns",
     ]) {
       expect(isDesktopEmbedPath(path)).toBe(true);
     }

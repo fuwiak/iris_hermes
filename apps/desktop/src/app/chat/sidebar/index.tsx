@@ -1,6 +1,10 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { isStandardDesktopPrimaryNavId, STANDARD_NAV_PLUGIN_PATHS } from '@hermes/shared'
+import {
+  isStandardDesktopPrimaryNavId,
+  isStandardNavPluginContribution,
+  STANDARD_MOYSKLAD_NAV_ITEMS
+} from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -319,38 +323,60 @@ export function ChatSidebar({
   // below the built-ins with the same chrome; active = at their route.
   const navContributions = useContributions(SIDEBAR_NAV_AREA)
 
-  const contributedNav = useMemo<SidebarNavItem[]>(
-    () =>
-      navContributions.flatMap(c => {
-        const data = c.data as Partial<SidebarNavContribution> | undefined
+  const contributedNav = useMemo<SidebarNavItem[]>(() => {
+    const fromPlugins = navContributions.flatMap(c => {
+      const data = c.data as Partial<SidebarNavContribution> | undefined
 
-        if (!data?.path?.startsWith('/') || !data.label) {
-          return []
+      if (!data?.path?.startsWith('/') || !data.label) {
+        return []
+      }
+
+      // Primary nav already owns /kanban — skip the plugin duplicate.
+      if (data.path === '/kanban') {
+        return []
+      }
+
+      // standard: MoySklad Клиенты/Рассылки only — hide Plugins and other contribs
+      if (
+        !isProNav &&
+        !isStandardNavPluginContribution({
+          id: c.id,
+          path: data.path,
+          source: c.source
+        })
+      ) {
+        return []
+      }
+
+      const codicon = data.codicon || 'plug'
+
+      return [
+        {
+          id: c.id,
+          label: data.label,
+          icon: (props: { className?: string }) => <Codicon name={codicon} {...props} />,
+          route: data.path
         }
+      ]
+    })
 
-        // Primary nav already owns /kanban — skip the plugin duplicate.
-        if (data.path === '/kanban') {
-          return []
-        }
+    // Seed Клиенты/Рассылки when the bundled plugin is late/disabled so
+    // standard mode never ships an empty MoySklad strip.
+    if (!isProNav) {
+      const have = new Set(fromPlugins.map(item => item.route).filter(Boolean))
+      for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
+        if (have.has(seed.path)) continue
+        fromPlugins.push({
+          id: `moysklad-seed:${seed.path}`,
+          label: seed.label,
+          icon: (props: { className?: string }) => <Codicon name={seed.codicon} {...props} />,
+          route: seed.path
+        })
+      }
+    }
 
-        // standard: MoySklad Клиенты/Рассылки only — hide Plugins and other contribs
-        if (!isProNav && !STANDARD_NAV_PLUGIN_PATHS.has(data.path)) {
-          return []
-        }
-
-        const codicon = data.codicon || 'plug'
-
-        return [
-          {
-            id: c.id,
-            label: data.label,
-            icon: (props: { className?: string }) => <Codicon name={codicon} {...props} />,
-            route: data.path
-          }
-        ]
-      }),
-    [isProNav, navContributions]
-  )
+    return fromPlugins
+  }, [isProNav, navContributions])
 
   const panesFlipped = useStore($panesFlipped)
   const agentsGrouped = useStore($sidebarAgentsGrouped)

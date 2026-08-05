@@ -25,6 +25,9 @@ const DESKTOP_ROUTE_BY_DASHBOARD_PATH: Record<string, string> = {
   "/agents": "/agents",
   "/starmap": "/starmap",
   "/command-center": "/command-center",
+  // MoySklad CRM — desktop plugin pages (Клиенты / Рассылки).
+  "/clients": "/clients",
+  "/campaigns": "/campaigns",
 };
 
 /**

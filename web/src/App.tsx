@@ -37,6 +37,7 @@ import {
   Globe,
   Heart,
   KeyRound,
+  Mail,
   Menu,
   MessageSquare,
   Package,
@@ -65,6 +66,8 @@ import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import {
+  isStandardNavPluginPath,
+  STANDARD_MOYSKLAD_NAV_ITEMS,
   STANDARD_NAV_PLUGIN_NAMES,
   STANDARD_WEB_CORE_PATHS,
   type NavMode,
@@ -194,6 +197,9 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/config": () => <Navigate to="/settings" replace />,
   "/settings": DesktopRouteSink,
   "/env": DesktopRouteSink,
+  // MoySklad CRM — Hermes One desktop plugin pages (not legacy PluginPage).
+  "/clients": DesktopRouteSink,
+  "/campaigns": DesktopRouteSink,
 };
 
 const BUILTIN_NAV_REST: NavItem[] = [
@@ -252,6 +258,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   FileText,
   FolderOpen,
   KeyRound,
+  Mail,
   MessageSquare,
   Package,
   Settings,
@@ -339,14 +346,32 @@ function applyNavModeFilter(
       .map((m) => m.tab.override ?? m.tab.path),
   );
 
-  return {
-    coreItems: partitioned.coreItems.filter((item) =>
-      STANDARD_WEB_CORE_PATHS.has(item.path),
-    ),
-    pluginItems: partitioned.pluginItems.filter((item) =>
-      moyskladPaths.has(item.path),
-    ),
-  };
+  const coreItems = partitioned.coreItems.filter((item) =>
+    STANDARD_WEB_CORE_PATHS.has(item.path),
+  );
+
+  const pluginItems = partitioned.pluginItems.filter(
+    (item) => moyskladPaths.has(item.path) || isStandardNavPluginPath(item.path),
+  );
+
+  // Seed Клиенты/Рассылки when the dashboard manifest is late/missing so
+  // standard mode never drops MoySklad (Hermes One owns the pages).
+  const have = new Set(pluginItems.map((item) => item.path));
+  for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
+    if (have.has(seed.path)) continue;
+    const manifest = manifests.find(
+      (m) =>
+        STANDARD_NAV_PLUGIN_NAMES.has(m.name) &&
+        (m.tab.override ?? m.tab.path) === seed.path,
+    );
+    pluginItems.push({
+      path: seed.path,
+      label: manifest?.label ?? seed.label,
+      icon: resolveIcon(manifest?.icon ?? seed.icon),
+    });
+  }
+
+  return { coreItems, pluginItems };
 }
 
 function buildRoutes(

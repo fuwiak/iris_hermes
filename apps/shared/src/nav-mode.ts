@@ -10,14 +10,23 @@ export const NAV_MODE_CHANGE_EVENT = "hermes-nav-mode-change";
 
 export const DEFAULT_NAV_MODE: NavMode = "standard";
 
-/** Plugin manifest `name` values kept visible in standard mode. */
+/** Plugin manifest / desktop plugin `id` values kept visible in standard mode. */
 export const STANDARD_NAV_PLUGIN_NAMES = new Set(["moysklad"]);
 
 /**
- * Desktop `sidebar.nav` contribution paths kept in standard mode
- * (MoySklad Клиенты / Рассылки).
+ * MoySklad (and future allowlisted plugin) paths kept in standard mode
+ * (Клиенты / Рассылки). Query/hash stripped before matching.
  */
 export const STANDARD_NAV_PLUGIN_PATHS = new Set(["/campaigns", "/clients"]);
+
+/**
+ * Seed rows for standard mode when contributions/manifests are late or missing.
+ * Desktop + web both use these so Клиенты/Рассылки cannot disappear.
+ */
+export const STANDARD_MOYSKLAD_NAV_ITEMS = [
+  { path: "/clients", label: "Клиенты", codicon: "organization", icon: "Users" },
+  { path: "/campaigns", label: "Рассылки", codicon: "mail", icon: "Mail" },
+] as const;
 
 /**
  * Web dashboard built-in core paths kept in standard mode
@@ -38,6 +47,50 @@ export const STANDARD_DESKTOP_PRIMARY_NAV_IDS = new Set([
 ]);
 
 const APP_CONTROL_NAV_PREFIX = "app-control-";
+
+/** Pathname only — strips `?query` / `#hash` before allowlist checks. */
+export function navPathname(path: string): string {
+  const cut = path.search(/[?#]/);
+  const raw = cut === -1 ? path : path.slice(0, cut);
+  return raw.replace(/\/$/, "") || "/";
+}
+
+/** True for MoySklad Клиенты/Рассылки (and any other STANDARD_NAV_PLUGIN_PATHS). */
+export function isStandardNavPluginPath(path: string): boolean {
+  return STANDARD_NAV_PLUGIN_PATHS.has(navPathname(path));
+}
+
+/**
+ * True when a sidebar contribution belongs to an allowlisted plugin
+ * (by path, `plugin:<id>` source, or namespaced contribution id).
+ * Paths outside {@link STANDARD_NAV_PLUGIN_PATHS} stay hidden in standard
+ * even if the source is moysklad (e.g. Plugins → `/settings?tab=plugins`).
+ */
+export function isStandardNavPluginContribution(opts: {
+  id?: string;
+  path?: string;
+  source?: string;
+}): boolean {
+  const path = opts.path;
+  if (!path || !isStandardNavPluginPath(path)) return false;
+
+  const source = opts.source;
+  if (source) {
+    for (const name of STANDARD_NAV_PLUGIN_NAMES) {
+      if (source === `plugin:${name}`) return true;
+    }
+  }
+
+  const id = opts.id;
+  if (id) {
+    for (const name of STANDARD_NAV_PLUGIN_NAMES) {
+      if (id === name || id.startsWith(`${name}:`)) return true;
+    }
+  }
+
+  // Path allowlist alone is enough (web nav items have no plugin source).
+  return true;
+}
 
 /** True for Chat (`new-session`) and Settings (`settings` / `app-control-settings`). */
 export function isStandardDesktopPrimaryNavId(id: string): boolean {
