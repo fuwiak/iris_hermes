@@ -31,6 +31,16 @@ if [ -x "$PY" ] && [ -f "$INSTALL_DIR/scripts/docker_config_migrate.py" ]; then
     # Minimal first-boot config so migrate + deep-merge have a file to own.
     cat >"$HERMES_HOME/config.yaml" <<'YAML'
 _config_version: 34
+model:
+  default: deepseek/deepseek-v4-flash-0731
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+agent:
+  reasoning_effort: medium
+auxiliary:
+  compression:
+    model: deepseek/deepseek-v4-flash-0731
+    reasoning_effort: medium
 display:
   skin: iris
 dashboard:
@@ -87,6 +97,46 @@ if "moysklad" not in disabled_set and "moysklad" not in enabled:
     enabled = list(enabled) + ["moysklad"]
     plugins["enabled"] = enabled
     changed = True
+
+# Default chat model: DeepSeek V4 Flash 0731 · Med (OpenRouter catalog id).
+# Only fill when missing/empty — never clobber an explicit user pick.
+_IRIS_MODEL = "deepseek/deepseek-v4-flash-0731"
+model_cfg = raw.get("model")
+if model_cfg is None or model_cfg == "" or model_cfg == {}:
+    raw["model"] = {
+        "default": _IRIS_MODEL,
+        "provider": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+    changed = True
+elif isinstance(model_cfg, dict):
+    current = (model_cfg.get("default") or model_cfg.get("model") or "").strip()
+    if not current:
+        model_cfg["default"] = _IRIS_MODEL
+        model_cfg.setdefault("provider", "openrouter")
+        model_cfg.setdefault("base_url", "https://openrouter.ai/api/v1")
+        changed = True
+elif isinstance(model_cfg, str) and not model_cfg.strip():
+    raw["model"] = {
+        "default": _IRIS_MODEL,
+        "provider": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+    changed = True
+
+agent = raw.setdefault("agent", {})
+if isinstance(agent, dict) and not (agent.get("reasoning_effort") or "").strip():
+    agent["reasoning_effort"] = "medium"
+    changed = True
+
+aux = raw.setdefault("auxiliary", {})
+if isinstance(aux, dict):
+    compression = aux.setdefault("compression", {})
+    if isinstance(compression, dict) and not (compression.get("model") or "").strip():
+        compression["model"] = _IRIS_MODEL
+        if not (compression.get("reasoning_effort") or "").strip():
+            compression["reasoning_effort"] = "medium"
+        changed = True
 
 if changed:
     path.write_text(

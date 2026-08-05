@@ -5,7 +5,13 @@ verbatim from hermes_cli/config.py. Must not import from hermes_cli.config.
 """
 
 DEFAULT_CONFIG = {
-    "model": "",
+    # Iris shop default: OpenRouter catalog id for DeepSeek V4 Flash 0731.
+    # Pair with agent.reasoning_effort "medium" (UI label: "· Med").
+    "model": {
+        "default": "deepseek/deepseek-v4-flash-0731",
+        "provider": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+    },
     "providers": {},
     "fallback_providers": [],
     "credential_pool_strategies": {},
@@ -237,6 +243,10 @@ DEFAULT_CONFIG = {
         # only controls how inbound user images are presented.
         "image_input_mode": "auto",
         "disabled_toolsets": [],
+
+        # Reasoning effort for the main chat model (UI "· Med" / "· High" …).
+        # Options: none|minimal|low|medium|high|xhigh|max|ultra
+        "reasoning_effort": "medium",
 
         # Per-model reasoning effort overrides (spelling-tolerant).
         # Dict mapping model names (any reasonable spelling) to effort levels.
@@ -875,13 +885,15 @@ DEFAULT_CONFIG = {
             "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
         },
         "compression": {
+            # MoySklad client_card / outreach call_llm(task="compression") —
+            # keep aligned with the Iris main-chat silent default.
             "provider": "auto",
-            "model": "",
+            "model": "deepseek/deepseek-v4-flash-0731",
             "base_url": "",
             "api_key": "",
             "timeout": 120,        # seconds — compression summarises large contexts; increase for local models
             "extra_body": {},
-            "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
+            "reasoning_effort": "medium",
         },
         # Note: session_search no longer uses an auxiliary LLM (PR #27590 —
         # single-shape tool returns DB content directly). The old

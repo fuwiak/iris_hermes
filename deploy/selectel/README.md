@@ -33,9 +33,14 @@ Entrypoint (`docker/railway-entrypoint.sh`) on every boot:
 
 - sets `dashboard.theme` / `display.skin` to **iris** when missing or `mono`/`default`
 - ensures `plugins.enabled` includes **moysklad** (unless explicitly disabled)
+- seeds chat model **`deepseek/deepseek-v4-flash-0731`** + `agent.reasoning_effort: medium` when unset (UI: Deepseek V4 Flash 0731 · Med)
 - syncs `MOYSKLAD_API_TOKEN` from process env into `$HERMES_HOME/.env`
 
 Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone does not enable the Hermes plugin.
+
+### OpenRouter `Access denied by security policy` (HTTP 403)
+
+This is **OpenRouter’s API** rejecting the key/account — not Hermes dashboard auth, CSRF, Caddy, or Cloudflare. Logs show `provider=openrouter` / `base_url=https://openrouter.ai/api/v1`. Fix: replace `OPENROUTER_API_KEY` at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), or switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`).
 
 ## Deploy
 

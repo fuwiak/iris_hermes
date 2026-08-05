@@ -5125,6 +5125,29 @@ def run_conversation(
                                 agent._vprint(f"{agent.log_prefix}      • Check credits: https://openrouter.ai/settings/credits", force=True)
                     else:
                         agent._vprint(f"{agent.log_prefix}   💡 This type of error won't be fixed by retrying.", force=True)
+                    # OpenRouter account/key policy block (not Hermes middleware /
+                    # dashboard CSRF / Caddy). Exact body seen in the wild:
+                    # {"success": false, "error": "Access denied by security policy."}
+                    if (
+                        status_code == 403
+                        and "access denied by security policy" in str(api_error).lower()
+                        and base_url_host_matches(str(_base), "openrouter.ai")
+                    ):
+                        agent._vprint(
+                            f"{agent.log_prefix}   💡 OpenRouter rejected this key/account "
+                            f"(security policy) — not a Hermes/dashboard gate.",
+                            force=True,
+                        )
+                        agent._vprint(
+                            f"{agent.log_prefix}      • Rotate/replace OPENROUTER_API_KEY at "
+                            f"https://openrouter.ai/settings/keys",
+                            force=True,
+                        )
+                        agent._vprint(
+                            f"{agent.log_prefix}      • Or switch provider: `hermes model` → DeepSeek "
+                            f"(DEEPSEEK_API_KEY) / another backend.",
+                            force=True,
+                        )
                     # Content-policy blocks deserve their own actionable
                     # guidance — neither "fix your API key" nor "retry won't
                     # help" tells the user what to actually do. The provider

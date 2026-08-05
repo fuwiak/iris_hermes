@@ -69,7 +69,7 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     # DeepSeek
     ("deepseek/deepseek-v4-pro",               ""),
     ("deepseek/deepseek-v4-flash",             ""),
-    ("deepseek/deepseek-v4-flash-0731",        "dated snapshot of v4-flash"),
+    ("deepseek/deepseek-v4-flash-0731",        "default"),
     # Qwen
     ("qwen/qwen3.7-max",                       ""),
     # MoonshotAI
@@ -77,7 +77,7 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     # MiniMax
     ("minimax/minimax-m3",                     ""),
     # Z-AI
-    ("z-ai/glm-5.2",                           "default"),
+    ("z-ai/glm-5.2",                           ""),
     ("z-ai/glm-5.1",                           ""),
     # Xiaomi
     ("xiaomi/mimo-v2.5-pro",                   ""),
@@ -1377,7 +1377,7 @@ _PROVIDER_ALIASES = {
 # lists are ordered most-capable-first, so [0] is the priciest Anthropic
 # flagship (claude-fable-5 / opus) — silently billing the most expensive model
 # for traffic the user never opted into.
-PREFERRED_SILENT_DEFAULT_MODEL = "z-ai/glm-5.2"
+PREFERRED_SILENT_DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731"
 
 
 def get_preferred_silent_default_model(provider: str = "openrouter") -> str:

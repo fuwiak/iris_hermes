@@ -966,7 +966,13 @@ def _has_any_provider_configured() -> bool:
     # the setup wizard on a fresh install.
     from hermes_cli.config import DEFAULT_CONFIG
 
-    _DEFAULT_MODEL = DEFAULT_CONFIG.get("model", "")
+    _default_model_cfg = DEFAULT_CONFIG.get("model", "")
+    if isinstance(_default_model_cfg, dict):
+        _DEFAULT_MODEL = (_default_model_cfg.get("default") or "").strip()
+    elif isinstance(_default_model_cfg, str):
+        _DEFAULT_MODEL = _default_model_cfg.strip()
+    else:
+        _DEFAULT_MODEL = ""
     cfg = load_config()
     model_cfg = cfg.get("model")
     if isinstance(model_cfg, dict):
