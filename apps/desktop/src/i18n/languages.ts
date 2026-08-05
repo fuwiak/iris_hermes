@@ -10,9 +10,7 @@ export const PRODUCT_DEFAULT_LOCALE: Locale = 'ru'
  * UI tests can keep English role/name queries; production stays Russian.
  */
 export const DEFAULT_LOCALE: Locale =
-  typeof process !== 'undefined' && process.env.HERMES_UI_TEST_LOCALE === 'en'
-    ? 'en'
-    : PRODUCT_DEFAULT_LOCALE
+  typeof process !== 'undefined' && process.env.HERMES_UI_TEST_LOCALE === 'en' ? 'en' : PRODUCT_DEFAULT_LOCALE
 
 /** Complete catalog used when the active locale misses a key. */
 export const FALLBACK_LOCALE: Locale = 'en'
