@@ -46,6 +46,7 @@ export {
 } from './json-rpc-gateway'
 export {
   DEFAULT_NAV_MODE,
+  isStandardDesktopPrimaryNavId,
   NAV_MODE_CHANGE_EVENT,
   NAV_MODE_STORAGE_KEY,
   type NavMode,

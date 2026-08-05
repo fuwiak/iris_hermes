@@ -1,6 +1,6 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { STANDARD_DESKTOP_PRIMARY_NAV_IDS, STANDARD_NAV_PLUGIN_PATHS } from '@hermes/shared'
+import { isStandardDesktopPrimaryNavId, STANDARD_NAV_PLUGIN_PATHS } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -298,7 +298,8 @@ export function ChatSidebar({
     }
 
     // standard: Chat + Settings — hide Discover/Office/Kanban/Schedules + other embed tools
-    return all.filter(item => STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(item.id))
+    // Settings arrives as `app-control-settings` in dashboard embed (see useAppControlTools).
+    return all.filter(item => isStandardDesktopPrimaryNavId(item.id))
   }, [isProNav, webAppControlNav])
 
   const navLabel = (item: SidebarNavItem) => {
@@ -1168,11 +1169,15 @@ export function ChatSidebar({
       collapsible="none"
     >
       <SidebarContent className="gap-0 overflow-hidden bg-transparent px-2.5">
-        <div className="flex shrink-0 flex-col gap-1 px-2 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
+        <div className="flex shrink-0 flex-col gap-1 px-2 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)] [-webkit-app-region:no-drag]">
           <span className="text-[0.65rem] tracking-[0.12em] text-(--ui-text-tertiary) lowercase">
             {s.navMode.label}
           </span>
-          <label className="flex min-w-0 items-center gap-2">
+          {/*
+            Do NOT wrap Radix Switch in <label> — label activation + button click
+            double-fires onCheckedChange and the toggle appears stuck.
+          */}
+          <div className="flex min-w-0 items-center gap-2" role="group" aria-label={s.navMode.ariaLabel}>
             <span
               className={cn(
                 'text-[0.7rem] tracking-[0.08em] lowercase',
@@ -1195,7 +1200,7 @@ export function ChatSidebar({
             >
               {s.navMode.pro}
             </span>
-          </label>
+          </div>
         </div>
 
         <SidebarGroup className="shrink-0 p-0 pb-2">

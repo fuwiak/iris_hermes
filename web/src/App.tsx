@@ -965,7 +965,13 @@ function NavModeToggle({
       >
         {labels.label ?? "standard / pro"}
       </span>
-      <label
+      {/*
+        Do NOT wrap Radix Switch in <label> — label activation + button click
+        double-fires onCheckedChange and the toggle appears stuck / "all off".
+      */}
+      <div
+        role="group"
+        aria-label={labels.ariaLabel}
         className={cn(
           "flex min-w-0 items-center gap-2",
           collapsed && "lg:flex-col lg:gap-1",
@@ -996,7 +1002,7 @@ function NavModeToggle({
         >
           {labels.pro}
         </span>
-      </label>
+      </div>
     </div>
   );
 }

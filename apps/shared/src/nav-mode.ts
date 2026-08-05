@@ -28,11 +28,27 @@ export const STANDARD_WEB_CORE_PATHS = new Set(["/chat", "/settings"]);
 /**
  * Built-in desktop primary-nav ids kept in standard mode
  * (Chat + Settings via embed app-control).
+ *
+ * Embed remaps titlebar tools to `app-control-${tool.id}` — use
+ * {@link isStandardDesktopPrimaryNavId} when filtering, not this Set alone.
  */
 export const STANDARD_DESKTOP_PRIMARY_NAV_IDS = new Set([
   "new-session",
   "settings",
 ]);
+
+const APP_CONTROL_NAV_PREFIX = "app-control-";
+
+/** True for Chat (`new-session`) and Settings (`settings` / `app-control-settings`). */
+export function isStandardDesktopPrimaryNavId(id: string): boolean {
+  if (STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(id)) return true;
+  if (id.startsWith(APP_CONTROL_NAV_PREFIX)) {
+    return STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(
+      id.slice(APP_CONTROL_NAV_PREFIX.length),
+    );
+  }
+  return false;
+}
 
 export function parseNavMode(raw: null | string | undefined): NavMode {
   return raw === "pro" ? "pro" : "standard";
