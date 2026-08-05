@@ -885,8 +885,9 @@ DEFAULT_CONFIG = {
             "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
         },
         "compression": {
-            # MoySklad client_card / outreach call_llm(task="compression") —
-            # keep aligned with the Iris main-chat silent default.
+            # MoySklad client_card / recalculate_groups call_llm(task="compression").
+            # Outreach drafts use auxiliary.moysklad_outreach (reasoning none) —
+            # medium reasoning here made «Генерируем…» feel minutes vs chat.
             "provider": "auto",
             "model": "deepseek/deepseek-v4-flash-0731",
             "base_url": "",
@@ -894,6 +895,16 @@ DEFAULT_CONFIG = {
             "timeout": 120,        # seconds — compression summarises large contexts; increase for local models
             "extra_body": {},
             "reasoning_effort": "medium",
+        },
+        "moysklad_outreach": {
+            # Campaign generate/rewrite/bouquet/paraphrase — prioritize TTFT.
+            "provider": "auto",
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 45,
+            "extra_body": {},
+            "reasoning_effort": "none",
         },
         # Note: session_search no longer uses an auxiliary LLM (PR #27590 —
         # single-shape tool returns DB content directly). The old

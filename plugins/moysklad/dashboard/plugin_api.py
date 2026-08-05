@@ -1128,58 +1128,53 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
 def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
     """NDJSON stream: status → delta* → (replace?) → done.
 
-    Tokens appear as soon as the model emits the ``message`` field (or plain
-    text). Keeps the blocking ``/campaigns/generate`` for older clients.
+    First status event is emitted before catalog I/O so the UI is not stuck
+    on a silent wait. Tokens stream as plain text (or ``message`` JSON field).
     """
-    try:
-        client_id = (body.client_id or "").strip()
-        if not client_id:
-            raise HTTPException(status_code=400, detail="client_id required")
-        catalog, _meta = _get_catalog(
-            max_orders=body.max_orders,
-            max_counterparties=body.max_counterparties,
-            include_archived=body.include_archived,
-            force=False,
-        )
-        row = find_row_in_catalog(catalog, client_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="client not found in catalog")
-        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
-        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
-            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+    client_id = (body.client_id or "").strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id required")
+    seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+    if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+        save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
 
-        def _events() -> Iterator[dict[str, Any]]:
-            try:
-                for ev in iter_generate_outreach_for_row_events(
-                    row,
-                    channel=body.channel,
-                    refresh_ai=bool(body.refresh_ai),
-                    seller_name=seller_name,
-                    seller_facts=seller_facts,
-                ):
-                    if ev.get("type") == "done":
-                        ev = _persist_outreach_draft_from_done(
-                            ev,
-                            client_id=client_id,
-                            channel=body.channel,
-                            status="AI сгенерировал креативный текст — можно править вручную.",
-                        )
-                    yield ev
-            except Exception as exc:  # pragma: no cover
-                log.exception("moysklad /campaigns/generate/stream failed mid-stream")
-                yield {"type": "error", "error": str(exc)}
+    def _events() -> Iterator[dict[str, Any]]:
+        yield {"type": "status", "text": "Генерируем креативный текст…"}
+        try:
+            catalog, _meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is None:
+                yield {"type": "error", "error": "client not found in catalog"}
+                return
+            for ev in iter_generate_outreach_for_row_events(
+                row,
+                channel=body.channel,
+                refresh_ai=bool(body.refresh_ai),
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            ):
+                if ev.get("type") == "status":
+                    continue  # already emitted above
+                if ev.get("type") == "done":
+                    ev = _persist_outreach_draft_from_done(
+                        ev,
+                        client_id=client_id,
+                        channel=body.channel,
+                        status="AI сгенерировал креативный текст — можно править вручную.",
+                    )
+                yield ev
+        except MoySkladError as exc:
+            yield {"type": "error", "error": str(exc)}
+        except Exception as exc:  # pragma: no cover
+            log.exception("moysklad /campaigns/generate/stream failed mid-stream")
+            yield {"type": "error", "error": str(exc)}
 
-        return _ndjson_response(_events())
-    except HTTPException:
-        raise
-    except MoySkladError as exc:
-        raise HTTPException(
-            status_code=exc.status_code or 502, detail=str(exc)
-        ) from exc
-    except Exception as exc:  # pragma: no cover
-        log.exception("moysklad /campaigns/generate/stream failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
+    return _ndjson_response(_events())
 
 @router.post("/campaigns/rewrite")
 def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
@@ -1324,61 +1319,57 @@ def post_campaign_suggest_bouquet(body: OutreachGenerateBody) -> dict[str, Any]:
 @router.post("/campaigns/suggest-bouquet/stream")
 def post_campaign_suggest_bouquet_stream(body: OutreachGenerateBody) -> Any:
     """NDJSON stream for historical bouquet suggestion."""
-    try:
-        client_id = (body.client_id or "").strip()
-        if not client_id:
-            raise HTTPException(status_code=400, detail="client_id required")
-        catalog, _meta = _get_catalog(
-            max_orders=body.max_orders,
-            max_counterparties=body.max_counterparties,
-            include_archived=body.include_archived,
-            force=False,
-        )
-        row = find_row_in_catalog(catalog, client_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="client not found in catalog")
-        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
-        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
-            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
-        detail = build_client_detail(row)
-        client_id_out = (detail.get("client") or {}).get("id")
-        client_name_out = (detail.get("client") or {}).get("name")
+    client_id = (body.client_id or "").strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id required")
+    seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+    if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+        save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
 
-        def _events() -> Iterator[dict[str, Any]]:
-            try:
-                for ev in iter_suggest_bouquet_events(
-                    detail,
-                    channel=body.channel,
-                    seller_name=seller_name,
-                    seller_facts=seller_facts,
-                ):
-                    if ev.get("type") == "done":
-                        ev = {
-                            **ev,
-                            "client_id": client_id_out,
-                            "client_name": client_name_out,
-                        }
-                        ev = _persist_outreach_draft_from_done(
-                            ev,
-                            client_id=str(client_id_out or client_id),
-                            channel=body.channel,
-                            status="Предложен конкретный букет из истории заказов.",
-                        )
-                    yield ev
-            except Exception as exc:  # pragma: no cover
-                log.exception("moysklad /campaigns/suggest-bouquet/stream mid-stream")
-                yield {"type": "error", "error": str(exc)}
+    def _events() -> Iterator[dict[str, Any]]:
+        yield {"type": "status", "text": "Подбираем букет из истории…"}
+        try:
+            catalog, _meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is None:
+                yield {"type": "error", "error": "client not found in catalog"}
+                return
+            detail = build_client_detail(row)
+            client_id_out = (detail.get("client") or {}).get("id")
+            client_name_out = (detail.get("client") or {}).get("name")
+            for ev in iter_suggest_bouquet_events(
+                detail,
+                channel=body.channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            ):
+                if ev.get("type") == "status":
+                    continue
+                if ev.get("type") == "done":
+                    ev = {
+                        **ev,
+                        "client_id": client_id_out,
+                        "client_name": client_name_out,
+                    }
+                    ev = _persist_outreach_draft_from_done(
+                        ev,
+                        client_id=str(client_id_out or client_id),
+                        channel=body.channel,
+                        status="Предложен конкретный букет из истории заказов.",
+                    )
+                yield ev
+        except MoySkladError as exc:
+            yield {"type": "error", "error": str(exc)}
+        except Exception as exc:  # pragma: no cover
+            log.exception("moysklad /campaigns/suggest-bouquet/stream mid-stream")
+            yield {"type": "error", "error": str(exc)}
 
-        return _ndjson_response(_events())
-    except HTTPException:
-        raise
-    except MoySkladError as exc:
-        raise HTTPException(
-            status_code=exc.status_code or 502, detail=str(exc)
-        ) from exc
-    except Exception as exc:  # pragma: no cover
-        log.exception("moysklad /campaigns/suggest-bouquet/stream failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _ndjson_response(_events())
 
 
 @router.post("/campaigns/paraphrase")

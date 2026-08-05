@@ -417,14 +417,10 @@ def test_progressive_json_message_streams_visible_text():
 
 
 def test_iter_generate_outreach_events_streams_deltas(monkeypatch):
-    from plugins.moysklad.outreach import iter_generate_outreach_events
+    from plugins.moysklad.outreach import OUTREACH_LLM_TASK, iter_generate_outreach_events
 
     detail = build_client_detail(_sample_row())
-    chunks = [
-        '{"message": "',
-        "Здравствуйте, Мария!",
-        '", "grounding_notes": "пион"}',
-    ]
+    chunks = ["Здравствуйте, ", "Мария!", " Ждём вас."]
 
     class _Delta:
         def __init__(self, content):
@@ -440,6 +436,8 @@ def test_iter_generate_outreach_events_streams_deltas(monkeypatch):
 
     def _fake_call_llm(**kwargs):
         assert kwargs.get("stream") is True
+        assert kwargs.get("task") == OUTREACH_LLM_TASK
+        assert (kwargs.get("reasoning_config") or {}).get("enabled") is False
         return iter(_Chunk(c) for c in chunks)
 
     monkeypatch.setattr("agent.auxiliary_client.call_llm", _fake_call_llm)
@@ -454,6 +452,24 @@ def test_iter_generate_outreach_events_streams_deltas(monkeypatch):
     done = events[-1]
     assert done.get("source") == "llm"
     assert "Мария" in (done.get("message") or "")
+
+
+def test_as_plain_stream_system_drops_json_rule():
+    from plugins.moysklad.outreach import _OUTREACH_SYSTEM, _as_plain_stream_system
+
+    plain = _as_plain_stream_system(_OUTREACH_SYSTEM("Анна", ""))
+    assert "STREAM MODE" in plain
+    assert '"message"' not in plain
+    assert "строго JSON" not in plain
+
+
+def test_outreach_defaults_disable_reasoning():
+    from hermes_cli.config_defaults import DEFAULT_CONFIG
+
+    cfg = DEFAULT_CONFIG["auxiliary"]["moysklad_outreach"]
+    assert cfg["reasoning_effort"] == "none"
+    assert cfg["model"]
+    assert DEFAULT_CONFIG["auxiliary"]["compression"]["reasoning_effort"] == "medium"
 
 
 def test_iter_personalize_batch_events_yields_per_client(monkeypatch):

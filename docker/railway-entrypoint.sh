@@ -49,6 +49,9 @@ auxiliary:
   compression:
     model: deepseek/deepseek-v4-flash-0731
     reasoning_effort: medium
+  moysklad_outreach:
+    model: deepseek/deepseek-v4-flash-0731
+    reasoning_effort: none
 display:
   skin: iris
 dashboard:
@@ -157,6 +160,21 @@ if isinstance(aux, dict):
         if not (compression.get("reasoning_effort") or "").strip():
             compression["reasoning_effort"] = "medium"
         changed = True
+    # Outreach drafts must not inherit compression's medium reasoning —
+    # that made campaign "Генерируем…" stall while chat already streamed.
+    outreach = aux.setdefault("moysklad_outreach", {})
+    if isinstance(outreach, dict):
+        if not (outreach.get("model") or "").strip():
+            outreach["model"] = _IRIS_MODEL
+            changed = True
+        # Force none even on older volumes that never had this block.
+        if (outreach.get("reasoning_effort") or "").strip().lower() not in {
+            "none",
+            "false",
+            "disabled",
+        }:
+            outreach["reasoning_effort"] = "none"
+            changed = True
 
 if changed:
     path.write_text(

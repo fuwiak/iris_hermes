@@ -176,6 +176,37 @@ OUTREACH_BOUQUET_TEMPERATURE = 0.7
 OUTREACH_PARAPHRASE_TEMPERATURE = 0.9
 OUTREACH_SANITY_TEMPERATURE = 0.1
 
+# Dedicated aux task (reasoning none). Do NOT use ``compression`` — Iris pins
+# that to reasoning_effort=medium for card summaries, which stalls TTFT here.
+OUTREACH_LLM_TASK = "moysklad_outreach"
+OUTREACH_LLM_TIMEOUT = 30.0
+OUTREACH_LLM_MAX_TOKENS = 450
+# Belt-and-suspenders when plugin defaults / volume config lag behind.
+_OUTREACH_NO_REASONING = {"enabled": False, "effort": "none"}
+
+_PLAIN_STREAM_TAIL = (
+    "\n\nSTREAM MODE: отвечай ТОЛЬКО текстом сообщения клиенту. "
+    "Без JSON, без markdown, без grounding_notes, без кавычек-обёртки."
+)
+
+
+def _as_plain_stream_system(system: str) -> str:
+    """Drop JSON-only rule so the model can emit visible tokens immediately."""
+    text = (system or "").rstrip()
+    # Strip trailing "Ответ — строго JSON..." blocks (rules 6–10 variants).
+    cut = re.search(
+        r"\n\d+\.\s+Ответ\s*[—\-]\s*строго JSON[\s\S]*$",
+        text,
+        re.IGNORECASE,
+    )
+    if cut:
+        text = text[: cut.start()].rstrip()
+    return text + _PLAIN_STREAM_TAIL
+
+
+def _compact_json(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
 _UPSELL_FLOWER_RE = re.compile(
     r"(букет|роз[аыуе]|пион|композиц|премиум|дорогост|дорог(ой|ие|ая)|"
     r"цвет(ы|ов|очн)|флорист|корзин[аыуе]|заброн|подбер(ём|ем)|"
@@ -638,14 +669,15 @@ def sanity_check_outreach_message(
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
         response = call_llm(
-            task="compression",
+            task=OUTREACH_LLM_TASK,
             messages=[
                 {"role": "system", "content": _SANITY_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_tokens=700,
+            max_tokens=OUTREACH_LLM_MAX_TOKENS,
             temperature=OUTREACH_SANITY_TEMPERATURE,
-            timeout=40.0,
+            timeout=OUTREACH_LLM_TIMEOUT,
+            reasoning_config=_OUTREACH_NO_REASONING,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_sanity_json(text)
@@ -788,13 +820,13 @@ def generate_outreach_message(
         f"Подпись продавца: {seller_name or '(не задана — мягко из цветочного магазина)'}.\n"
         f"Факты о магазине: {seller_facts or '(нет)'}.\n"
         "JSON фактов (единственный источник истины по клиенту):\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + _compact_json(payload)
     )
     try:
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
         response = call_llm(
-            task="compression",
+            task=OUTREACH_LLM_TASK,
             messages=[
                 {
                     "role": "system",
@@ -802,9 +834,10 @@ def generate_outreach_message(
                 },
                 {"role": "user", "content": user},
             ],
-            max_tokens=700,
+            max_tokens=OUTREACH_LLM_MAX_TOKENS,
             temperature=OUTREACH_GENERATE_TEMPERATURE,
-            timeout=45.0,
+            timeout=OUTREACH_LLM_TIMEOUT,
+            reasoning_config=_OUTREACH_NO_REASONING,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -960,14 +993,15 @@ def rewrite_outreach_message(
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
         response = call_llm(
-            task="compression",
+            task=OUTREACH_LLM_TASK,
             messages=[
                 {"role": "system", "content": _REWRITE_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_tokens=700,
+            max_tokens=OUTREACH_LLM_MAX_TOKENS,
             temperature=OUTREACH_REWRITE_TEMPERATURE,
-            timeout=45.0,
+            timeout=OUTREACH_LLM_TIMEOUT,
+            reasoning_config=_OUTREACH_NO_REASONING,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1218,14 +1252,15 @@ def suggest_historical_bouquet_message(
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
         response = call_llm(
-            task="compression",
+            task=OUTREACH_LLM_TASK,
             messages=[
                 {"role": "system", "content": _BOUQUET_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_tokens=700,
+            max_tokens=OUTREACH_LLM_MAX_TOKENS,
             temperature=OUTREACH_BOUQUET_TEMPERATURE,
-            timeout=45.0,
+            timeout=OUTREACH_LLM_TIMEOUT,
+            reasoning_config=_OUTREACH_NO_REASONING,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1341,14 +1376,15 @@ def paraphrase_outreach_message(
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
         response = call_llm(
-            task="compression",
+            task=OUTREACH_LLM_TASK,
             messages=[
                 {"role": "system", "content": _PARAPHRASE_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_tokens=700,
+            max_tokens=OUTREACH_LLM_MAX_TOKENS,
             temperature=OUTREACH_PARAPHRASE_TEMPERATURE,
-            timeout=45.0,
+            timeout=OUTREACH_LLM_TIMEOUT,
+            reasoning_config=_OUTREACH_NO_REASONING,
         )
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_outreach_json(text)
@@ -1360,7 +1396,7 @@ def paraphrase_outreach_message(
         if not message or _too_similar(message, draft):
             # One stricter retry
             response2 = call_llm(
-                task="compression",
+                task=OUTREACH_LLM_TASK,
                 messages=[
                     {"role": "system", "content": _PARAPHRASE_SYSTEM},
                     {
@@ -1370,9 +1406,10 @@ def paraphrase_outreach_message(
                         "Перепиши ещё раз — другие слова и другой порядок фраз.",
                     },
                 ],
-                max_tokens=700,
+                max_tokens=OUTREACH_LLM_MAX_TOKENS,
                 temperature=min(1.0, OUTREACH_PARAPHRASE_TEMPERATURE + 0.05),
-                timeout=45.0,
+                timeout=OUTREACH_LLM_TIMEOUT,
+                reasoning_config=_OUTREACH_NO_REASONING,
             )
             text2 = (extract_content_or_reasoning(response2) or "").strip()
             parsed2 = _parse_outreach_json(text2)
@@ -1619,7 +1656,7 @@ def _generate_user_prompt(
         f"Подпись продавца: {seller_name or '(не задана — мягко из цветочного магазина)'}.\n"
         f"Факты о магазине: {seller_facts or '(нет)'}.\n"
         "JSON фактов (единственный источник истины по клиенту):\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + _compact_json(payload)
     )
 
 
@@ -1651,19 +1688,28 @@ def _stream_llm_message_events(
     temperature: float,
     status_text: str,
 ) -> Iterator[dict[str, Any]]:
-    """Yield status/delta events while calling the LLM with ``stream=True``."""
+    """Yield status/delta events while calling the LLM with ``stream=True``.
+
+    Uses plain-text stream mode so the UI shows tokens immediately (chat-like).
+    JSON responses still work via ProgressiveJsonMessage as a fallback.
+    """
     yield {"type": "status", "text": status_text}
     from agent.auxiliary_client import call_llm
 
     stream = call_llm(
-        task="compression",
+        task=OUTREACH_LLM_TASK,
         messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "system", "content": _as_plain_stream_system(system)},
+            {
+                "role": "user",
+                "content": user.rstrip()
+                + "\n\nОтветь ТОЛЬКО текстом сообщения клиенту (без JSON).",
+            },
         ],
-        max_tokens=700,
+        max_tokens=OUTREACH_LLM_MAX_TOKENS,
         temperature=temperature,
-        timeout=45.0,
+        timeout=OUTREACH_LLM_TIMEOUT,
+        reasoning_config=_OUTREACH_NO_REASONING,
         stream=True,
     )
     extractor = ProgressiveJsonMessage()

@@ -59,3 +59,17 @@ def register(ctx) -> None:
             requires_env=["MOYSKLAD_API_TOKEN"],
             emoji=emoji,
         )
+    # Fast campaign drafts: same flash model as Iris chat, but no mid-reasoning.
+    # ``auxiliary.compression`` stays on medium for client-card summaries.
+    ctx.register_auxiliary_task(
+        key="moysklad_outreach",
+        display_name="MoySklad outreach",
+        description="Campaign draft / rewrite / bouquet text (low latency)",
+        defaults={
+            "provider": "auto",
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "timeout": 45,
+            "reasoning_effort": "none",
+            "extra_body": {},
+        },
+    )
