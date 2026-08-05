@@ -403,3 +403,82 @@ def test_auto_sanity_after_generate_is_heuristic_not_llm(monkeypatch):
     )
     assert out["source"] == "heuristic"
     assert called["llm"] is False
+
+
+def test_progressive_json_message_streams_visible_text():
+    from plugins.moysklad.outreach import ProgressiveJsonMessage
+
+    p = ProgressiveJsonMessage()
+    assert p.feed('{"message": "') == ""
+    assert p.feed("Привет, ") == "Привет, "
+    assert p.feed('Мария!\\nЖдём.", "grounding_notes": "x"}') == "Мария!\nЖдём."
+    assert p.message == "Привет, Мария!\nЖдём."
+    assert p._done is True
+
+
+def test_iter_generate_outreach_events_streams_deltas(monkeypatch):
+    from plugins.moysklad.outreach import iter_generate_outreach_events
+
+    detail = build_client_detail(_sample_row())
+    chunks = [
+        '{"message": "',
+        "Здравствуйте, Мария!",
+        '", "grounding_notes": "пион"}',
+    ]
+
+    class _Delta:
+        def __init__(self, content):
+            self.content = content
+
+    class _Choice:
+        def __init__(self, content):
+            self.delta = _Delta(content)
+
+    class _Chunk:
+        def __init__(self, content):
+            self.choices = [_Choice(content)]
+
+    def _fake_call_llm(**kwargs):
+        assert kwargs.get("stream") is True
+        return iter(_Chunk(c) for c in chunks)
+
+    monkeypatch.setattr("agent.auxiliary_client.call_llm", _fake_call_llm)
+
+    events = list(iter_generate_outreach_events(detail, channel="telegram", seller_name="Анна"))
+    types = [e.get("type") for e in events]
+    assert "status" in types
+    assert "delta" in types
+    assert types[-1] == "done"
+    deltas = "".join(e["text"] for e in events if e.get("type") == "delta")
+    assert "Мария" in deltas
+    done = events[-1]
+    assert done.get("source") == "llm"
+    assert "Мария" in (done.get("message") or "")
+
+
+def test_iter_personalize_batch_events_yields_per_client(monkeypatch):
+    from plugins.moysklad.outreach import iter_personalize_batch_events
+
+    monkeypatch.setattr(
+        "plugins.moysklad.outreach.build_outreach_for_row",
+        lambda row, **_kw: {
+            "message": f"hi {row.get('name')}",
+            "client_id": row.get("id"),
+            "client_name": row.get("name"),
+            "source": "heuristic",
+            "grounding_notes": "",
+        },
+    )
+    rows = [
+        {"id": "a", "name": "Аня"},
+        {"id": "b", "name": "Боря"},
+    ]
+    events = list(iter_personalize_batch_events(rows, channel="telegram", max_workers=2))
+    assert events[0]["type"] == "batch_start"
+    assert events[0]["total"] == 2
+    client_dones = [e for e in events if e["type"] == "client_done"]
+    assert len(client_dones) == 2
+    names = {e["client_name"] for e in client_dones}
+    assert names == {"Аня", "Боря"}
+    assert events[-1]["type"] == "batch_done"
+    assert events[-1]["ok_count"] == 2

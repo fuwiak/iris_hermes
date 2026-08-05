@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from plugins.moysklad.client_card import (
     _facts_payload,
@@ -1002,3 +1003,627 @@ def build_outreach_for_row(
     result["client_id"] = (detail.get("client") or {}).get("id")
     result["client_name"] = (detail.get("client") or {}).get("name")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Streaming / batch (NDJSON events for dashboard UI)
+# ---------------------------------------------------------------------------
+
+_MESSAGE_JSON_START = re.compile(r'"message"\s*:\s*"')
+
+
+class ProgressiveJsonMessage:
+    """Pull the ``message`` string out of a partial JSON LLM stream."""
+
+    def __init__(self) -> None:
+        self.raw = ""
+        self.message = ""
+        self._i = 0
+        self._started = False
+        self._done = False
+        self._escape = False
+
+    def feed(self, delta: str) -> str:
+        if not delta or self._done:
+            return ""
+        self.raw += delta
+        if not self._started:
+            match = _MESSAGE_JSON_START.search(self.raw)
+            if not match:
+                return ""
+            self._started = True
+            self._i = match.end()
+        out: list[str] = []
+        while self._i < len(self.raw) and not self._done:
+            ch = self.raw[self._i]
+            self._i += 1
+            if self._escape:
+                if ch == "n":
+                    out.append("\n")
+                elif ch == "t":
+                    out.append("\t")
+                elif ch == "r":
+                    out.append("\r")
+                elif ch == "u" and self._i + 4 <= len(self.raw):
+                    hexpart = self.raw[self._i : self._i + 4]
+                    try:
+                        out.append(chr(int(hexpart, 16)))
+                    except ValueError:
+                        out.append("\\u" + hexpart)
+                    self._i += 4
+                else:
+                    out.append(ch)
+                self._escape = False
+                continue
+            if ch == "\\":
+                self._escape = True
+                continue
+            if ch == '"':
+                self._done = True
+                break
+            out.append(ch)
+        piece = "".join(out)
+        self.message += piece
+        return piece
+
+
+def _chunk_delta_text(chunk: Any) -> str:
+    """Extract text from an OpenAI-style chat completion stream chunk."""
+    if chunk is None:
+        return ""
+    # Completed response handed back despite stream=True
+    choices = getattr(chunk, "choices", None)
+    if isinstance(choices, (list, tuple)) and choices:
+        first = choices[0]
+        delta = getattr(first, "delta", None)
+        if delta is not None:
+            return str(getattr(delta, "content", None) or "")
+        message = getattr(first, "message", None)
+        if message is not None:
+            return str(getattr(message, "content", None) or "")
+    if isinstance(chunk, dict):
+        choices = chunk.get("choices") or []
+        if choices:
+            first = choices[0] or {}
+            delta = first.get("delta") or {}
+            if isinstance(delta, dict) and delta.get("content"):
+                return str(delta["content"])
+            msg = first.get("message") or {}
+            if isinstance(msg, dict) and msg.get("content"):
+                return str(msg["content"])
+    return ""
+
+
+def _iter_chat_completion_text(stream_or_response: Any) -> Iterator[str]:
+    """Yield text pieces from ``call_llm(..., stream=True)`` result."""
+    if stream_or_response is None:
+        return
+    # Completed response object (adapters that ignore stream=True)
+    choices = getattr(stream_or_response, "choices", None)
+    if choices is not None and not hasattr(stream_or_response, "__next__"):
+        first = choices[0] if choices else None
+        if first is not None and hasattr(first, "message") and not hasattr(first, "delta"):
+            from agent.auxiliary_client import extract_content_or_reasoning
+
+            text = (extract_content_or_reasoning(stream_or_response) or "").strip()
+            if text:
+                yield text
+            return
+    try:
+        iterator = iter(stream_or_response)
+    except TypeError:
+        text = _chunk_delta_text(stream_or_response)
+        if text:
+            yield text
+        return
+    for chunk in iterator:
+        piece = _chunk_delta_text(chunk)
+        if piece:
+            yield piece
+
+
+def _prepare_generate_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    """Same heuristic card AI prep as ``generate_outreach_message``."""
+    if (detail.get("ai") or {}).get("recommendation"):
+        return detail
+    client = detail.get("client") or {}
+    orders = list(detail.get("orders") or [])
+    data_thin = bool(detail.get("data_thin"))
+    risks = detail.get("risks") or compute_risks(client, orders, data_thin=data_thin)
+    return {
+        **detail,
+        "ai": heuristic_ai(
+            client,
+            orders,
+            vip=bool(client.get("vip")),
+            loyalty=client.get("loyalty_points"),
+            data_thin=data_thin,
+            risks=risks,
+        ),
+    }
+
+
+def _generate_user_prompt(
+    detail: dict[str, Any],
+    *,
+    channel: str,
+    seller_name: str,
+    seller_facts: str,
+) -> str:
+    facts = _facts_payload(detail)
+    payload = {
+        "channel": channel,
+        "channel_label": _channel_label(channel),
+        "seller_name": seller_name,
+        "seller_facts": seller_facts,
+        "client": facts.get("client"),
+        "orders": facts.get("orders"),
+        "risks": facts.get("risks"),
+        "conversation": _conversation_facts(detail),
+        "data_thin": facts.get("data_thin"),
+        "ai": {
+            "history_profile": (detail.get("ai") or {}).get("history_profile"),
+            "occasion_intent": (detail.get("ai") or {}).get("occasion_intent"),
+            "recommendation": (detail.get("ai") or {}).get("recommendation"),
+            "source": (detail.get("ai") or {}).get("source"),
+            "data_thin": (detail.get("ai") or {}).get("data_thin"),
+        },
+    }
+    return (
+        "Сгенерируй КРЕАТИВНЫЙ текст личного сообщения клиенту "
+        "(живая формулировка, не шаблон).\n"
+        f"Канал отправки: {_channel_label(channel)} "
+        "(не дублируй название канала в конце сообщения).\n"
+        f"Подпись продавца: {seller_name or '(не задана — мягко из цветочного магазина)'}.\n"
+        f"Факты о магазине: {seller_facts or '(нет)'}.\n"
+        "JSON фактов (единственный источник истины по клиенту):\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+
+
+def _finalize_streamed_message(
+    raw: str,
+    extractor: ProgressiveJsonMessage,
+    *,
+    channel: str,
+    mode: str | None,
+) -> tuple[str, str]:
+    """Return ``(message, grounding_notes)`` after a streamed generate/rewrite."""
+    parsed = _parse_outreach_json(raw)
+    if parsed:
+        return (
+            _strip_channel_trailer(parsed["message"], channel),
+            parsed.get("grounding_notes") or "",
+        )
+    if extractor.message.strip():
+        return _strip_channel_trailer(extractor.message.strip(), channel), ""
+    if mode == "plain" or (raw or "").strip():
+        return _strip_channel_trailer((raw or "").strip(), channel), ""
+    return "", ""
+
+
+def _stream_llm_message_events(
+    *,
+    system: str,
+    user: str,
+    temperature: float,
+    status_text: str,
+) -> Iterator[dict[str, Any]]:
+    """Yield status/delta events while calling the LLM with ``stream=True``."""
+    yield {"type": "status", "text": status_text}
+    from agent.auxiliary_client import call_llm
+
+    stream = call_llm(
+        task="compression",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        max_tokens=700,
+        temperature=temperature,
+        timeout=45.0,
+        stream=True,
+    )
+    extractor = ProgressiveJsonMessage()
+    parts: list[str] = []
+    mode: str | None = None
+    for piece in _iter_chat_completion_text(stream):
+        parts.append(piece)
+        if mode is None:
+            stripped = "".join(parts).lstrip()
+            if not stripped:
+                continue
+            mode = "json" if stripped.startswith("{") else "plain"
+        if mode == "plain":
+            yield {"type": "delta", "text": piece}
+        else:
+            visible = extractor.feed(piece)
+            if visible:
+                yield {"type": "delta", "text": visible}
+    yield {
+        "type": "_raw",
+        "raw": "".join(parts).strip(),
+        "extractor": extractor,
+        "mode": mode,
+    }
+
+
+def iter_generate_outreach_events(
+    detail: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    refresh_ai: bool = False,
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> Iterator[dict[str, Any]]:
+    """NDJSON events for streaming generate: status → delta* → done|error."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    _ = refresh_ai
+    detail = _prepare_generate_detail(detail)
+    fallback = heuristic_outreach_message(
+        detail,
+        channel=channel,
+        seller_name=seller_name,
+        seller_facts=seller_facts,
+    )
+    facts = facts_panel(detail)
+    try:
+        raw_holder: dict[str, Any] = {}
+        for ev in _stream_llm_message_events(
+            system=_OUTREACH_SYSTEM(seller_name, seller_facts),
+            user=_generate_user_prompt(
+                detail,
+                channel=channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            ),
+            temperature=OUTREACH_GENERATE_TEMPERATURE,
+            status_text="Генерируем текст…",
+        ):
+            if ev.get("type") == "_raw":
+                raw_holder = ev
+                continue
+            yield ev
+        message, notes = _finalize_streamed_message(
+            str(raw_holder.get("raw") or ""),
+            raw_holder.get("extractor") or ProgressiveJsonMessage(),
+            channel=channel,
+            mode=raw_holder.get("mode"),
+        )
+        if not message:
+            log.warning("moysklad outreach stream: empty, using heuristic")
+            result = _apply_sanity(
+                fallback,
+                detail,
+                channel=channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            )
+            yield {"type": "done", "ok": True, **result}
+            return
+        result = {
+            "message": message,
+            "grounding_notes": notes or fallback.get("grounding_notes") or "",
+            "source": "llm",
+            "channel": channel,
+            "facts": facts,
+            "ai": detail.get("ai"),
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+        }
+        result = _apply_sanity(
+            result,
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        # If sanity rewrote the message, push a final replace delta
+        if result.get("message") and result["message"] != message:
+            yield {"type": "replace", "text": result["message"]}
+        yield {"type": "done", "ok": True, **result}
+    except Exception as exc:
+        log.warning("moysklad outreach stream unavailable: %s", exc)
+        result = _apply_sanity(
+            {**fallback, "error": str(exc), "ai": detail.get("ai")},
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        yield {"type": "replace", "text": result.get("message") or fallback["message"]}
+        yield {"type": "done", "ok": True, **result}
+
+
+def iter_rewrite_outreach_events(
+    draft: str,
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+    detail: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """NDJSON events for streaming rewrite."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    draft = (draft or "").strip()
+    if not draft:
+        yield {
+            "type": "done",
+            "ok": True,
+            "message": "",
+            "grounding_notes": "Пустой черновик — нечего переписывать.",
+            "source": "empty",
+            "channel": channel,
+            "seller_name": seller_name,
+            "seller_facts": seller_facts,
+            "facts": facts_panel(detail) if detail else {},
+        }
+        return
+
+    def _heuristic_rewrite(text: str) -> str:
+        t = text
+        t = re.sub(
+            r"\s*[—-]?\s*без навязанных скидок[^.]*(?:\.|$)",
+            ".",
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(
+            r"\s*[—-]?\s*только по вашей истории[^.]*(?:\.|$)",
+            ".",
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(
+            r"\s*[—-]?\s*без выдуманных скидок[^.]*(?:\.|$)",
+            ".",
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(
+            r"Ориентир по прошлым заказам\s*≈?\s*([\d\s]+)\s*₽\.?",
+            r"Можем ориентироваться примерно на \1 ₽.",
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(
+            r"Последний заказ у нас был (\d{4}-\d{2}-\d{2})",
+            lambda m: f"Мы уже помогали вам с букетом {_format_human_date(m.group(1))}"
+            if _format_human_date(m.group(1))
+            else m.group(0),
+            t,
+        )
+        t = re.sub(r"\s*\((?:з[-\s]?)?\d{1,6}(?:[-\s/]\d{1,6})?\)", "", t, flags=re.I)
+        t = _strip_channel_trailer(t, channel)
+        if seller_name and "это iris" in t.lower() and "iris" not in seller_name.lower():
+            t = re.sub(r"Это Iris\.?", _seller_intro(seller_name), t, flags=re.IGNORECASE)
+        t = re.sub(r"\s{2,}", " ", t)
+        t = re.sub(r"\.\s*\.", ".", t)
+        return t.strip()
+
+    risks = _risks_from_detail(detail)
+    if risks.get("do_not_upsell") and _UPSELL_FLOWER_RE.search(draft):
+        fallback_msg = _payment_reminder_message(
+            detail or {}, seller_name=seller_name
+        )
+    else:
+        fallback_msg = _heuristic_rewrite(draft)
+    facts_block = facts_panel(detail) if detail else {}
+    user = (
+        "Перепиши черновик ЗАНОВО — продающе и по-человечески "
+        "(сильнее ценность и мягкий CTA, без выдуманных акций).\n"
+        f"Канал: {_channel_label(channel)}.\n"
+        f"Подпись продавца: {seller_name or '(не задана)'}.\n"
+        f"Факты о магазине: {seller_facts or '(нет)'}.\n"
+    )
+    if detail:
+        user += (
+            "Факты клиента (не выдумывай сверх них):\n"
+            + json.dumps(
+                {
+                    "client": (detail.get("client") or {}),
+                    "orders": (detail.get("orders") or [])[:5],
+                    "risks": {
+                        "has_debt": bool(risks.get("has_debt")),
+                        "debt_amount": risks.get("debt_amount"),
+                        "unpaid_order_count": risks.get("unpaid_order_count"),
+                        "do_not_upsell": bool(risks.get("do_not_upsell")),
+                        "flags": list(risks.get("flags") or []),
+                    },
+                    "ai": {
+                        "recommendation": (detail.get("ai") or {}).get("recommendation"),
+                        "occasion_intent": (detail.get("ai") or {}).get(
+                            "occasion_intent"
+                        ),
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+    user += f"Исходный черновик:\n{draft}"
+
+    try:
+        raw_holder: dict[str, Any] = {}
+        for ev in _stream_llm_message_events(
+            system=_REWRITE_SYSTEM,
+            user=user,
+            temperature=OUTREACH_REWRITE_TEMPERATURE,
+            status_text="Переписываем…",
+        ):
+            if ev.get("type") == "_raw":
+                raw_holder = ev
+                continue
+            yield ev
+        message, notes = _finalize_streamed_message(
+            str(raw_holder.get("raw") or ""),
+            raw_holder.get("extractor") or ProgressiveJsonMessage(),
+            channel=channel,
+            mode=raw_holder.get("mode"),
+        )
+        if not message:
+            result = _apply_sanity(
+                {
+                    "message": fallback_msg,
+                    "grounding_notes": "Heuristic cleanup (LLM parse failed).",
+                    "source": "heuristic_rewrite",
+                    "channel": channel,
+                    "facts": facts_block,
+                    "seller_name": seller_name,
+                    "seller_facts": seller_facts,
+                },
+                detail,
+                channel=channel,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            )
+            yield {"type": "replace", "text": result.get("message") or fallback_msg}
+            yield {"type": "done", "ok": True, **result}
+            return
+        result = _apply_sanity(
+            {
+                "message": message,
+                "grounding_notes": notes or "Переписано с сохранением фактов.",
+                "source": "llm_rewrite",
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        if result.get("message") and result["message"] != message:
+            yield {"type": "replace", "text": result["message"]}
+        yield {"type": "done", "ok": True, **result}
+    except Exception as exc:
+        log.warning("moysklad outreach rewrite stream unavailable: %s", exc)
+        result = _apply_sanity(
+            {
+                "message": fallback_msg,
+                "grounding_notes": "Heuristic cleanup (LLM unavailable).",
+                "source": "heuristic_rewrite",
+                "channel": channel,
+                "facts": facts_block,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "error": str(exc),
+                "ai": (detail or {}).get("ai"),
+            },
+            detail,
+            channel=channel,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        yield {"type": "replace", "text": result.get("message") or fallback_msg}
+        yield {"type": "done", "ok": True, **result}
+
+
+def iter_personalize_batch_events(
+    rows: list[dict[str, Any]],
+    *,
+    channel: str = "telegram",
+    seller_name: str = "",
+    seller_facts: str = "",
+    max_workers: int = 3,
+) -> Iterator[dict[str, Any]]:
+    """Parallel per-client generate; yield ``client_done`` as each finishes."""
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    total = len(rows)
+    yield {"type": "batch_start", "total": total, "channel": channel}
+    if total == 0:
+        yield {"type": "batch_done", "total": 0, "ok_count": 0}
+        return
+
+    workers = max(1, min(int(max_workers or 3), 5, total))
+
+    def _one(index: int, row: dict[str, Any]) -> dict[str, Any]:
+        client = row.get("client") if isinstance(row.get("client"), dict) else row
+        cid = str((client or {}).get("id") or row.get("id") or "")
+        cname = str((client or {}).get("name") or row.get("name") or "")
+        try:
+            out = build_outreach_for_row(
+                row,
+                channel=channel,
+                refresh_ai=True,
+                seller_name=seller_name,
+                seller_facts=seller_facts,
+            )
+            return {
+                "ok": True,
+                "index": index,
+                "client_id": out.get("client_id") or cid,
+                "client_name": out.get("client_name") or cname,
+                "message": out.get("message") or "",
+                "grounding_notes": out.get("grounding_notes") or "",
+                "source": out.get("source") or "",
+                "error": out.get("error"),
+            }
+        except Exception as exc:  # pragma: no cover
+            return {
+                "ok": False,
+                "index": index,
+                "client_id": cid,
+                "client_name": cname,
+                "message": "",
+                "error": str(exc),
+            }
+
+    ok_count = 0
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_one, i, row): i for i, row in enumerate(rows)
+        }
+        for fut in as_completed(futures):
+            payload = fut.result()
+            done_count += 1
+            if payload.get("ok") and payload.get("message"):
+                ok_count += 1
+            yield {
+                "type": "client_done",
+                "done": done_count,
+                "total": total,
+                **payload,
+            }
+    yield {
+        "type": "batch_done",
+        "total": total,
+        "ok_count": ok_count,
+    }
+
+
+def iter_generate_outreach_for_row_events(
+    row: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    refresh_ai: bool = True,
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> Iterator[dict[str, Any]]:
+    """Stream generate for a catalog row; stamp client id/name on done."""
+    detail = build_client_detail(row)
+    client_id = (detail.get("client") or {}).get("id")
+    client_name = (detail.get("client") or {}).get("name")
+    for ev in iter_generate_outreach_events(
+        detail,
+        channel=channel,
+        refresh_ai=refresh_ai,
+        seller_name=seller_name,
+        seller_facts=seller_facts,
+    ):
+        if ev.get("type") == "done":
+            ev = {
+                **ev,
+                "detail_ok": True,
+                "client_id": client_id,
+                "client_name": client_name,
+            }
+        yield ev

@@ -5,13 +5,15 @@ Mounted at /api/plugins/moysklad/ by the dashboard plugin system.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 try:
     from fastapi import APIRouter, HTTPException, Query
+    from fastapi.responses import StreamingResponse
     from pydantic import BaseModel, Field
 except Exception:  # pragma: no cover — unit tests without fastapi
     class APIRouter:  # type: ignore[no-redef]
@@ -45,6 +47,13 @@ except Exception:  # pragma: no cover — unit tests without fastapi
 
     def Field(default=None, **_k):  # type: ignore[misc]
         return default
+
+    class StreamingResponse:  # type: ignore[no-redef]
+        def __init__(self, content, media_type: str = "application/json", headers=None):
+            self.body_iterator = content
+            self.media_type = media_type
+            self.headers = headers or {}
+
 
 
 from plugins.moysklad.assign_groups import (
@@ -93,6 +102,9 @@ from plugins.moysklad.outreach import (
     build_outreach_for_row,
     facts_panel,
     generate_outreach_message,
+    iter_generate_outreach_for_row_events,
+    iter_personalize_batch_events,
+    iter_rewrite_outreach_events,
     normalize_seller_fields,
     rewrite_outreach_message,
     sanity_check_outreach_message,
@@ -210,6 +222,27 @@ class OutreachSanityBody(BaseModel):
     include_archived: bool = False
 
 
+class OutreachPersonalizeBody(BaseModel):
+    """Batch personalize for current audience filters (parallel LLM)."""
+
+    channel: str = "telegram"
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    channel_kind: str = ""
+    require_phone: bool = False
+    require_telegram: bool = False
+    vip_only: bool = False
+    birthday_soon: bool = False
+    seller_name: str = ""
+    seller_facts: str = ""
+    limit: int = 20
+    max_workers: int = 3
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
 class ConversationAppendBody(BaseModel):
     text: str = ""
     direction: str = "outbound"
@@ -241,6 +274,33 @@ def _resolve_seller(body_name: str = "", body_facts: str = "") -> tuple[str, str
     name = (body_name or "").strip() or stored.get("seller_name") or ""
     facts = (body_facts or "").strip() or stored.get("seller_facts") or ""
     return normalize_seller_fields(name, facts)
+
+
+def _ndjson_lines(events: Iterator[dict[str, Any]]) -> Iterator[str]:
+    """Serialize outreach stream events as NDJSON (skip internal frames)."""
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "_raw":
+            continue
+        # Drop non-JSON-serializable accidental keys
+        safe = {
+            k: v
+            for k, v in ev.items()
+            if isinstance(v, (str, int, float, bool, list, dict, type(None)))
+        }
+        yield json.dumps(safe, ensure_ascii=False) + "\n"
+
+
+def _ndjson_response(events: Iterator[dict[str, Any]]) -> Any:
+    return StreamingResponse(
+        _ndjson_lines(events),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _client() -> MoySkladClient:
@@ -948,6 +1008,55 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/campaigns/generate/stream")
+def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
+    """NDJSON stream: status → delta* → (replace?) → done.
+
+    Tokens appear as soon as the model emits the ``message`` field (or plain
+    text). Keeps the blocking ``/campaigns/generate`` for older clients.
+    """
+    try:
+        client_id = (body.client_id or "").strip()
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, _meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        row = find_row_in_catalog(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+
+        def _events() -> Iterator[dict[str, Any]]:
+            try:
+                yield from iter_generate_outreach_for_row_events(
+                    row,
+                    channel=body.channel,
+                    refresh_ai=bool(body.refresh_ai),
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                )
+            except Exception as exc:  # pragma: no cover
+                log.exception("moysklad /campaigns/generate/stream failed mid-stream")
+                yield {"type": "error", "error": str(exc)}
+
+        return _ndjson_response(_events())
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/generate/stream failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/campaigns/rewrite")
 def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
     """Rewrite current draft to be more sales-oriented and human."""
@@ -989,6 +1098,113 @@ def post_campaign_rewrite(body: OutreachRewriteBody) -> dict[str, Any]:
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/rewrite failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/rewrite/stream")
+def post_campaign_rewrite_stream(body: OutreachRewriteBody) -> Any:
+    """NDJSON stream for rewrite (same event shape as generate/stream)."""
+    try:
+        draft = (body.message or "").strip()
+        if not draft:
+            raise HTTPException(status_code=400, detail="message required")
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        detail: dict[str, Any] | None = None
+        client_id = (body.client_id or "").strip()
+        if client_id:
+            catalog, _meta = _get_catalog(
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                force=False,
+            )
+            row = find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+
+        def _events() -> Iterator[dict[str, Any]]:
+            try:
+                yield from iter_rewrite_outreach_events(
+                    draft,
+                    channel=body.channel,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                    detail=detail,
+                )
+            except Exception as exc:  # pragma: no cover
+                log.exception("moysklad /campaigns/rewrite/stream failed mid-stream")
+                yield {"type": "error", "error": str(exc)}
+
+        return _ndjson_response(_events())
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/rewrite/stream failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/personalize/stream")
+def post_campaign_personalize_stream(body: OutreachPersonalizeBody) -> Any:
+    """Batch NDJSON: batch_start → client_done* → batch_done (parallel LLM)."""
+    try:
+        limit = max(1, min(int(body.limit or 20), 50))
+        workers = max(1, min(int(body.max_workers or 3), 5))
+        catalog, _meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter or "all",
+            group=body.group or "",
+            q=body.q or "",
+            channel_kind=body.channel_kind or "",
+            require_phone=bool(body.require_phone),
+            require_telegram=bool(body.require_telegram),
+            vip_only=bool(body.vip_only),
+            birthday_soon=bool(body.birthday_soon),
+            limit=limit,
+            offset=0,
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            catalog=catalog,
+        )
+        rows = list(page.get("clients") or [])[:limit]
+        seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
+        if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
+            save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+
+        def _events() -> Iterator[dict[str, Any]]:
+            try:
+                yield from iter_personalize_batch_events(
+                    rows,
+                    channel=body.channel,
+                    seller_name=seller_name,
+                    seller_facts=seller_facts,
+                    max_workers=workers,
+                )
+            except Exception as exc:  # pragma: no cover
+                log.exception("moysklad /campaigns/personalize/stream failed")
+                yield {"type": "error", "error": str(exc)}
+
+        return _ndjson_response(_events())
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/personalize/stream setup failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

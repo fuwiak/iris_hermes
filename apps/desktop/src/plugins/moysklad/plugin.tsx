@@ -82,8 +82,19 @@ interface ClientDetail {
 }
 
 type Rest = <T>(path: string, opts?: { method?: string; body?: unknown; timeoutMs?: number }) => Promise<T>
+type RestStream = (
+  path: string,
+  opts: {
+    method?: string
+    body?: unknown
+    timeoutMs?: number
+    onEvent: (event: unknown) => void
+    signal?: AbortSignal
+  }
+) => Promise<void>
 
 let rest: null | Rest = null
+let restStream: null | RestStream = null
 
 function useMsRest(): Rest {
   return useCallback(async <T,>(path: string, opts?: { method?: string; body?: unknown; timeoutMs?: number }) => {
@@ -93,6 +104,28 @@ function useMsRest(): Rest {
 
     return rest<T>(path, opts)
   }, [])
+}
+
+function useMsRestStream(): RestStream {
+  return useCallback(
+    async (
+      path: string,
+      opts: {
+        method?: string
+        body?: unknown
+        timeoutMs?: number
+        onEvent: (event: unknown) => void
+        signal?: AbortSignal
+      }
+    ) => {
+      if (!restStream) {
+        throw new Error('MoySklad plugin REST stream not bound')
+      }
+
+      return restStream(path, opts)
+    },
+    []
+  )
 }
 
 /** Pull outreach text from generate/rewrite/sanity payloads (tolerant to nesting). */
@@ -1356,6 +1389,7 @@ function ClientsPage() {
 
 function CampaignsPage() {
   const call = useMsRest()
+  const callStream = useMsRestStream()
   const [salesFilter, setSalesFilter] = useState('direct')
   const [mode, setMode] = useState<'manual' | 'auto'>('manual')
   const [title, setTitle] = useState('Рассылка по фильтрам')
@@ -1367,6 +1401,7 @@ function CampaignsPage() {
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [personalize, setPersonalize] = useState(false)
+  const [batchProgress, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
   const [offerTick, setOfferTick] = useState(0)
   const [actionStatus, setActionStatus] = useState('')
@@ -1590,15 +1625,9 @@ function CampaignsPage() {
 
       try {
         if (runAi) {
-          const data = await call<{
-            message?: string
-            grounding_notes?: string
-            source?: string
-            facts?: ClientFacts
-            client_name?: string
-            sanity?: SanityResult
-            error?: string
-          }>('/campaigns/generate', {
+          let streamed = ''
+
+          await callStream('/campaigns/generate/stream', {
             method: 'POST',
             timeoutMs: OUTREACH_AI_TIMEOUT_MS,
             body: {
@@ -1607,45 +1636,76 @@ function CampaignsPage() {
               refresh_ai: true,
               seller_name: sellerName,
               seller_facts: sellerFacts
+            },
+            onEvent: raw => {
+              if (!raw || typeof raw !== 'object') {
+                return
+              }
+
+              const ev = raw as Record<string, unknown>
+              const type = String(ev.type || '')
+
+              if (type === 'status' && typeof ev.text === 'string') {
+                setActionStatus(ev.text)
+              } else if (type === 'delta' && typeof ev.text === 'string') {
+                streamed += ev.text
+                applyOfferText(streamed, 'Генерируем… (поток)')
+              } else if (type === 'replace' && typeof ev.text === 'string') {
+                streamed = ev.text
+                applyOfferText(streamed, 'Текст обновлён')
+              } else if (type === 'error') {
+                const err = String(ev.error || 'stream error')
+                setError(
+                  /403|security policy|access denied/i.test(err)
+                    ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${err}`
+                    : `LLM: ${err}`
+                )
+              } else if (type === 'done') {
+                if (ev.facts && typeof ev.facts === 'object') {
+                  setFacts(ev.facts as ClientFacts)
+                }
+
+                if (typeof ev.grounding_notes === 'string') {
+                  setGroundingNotes(ev.grounding_notes)
+                }
+
+                if (typeof ev.source === 'string') {
+                  setGenSource(ev.source)
+                }
+
+                if (ev.sanity && typeof ev.sanity === 'object') {
+                  setSanity(ev.sanity as SanityResult)
+                }
+
+                const msg = pickOutreachMessage(ev) || streamed
+
+                if (msg) {
+                  streamed = msg
+                  applyOfferText(
+                    msg,
+                    (ev.sanity as SanityResult | undefined)?.auto_revised
+                      ? 'AI сгенерировал текст (sanity поправил формулировку).'
+                      : 'AI сгенерировал креативный текст — можно править вручную.'
+                  )
+                } else {
+                  setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
+                  setActionStatus('')
+                }
+
+                if (typeof ev.error === 'string' && ev.error) {
+                  setError(
+                    /403|security policy|access denied/i.test(ev.error)
+                      ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
+                      : `LLM: ${ev.error}`
+                  )
+                }
+
+                if (typeof ev.client_name === 'string' && ev.client_name) {
+                  setTitle(`Черновик · ${ev.client_name}`)
+                }
+              }
             }
           })
-
-          setFacts(data.facts || null)
-          setGroundingNotes(data.grounding_notes || '')
-          setGenSource(data.source || '')
-          setSanity(data.sanity || null)
-
-          const msg = pickOutreachMessage(data)
-
-          if (msg) {
-            applyOfferText(
-              msg,
-              data.sanity?.auto_revised
-                ? 'AI сгенерировал текст (sanity поправил формулировку).'
-                : 'AI сгенерировал креативный текст — можно править вручную.'
-            )
-          } else {
-            setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
-            setActionStatus('')
-          }
-
-          if (data.error) {
-            setError(
-              /403|security policy|access denied/i.test(data.error)
-                ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${data.error}`
-                : `LLM: ${data.error}`
-            )
-          }
-
-          if (data.client_name) {
-            setTitle(`Черновик · ${data.client_name}`)
-          }
-
-          if (data.facts?.ai_source || data.source) {
-            setFacts(prev =>
-              prev ? { ...prev, ai_source: data.source || prev.ai_source } : prev
-            )
-          }
         } else {
           const detail = await call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
           setFacts(factsFromDetail(detail))
@@ -1671,7 +1731,7 @@ function CampaignsPage() {
         setGenerating(false)
       }
     },
-    [applyOfferText, call, channel, mode, selectedClientId, sellerFacts, sellerName]
+    [applyOfferText, call, callStream, channel, mode, selectedClientId, sellerFacts, sellerName]
   )
 
   useEffect(() => {
@@ -1716,14 +1776,9 @@ function CampaignsPage() {
     setSanity(null)
 
     try {
-      const data = await call<{
-        message?: string
-        grounding_notes?: string
-        source?: string
-        facts?: ClientFacts
-        sanity?: SanityResult
-        error?: string
-      }>('/campaigns/rewrite', {
+      let streamed = ''
+
+      await callStream('/campaigns/rewrite/stream', {
         method: 'POST',
         timeoutMs: OUTREACH_AI_TIMEOUT_MS,
         body: {
@@ -1732,40 +1787,61 @@ function CampaignsPage() {
           client_id: selectedClientId || '',
           seller_name: sellerName,
           seller_facts: sellerFacts
+        },
+        onEvent: raw => {
+          if (!raw || typeof raw !== 'object') {
+            return
+          }
+
+          const ev = raw as Record<string, unknown>
+          const type = String(ev.type || '')
+
+          if (type === 'status' && typeof ev.text === 'string') {
+            setActionStatus(ev.text)
+          } else if (type === 'delta' && typeof ev.text === 'string') {
+            streamed += ev.text
+            applyOfferText(streamed, 'Переписываем… (поток)')
+          } else if (type === 'replace' && typeof ev.text === 'string') {
+            streamed = ev.text
+            applyOfferText(streamed, 'Текст обновлён')
+          } else if (type === 'error') {
+            setError(String(ev.error || 'stream error'))
+          } else if (type === 'done') {
+            const msg = pickOutreachMessage(ev) || streamed || draft
+            streamed = msg
+            applyOfferText(
+              msg,
+              msg.trim() === draft
+                ? 'Переписали тон (текст почти тот же — правки лёгкие).'
+                : 'Текст обновлён: продающе и по-человечески.'
+            )
+
+            if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
+              setGroundingNotes(ev.grounding_notes)
+            }
+
+            if (typeof ev.source === 'string' && ev.source) {
+              setGenSource(ev.source)
+            }
+
+            if (ev.facts && typeof ev.facts === 'object') {
+              setFacts(ev.facts as ClientFacts)
+            }
+
+            if (ev.sanity && typeof ev.sanity === 'object') {
+              setSanity(ev.sanity as SanityResult)
+            }
+
+            if (typeof ev.error === 'string' && ev.error) {
+              setError(
+                /403|security policy|access denied/i.test(ev.error)
+                  ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
+                  : `LLM: ${ev.error}`
+              )
+            }
+          }
         }
       })
-
-      const msg = pickOutreachMessage(data) || draft
-      applyOfferText(
-        msg,
-        msg.trim() === draft
-          ? 'Переписали тон (текст почти тот же — правки лёгкие).'
-          : 'Текст обновлён: продающе и по-человечески.'
-      )
-
-      if (data.grounding_notes) {
-        setGroundingNotes(data.grounding_notes)
-      }
-
-      if (data.source) {
-        setGenSource(data.source)
-      }
-
-      if (data.facts) {
-        setFacts(data.facts)
-      }
-
-      if (data.sanity) {
-        setSanity(data.sanity)
-      }
-
-      if (data.error) {
-        setError(
-          /403|security policy|access denied/i.test(data.error)
-            ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${data.error}`
-            : `LLM: ${data.error}`
-        )
-      }
     } catch (err) {
       // Restore draft if rewrite failed after we cleared the field.
       applyOfferText(draft, '')
@@ -1909,8 +1985,108 @@ function CampaignsPage() {
     event.preventDefault()
     setSaving(true)
     setError('')
+    setBatchProgress('')
 
     try {
+      // Batch personalize: stream per-client drafts as soon as each finishes.
+      if (personalize && !selectedClientId) {
+        const limit = Math.min(Math.max(audience || 0, 1), 20)
+        setActionStatus(`Персонализация 0/${limit}…`)
+        setBatchProgress(`Старт · до ${limit} клиентов`)
+        let firstMsg = ''
+        let okCount = 0
+        const pendingCreates: Promise<unknown>[] = []
+
+        await callStream('/campaigns/personalize/stream', {
+          method: 'POST',
+          timeoutMs: Math.max(OUTREACH_AI_TIMEOUT_MS, limit * 45_000),
+          body: {
+            channel,
+            sales_filter: salesFilter,
+            group,
+            channel_kind: channelKind,
+            require_phone: requirePhone,
+            require_telegram: requireTelegram,
+            vip_only: vipOnly,
+            birthday_soon: birthdaySoon,
+            seller_name: sellerName,
+            seller_facts: sellerFacts,
+            limit,
+            max_workers: 3
+          },
+          onEvent: raw => {
+            if (!raw || typeof raw !== 'object') {
+              return
+            }
+
+            const ev = raw as Record<string, unknown>
+            const type = String(ev.type || '')
+
+            if (type === 'batch_start') {
+              const total = Number(ev.total || limit)
+              setActionStatus(`Персонализация 0/${total}…`)
+              setBatchProgress(`Параллельно до 3 · всего ${total}`)
+            } else if (type === 'client_done') {
+              const done = Number(ev.done || 0)
+              const total = Number(ev.total || limit)
+              const name = String(ev.client_name || ev.client_id || 'клиент')
+              const msg = String(ev.message || '').trim()
+              setActionStatus(`Персонализация ${done}/${total} · ${name}`)
+              setBatchProgress(`${done}/${total} · последний: ${name}`)
+
+              if (msg && ev.ok !== false) {
+                okCount += 1
+
+                if (!firstMsg) {
+                  firstMsg = msg
+                  applyOfferText(msg, `Первый черновик · ${name}`)
+                }
+
+                pendingCreates.push(
+                  call('/campaigns', {
+                    method: 'POST',
+                    body: {
+                      title: `${title || 'Рассылка'} · ${name}`.slice(0, 120),
+                      channel,
+                      mode: 'auto',
+                      offer: msg,
+                      sales_filter: salesFilter,
+                      group,
+                      channel_kind: channelKind,
+                      require_phone: requirePhone,
+                      require_telegram: requireTelegram,
+                      vip_only: vipOnly,
+                      birthday_soon: birthdaySoon,
+                      personalize: false,
+                      client_id: String(ev.client_id || ''),
+                      generate_ai: false,
+                      seller_name: sellerName,
+                      seller_facts: sellerFacts
+                    }
+                  }).catch(() => undefined)
+                )
+              }
+            } else if (type === 'batch_done') {
+              setBatchProgress(
+                `Готово: ${Number(ev.ok_count ?? okCount)} из ${Number(ev.total || limit)}`
+              )
+            } else if (type === 'error') {
+              setError(String(ev.error || 'batch error'))
+            }
+          }
+        })
+
+        await Promise.all(pendingCreates)
+        setActionStatus(
+          okCount > 0
+            ? `Персонализация: сохранено ${okCount} черновиков.`
+            : 'Персонализация: нет готовых текстов.'
+        )
+        await refresh()
+
+        return
+      }
+
       await call('/campaigns', {
         method: 'POST',
         body: {
@@ -2237,8 +2413,9 @@ function CampaignsPage() {
               onChange={e => setPersonalize(e.target.checked)}
               type="checkbox"
             />
-            Персонализировать по клиентам (очередь — позже)
+            Персонализировать по клиентам (стрим, до 20, параллельно)
           </label>
+          {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
           <div className="ms-compose-actions">
             {selectedClientId ? (
               <button
@@ -2342,8 +2519,10 @@ const plugin: HermesPlugin = {
   defaultEnabled: true,
   register(ctx) {
     rest = ctx.rest
+    restStream = ctx.restStream
     ctx.onDispose(() => {
       rest = null
+      restStream = null
     })
 
     ctx.registerMany([

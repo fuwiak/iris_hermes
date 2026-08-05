@@ -270,6 +270,12 @@ export interface PluginRestOptions {
   timeoutMs?: number
 }
 
+export interface PluginRestStreamOptions extends PluginRestOptions {
+  /** Called for each NDJSON object from the plugin stream. */
+  onEvent: (event: unknown) => void
+  signal?: AbortSignal
+}
+
 // Normalize `path` to a leading-slash suffix relative to `/api/plugins/<id>`.
 // The namespace is the boundary — reject `..` so a relative segment can't
 // normalize out into another plugin's API or a core route. Check the path
@@ -305,6 +311,111 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
     timeoutMs: opts.timeoutMs,
     ...profileScoped()
   })
+}
+
+/** NDJSON stream twin of ``pluginRest`` (renderer ``fetch`` + session token).
+ *  Falls back to a single buffered ``pluginRest`` call when streaming is
+ *  unavailable (OAuth remotes / missing bridge) — callers still get one
+ *  ``done``-shaped event via ``onEvent`` when the fallback returns JSON. */
+export async function pluginRestStream(
+  pluginId: string,
+  path: string,
+  opts: PluginRestStreamOptions
+): Promise<void> {
+  const suffix = pluginPathSuffix('pluginRestStream', path)
+  const connection = await window.hermesDesktop?.getConnection?.().catch(() => null)
+  const canStream =
+    Boolean(connection?.baseUrl) &&
+    Boolean(connection?.token) &&
+    connection?.authMode !== 'oauth'
+
+  if (!canStream || !connection) {
+    const data = await pluginRest<unknown>(pluginId, path.replace(/\/stream$/, ''), {
+      method: opts.method,
+      body: opts.body,
+      timeoutMs: opts.timeoutMs
+    })
+    opts.onEvent(typeof data === 'object' && data ? { type: 'done', ...(data as object) } : { type: 'done', ok: true })
+
+    return
+  }
+
+  const controller = new AbortController()
+  const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 180_000
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  const onAbort = () => controller.abort()
+  opts.signal?.addEventListener('abort', onAbort)
+
+  try {
+    const res = await fetch(`${connection.baseUrl}/api/plugins/${pluginId}${suffix}`, {
+      method: opts.method || 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson, application/json',
+        'X-Hermes-Session-Token': connection.token
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      signal: controller.signal
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`${res.status}: ${text || res.statusText}`)
+    }
+
+    const contentType = String(res.headers.get('content-type') || '')
+    const isNdjson = contentType.includes('ndjson') || contentType.includes('x-ndjson')
+
+    if (!res.body || (contentType.includes('application/json') && !isNdjson)) {
+      const data = await res.json()
+      opts.onEvent(typeof data === 'object' && data ? { type: 'done', ...(data as object) } : { type: 'done', ok: true })
+
+      return
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    for (;;) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+
+        if (!trimmed) {
+          continue
+        }
+
+        try {
+          opts.onEvent(JSON.parse(trimmed))
+        } catch {
+          // skip malformed line
+        }
+      }
+    }
+
+    const tail = buffer.trim()
+
+    if (tail) {
+      try {
+        opts.onEvent(JSON.parse(tail))
+      } catch {
+        // ignore
+      }
+    }
+  } finally {
+    window.clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 /** The plugin WebSocket door — the live twin of `pluginRest`, scoped the same
