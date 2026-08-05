@@ -1564,6 +1564,7 @@ export interface Translations {
     }
     navMode: {
       ariaLabel: string
+      label: string
       standard: string
       pro: string
     }

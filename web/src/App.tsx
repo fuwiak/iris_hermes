@@ -66,6 +66,7 @@ import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import {
   STANDARD_NAV_PLUGIN_NAMES,
+  STANDARD_WEB_CORE_PATHS,
   type NavMode,
 } from "@hermes/shared";
 import { cn } from "@/lib/utils";
@@ -324,7 +325,7 @@ function partitionSidebarNav(
   return { coreItems, pluginItems };
 }
 
-/** standard = Chat + MoySklad plugin tabs only; pro = full menu. Routes stay registered. */
+/** standard = Chat + Settings + MoySklad; pro = full menu. Routes stay registered. */
 function applyNavModeFilter(
   partitioned: { coreItems: NavItem[]; pluginItems: NavItem[] },
   manifests: PluginManifest[],
@@ -339,7 +340,9 @@ function applyNavModeFilter(
   );
 
   return {
-    coreItems: partitioned.coreItems.filter((item) => item.path === "/chat"),
+    coreItems: partitioned.coreItems.filter((item) =>
+      STANDARD_WEB_CORE_PATHS.has(item.path),
+    ),
     pluginItems: partitioned.pluginItems.filter((item) =>
       moyskladPaths.has(item.path),
     ),
@@ -708,6 +711,12 @@ export default function App() {
 
             <ProfileSwitcher collapsed={isDesktopCollapsed} />
 
+            <NavModeToggle
+              collapsed={isDesktopCollapsed}
+              mode={navMode}
+              onChange={setNavMode}
+            />
+
             <nav
               className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
               aria-label={t.app.navigation}
@@ -766,12 +775,6 @@ export default function App() {
                 tooltipWarmRef={tooltipWarmRef}
               />
             ) : null}
-
-            <NavModeToggle
-              collapsed={isDesktopCollapsed}
-              mode={navMode}
-              onChange={setNavMode}
-            />
 
             <div
               className={cn(
@@ -940,7 +943,8 @@ function NavModeToggle({
 }) {
   const { t } = useI18n();
   const labels = t.app.navMode ?? {
-    ariaLabel: "Menu mode: standard or pro",
+    ariaLabel: "Menu mode: standard / pro",
+    label: "standard / pro",
     standard: "standard",
     pro: "pro",
   };
@@ -949,10 +953,18 @@ function NavModeToggle({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center border-t border-current/20 px-3 py-2",
-        collapsed ? "lg:justify-center lg:px-1" : "justify-between gap-2",
+        "flex shrink-0 flex-col gap-1.5 border-t border-current/20 px-3 py-2.5",
+        collapsed && "lg:items-center lg:px-1",
       )}
     >
+      <span
+        className={cn(
+          "font-sans text-display text-[0.65rem] tracking-[0.14em] text-text-tertiary lowercase",
+          collapsed && "lg:hidden",
+        )}
+      >
+        {labels.label ?? "standard / pro"}
+      </span>
       <label
         className={cn(
           "flex min-w-0 items-center gap-2",
@@ -961,8 +973,8 @@ function NavModeToggle({
       >
         <span
           className={cn(
-            "font-sans text-display text-[0.65rem] tracking-[0.12em] lowercase",
-            !isPro ? "text-midground" : "text-text-tertiary",
+            "font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase",
+            !isPro ? "text-midground font-medium" : "text-text-tertiary",
             collapsed && "lg:hidden",
           )}
         >
@@ -977,8 +989,8 @@ function NavModeToggle({
         />
         <span
           className={cn(
-            "font-sans text-display text-[0.65rem] tracking-[0.12em] lowercase",
-            isPro ? "text-midground" : "text-text-tertiary",
+            "font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase",
+            isPro ? "text-midground font-medium" : "text-text-tertiary",
             collapsed && "lg:hidden",
           )}
         >

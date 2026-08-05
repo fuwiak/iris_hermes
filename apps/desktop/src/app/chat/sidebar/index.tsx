@@ -299,7 +299,7 @@ export function ChatSidebar({
   const primaryNav = useMemo(() => {
     const all = [...SIDEBAR_NAV, ...webAppControlNav]
     if (isProNav) return all
-    // standard: Chat (new-session) only — hide Discover/Office/Kanban/Schedules + embed tools
+    // standard: Chat + Settings — hide Discover/Office/Kanban/Schedules + other embed tools
     return all.filter(item => STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(item.id))
   }, [isProNav, webAppControlNav])
 
@@ -1170,7 +1170,37 @@ export function ChatSidebar({
       collapsible="none"
     >
       <SidebarContent className="gap-0 overflow-hidden bg-transparent px-2.5">
-        <SidebarGroup className="shrink-0 p-0 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
+        <div className="flex shrink-0 flex-col gap-1 px-2 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
+          <span className="text-[0.65rem] tracking-[0.12em] text-(--ui-text-tertiary) lowercase">
+            {s.navMode.label}
+          </span>
+          <label className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                'text-[0.7rem] tracking-[0.08em] lowercase',
+                !isProNav ? 'font-medium text-foreground' : 'text-(--ui-text-tertiary)'
+              )}
+            >
+              {s.navMode.standard}
+            </span>
+            <Switch
+              aria-label={s.navMode.ariaLabel}
+              checked={isProNav}
+              onCheckedChange={checked => setNavMode(checked ? 'pro' : 'standard')}
+              size="xs"
+            />
+            <span
+              className={cn(
+                'text-[0.7rem] tracking-[0.08em] lowercase',
+                isProNav ? 'font-medium text-foreground' : 'text-(--ui-text-tertiary)'
+              )}
+            >
+              {s.navMode.pro}
+            </span>
+          </label>
+        </div>
+
+        <SidebarGroup className="shrink-0 p-0 pb-2">
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
               {[...primaryNav, ...contributedNav].map(item => {
@@ -1271,33 +1301,6 @@ export function ChatSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-0.5">
-          <label className="flex min-w-0 flex-1 items-center gap-2">
-            <span
-              className={cn(
-                'text-[0.65rem] tracking-[0.08em] lowercase',
-                !isProNav ? 'text-foreground' : 'text-(--ui-text-tertiary)'
-              )}
-            >
-              {s.navMode.standard}
-            </span>
-            <Switch
-              aria-label={s.navMode.ariaLabel}
-              checked={isProNav}
-              onCheckedChange={checked => setNavMode(checked ? 'pro' : 'standard')}
-              size="xs"
-            />
-            <span
-              className={cn(
-                'text-[0.65rem] tracking-[0.08em] lowercase',
-                isProNav ? 'text-foreground' : 'text-(--ui-text-tertiary)'
-              )}
-            >
-              {s.navMode.pro}
-            </span>
-          </label>
-        </div>
 
         {showSessionSections && (
           <div className="shrink-0 px-2 pb-1 pt-1">

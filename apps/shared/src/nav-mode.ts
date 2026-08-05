@@ -19,8 +19,20 @@ export const STANDARD_NAV_PLUGIN_NAMES = new Set(["moysklad"]);
  */
 export const STANDARD_NAV_PLUGIN_PATHS = new Set(["/campaigns", "/clients"]);
 
-/** Built-in desktop primary-nav ids kept in standard mode (Chat). */
-export const STANDARD_DESKTOP_PRIMARY_NAV_IDS = new Set(["new-session"]);
+/**
+ * Web dashboard built-in core paths kept in standard mode
+ * (Chat + Settings).
+ */
+export const STANDARD_WEB_CORE_PATHS = new Set(["/chat", "/settings"]);
+
+/**
+ * Built-in desktop primary-nav ids kept in standard mode
+ * (Chat + Settings via embed app-control).
+ */
+export const STANDARD_DESKTOP_PRIMARY_NAV_IDS = new Set([
+  "new-session",
+  "settings",
+]);
 
 export function parseNavMode(raw: null | string | undefined): NavMode {
   return raw === "pro" ? "pro" : "standard";

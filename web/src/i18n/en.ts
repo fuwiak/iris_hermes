@@ -98,7 +98,8 @@ export const en: Translations = {
     managingProfileBanner:
       "Managing profile \u201c{name}\u201d \u2014 config, keys, skills, MCPs, model, and new chats apply to that profile.",
     navMode: {
-      ariaLabel: "Menu mode: standard or pro",
+      ariaLabel: "Menu mode: standard / pro",
+      label: "standard / pro",
       standard: "standard",
       pro: "pro",
     },

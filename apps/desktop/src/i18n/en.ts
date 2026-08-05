@@ -1857,7 +1857,8 @@ export const en: Translations = {
       chats: 'Chats'
     },
     navMode: {
-      ariaLabel: 'Menu mode: standard or pro',
+      ariaLabel: 'Menu mode: standard / pro',
+      label: 'standard / pro',
       standard: 'standard',
       pro: 'pro'
     },

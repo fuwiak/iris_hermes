@@ -2051,7 +2051,8 @@ Leave blank to keep the ${mode} default.`,
         chats: 'Чаты',
       },
       navMode: {
-        ariaLabel: 'Режим меню: standard или pro',
+        ariaLabel: 'Режим меню: standard / pro',
+        label: 'standard / pro',
         standard: 'standard',
         pro: 'pro'
       },

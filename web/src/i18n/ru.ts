@@ -98,7 +98,8 @@ export const ru: Translations = {
     managingProfileBanner:
       "Управление профилем «{name}» — конфигурация, ключи, навыки, MCP, модель и новые чаты применяются к этому профилю.",
     navMode: {
-      ariaLabel: "Режим меню: standard или pro",
+      ariaLabel: "Режим меню: standard / pro",
+      label: "standard / pro",
       standard: "standard",
       pro: "pro",
     },
