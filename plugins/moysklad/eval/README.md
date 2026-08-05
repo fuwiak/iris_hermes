@@ -41,6 +41,18 @@ For each client in the fixture:
 Prompt contract lives in `plugins/moysklad/client_card.py` (`_AI_SYSTEM` +
 `generate_ai_for_detail`). Dashboard: open client card → «Обновить AI».
 
+## Desktop playground
+
+Sidebar **AI тест** (`/clients/playground`) loads this fixture:
+
+1. Pick a golden client (~20).
+2. Left pane = editable LLM input JSON (facts only).
+3. Right pane tabs: Саммари AI · Повод и intent · Рекомендация AI · Факты клиента.
+4. **Пересчитать** = heuristic stages (no LLM). **Запустить LLM** = same path as card.
+
+API: `GET /eval/golden-clients`, `GET /eval/golden-clients/{id}`,
+`POST /eval/playground/run` (`client_id` / `input_json` / `run_llm`).
+
 ## PII
 
 Fixture may include phones/emails for private Iris shop eval fidelity. Do **not**

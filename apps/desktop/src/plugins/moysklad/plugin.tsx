@@ -1209,6 +1209,14 @@ function ClientsPage() {
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
           </button>
+          <button
+            className="ms-btn"
+            onClick={() => host.navigate('/clients/playground')}
+            title="Playground: входные факты → Саммари / Повод / Рекомендация / Факты"
+            type="button"
+          >
+            AI тест
+          </button>
         </div>
       </div>
       <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
@@ -2960,6 +2968,259 @@ function CampaignsPage() {
   )
 }
 
+type PlaygroundOutputKey =
+  | 'history_profile'
+  | 'occasion_intent'
+  | 'recommendation'
+  | 'fact_blocks'
+  | 'system_prompt'
+  | 'heuristic'
+  | 'llm'
+  | 'full'
+
+const PLAYGROUND_OUTPUT_TABS: Array<{ id: PlaygroundOutputKey; label: string }> = [
+  { id: 'history_profile', label: 'Саммари AI' },
+  { id: 'occasion_intent', label: 'Повод и intent' },
+  { id: 'recommendation', label: 'Рекомендация AI' },
+  { id: 'fact_blocks', label: 'Факты клиента' },
+  { id: 'system_prompt', label: 'System prompt' },
+  { id: 'heuristic', label: 'Heuristic JSON' },
+  { id: 'llm', label: 'LLM JSON' },
+  { id: 'full', label: 'Все этапы' }
+]
+
+interface GoldenClientSummary {
+  id?: string
+  name?: string
+  order_count?: number
+  avg_check?: number
+  channels?: string[]
+}
+
+interface PlaygroundPanels {
+  input_text?: string
+  outputs?: Partial<Record<PlaygroundOutputKey, string>>
+}
+
+interface PlaygroundTrace {
+  ok?: boolean
+  client_id?: string
+  client_name?: string
+  source?: string
+  data_thin?: boolean
+  stages?: {
+    active?: {
+      history_profile?: string
+      occasion_intent?: string
+      recommendation?: string
+      source?: string
+    }
+  }
+  panels?: PlaygroundPanels
+}
+
+function AiPlaygroundPage() {
+  const call = useMsRest()
+  const [clients, setClients] = useState<GoldenClientSummary[]>([])
+  const [selectedId, setSelectedId] = useState('')
+  const [inputText, setInputText] = useState('')
+  const [outputs, setOutputs] = useState<Partial<Record<PlaygroundOutputKey, string>>>({})
+  const [outputKey, setOutputKey] = useState<PlaygroundOutputKey>('history_profile')
+  const [meta, setMeta] = useState('')
+  const [error, setError] = useState('')
+  const [loadingList, setLoadingList] = useState(false)
+  const [running, setRunning] = useState(false)
+
+  const applyTrace = useCallback((trace: PlaygroundTrace) => {
+    const panels = trace.panels || {}
+    if (typeof panels.input_text === 'string') {
+      setInputText(panels.input_text)
+    }
+    setOutputs(panels.outputs || {})
+    const src = trace.stages?.active?.source || '—'
+    setMeta(
+      [
+        trace.client_name || 'клиент',
+        `id=${trace.client_id || '—'}`,
+        `source=${trace.source || '—'}`,
+        `ai=${src}`,
+        trace.data_thin ? 'данных мало' : null
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    )
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingList(true)
+    setError('')
+    void call<{ clients?: GoldenClientSummary[]; count?: number; generated_at?: string }>(
+      '/eval/golden-clients'
+    )
+      .then(data => {
+        if (cancelled) {return}
+        const rows = data.clients || []
+        setClients(rows)
+        if (rows[0]?.id) {
+          setSelectedId(String(rows[0].id))
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {setError(err instanceof Error ? err.message : String(err))}
+      })
+      .finally(() => {
+        if (!cancelled) {setLoadingList(false)}
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [call])
+
+  useEffect(() => {
+    if (!selectedId) {return}
+    let cancelled = false
+    setRunning(true)
+    setError('')
+    void call<PlaygroundTrace & { client?: unknown }>(
+      `/eval/golden-clients/${encodeURIComponent(selectedId)}`
+    )
+      .then(data => {
+        if (!cancelled) {applyTrace(data)}
+      })
+      .catch(err => {
+        if (!cancelled) {setError(err instanceof Error ? err.message : String(err))}
+      })
+      .finally(() => {
+        if (!cancelled) {setRunning(false)}
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [applyTrace, call, selectedId])
+
+  const runPlayground = async (runLlm: boolean) => {
+    setRunning(true)
+    setError('')
+
+    try {
+      const trace = await call<PlaygroundTrace>('/eval/playground/run', {
+        method: 'POST',
+        body: {
+          client_id: selectedId,
+          input_json: inputText,
+          run_llm: runLlm
+        },
+        timeoutMs: runLlm ? OUTREACH_AI_TIMEOUT_MS : 30_000
+      })
+      applyTrace(trace)
+      if (runLlm) {
+        setOutputKey('history_profile')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const outputText = outputs[outputKey] || ''
+
+  return (
+    <div className="ms-page ms-playground" data-selectable-text="true">
+      <div className="ms-page-header">
+        <div>
+          <h1>AI тест · клиенты</h1>
+          <p className="ms-muted">
+            Golden dataset (~20) · входные факты → Саммари / Повод / Рекомендация / Факты
+          </p>
+          {meta ? <p className="ms-muted ms-sync-meta">{meta}</p> : null}
+        </div>
+        <div className="ms-actions">
+          <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
+            ← Клиенты
+          </button>
+          <button
+            className="ms-btn"
+            disabled={running || !inputText.trim()}
+            onClick={() => void runPlayground(false)}
+            type="button"
+          >
+            {running ? 'Считаю…' : 'Пересчитать'}
+          </button>
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={running || !inputText.trim()}
+            onClick={() => void runPlayground(true)}
+            title="Вызов auxiliary LLM (как «Обновить AI» на карточке)"
+            type="button"
+          >
+            Запустить LLM
+          </button>
+        </div>
+      </div>
+
+      <label className="ms-playground-pick">
+        Клиент из golden dataset
+        <select
+          disabled={loadingList || running}
+          onChange={e => setSelectedId(e.target.value)}
+          value={selectedId}
+        >
+          {clients.length === 0 ? <option value="">Нет клиентов</option> : null}
+          {clients.map(c => (
+            <option key={c.id || c.name} value={c.id || ''}>
+              {(c.name || '—') +
+                ` · заказов ${c.order_count ?? 0}` +
+                (c.avg_check ? ` · ≈ ${Math.round(c.avg_check)} ₽` : '')}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="ms-filter-tabs" role="tablist">
+        {PLAYGROUND_OUTPUT_TABS.map(tab => (
+          <button
+            className={`ms-filter-tab${outputKey === tab.id ? ' is-active' : ''}`}
+            key={tab.id}
+            onClick={() => setOutputKey(tab.id)}
+            role="tab"
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {error ? <div className="ms-error">{error}</div> : null}
+
+      <div className="ms-playground-split">
+        <label className="ms-playground-pane">
+          <span className="ms-ai-label">Входные данные (JSON фактов для AI)</span>
+          <textarea
+            onChange={e => setInputText(e.target.value)}
+            placeholder="JSON клиента + заказов / risks…"
+            spellCheck={false}
+            value={inputText}
+          />
+        </label>
+        <label className="ms-playground-pane">
+          <span className="ms-ai-label">
+            Выход · {PLAYGROUND_OUTPUT_TABS.find(t => t.id === outputKey)?.label || outputKey}
+          </span>
+          <textarea
+            readOnly
+            spellCheck={false}
+            value={outputText || (running ? 'Загрузка…' : '— выберите клиента или пересчитайте —')}
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
 const plugin: HermesPlugin = {
   id: 'moysklad',
   name: 'МойСклад CRM',
@@ -2982,6 +3243,12 @@ const plugin: HermesPlugin = {
         render: () => <ClientsPage />
       },
       {
+        id: 'clients-playground-page',
+        area: ROUTES_AREA,
+        data: { path: '/clients/playground' } satisfies RouteContribution,
+        render: () => <AiPlaygroundPage />
+      },
+      {
         id: 'campaigns-page',
         area: ROUTES_AREA,
         data: { path: '/campaigns' } satisfies RouteContribution,
@@ -2998,9 +3265,19 @@ const plugin: HermesPlugin = {
         } satisfies SidebarNavContribution
       },
       {
-        id: 'campaigns-nav',
+        id: 'clients-playground-nav',
         area: SIDEBAR_NAV_AREA,
         order: 41,
+        data: {
+          codicon: 'beaker',
+          label: 'AI тест',
+          path: '/clients/playground'
+        } satisfies SidebarNavContribution
+      },
+      {
+        id: 'campaigns-nav',
+        area: SIDEBAR_NAV_AREA,
+        order: 42,
         data: {
           codicon: 'mail',
           label: 'Рассылки',

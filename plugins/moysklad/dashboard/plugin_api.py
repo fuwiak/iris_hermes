@@ -88,6 +88,11 @@ from plugins.moysklad.catalog_cache import (
 )
 from plugins.moysklad.classify import build_enriched_catalog, clients_page
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
+from plugins.moysklad.ai_playground import (
+    get_golden_client,
+    list_golden_clients,
+    run_playground,
+)
 from plugins.moysklad.client_card import (
     build_client_detail,
     find_row_in_catalog,
@@ -275,6 +280,14 @@ class SellerSettingsBody(BaseModel):
     seller_facts: str = ""
     # None = leave unchanged; "" = clear stored business connection id.
     telegram_business_connection_id: str | None = None
+
+
+class PlaygroundRunBody(BaseModel):
+    """AI playground: golden client id and/or editable facts JSON."""
+
+    client_id: str = ""
+    input_json: str = ""
+    run_llm: bool = False
 
 
 class OutreachDraftCacheBody(BaseModel):
@@ -790,6 +803,54 @@ def post_client_ai(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id}/ai failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/eval/golden-clients")
+def get_eval_golden_clients() -> dict[str, Any]:
+    """List ~20 golden eval clients for the AI playground."""
+    try:
+        return list_golden_clients()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /eval/golden-clients failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/eval/golden-clients/{client_id}")
+def get_eval_golden_client(client_id: str) -> dict[str, Any]:
+    """Raw golden fixture row + playground stages (heuristic only)."""
+    try:
+        golden = get_golden_client(client_id)
+        trace = run_playground(client_id=client_id, run_llm=False)
+        return {"ok": True, "client": golden, **trace}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /eval/golden-clients/{id} failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/eval/playground/run")
+def post_eval_playground_run(body: PlaygroundRunBody) -> dict[str, Any]:
+    """Run AI playground stages (optional LLM) from golden id or edited JSON."""
+    try:
+        return run_playground(
+            client_id=body.client_id or "",
+            input_json=body.input_json or "",
+            run_llm=bool(body.run_llm),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /eval/playground/run failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
