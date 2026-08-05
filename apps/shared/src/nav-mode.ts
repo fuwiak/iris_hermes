@@ -2,13 +2,18 @@
 
 export type NavMode = "pro" | "standard";
 
-/** localStorage key — shared by web dashboard chrome and desktop embed sidebar. */
-export const NAV_MODE_STORAGE_KEY = "hermes-nav-mode";
+/**
+ * localStorage key — shared by web dashboard chrome and desktop embed sidebar.
+ * Bumped to v2 so users stuck on a broken `standard` snapshot (empty-looking
+ * menu / non-working Switch) get a fresh default of full **pro** menu.
+ */
+export const NAV_MODE_STORAGE_KEY = "hermes-nav-mode-v2";
 
 /** Same-window sync when desktop embed and dashboard chrome both mount. */
 export const NAV_MODE_CHANGE_EVENT = "hermes-nav-mode-change";
 
-export const DEFAULT_NAV_MODE: NavMode = "standard";
+/** Full Hermes menu by default — standard is opt-in shop chrome. */
+export const DEFAULT_NAV_MODE: NavMode = "pro";
 
 /** Plugin manifest / desktop plugin `id` values kept visible in standard mode. */
 export const STANDARD_NAV_PLUGIN_NAMES = new Set(["moysklad"]);
@@ -52,6 +57,7 @@ const APP_CONTROL_NAV_PREFIX = "app-control-";
 export function navPathname(path: string): string {
   const cut = path.search(/[?#]/);
   const raw = cut === -1 ? path : path.slice(0, cut);
+
   return raw.replace(/\/$/, "") || "/";
 }
 
@@ -72,19 +78,28 @@ export function isStandardNavPluginContribution(opts: {
   source?: string;
 }): boolean {
   const path = opts.path;
-  if (!path || !isStandardNavPluginPath(path)) return false;
+
+  if (!path || !isStandardNavPluginPath(path)) {
+    return false;
+  }
 
   const source = opts.source;
+
   if (source) {
     for (const name of STANDARD_NAV_PLUGIN_NAMES) {
-      if (source === `plugin:${name}`) return true;
+      if (source === `plugin:${name}`) {
+        return true;
+      }
     }
   }
 
   const id = opts.id;
+
   if (id) {
     for (const name of STANDARD_NAV_PLUGIN_NAMES) {
-      if (id === name || id.startsWith(`${name}:`)) return true;
+      if (id === name || id.startsWith(`${name}:`)) {
+        return true;
+      }
     }
   }
 
@@ -94,22 +109,40 @@ export function isStandardNavPluginContribution(opts: {
 
 /** True for Chat (`new-session`) and Settings (`settings` / `app-control-settings`). */
 export function isStandardDesktopPrimaryNavId(id: string): boolean {
-  if (STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(id)) return true;
+  if (STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(id)) {
+    return true;
+  }
+
   if (id.startsWith(APP_CONTROL_NAV_PREFIX)) {
     return STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(
       id.slice(APP_CONTROL_NAV_PREFIX.length),
     );
   }
+
   return false;
 }
 
 export function parseNavMode(raw: null | string | undefined): NavMode {
-  return raw === "pro" ? "pro" : "standard";
+  if (raw === "pro") {
+    return "pro";
+  }
+
+  if (raw === "standard") {
+    return "standard";
+  }
+
+  return DEFAULT_NAV_MODE;
 }
 
 export function readNavMode(): NavMode {
   try {
-    return parseNavMode(window.localStorage.getItem(NAV_MODE_STORAGE_KEY));
+    const raw = window.localStorage.getItem(NAV_MODE_STORAGE_KEY);
+
+    if (raw == null) {
+      return DEFAULT_NAV_MODE;
+    }
+
+    return parseNavMode(raw);
   } catch {
     return DEFAULT_NAV_MODE;
   }

@@ -12,11 +12,18 @@ import {
 } from './nav-mode'
 
 describe('nav-mode', () => {
-  it('parseNavMode only accepts pro; everything else is standard', () => {
+  it('parseNavMode only accepts pro/standard; unset falls back to DEFAULT (pro)', () => {
     expect(parseNavMode('pro')).toBe('pro')
     expect(parseNavMode('standard')).toBe('standard')
-    expect(parseNavMode(null)).toBe('standard')
-    expect(parseNavMode('nope')).toBe('standard')
+    expect(parseNavMode(null)).toBe('pro')
+    expect(parseNavMode(undefined)).toBe('pro')
+    expect(parseNavMode('nope')).toBe('pro')
+  })
+
+  it('defaults to pro so the full menu is visible until user opts into standard', async () => {
+    const { DEFAULT_NAV_MODE, NAV_MODE_STORAGE_KEY } = await import('./nav-mode')
+    expect(DEFAULT_NAV_MODE).toBe('pro')
+    expect(NAV_MODE_STORAGE_KEY).toContain('v2')
   })
 
   it('isStandardDesktopPrimaryNavId keeps Chat + Settings (incl. embed prefix)', () => {

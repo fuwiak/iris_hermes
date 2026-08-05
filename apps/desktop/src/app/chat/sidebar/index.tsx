@@ -27,7 +27,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from '@/components/ui/sidebar'
-import { Switch } from '@/components/ui/switch'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { searchSessions, type SessionInfo, type SessionSearchResult } from '@/hermes'
@@ -365,7 +364,9 @@ export function ChatSidebar({
     if (!isProNav) {
       const have = new Set(fromPlugins.map(item => item.route).filter(Boolean))
       for (const seed of STANDARD_MOYSKLAD_NAV_ITEMS) {
-        if (have.has(seed.path)) continue
+        if (have.has(seed.path)) {
+          continue
+        }
         fromPlugins.push({
           id: `moysklad-seed:${seed.path}`,
           label: seed.label,
@@ -1200,32 +1201,36 @@ export function ChatSidebar({
             {s.navMode.label}
           </span>
           {/*
-            Do NOT wrap Radix Switch in <label> — label activation + button click
-            double-fires onCheckedChange and the toggle appears stuck.
+            Button pair — not Radix Switch (Switch-in-label double-fired and
+            left users stuck with an empty-looking standard menu).
           */}
-          <div className="flex min-w-0 items-center gap-2" role="group" aria-label={s.navMode.ariaLabel}>
-            <span
+          <div className="flex min-w-0 items-center gap-1" aria-label={s.navMode.ariaLabel} role="group">
+            <button
+              type="button"
+              aria-pressed={!isProNav}
+              onClick={() => setNavMode('standard')}
               className={cn(
-                'text-[0.7rem] tracking-[0.08em] lowercase',
-                !isProNav ? 'font-medium text-foreground' : 'text-(--ui-text-tertiary)'
+                'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
+                !isProNav
+                  ? 'bg-foreground/10 font-medium text-foreground'
+                  : 'text-(--ui-text-tertiary) hover:text-foreground'
               )}
             >
               {s.navMode.standard}
-            </span>
-            <Switch
-              aria-label={s.navMode.ariaLabel}
-              checked={isProNav}
-              onCheckedChange={checked => setNavMode(checked ? 'pro' : 'standard')}
-              size="xs"
-            />
-            <span
+            </button>
+            <button
+              type="button"
+              aria-pressed={isProNav}
+              onClick={() => setNavMode('pro')}
               className={cn(
-                'text-[0.7rem] tracking-[0.08em] lowercase',
-                isProNav ? 'font-medium text-foreground' : 'text-(--ui-text-tertiary)'
+                'rounded-sm px-2 py-1 text-[0.7rem] tracking-[0.08em] lowercase transition-colors',
+                isProNav
+                  ? 'bg-foreground/10 font-medium text-foreground'
+                  : 'text-(--ui-text-tertiary) hover:text-foreground'
               )}
             >
               {s.navMode.pro}
-            </span>
+            </button>
           </div>
         </div>
 

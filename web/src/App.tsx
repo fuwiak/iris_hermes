@@ -62,7 +62,6 @@ import {
 import { Button } from "@nous-research/ui/ui/components/button";
 import { SelectionSwitcher } from "@nous-research/ui/ui/components/selection-switcher";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import {
@@ -991,42 +990,43 @@ function NavModeToggle({
         {labels.label ?? "standard / pro"}
       </span>
       {/*
-        Do NOT wrap Radix Switch in <label> — label activation + button click
-        double-fires onCheckedChange and the toggle appears stuck / "all off".
+        Button pair — not Radix Switch. Switch-in-label double-fired and left
+        users stuck in empty-looking standard mode.
       */}
       <div
         role="group"
         aria-label={labels.ariaLabel}
         className={cn(
-          "flex min-w-0 items-center gap-2",
-          collapsed && "lg:flex-col lg:gap-1",
+          "flex min-w-0 items-center gap-1",
+          collapsed && "lg:flex-col",
         )}
       >
-        <span
+        <button
+          type="button"
+          aria-pressed={!isPro}
+          onClick={() => onChange("standard")}
           className={cn(
-            "font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase",
-            !isPro ? "text-midground font-medium" : "text-text-tertiary",
-            collapsed && "lg:hidden",
+            "rounded-sm px-2 py-1 font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase transition-colors",
+            !isPro
+              ? "bg-current/10 text-midground font-medium"
+              : "text-text-tertiary hover:text-midground",
           )}
         >
           {labels.standard}
-        </span>
-        <Switch
-          aria-label={labels.ariaLabel}
-          checked={isPro}
-          onCheckedChange={(checked) =>
-            onChange(checked ? "pro" : "standard")
-          }
-        />
-        <span
+        </button>
+        <button
+          type="button"
+          aria-pressed={isPro}
+          onClick={() => onChange("pro")}
           className={cn(
-            "font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase",
-            isPro ? "text-midground font-medium" : "text-text-tertiary",
-            collapsed && "lg:hidden",
+            "rounded-sm px-2 py-1 font-sans text-display text-[0.7rem] tracking-[0.12em] lowercase transition-colors",
+            isPro
+              ? "bg-current/10 text-midground font-medium"
+              : "text-text-tertiary hover:text-midground",
           )}
         >
           {labels.pro}
-        </span>
+        </button>
       </div>
     </div>
   );
