@@ -1,22 +1,13 @@
 name: Deploy Iris Hermes to Selectel
 
+# Only auto-workflow on this Iris fork: every push to main deploys.
+# Heavy CI / lint / JS tests are workflow_dispatch-only so they do not
+# burn Actions minutes or block this job.
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "deploy/selectel/**"
-      - "Dockerfile.railway"
-      - "Dockerfile.railway.dockerignore"
-      - ".dockerignore"
-      - "docker/railway-entrypoint.sh"
-      - "web/**"
-      - "apps/desktop/**"
-      - "apps/shared/**"
-      - "plugins/moysklad/**"
-      - "hermes_cli/config_defaults.py"
-      - "hermes_cli/config_migrations.py"
-      - ".github/workflows/deploy-selectel-iris.yml"
 
 concurrency:
   group: deploy-selectel-iris

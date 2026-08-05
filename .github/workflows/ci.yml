@@ -14,10 +14,12 @@ name: CI
 # Do not add ``secrets: inherit`` or GitHub App credentials here. Trusted
 # main-only automation uses protected environments in its own workflows.
 
+# Iris fork: heavy CI does NOT run on push to main — it ate Actions minutes
+# and blocked Selectel deploy. Run manually via workflow_dispatch if needed.
+# Upstream Hermes may still want pull_request; we keep dispatch only.
+
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

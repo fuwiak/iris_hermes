@@ -46,6 +46,10 @@ This is **OpenRouter’s API** rejecting the key/account — not Hermes dashboar
 
 GitHub Actions: `.github/workflows/deploy-selectel-iris.yml`
 
+On this Iris fork, **only Selectel deploy auto-runs on every push to `main`**.
+Heavy CI / lint / JS tests / Docker publish / docs / autofix are
+`workflow_dispatch` only (they were burning Actions minutes and blocking deploy).
+
 Secrets:
 
 - `SELECTEL_IRIS_HOST`
