@@ -47,18 +47,34 @@ Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone doe
 
 ### OpenRouter `Access denied by security policy` (HTTP 403)
 
-This is **OpenRouter’s API** rejecting the key/account — not Hermes dashboard auth, CSRF, Caddy, or Cloudflare. Logs show `provider=openrouter` / `base_url=https://openrouter.ai/api/v1`.
+This is **OpenRouter’s API** rejecting the request — not Hermes dashboard auth,
+CSRF, Caddy, or Cloudflare. Common causes on this VDS:
 
-Fix (pick one):
+1. **RU / Selectel egress IP** (`185.161.66.162`, region `ru-7`) blocked by
+   OpenRouter security policy (most likely when the key works from a laptop
+   outside RU but fails from the server).
+2. Stale / revoked `OPENROUTER_API_KEY` in the Hermes volume `.env`.
+3. Account-level ban on the OpenRouter key.
 
-1. Set GitHub secret `SELECTEL_IRIS_OPENROUTER_API_KEY` to the new key and push
-   (deploy patches `/root/deploy.env`; entrypoint syncs into the volume).
-2. Or edit `/root/deploy.env` on the VDS, then
+**Preferred fix for (1) — Railway egress fallback** (Hermes stays on Selectel;
+only LLM traffic leaves via Railway’s non-RU IP):
+
+1. Deploy `deploy/openrouter-egress/` as a Railway service (see that README).
+2. Set GitHub secret `SELECTEL_IRIS_OPENROUTER_BASE_URL` to
+   `https://<railway-host>/t/<EGRESS_TOKEN>/api/v1` (and keep
+   `SELECTEL_IRIS_OPENROUTER_API_KEY`).
+3. Push to `main` (deploy patches `/root/deploy.env`; entrypoint syncs volume).
+
+Other fixes:
+
+1. Rotate key via `SELECTEL_IRIS_OPENROUTER_API_KEY` + push / recreate hermes.
+2. Edit `/root/deploy.env` on the VDS, then
    `docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml up -d --force-recreate hermes`
    (plain `up -d` can leave a stale container env / volume key).
-3. Or switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`).
+3. Switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`) — no OpenRouter.
 
 Updating only a local laptop `.env` does **not** fix production.
+Laptop VPN does **not** change the Selectel server’s egress IP.
 
 ## Deploy
 
@@ -75,6 +91,7 @@ Secrets:
 - `SELECTEL_IRIS_SSH_KEY`
 - `SELECTEL_IRIS_DEPLOY_ENV` (full `/root/deploy.env` body)
 - `SELECTEL_IRIS_OPENROUTER_API_KEY` (optional; patches OpenRouter key on each deploy)
+- `SELECTEL_IRIS_OPENROUTER_BASE_URL` (optional; Railway egress proxy — see `deploy/openrouter-egress/`)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN` (optional; Business bot for Рассылки)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME` (optional)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (optional)

@@ -1,0 +1,28 @@
+# OpenRouter egress for Selectel (RU IP → Railway egress IP).
+# Clients call: https://<host>/t/{$EGRESS_TOKEN}/api/v1/...
+# Caddy strips /t/<token> and reverse-proxies to openrouter.ai.
+
+{
+	admin off
+}
+
+:{$PORT:8080} {
+	handle_path /t/{$EGRESS_TOKEN}/* {
+		reverse_proxy https://openrouter.ai {
+			header_up Host openrouter.ai
+			header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+			header_up X-Real-IP {http.request.header.X-Real-IP}
+			transport http {
+				versions 1.1 2
+			}
+		}
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		respond "forbidden" 403
+	}
+}

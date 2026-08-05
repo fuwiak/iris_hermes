@@ -29,6 +29,8 @@ jobs:
           DEPLOY_ENV: ${{ secrets.SELECTEL_IRIS_DEPLOY_ENV }}
           # Optional: rotate OpenRouter without rewriting full DEPLOY_ENV body.
           OPENROUTER_API_KEY: ${{ secrets.SELECTEL_IRIS_OPENROUTER_API_KEY }}
+          # Optional: Railway OpenRouter egress (non-RU IP). See deploy/openrouter-egress/.
+          OPENROUTER_BASE_URL: ${{ secrets.SELECTEL_IRIS_OPENROUTER_BASE_URL }}
           # Telegram Business outreach for MoySklad Рассылки (optional patch).
           MOYSKLAD_TELEGRAM_BOT_TOKEN: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN }}
           MOYSKLAD_TELEGRAM_BOT_USERNAME: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME }}
@@ -65,6 +67,9 @@ jobs:
           : >"$PATCH_FILE"
           if [ -n "${OPENROUTER_API_KEY:-}" ]; then
             printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >>"$PATCH_FILE"
+          fi
+          if [ -n "${OPENROUTER_BASE_URL:-}" ]; then
+            printf 'OPENROUTER_BASE_URL=%s\n' "$OPENROUTER_BASE_URL" >>"$PATCH_FILE"
           fi
           if [ -n "${MOYSKLAD_TELEGRAM_BOT_TOKEN:-}" ]; then
             printf 'MOYSKLAD_TELEGRAM_BOT_TOKEN=%s\n' "$MOYSKLAD_TELEGRAM_BOT_TOKEN" >>"$PATCH_FILE"

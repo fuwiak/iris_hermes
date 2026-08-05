@@ -4764,8 +4764,12 @@ def validate_requested_model(
     """
     requested = (model_name or "").strip()
     normalized = normalize_provider(provider)
+    # Railway / self-hosted OpenRouter egress keeps provider=openrouter when
+    # OPENROUTER_BASE_URL points at the proxy (host ≠ openrouter.ai).
     if normalized == "openrouter" and base_url and "openrouter.ai" not in base_url:
-        normalized = "custom"
+        env_or_base = (os.getenv("OPENROUTER_BASE_URL") or "").strip().rstrip("/")
+        if not env_or_base or base_url.rstrip("/") != env_or_base:
+            normalized = "custom"
     requested_for_lookup = requested
     if normalized == "copilot":
         requested_for_lookup = normalize_copilot_model_id(

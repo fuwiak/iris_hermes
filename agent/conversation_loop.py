@@ -5139,6 +5139,12 @@ def run_conversation(
                             force=True,
                         )
                         agent._vprint(
+                            f"{agent.log_prefix}      • If the server IP is RU/datacenter: set "
+                            f"OPENROUTER_BASE_URL to a Railway egress proxy "
+                            f"(deploy/openrouter-egress/).",
+                            force=True,
+                        )
+                        agent._vprint(
                             f"{agent.log_prefix}      • Rotate/replace OPENROUTER_API_KEY at "
                             f"https://openrouter.ai/settings/keys",
                             force=True,

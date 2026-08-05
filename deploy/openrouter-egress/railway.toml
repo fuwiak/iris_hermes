@@ -1,0 +1,12 @@
+# Separate Railway service — do NOT reuse the main Hermes railway.toml.
+# Create service from this directory (Root Directory = deploy/openrouter-egress).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

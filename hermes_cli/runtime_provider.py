@@ -1235,9 +1235,14 @@ def _resolve_openrouter_runtime(
     # provider (issues #420, #560).
     _is_openrouter_url = base_url_host_matches(base_url, "openrouter.ai")
     # Also treat explicitly-configured OpenRouter mirrors/proxies as OpenRouter
-    # for key selection — if the user set OPENROUTER_BASE_URL or requested
-    # provider=openrouter explicitly, OPENROUTER_API_KEY should still be used.
-    _is_openrouter_context = _is_openrouter_url or (
+    # for key selection — if the user set OPENROUTER_BASE_URL (e.g. Railway
+    # egress outside RU) or requested provider=openrouter explicitly,
+    # OPENROUTER_API_KEY should still be used even when the host is not
+    # openrouter.ai.
+    _is_configured_openrouter_proxy = bool(env_openrouter_base_url) and (
+        base_url.rstrip("/") == env_openrouter_base_url.rstrip("/")
+    )
+    _is_openrouter_context = _is_openrouter_url or _is_configured_openrouter_proxy or (
         requested_norm == "openrouter"
         and (env_openrouter_base_url or base_url == env_openrouter_base_url)
         and base_url == (env_openrouter_base_url or "").rstrip("/")

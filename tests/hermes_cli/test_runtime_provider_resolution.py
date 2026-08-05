@@ -763,6 +763,27 @@ def test_explicit_openrouter_skips_openai_base_url(monkeypatch):
     assert resolved["api_key"] == "or-test-key"
 
 
+def test_openrouter_base_url_proxy_keeps_openrouter_key(monkeypatch):
+    """Selectel → Railway egress: OPENROUTER_BASE_URL is not openrouter.ai,
+    but OPENROUTER_API_KEY must still be selected."""
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openrouter")
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {
+        "provider": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+    })
+    proxy = "https://egress.example/t/secret/api/v1"
+    monkeypatch.setenv("OPENROUTER_BASE_URL", proxy)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-proxy-test")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
+
+    resolved = rp.resolve_runtime_provider(requested="openrouter")
+
+    assert resolved["provider"] == "openrouter"
+    assert resolved["base_url"] == proxy
+    assert resolved["api_key"] == "sk-or-v1-proxy-test"
+
+
 
 
 

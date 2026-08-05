@@ -17,9 +17,10 @@ PY="${INSTALL_DIR}/.venv/bin/python"
 cd "$HERMES_HOME"
 
 # Persist deploy secrets from process env into the volume .env.
-# Hermes load_hermes_dotenv uses override=True — a stale OPENROUTER_API_KEY on
-# the volume otherwise wins over compose env_file after key rotation (chat keeps
-# returning OpenRouter HTTP 403 "Access denied by security policy").
+# Hermes load_hermes_dotenv uses override=True — a stale OPENROUTER_API_KEY /
+# OPENROUTER_BASE_URL on the volume otherwise wins over compose env_file after
+# rotation (chat keeps returning OpenRouter HTTP 403 "Access denied by security
+# policy"). Also used for Railway egress OPENROUTER_BASE_URL on Selectel RU.
 if [ -x "$PY" ]; then
   "$PY" "$INSTALL_DIR/scripts/sync_moysklad_env_from_railway.py" \
     --prefer-process-env \

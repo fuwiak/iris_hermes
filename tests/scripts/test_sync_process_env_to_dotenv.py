@@ -52,3 +52,24 @@ def test_prefer_process_env_syncs_llm_without_moysklad(
     monkeypatch.delenv("MOYSKLAD_API_TOKEN", raising=False)
     assert mod.main(["--prefer-process-env", "--env-file", str(env)]) == 0
     assert "OPENROUTER_API_KEY=sk-or-v1-fresh" in env.read_text(encoding="utf-8")
+
+
+def test_prefer_process_env_syncs_openrouter_base_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Railway egress URL must win over a stale volume .env value."""
+    mod = _load_mod()
+    env = tmp_path / ".env"
+    env.write_text(
+        "OPENROUTER_BASE_URL=https://openrouter.ai/api/v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "OPENROUTER_BASE_URL",
+        "https://egress.example/t/secret/api/v1",
+    )
+    monkeypatch.delenv("MOYSKLAD_API_TOKEN", raising=False)
+    assert mod.main(["--prefer-process-env", "--env-file", str(env)]) == 0
+    text = env.read_text(encoding="utf-8")
+    assert "OPENROUTER_BASE_URL=https://egress.example/t/secret/api/v1" in text
+    assert "openrouter.ai" not in text

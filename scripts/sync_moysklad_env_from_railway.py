@@ -39,8 +39,10 @@ MOYSKLAD_KEYS = (
 )
 
 # LLM provider keys that must follow compose/deploy.env after rotation.
+# OPENROUTER_BASE_URL: Railway egress proxy (Selectel RU → non-RU IP).
 LLM_KEYS = (
     "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
     "DEEPSEEK_API_KEY",
 )
 
