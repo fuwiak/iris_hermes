@@ -38,6 +38,10 @@ Entrypoint (`docker/railway-entrypoint.sh`) on every boot:
   process env into `$HERMES_HOME/.env` (volume). Required because Hermes loads
   the volume `.env` with `override=True` — a stale OpenRouter key otherwise
   survives after you rotate `deploy.env`.
+- optional Telegram Business outreach keys:
+  `MOYSKLAD_TELEGRAM_BOT_TOKEN`, `MOYSKLAD_TELEGRAM_BOT_USERNAME`,
+  `MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (GitHub secrets
+  `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_*`, patched into `/root/deploy.env` on deploy).
 
 Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone does not enable the Hermes plugin.
 
@@ -71,6 +75,9 @@ Secrets:
 - `SELECTEL_IRIS_SSH_KEY`
 - `SELECTEL_IRIS_DEPLOY_ENV` (full `/root/deploy.env` body)
 - `SELECTEL_IRIS_OPENROUTER_API_KEY` (optional; patches OpenRouter key on each deploy)
+- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN` (optional; Business bot for Рассылки)
+- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME` (optional)
+- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (optional)
 
 Manual on VDS:
 

@@ -29,6 +29,10 @@ jobs:
           DEPLOY_ENV: ${{ secrets.SELECTEL_IRIS_DEPLOY_ENV }}
           # Optional: rotate OpenRouter without rewriting full DEPLOY_ENV body.
           OPENROUTER_API_KEY: ${{ secrets.SELECTEL_IRIS_OPENROUTER_API_KEY }}
+          # Telegram Business outreach for MoySklad Рассылки (optional patch).
+          MOYSKLAD_TELEGRAM_BOT_TOKEN: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN }}
+          MOYSKLAD_TELEGRAM_BOT_USERNAME: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME }}
+          MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID }}
         run: |
           set -euo pipefail
           test -n "${SELECTEL_HOST:-}"
@@ -39,7 +43,7 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$SELECTEL_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes)
+          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30)
 
           rsync -az --delete \
             --exclude '.git' \
@@ -47,7 +51,7 @@ jobs:
             --exclude '.venv' \
             --exclude 'venv' \
             --exclude 'graphify-out' \
-            -e "ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes" \
+            -e "ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30" \
             ./ "${SELECTEL_USER}@${SELECTEL_HOST}:/opt/iris_hermes/"
 
           if [ -n "${DEPLOY_ENV:-}" ]; then
@@ -55,19 +59,57 @@ jobs:
               "${SELECTEL_USER}@${SELECTEL_HOST}" 'cat > /root/deploy.env'
           fi
 
-          # Patch OpenRouter key into /root/deploy.env (volume synced on hermes boot).
+          # Patch rotating secrets into /root/deploy.env (volume synced on hermes boot).
+          PATCH_FILE=$(mktemp)
+          umask 077
+          : >"$PATCH_FILE"
           if [ -n "${OPENROUTER_API_KEY:-}" ]; then
-            printf '%s' "$OPENROUTER_API_KEY" | "${SSH[@]}" \
-              "${SELECTEL_USER}@${SELECTEL_HOST}" \
+            printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >>"$PATCH_FILE"
+          fi
+          if [ -n "${MOYSKLAD_TELEGRAM_BOT_TOKEN:-}" ]; then
+            printf 'MOYSKLAD_TELEGRAM_BOT_TOKEN=%s\n' "$MOYSKLAD_TELEGRAM_BOT_TOKEN" >>"$PATCH_FILE"
+          fi
+          if [ -n "${MOYSKLAD_TELEGRAM_BOT_USERNAME:-}" ]; then
+            printf 'MOYSKLAD_TELEGRAM_BOT_USERNAME=%s\n' "$MOYSKLAD_TELEGRAM_BOT_USERNAME" >>"$PATCH_FILE"
+          fi
+          if [ -n "${MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID:-}" ]; then
+            printf 'MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID=%s\n' "$MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID" >>"$PATCH_FILE"
+          fi
+          printf 'TELEGRAM_ENABLED=false\n' >>"$PATCH_FILE"
+          if [ -s "$PATCH_FILE" ]; then
+            scp -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30 \
+              "$PATCH_FILE" "${SELECTEL_USER}@${SELECTEL_HOST}:/tmp/iris_deploy_patch.env"
+            "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
               'set -euo pipefail
                test -f /root/deploy.env
+               test -f /tmp/iris_deploy_patch.env
                umask 077
-               cat > /tmp/iris_or_key
-               export OPENROUTER_API_KEY="$(cat /tmp/iris_or_key)"
-               rm -f /tmp/iris_or_key
+               set -a
+               # shellcheck disable=SC1091
+               . /tmp/iris_deploy_patch.env
+               set +a
+               rm -f /tmp/iris_deploy_patch.env
                python3 /opt/iris_hermes/scripts/sync_moysklad_env_from_railway.py \
-                 --prefer-process-env --env-file /root/deploy.env'
+                 --prefer-process-env --env-file /root/deploy.env
+               # Persist TELEGRAM_ENABLED=false even though sync script is MoySklad-keyed.
+               python3 -c "
+from pathlib import Path
+p = Path(\"/root/deploy.env\")
+lines = p.read_text(encoding=\"utf-8\").splitlines() if p.exists() else []
+out, seen = [], False
+for line in lines:
+    if line.startswith(\"TELEGRAM_ENABLED=\"):
+        out.append(\"TELEGRAM_ENABLED=false\"); seen = True
+    else:
+        out.append(line)
+if not seen:
+    out.append(\"TELEGRAM_ENABLED=false\")
+p.write_text(\"\\n\".join(out).rstrip() + \"\\n\", encoding=\"utf-8\")
+print(\"patched TELEGRAM_ENABLED=false\")
+"
+               '
           fi
+          rm -f "$PATCH_FILE"
 
           "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
             'bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh'
