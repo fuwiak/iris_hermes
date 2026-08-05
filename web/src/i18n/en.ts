@@ -97,6 +97,11 @@ export const en: Translations = {
     currentProfileOption: "this dashboard ({name})",
     managingProfileBanner:
       "Managing profile \u201c{name}\u201d \u2014 config, keys, skills, MCPs, model, and new chats apply to that profile.",
+    navMode: {
+      ariaLabel: "Menu mode: standard or pro",
+      standard: "standard",
+      pro: "pro",
+    },
   },
 
   status: {

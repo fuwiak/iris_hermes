@@ -61,12 +61,18 @@ import {
 import { Button } from "@nous-research/ui/ui/components/button";
 import { SelectionSwitcher } from "@nous-research/ui/ui/components/selection-switcher";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
+import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
+import {
+  STANDARD_NAV_PLUGIN_NAMES,
+  type NavMode,
+} from "@hermes/shared";
 import { cn } from "@/lib/utils";
 import { SidebarFooter } from "@/components/SidebarFooter";
 import { SidebarStatusStrip, gatewayLine } from "@/components/SidebarStatusStrip";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
+import { useNavMode } from "@/hooks/useNavMode";
 import { useSidebarStatus } from "@/hooks/useSidebarStatus";
 import { AuthWidget } from "@/components/AuthWidget";
 import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
@@ -318,6 +324,28 @@ function partitionSidebarNav(
   return { coreItems, pluginItems };
 }
 
+/** standard = Chat + MoySklad plugin tabs only; pro = full menu. Routes stay registered. */
+function applyNavModeFilter(
+  partitioned: { coreItems: NavItem[]; pluginItems: NavItem[] },
+  manifests: PluginManifest[],
+  mode: NavMode,
+): { coreItems: NavItem[]; pluginItems: NavItem[] } {
+  if (mode === "pro") return partitioned;
+
+  const moyskladPaths = new Set(
+    manifests
+      .filter((m) => STANDARD_NAV_PLUGIN_NAMES.has(m.name) && !m.tab.hidden)
+      .map((m) => m.tab.override ?? m.tab.path),
+  );
+
+  return {
+    coreItems: partitioned.coreItems.filter((item) => item.path === "/chat"),
+    pluginItems: partitioned.pluginItems.filter((item) =>
+      moyskladPaths.has(item.path),
+    ),
+  };
+}
+
 function buildRoutes(
   builtinRoutes: Record<string, ComponentType>,
   manifests: PluginManifest[],
@@ -408,6 +436,7 @@ export default function App() {
       return next;
     });
   }, []);
+  const [navMode, setNavMode] = useNavMode();
   const isMobile = useBelowBreakpoint(1024);
   const isDesktopCollapsed = collapsed && !isMobile;
   const tooltipWarmRef = useRef(0);
@@ -484,8 +513,13 @@ export default function App() {
   }, [showTokenAnalytics]);
 
   const sidebarNav = useMemo(
-    () => partitionSidebarNav(builtinNav, manifests),
-    [builtinNav, manifests],
+    () =>
+      applyNavModeFilter(
+        partitionSidebarNav(builtinNav, manifests),
+        manifests,
+        navMode,
+      ),
+    [builtinNav, manifests, navMode],
   );
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
@@ -724,11 +758,19 @@ export default function App() {
               )}
             </nav>
 
-            <SidebarSystemActions
+            {navMode === "pro" ? (
+              <SidebarSystemActions
+                collapsed={isDesktopCollapsed}
+                onNavigate={closeMobile}
+                status={sidebarStatus}
+                tooltipWarmRef={tooltipWarmRef}
+              />
+            ) : null}
+
+            <NavModeToggle
               collapsed={isDesktopCollapsed}
-              onNavigate={closeMobile}
-              status={sidebarStatus}
-              tooltipWarmRef={tooltipWarmRef}
+              mode={navMode}
+              onChange={setNavMode}
             />
 
             <div
@@ -885,6 +927,66 @@ export default function App() {
 function ProfileKeyedRoutes({ children }: { children: ReactNode }) {
   const { profile } = useProfileScope();
   return <div key={profile || "__own__"} className="contents">{children}</div>;
+}
+
+function NavModeToggle({
+  collapsed,
+  mode,
+  onChange,
+}: {
+  collapsed: boolean;
+  mode: NavMode;
+  onChange: (mode: NavMode) => void;
+}) {
+  const { t } = useI18n();
+  const labels = t.app.navMode ?? {
+    ariaLabel: "Menu mode: standard or pro",
+    standard: "standard",
+    pro: "pro",
+  };
+  const isPro = mode === "pro";
+
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center border-t border-current/20 px-3 py-2",
+        collapsed ? "lg:justify-center lg:px-1" : "justify-between gap-2",
+      )}
+    >
+      <label
+        className={cn(
+          "flex min-w-0 items-center gap-2",
+          collapsed && "lg:flex-col lg:gap-1",
+        )}
+      >
+        <span
+          className={cn(
+            "font-sans text-display text-[0.65rem] tracking-[0.12em] lowercase",
+            !isPro ? "text-midground" : "text-text-tertiary",
+            collapsed && "lg:hidden",
+          )}
+        >
+          {labels.standard}
+        </span>
+        <Switch
+          aria-label={labels.ariaLabel}
+          checked={isPro}
+          onCheckedChange={(checked) =>
+            onChange(checked ? "pro" : "standard")
+          }
+        />
+        <span
+          className={cn(
+            "font-sans text-display text-[0.65rem] tracking-[0.12em] lowercase",
+            isPro ? "text-midground" : "text-text-tertiary",
+            collapsed && "lg:hidden",
+          )}
+        >
+          {labels.pro}
+        </span>
+      </label>
+    </div>
+  );
 }
 
 function SidebarNavLink({

@@ -1,5 +1,9 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import {
+  STANDARD_DESKTOP_PRIMARY_NAV_IDS,
+  STANDARD_NAV_PLUGIN_PATHS
+} from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -9,6 +13,7 @@ import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { useAppControlTools } from '@/app/shell/titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
+import { Switch } from '@/components/ui/switch'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { KbdGroup } from '@/components/ui/kbd'
@@ -95,6 +100,7 @@ import {
   setCurrentCwd
 } from '@/store/session'
 import { $focusedStoredSessionId, $workingSessionIds, type SplitDir } from '@/store/session-states'
+import { $navMode, setNavMode } from '@/store/nav-mode'
 
 import {
   type AppView,
@@ -287,7 +293,15 @@ export function ChatSidebar({
         }))
     : []
 
-  const primaryNav = [...SIDEBAR_NAV, ...webAppControlNav]
+  const navMode = useStore($navMode)
+  const isProNav = navMode === 'pro'
+
+  const primaryNav = useMemo(() => {
+    const all = [...SIDEBAR_NAV, ...webAppControlNav]
+    if (isProNav) return all
+    // standard: Chat (new-session) only — hide Discover/Office/Kanban/Schedules + embed tools
+    return all.filter(item => STANDARD_DESKTOP_PRIMARY_NAV_IDS.has(item.id))
+  }, [isProNav, webAppControlNav])
 
   const navLabel = (item: SidebarNavItem) => {
     const labels: Record<string, string> = {
@@ -320,6 +334,11 @@ export function ChatSidebar({
           return []
         }
 
+        // standard: MoySklad Клиенты/Рассылки only — hide Plugins and other contribs
+        if (!isProNav && !STANDARD_NAV_PLUGIN_PATHS.has(data.path)) {
+          return []
+        }
+
         const codicon = data.codicon || 'plug'
 
         return [
@@ -331,7 +350,7 @@ export function ChatSidebar({
           }
         ]
       }),
-    [navContributions]
+    [isProNav, navContributions]
   )
 
   const panesFlipped = useStore($panesFlipped)
@@ -1252,6 +1271,33 @@ export function ChatSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+          <label className="flex min-w-0 flex-1 items-center gap-2">
+            <span
+              className={cn(
+                'text-[0.65rem] tracking-[0.08em] lowercase',
+                !isProNav ? 'text-foreground' : 'text-(--ui-text-tertiary)'
+              )}
+            >
+              {s.navMode.standard}
+            </span>
+            <Switch
+              aria-label={s.navMode.ariaLabel}
+              checked={isProNav}
+              onCheckedChange={checked => setNavMode(checked ? 'pro' : 'standard')}
+              size="xs"
+            />
+            <span
+              className={cn(
+                'text-[0.65rem] tracking-[0.08em] lowercase',
+                isProNav ? 'text-foreground' : 'text-(--ui-text-tertiary)'
+              )}
+            >
+              {s.navMode.pro}
+            </span>
+          </label>
+        </div>
 
         {showSessionSections && (
           <div className="shrink-0 px-2 pb-1 pt-1">

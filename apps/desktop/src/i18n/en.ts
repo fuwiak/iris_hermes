@@ -1856,6 +1856,11 @@ export const en: Translations = {
       schedules: 'Schedules',
       chats: 'Chats'
     },
+    navMode: {
+      ariaLabel: 'Menu mode: standard or pro',
+      standard: 'standard',
+      pro: 'pro'
+    },
     nav: {
       'new-session': 'New Chat',
       skills: 'Discover',

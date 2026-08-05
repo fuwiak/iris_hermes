@@ -100,6 +100,12 @@ export interface Translations {
     managingProfile?: string;
     currentProfileOption?: string;
     managingProfileBanner?: string;
+    /** Left-nav density: standard (MoySklad + Chat) vs full Hermes menu. */
+    navMode?: {
+      ariaLabel: string;
+      standard: string;
+      pro: string;
+    };
   };
 
   // ── Status page ──

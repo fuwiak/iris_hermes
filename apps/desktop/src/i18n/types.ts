@@ -1562,6 +1562,11 @@ export interface Translations {
       schedules: string
       chats: string
     }
+    navMode: {
+      ariaLabel: string
+      standard: string
+      pro: string
+    }
     nav: Record<string, string>
     searchAria: string
     searchPlaceholder: string

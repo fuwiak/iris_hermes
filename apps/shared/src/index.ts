@@ -66,3 +66,15 @@ export {
   type ResolveGatewayWsUrlDeps,
   type WebSocketAuthParam
 } from './websocket-url'
+export {
+  DEFAULT_NAV_MODE,
+  NAV_MODE_CHANGE_EVENT,
+  NAV_MODE_STORAGE_KEY,
+  type NavMode,
+  parseNavMode,
+  readNavMode,
+  STANDARD_DESKTOP_PRIMARY_NAV_IDS,
+  STANDARD_NAV_PLUGIN_NAMES,
+  STANDARD_NAV_PLUGIN_PATHS,
+  writeNavMode
+} from './nav-mode'

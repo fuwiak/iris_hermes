@@ -2050,6 +2050,11 @@ Leave blank to keep the ${mode} default.`,
         schedules: 'Расписания',
         chats: 'Чаты',
       },
+      navMode: {
+        ariaLabel: 'Режим меню: standard или pro',
+        standard: 'standard',
+        pro: 'pro'
+      },
       nav: {
         "new-session": 'Новый чат',
         skills: 'Обзор',
