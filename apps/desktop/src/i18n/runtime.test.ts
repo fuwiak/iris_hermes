@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fieldCopyForSchemaKey } from '@/app/settings/field-copy'
 
 import { TRANSLATIONS } from './catalog'
-import { setRuntimeI18nLocale, translateNow } from './runtime'
 import { en } from './en'
+import { setRuntimeI18nLocale, translateNow } from './runtime'
 
 describe('desktop i18n runtime translator', () => {
   beforeEach(() => {
@@ -31,9 +31,7 @@ describe('desktop i18n runtime translator', () => {
   it('falls back to English UI strings for Russian until a full catalog ships', () => {
     setRuntimeI18nLocale('ru')
     expect(translateNow('common.save')).toBe('Save')
-    expect(translateNow('cron.promptPlaceholder')).toBe(
-      TRANSLATIONS.en.cron.promptPlaceholder
-    )
+    expect(translateNow('cron.promptPlaceholder')).toBe(TRANSLATIONS.en.cron.promptPlaceholder)
     expect(translateNow('settings.appearance.title')).toBe('Appearance')
     expect(translateNow('settings.nav.providers')).toBe('Providers')
   })

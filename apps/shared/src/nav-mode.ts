@@ -52,6 +52,7 @@ export function writeNavMode(mode: NavMode): void {
   } catch {
     // private browsing / blocked storage
   }
+
   try {
     window.dispatchEvent(
       new CustomEvent(NAV_MODE_CHANGE_EVENT, { detail: mode }),

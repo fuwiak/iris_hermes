@@ -115,6 +115,7 @@ export function useAppControlTools(onOpenSettings?: () => void): readonly Titleb
       label: t.titlebar.openSettings,
       onSelect: () => {
         triggerHaptic('open')
+
         if (onOpenSettings) {
           onOpenSettings()
         } else {

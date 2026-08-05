@@ -1,7 +1,5 @@
 import './moysklad.css'
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type UIEvent } from 'react'
-
 import {
   type HermesPlugin,
   host,
@@ -10,6 +8,7 @@ import {
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution
 } from '@hermes/plugin-sdk'
+import { type FormEvent, type UIEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 interface ClientOrder {
   id?: string
@@ -65,6 +64,7 @@ function useMsRest(): Rest {
     if (!rest) {
       throw new Error('MoySklad plugin REST not bound')
     }
+
     return rest<T>(path, opts)
   }, [])
 }
@@ -193,10 +193,17 @@ interface DraftPrefill {
 function readDraftPrefill(): DraftPrefill | null {
   try {
     const raw = sessionStorage.getItem(DRAFT_PREFILL_KEY)
-    if (!raw) return null
+
+    if (!raw) {
+      return null
+    }
     sessionStorage.removeItem(DRAFT_PREFILL_KEY)
     const parsed = JSON.parse(raw) as DraftPrefill
-    if (!parsed?.clientId) return null
+
+    if (!parsed?.clientId) {
+      return null
+    }
+
     return parsed
   } catch {
     return null
@@ -213,12 +220,17 @@ function writeDraftPrefill(prefill: DraftPrefill) {
 
 function channelFromMessaging(primary?: string): string {
   const p = (primary || '').toLowerCase()
-  if (p.includes('whatsapp')) return 'whatsapp'
+
+  if (p.includes('whatsapp')) {
+    return 'whatsapp'
+  }
+
   return 'telegram'
 }
 
 function money(n: number | undefined) {
   const v = Number(n) || 0
+
   try {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
@@ -246,6 +258,7 @@ function FilterTabs({
     { id: 'marketplace', label: 'Маркетплейс', count: counts?.marketplace },
     { id: 'direct', label: 'Прямые', count: counts?.direct }
   ]
+
   return (
     <div className="ms-filter-tabs" role="tablist">
       {tabs.map(tab => (
@@ -266,7 +279,10 @@ function FilterTabs({
 }
 
 function TagPills({ items, className }: { items?: string[]; className?: string }) {
-  if (!items?.length) return null
+  if (!items?.length) {
+    return null
+  }
+
   return (
     <div className={className || 'ms-tag-row'}>
       {items.map(t => (
@@ -284,13 +300,15 @@ function FactsPanel({ facts, notes }: { facts: ClientFacts | null; notes?: strin
       <aside className="ms-facts-panel">
         <h3>Факты клиента</h3>
         <p className="ms-muted">
-          Выберите клиента из аудитории или откройте черновик из карточки — здесь появятся заказы,
-          чек и теги для сверки с AI-текстом.
+          Выберите клиента из аудитории или откройте черновик из карточки — здесь появятся заказы, чек и теги для сверки
+          с AI-текстом.
         </p>
       </aside>
     )
   }
+
   const last = facts.last_order
+
   return (
     <aside className="ms-facts-panel">
       <h3>Факты · {facts.name || 'клиент'}</h3>
@@ -350,15 +368,7 @@ function FactsPanel({ facts, notes }: { facts: ClientFacts | null; notes?: strin
   )
 }
 
-function ClientCardModal({
-  clientId,
-  onClose,
-  call
-}: {
-  clientId: string | null
-  onClose: () => void
-  call: Rest
-}) {
+function ClientCardModal({ clientId, onClose, call }: { clientId: string | null; onClose: () => void; call: Rest }) {
   const [detail, setDetail] = useState<ClientDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
@@ -367,7 +377,9 @@ function ClientCardModal({
   const [note, setNote] = useState('')
 
   useEffect(() => {
-    if (!clientId) return
+    if (!clientId) {
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError('')
@@ -376,20 +388,29 @@ function ClientCardModal({
     setNote('')
     void call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
       .then(payload => {
-        if (!cancelled) setDetail(payload)
+        if (!cancelled) {
+          setDetail(payload)
+        }
       })
       .catch(err => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       })
+
     return () => {
       cancelled = true
     }
   }, [call, clientId])
 
-  if (!clientId) return null
+  if (!clientId) {
+    return null
+  }
 
   const client = detail?.client || {}
   const stats = detail?.stats || {}
@@ -403,11 +424,12 @@ function ClientCardModal({
   const refreshAi = async () => {
     setAiLoading(true)
     setError('')
+
     try {
-      const payload = await call<{ ai?: ClientDetail['ai'] }>(
-        `/clients/${encodeURIComponent(clientId)}/ai`,
-        { method: 'POST' }
-      )
+      const payload = await call<{ ai?: ClientDetail['ai'] }>(`/clients/${encodeURIComponent(clientId)}/ai`, {
+        method: 'POST'
+      })
+
       setDetail(prev => (prev ? { ...prev, ai: payload.ai || prev.ai } : prev))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -420,7 +442,9 @@ function ClientCardModal({
     <div
       className="ms-modal-backdrop"
       onClick={e => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) {
+          onClose()
+        }
       }}
     >
       <div aria-modal="true" className="ms-modal ms-client-card" role="dialog">
@@ -480,9 +504,7 @@ function ClientCardModal({
                   <div className="ms-muted">ВИП</div>
                 </div>
                 <div>
-                  <div className="ms-stat-val">
-                    {stats.loyalty_points != null ? String(stats.loyalty_points) : '—'}
-                  </div>
+                  <div className="ms-stat-val">{stats.loyalty_points != null ? String(stats.loyalty_points) : '—'}</div>
                   <div className="ms-muted">Лояльность</div>
                 </div>
               </div>
@@ -490,13 +512,10 @@ function ClientCardModal({
                 <div className="ms-last-order">
                   <strong>Последний заказ</strong>
                   <div className="ms-muted">
-                    {(stats.last_order.date || '').slice(0, 16).replace('T', ' ')} ·{' '}
-                    {money(stats.last_order.sum)}
+                    {(stats.last_order.date || '').slice(0, 16).replace('T', ' ')} · {money(stats.last_order.sum)}
                     {stats.last_order.channel ? ` · ${stats.last_order.channel}` : ''}
                   </div>
-                  {stats.last_order.product_snippet ? (
-                    <div>{stats.last_order.product_snippet}</div>
-                  ) : null}
+                  {stats.last_order.product_snippet ? <div>{stats.last_order.product_snippet}</div> : null}
                 </div>
               ) : null}
             </section>
@@ -543,9 +562,7 @@ function ClientCardModal({
                 <button
                   className="ms-btn"
                   onClick={() =>
-                    setNote(
-                      `Напоминание: связаться с ${name} (~5 дней до повода). Чек ≈ ${money(stats.avg_check)}`
-                    )
+                    setNote(`Напоминание: связаться с ${name} (~5 дней до повода). Чек ≈ ${money(stats.avg_check)}`)
                   }
                   type="button"
                 >
@@ -580,12 +597,12 @@ function ClientCardModal({
                 <button
                   className="ms-btn ms-btn-primary"
                   onClick={() => {
-                    const sales =
-                      (client.sales_type || '').toLowerCase().includes('маркет')
-                        ? 'marketplace'
-                        : (client.sales_type || '').toLowerCase().includes('прям')
-                          ? 'direct'
-                          : 'all'
+                    const sales = (client.sales_type || '').toLowerCase().includes('маркет')
+                      ? 'marketplace'
+                      : (client.sales_type || '').toLowerCase().includes('прям')
+                        ? 'direct'
+                        : 'all'
+
                     writeDraftPrefill({
                       clientId,
                       channel: channelFromMessaging(msg.primary_channel || client.primary_channel),
@@ -614,14 +631,20 @@ const CLIENTS_PAGE_SIZE = 50
 function mergeClientPages(prev: ClientRow[], incoming: ClientRow[]): ClientRow[] {
   const seen = new Set<string>()
   const out: ClientRow[] = []
+
   for (const row of [...prev, ...incoming]) {
     const id = String(row.id || '').trim()
+
     if (id) {
-      if (seen.has(id)) continue
+      if (seen.has(id)) {
+        continue
+      }
       seen.add(id)
     }
+
     out.push(row)
   }
+
   return out
 }
 
@@ -646,9 +669,9 @@ function ClientsPage() {
   const [recalcLoading, setRecalcLoading] = useState(false)
   const [recalcGroups, setRecalcGroups] = useState('')
   const [recalcSource, setRecalcSource] = useState('')
-  const [recalcPreview, setRecalcPreview] = useState<{ changed?: number; total?: number } | null>(
-    null
-  )
+
+  const [recalcPreview, setRecalcPreview] = useState<{ changed?: number; total?: number } | null>(null)
+
   const [recalcError, setRecalcError] = useState('')
   const loadGen = useRef(0)
   const loadingMoreRef = useRef(false)
@@ -658,14 +681,18 @@ function ClientsPage() {
       const append = Boolean(opts?.append)
       const offset = append ? (opts?.offset ?? nextOffset) : 0
       const gen = append ? loadGen.current : ++loadGen.current
+
       if (append) {
-        if (loadingMoreRef.current || !hasMore) return
+        if (loadingMoreRef.current || !hasMore) {
+          return
+        }
         loadingMoreRef.current = true
         setLoadingMore(true)
       } else {
         setLoading(true)
         setError('')
       }
+
       try {
         const params = new URLSearchParams({
           sales_filter: salesFilter,
@@ -674,7 +701,11 @@ function ClientsPage() {
           limit: String(CLIENTS_PAGE_SIZE),
           offset: String(offset)
         })
-        if (opts?.refresh) params.set('refresh', 'true')
+
+        if (opts?.refresh) {
+          params.set('refresh', 'true')
+        }
+
         const data = await call<{
           clients?: ClientRow[]
           counts?: Counts
@@ -687,28 +718,34 @@ function ClientsPage() {
           synced_at_label?: string
           synced_at?: number
         }>(`/clients?${params}`)
-        if (gen !== loadGen.current) return
+
+        if (gen !== loadGen.current) {
+          return
+        }
         const page = data.clients || []
         setClients(prev => (append ? mergeClientPages(prev, page) : page))
         setCounts(data.counts || null)
         setMatched(data.matched_total || 0)
-        const computedNext =
-          data.next_offset != null ? data.next_offset : offset + page.length
+
+        const computedNext = data.next_offset != null ? data.next_offset : offset + page.length
+
         setNextOffset(computedNext)
-        setHasMore(
-          data.has_more != null
-            ? Boolean(data.has_more)
-            : computedNext < (data.matched_total || 0)
-        )
+        setHasMore(data.has_more != null ? Boolean(data.has_more) : computedNext < (data.matched_total || 0))
+
         if (!append) {
           setGroupOptions(data.group_options || [])
           setFromCache(Boolean(data.cached))
           setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
         }
       } catch (err) {
-        if (gen !== loadGen.current) return
+        if (gen !== loadGen.current) {
+          return
+        }
         setError(err instanceof Error ? err.message : String(err))
-        if (!append) setClients([])
+
+        if (!append) {
+          setClients([])
+        }
       } finally {
         if (append) {
           loadingMoreRef.current = false
@@ -728,8 +765,14 @@ function ClientsPage() {
   const onTableScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       const el = event.currentTarget
-      if (el.scrollHeight - el.scrollTop - el.clientHeight > 160) return
-      if (!hasMore || loading || loadingMoreRef.current) return
+
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 160) {
+        return
+      }
+
+      if (!hasMore || loading || loadingMoreRef.current) {
+        return
+      }
       void load({ append: true, offset: nextOffset })
     },
     [hasMore, load, loading, nextOffset]
@@ -793,12 +836,7 @@ function ClientsPage() {
       </div>
       <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
       <div className="ms-search">
-        <input
-          onChange={e => setQ(e.target.value)}
-          placeholder="Поиск по имени / телефону…"
-          type="search"
-          value={q}
-        />
+        <input onChange={e => setQ(e.target.value)} placeholder="Поиск по имени / телефону…" type="search" value={q} />
       </div>
       {groupOptions.length > 0 ? (
         <div className="ms-chips">
@@ -821,11 +859,7 @@ function ClientsPage() {
       </p>
       {recalcOpen ? (
         <div className="ms-modal-backdrop" onClick={() => setRecalcOpen(false)}>
-          <div
-            className="ms-modal"
-            onClick={e => e.stopPropagation()}
-            role="dialog"
-          >
+          <div className="ms-modal" onClick={e => e.stopPropagation()} role="dialog">
             <div className="ms-card-head">
               <h2 className="ms-section-title">Пересчитать группы</h2>
               <button className="ms-btn" onClick={() => setRecalcOpen(false)} type="button">
@@ -833,8 +867,7 @@ function ClientsPage() {
               </button>
             </div>
             <p className="ms-muted">
-              Отредактируйте названия (по одному на строку), затем подтвердите. Источник:{' '}
-              {recalcSource || '…'}
+              Отредактируйте названия (по одному на строку), затем подтвердите. Источник: {recalcSource || '…'}
             </p>
             {recalcError ? <div className="ms-error">{recalcError}</div> : null}
             <textarea
@@ -856,10 +889,12 @@ function ClientsPage() {
                 onClick={() => {
                   setRecalcLoading(true)
                   setRecalcError('')
+
                   const groups = recalcGroups
                     .split('\n')
                     .map(s => s.trim())
                     .filter(Boolean)
+
                   void call<{ changed?: number; total?: number }>('/groups/recalculate/apply', {
                     method: 'POST',
                     body: {
@@ -885,10 +920,12 @@ function ClientsPage() {
                 onClick={() => {
                   setRecalcLoading(true)
                   setRecalcError('')
+
                   const groups = recalcGroups
                     .split('\n')
                     .map(s => s.trim())
                     .filter(Boolean)
+
                   void call('/groups/recalculate/apply', {
                     method: 'POST',
                     body: {
@@ -932,6 +969,7 @@ function ClientsPage() {
                 <tr key={row.id || row.name}>
                   {CLIENT_COLUMNS.map(col => {
                     const value = col.render(row)
+
                     if (col.key === 'name') {
                       return (
                         <td key={col.key}>
@@ -946,6 +984,7 @@ function ClientsPage() {
                         </td>
                       )
                     }
+
                     return <td key={col.key}>{value || '—'}</td>
                   })}
                 </tr>
@@ -1006,13 +1045,21 @@ function CampaignsPage() {
 
   useEffect(() => {
     const prefill = readDraftPrefill()
+
     if (prefill) {
       setSelectedClientId(prefill.clientId)
-      if (prefill.channel) setChannel(prefill.channel)
-      if (prefill.salesFilter) setSalesFilter(prefill.salesFilter)
+
+      if (prefill.channel) {
+        setChannel(prefill.channel)
+      }
+
+      if (prefill.salesFilter) {
+        setSalesFilter(prefill.salesFilter)
+      }
       setMode('auto')
       setTitle('Черновик · клиент')
     }
+
     setPrefillReady(true)
   }, [])
 
@@ -1028,7 +1075,9 @@ function CampaignsPage() {
 
   const persistSellerSettings = useCallback(
     (name: string, factsText: string) => {
-      if (sellerSaveTimer.current) clearTimeout(sellerSaveTimer.current)
+      if (sellerSaveTimer.current) {
+        clearTimeout(sellerSaveTimer.current)
+      }
       sellerSaveTimer.current = setTimeout(() => {
         void call('/campaigns/seller-settings', {
           method: 'PUT',
@@ -1041,6 +1090,7 @@ function CampaignsPage() {
 
   useEffect(() => {
     const t = setTimeout(() => setAudienceQDebounced(audienceQ.trim()), 280)
+
     return () => clearTimeout(t)
   }, [audienceQ])
 
@@ -1053,37 +1103,48 @@ function CampaignsPage() {
         limit: String(opts?.limit ?? 40),
         offset: String(opts?.offset ?? 0)
       })
-      if (channelKind) params.set('channel_kind', channelKind)
-      if (requirePhone) params.set('require_phone', 'true')
-      if (requireTelegram) params.set('require_telegram', 'true')
-      if (vipOnly) params.set('vip_only', 'true')
-      if (birthdaySoon) params.set('birthday_soon', 'true')
+
+      if (channelKind) {
+        params.set('channel_kind', channelKind)
+      }
+
+      if (requirePhone) {
+        params.set('require_phone', 'true')
+      }
+
+      if (requireTelegram) {
+        params.set('require_telegram', 'true')
+      }
+
+      if (vipOnly) {
+        params.set('vip_only', 'true')
+      }
+
+      if (birthdaySoon) {
+        params.set('birthday_soon', 'true')
+      }
+
       return params
     },
-    [
-      audienceQDebounced,
-      birthdaySoon,
-      channelKind,
-      group,
-      requirePhone,
-      requireTelegram,
-      salesFilter,
-      vipOnly
-    ]
+    [audienceQDebounced, birthdaySoon, channelKind, group, requirePhone, requireTelegram, salesFilter, vipOnly]
   )
 
   const loadAudience = useCallback(
     async (opts?: { append?: boolean }) => {
       const append = Boolean(opts?.append)
       const offset = append ? audienceNextOffset : 0
+
       if (append) {
-        if (audienceLoadMoreRef.current || !audienceHasMore) return
+        if (audienceLoadMoreRef.current || !audienceHasMore) {
+          return
+        }
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
       } else {
         setLoading(true)
         setError('')
       }
+
       try {
         const page = await call<{
           counts?: Counts
@@ -1093,19 +1154,24 @@ function CampaignsPage() {
           has_more?: boolean
           next_offset?: number
         }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`)
+
         const rows = page.clients || []
         setAudiencePreview(prev => (append ? mergeClientPages(prev, rows) : rows))
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
-        if (!append) setGroupOptions(page.group_options || [])
+
+        if (!append) {
+          setGroupOptions(page.group_options || [])
+        }
         const next = page.next_offset != null ? page.next_offset : offset + rows.length
         setAudienceNextOffset(next)
-        setAudienceHasMore(
-          page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0)
-        )
+        setAudienceHasMore(page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0))
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
-        if (!append) setAudiencePreview([])
+
+        if (!append) {
+          setAudiencePreview([])
+        }
       } finally {
         if (append) {
           audienceLoadMoreRef.current = false
@@ -1120,27 +1186,20 @@ function CampaignsPage() {
 
   const refresh = useCallback(async () => {
     setError('')
+
     try {
       const list = await call<{ campaigns?: Campaign[] }>('/campaigns')
       setCampaigns(list.campaigns || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
+
     await loadAudience()
   }, [call, loadAudience])
 
   useEffect(() => {
     void loadAudience()
-  }, [
-    salesFilter,
-    group,
-    channelKind,
-    requirePhone,
-    requireTelegram,
-    vipOnly,
-    birthdaySoon,
-    audienceQDebounced
-  ]) // eslint-disable-line react-hooks/exhaustive-deps -- reload audience on filter/search
+  }, [salesFilter, group, channelKind, requirePhone, requireTelegram, vipOnly, birthdaySoon, audienceQDebounced])
 
   useEffect(() => {
     void call<{ campaigns?: Campaign[] }>('/campaigns')
@@ -1152,6 +1211,7 @@ function CampaignsPage() {
     async (clientId: string, nextChannel = channel, runAi = mode === 'auto') => {
       setGenerating(true)
       setError('')
+
       try {
         if (runAi) {
           const data = await call<{
@@ -1170,18 +1230,25 @@ function CampaignsPage() {
               seller_facts: sellerFacts
             }
           })
+
           setFacts(data.facts || null)
           setGroundingNotes(data.grounding_notes || '')
           setGenSource(data.source || '')
-          if (data.message) setOffer(data.message)
-          if (data.client_name) setTitle(`Черновик · ${data.client_name}`)
+
+          if (data.message) {
+            setOffer(data.message)
+          }
+
+          if (data.client_name) {
+            setTitle(`Черновик · ${data.client_name}`)
+          }
+
           if (data.facts?.ai_source || data.source) {
-            setFacts(prev =>
-              prev ? { ...prev, ai_source: data.source || prev.ai_source } : prev
-            )
+            setFacts(prev => (prev ? { ...prev, ai_source: data.source || prev.ai_source } : prev))
           }
         } else {
           const detail = await call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
+
           const panel: ClientFacts = {
             client_id: detail.client?.id,
             name: detail.client?.name,
@@ -1205,12 +1272,19 @@ function CampaignsPage() {
             occasion_intent: detail.ai?.occasion_intent,
             ai_source: detail.ai?.source
           }
+
           setFacts(panel)
           setGroundingNotes('')
           setGenSource('')
-          if (detail.client?.name) setTitle(`Черновик · ${detail.client.name}`)
+
+          if (detail.client?.name) {
+            setTitle(`Черновик · ${detail.client.name}`)
+          }
           const preferred = channelFromMessaging(detail.messaging?.primary_channel)
-          if (!selectedClientId) setChannel(preferred)
+
+          if (!selectedClientId) {
+            setChannel(preferred)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -1222,35 +1296,48 @@ function CampaignsPage() {
   )
 
   useEffect(() => {
-    if (!prefillReady || !selectedClientId) return
+    if (!prefillReady || !selectedClientId) {
+      return
+    }
     void loadOutreach(selectedClientId, channel, true)
     // only on client pick / prefill — not on every channel keystroke
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillReady, selectedClientId])
 
   const selectAudienceClient = (row: ClientRow) => {
-    if (!row.id) return
+    if (!row.id) {
+      return
+    }
     setSelectedClientId(row.id)
     setMode('auto')
-    if (row.phone && !row.tg_nick) setChannel('whatsapp')
-    else setChannel('telegram')
+
+    if (row.phone && !row.tg_nick) {
+      setChannel('whatsapp')
+    } else {
+      setChannel('telegram')
+    }
   }
 
   const regenerateAi = async () => {
     if (!selectedClientId) {
       setError('Сначала выберите клиента из аудитории или карточки.')
+
       return
     }
+
     await loadOutreach(selectedClientId, channel, true)
   }
 
   const humanizeDraft = async () => {
     if (!offer.trim()) {
       setError('Сначала введите или сгенерируйте текст сообщения.')
+
       return
     }
+
     setRewriting(true)
     setError('')
+
     try {
       const data = await call<{
         message?: string
@@ -1267,10 +1354,22 @@ function CampaignsPage() {
           seller_facts: sellerFacts
         }
       })
-      if (data.message) setOffer(data.message)
-      if (data.grounding_notes) setGroundingNotes(data.grounding_notes)
-      if (data.source) setGenSource(data.source)
-      if (data.facts) setFacts(data.facts)
+
+      if (data.message) {
+        setOffer(data.message)
+      }
+
+      if (data.grounding_notes) {
+        setGroundingNotes(data.grounding_notes)
+      }
+
+      if (data.source) {
+        setGenSource(data.source)
+      }
+
+      if (data.facts) {
+        setFacts(data.facts)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1282,6 +1381,7 @@ function CampaignsPage() {
     event.preventDefault()
     setSaving(true)
     setError('')
+
     try {
       await call('/campaigns', {
         method: 'POST',
@@ -1304,7 +1404,10 @@ function CampaignsPage() {
           seller_facts: sellerFacts
         }
       })
-      if (!selectedClientId) setOffer('')
+
+      if (!selectedClientId) {
+        setOffer('')
+      }
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -1315,6 +1418,7 @@ function CampaignsPage() {
 
   const syncDeliveryChannel = (kind: string) => {
     setChannelKind(kind)
+
     if (kind === 'telegram') {
       setChannel('telegram')
       setRequireTelegram(true)
@@ -1438,15 +1542,9 @@ function CampaignsPage() {
         ) : null}
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
-            <p className="ms-muted">
-              Клиенты аудитории (поиск / подгрузка — доступны все {audience}):
-            </p>
+            <p className="ms-muted">Клиенты аудитории (поиск / подгрузка — доступны все {audience}):</p>
             {audiencePreview.length ? (
-              <button
-                className="ms-link-btn"
-                onClick={() => setContactsOpen(open => !open)}
-                type="button"
-              >
+              <button className="ms-link-btn" onClick={() => setContactsOpen(open => !open)} type="button">
                 {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
               </button>
             ) : null}
@@ -1466,8 +1564,14 @@ function CampaignsPage() {
                   className="ms-audience-list"
                   onScroll={event => {
                     const el = event.currentTarget
-                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
-                    if (!audienceHasMore || audienceLoadMoreRef.current) return
+
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {
+                      return
+                    }
+
+                    if (!audienceHasMore || audienceLoadMoreRef.current) {
+                      return
+                    }
                     void loadAudience({ append: true })
                   }}
                 >
@@ -1484,9 +1588,7 @@ function CampaignsPage() {
                       </button>
                     ))}
                   </div>
-                  {audienceLoadingMore ? (
-                    <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
-                  ) : null}
+                  {audienceLoadingMore ? <p className="ms-muted ms-load-more">Подгружаем клиентов…</p> : null}
                   {audienceHasMore ? (
                     <button
                       className="ms-btn"
@@ -1511,10 +1613,7 @@ function CampaignsPage() {
           ) : (
             <p className="ms-muted">
               Контакты скрыты
-              {audiencePreview.length
-                ? ` · загружено ${audiencePreview.length} из ${audience}`
-                : ''}
-              .
+              {audiencePreview.length ? ` · загружено ${audiencePreview.length} из ${audience}` : ''}.
             </p>
           )}
         </div>
@@ -1559,7 +1658,7 @@ function CampaignsPage() {
                 setSellerName(v)
                 persistSellerSettings(v, sellerFacts)
               }}
-              placeholder='Напр. «Анна из Iris» или название магазина'
+              placeholder="Напр. «Анна из Iris» или название магазина"
               value={sellerName}
             />
           </label>
@@ -1663,9 +1762,7 @@ function CampaignsPage() {
                 {c.personalize_pending ? ' · персонализация в очереди' : ''}
               </div>
               {c.offer ? <p className="ms-campaign-offer">{c.offer}</p> : null}
-              {c.recommendation ? (
-                <p className="ms-muted">Контекст: {c.recommendation}</p>
-              ) : null}
+              {c.recommendation ? <p className="ms-muted">Контекст: {c.recommendation}</p> : null}
             </li>
           ))}
         </ul>

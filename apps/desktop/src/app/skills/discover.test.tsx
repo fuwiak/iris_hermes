@@ -127,9 +127,7 @@ describe('Discover — English catalog matches the reference screenshot', () => 
   })
 
   it('keeps the four tab labels verbatim and in order', () => {
-    expect([d.tabSkills, d.tabMcps, d.tabAgents, d.tabWorkflows]).toEqual(
-      DISCOVER_SCREEN.tabs.map(tab => tab.label)
-    )
+    expect([d.tabSkills, d.tabMcps, d.tabAgents, d.tabWorkflows]).toEqual(DISCOVER_SCREEN.tabs.map(tab => tab.label))
   })
 
   it('keeps a search placeholder per tab', () => {
@@ -187,9 +185,11 @@ describe('Discover — rendered screen matches the reference screenshot', () => 
 
     expect(within(card).getByRole('heading', { level: 3 }).textContent).toBe(expected.name)
     expect(within(card).getByText(expected.description)).toBeTruthy()
+
     for (const tag of expected.tags) {
       expect(within(card).getByText(tag)).toBeTruthy()
     }
+
     expect(within(card).getByRole('button', { name: DISCOVER_SCREEN.install })).toBeTruthy()
   })
 

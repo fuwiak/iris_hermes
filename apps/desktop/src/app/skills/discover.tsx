@@ -54,10 +54,13 @@ function tabIcon(tab: DiscoverTab): string {
   switch (tab) {
     case 'mcps':
       return 'plug'
+
     case 'agents':
       return 'robot'
+
     case 'workflows':
       return 'type-hierarchy-sub'
+
     default:
       return 'extensions'
   }
@@ -255,6 +258,7 @@ function McpDiscoverCards({ query }: { query: string }) {
   })
 
   const q = normalize(query)
+
   const entries = useMemo(() => {
     const all = catalogQuery.data?.entries ?? []
 
