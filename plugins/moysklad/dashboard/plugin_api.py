@@ -113,6 +113,11 @@ from plugins.moysklad.outreach import (
     sanity_check_outreach_message,
     suggest_historical_bouquet_message,
 )
+from plugins.moysklad.outreach_cache import (
+    cache_backend_name as outreach_cache_backend_name,
+    get_outreach_draft,
+    set_outreach_draft,
+)
 
 log = logging.getLogger(__name__)
 
@@ -272,6 +277,19 @@ class SellerSettingsBody(BaseModel):
     telegram_business_connection_id: str | None = None
 
 
+class OutreachDraftCacheBody(BaseModel):
+    client_id: str = ""
+    channel: str = "telegram"
+    message: str = ""
+    grounding_notes: str = ""
+    source: str = ""
+    status: str = ""
+    client_name: str = ""
+    title: str = ""
+    facts: dict[str, Any] = Field(default_factory=dict)
+    sanity: dict[str, Any] | None = None
+
+
 def _resolve_seller(body_name: str = "", body_facts: str = "") -> tuple[str, str]:
     """Body fields win; empty body falls back to persisted shop settings."""
     stored = get_seller_settings()
@@ -305,6 +323,48 @@ def _ndjson_response(events: Iterator[dict[str, Any]]) -> Any:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _persist_outreach_draft_from_done(
+    ev: dict[str, Any],
+    *,
+    client_id: str,
+    channel: str,
+    status: str = "",
+) -> dict[str, Any]:
+    """Write Redis/file draft cache when a stream finishes with a message."""
+    cid = (client_id or "").strip() or str(ev.get("client_id") or "").strip()
+    msg = str(ev.get("message") or "").strip()
+    if not cid or not msg:
+        return ev
+    try:
+        set_outreach_draft(
+            cid,
+            channel or str(ev.get("channel") or "telegram"),
+            {
+                "message": msg,
+                "grounding_notes": ev.get("grounding_notes") or "",
+                "source": ev.get("source") or "",
+                "status": status
+                or "AI сгенерировал креативный текст — можно править вручную.",
+                "client_name": ev.get("client_name") or "",
+                "title": (
+                    f"Черновик · {ev['client_name']}"
+                    if ev.get("client_name")
+                    else ""
+                ),
+                "facts": ev.get("facts") if isinstance(ev.get("facts"), dict) else {},
+                "sanity": ev.get("sanity") if isinstance(ev.get("sanity"), dict) else None,
+            },
+        )
+        return {
+            **ev,
+            "cached": True,
+            "cache_backend": outreach_cache_backend_name(),
+        }
+    except Exception as exc:  # pragma: no cover
+        log.warning("moysklad outreach draft cache write failed: %s", exc)
+        return {**ev, "cached": False, "cache_error": str(exc)}
 
 
 def _client() -> MoySkladClient:
@@ -971,6 +1031,58 @@ def put_campaign_seller_settings(body: SellerSettingsBody) -> dict[str, Any]:
     return {"ok": True, **saved, "telegram": telegram_send_status()}
 
 
+@router.get("/campaigns/draft-cache")
+def get_campaign_draft_cache(
+    client_id: str = Query(""),
+    channel: str = Query("telegram"),
+) -> dict[str, Any]:
+    """Load durable outreach draft (Redis → file) for a client + channel."""
+    cid = (client_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="client_id required")
+    draft = get_outreach_draft(cid, channel)
+    return {
+        "ok": True,
+        "hit": draft is not None,
+        "draft": draft,
+        "cache_backend": outreach_cache_backend_name(),
+    }
+
+
+@router.put("/campaigns/draft-cache")
+def put_campaign_draft_cache(body: OutreachDraftCacheBody) -> dict[str, Any]:
+    """Persist outreach draft to Redis/file (manual save / button results)."""
+    cid = (body.client_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="client_id required")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message required")
+    try:
+        envelope = set_outreach_draft(
+            cid,
+            body.channel,
+            {
+                "message": message,
+                "grounding_notes": body.grounding_notes,
+                "source": body.source,
+                "status": body.status,
+                "client_name": body.client_name,
+                "title": body.title,
+                "facts": body.facts or {},
+                "sanity": body.sanity,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "draft": envelope.get("draft"),
+        "saved_at": envelope.get("saved_at"),
+        "cache_backend": outreach_cache_backend_name(),
+    }
+
+
 @router.post("/campaigns/generate")
 def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
     """AI (or heuristic) outreach text + facts panel for one client.
@@ -1038,13 +1150,21 @@ def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
 
         def _events() -> Iterator[dict[str, Any]]:
             try:
-                yield from iter_generate_outreach_for_row_events(
+                for ev in iter_generate_outreach_for_row_events(
                     row,
                     channel=body.channel,
                     refresh_ai=bool(body.refresh_ai),
                     seller_name=seller_name,
                     seller_facts=seller_facts,
-                )
+                ):
+                    if ev.get("type") == "done":
+                        ev = _persist_outreach_draft_from_done(
+                            ev,
+                            client_id=client_id,
+                            channel=body.channel,
+                            status="AI сгенерировал креативный текст — можно править вручную.",
+                        )
+                    yield ev
             except Exception as exc:  # pragma: no cover
                 log.exception("moysklad /campaigns/generate/stream failed mid-stream")
                 yield {"type": "error", "error": str(exc)}
@@ -1130,13 +1250,21 @@ def post_campaign_rewrite_stream(body: OutreachRewriteBody) -> Any:
 
         def _events() -> Iterator[dict[str, Any]]:
             try:
-                yield from iter_rewrite_outreach_events(
+                for ev in iter_rewrite_outreach_events(
                     draft,
                     channel=body.channel,
                     seller_name=seller_name,
                     seller_facts=seller_facts,
                     detail=detail,
-                )
+                ):
+                    if ev.get("type") == "done":
+                        ev = _persist_outreach_draft_from_done(
+                            ev,
+                            client_id=client_id,
+                            channel=body.channel,
+                            status="Текст обновлён: продающе и по-человечески.",
+                        )
+                    yield ev
             except Exception as exc:  # pragma: no cover
                 log.exception("moysklad /campaigns/rewrite/stream failed mid-stream")
                 yield {"type": "error", "error": str(exc)}
@@ -1230,6 +1358,12 @@ def post_campaign_suggest_bouquet_stream(body: OutreachGenerateBody) -> Any:
                             "client_id": client_id_out,
                             "client_name": client_name_out,
                         }
+                        ev = _persist_outreach_draft_from_done(
+                            ev,
+                            client_id=str(client_id_out or client_id),
+                            channel=body.channel,
+                            status="Предложен конкретный букет из истории заказов.",
+                        )
                     yield ev
             except Exception as exc:  # pragma: no cover
                 log.exception("moysklad /campaigns/suggest-bouquet/stream mid-stream")
@@ -1316,13 +1450,22 @@ def post_campaign_paraphrase_stream(body: OutreachRewriteBody) -> Any:
 
         def _events() -> Iterator[dict[str, Any]]:
             try:
-                yield from iter_paraphrase_outreach_events(
+                for ev in iter_paraphrase_outreach_events(
                     draft,
                     channel=body.channel,
                     seller_name=seller_name,
                     seller_facts=seller_facts,
                     detail=detail,
-                )
+                ):
+                    if ev.get("type") == "done":
+                        # Always freshly generated; still persist so next select loads it.
+                        ev = _persist_outreach_draft_from_done(
+                            ev,
+                            client_id=client_id,
+                            channel=body.channel,
+                            status="Полная парафраза: формулировки сменены, факты те же.",
+                        )
+                    yield ev
             except Exception as exc:  # pragma: no cover
                 log.exception("moysklad /campaigns/paraphrase/stream mid-stream")
                 yield {"type": "error", "error": str(exc)}

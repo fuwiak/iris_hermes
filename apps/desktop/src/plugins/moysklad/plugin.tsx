@@ -329,108 +329,13 @@ interface SanityResult {
 }
 
 const DRAFT_PREFILL_KEY = 'moysklad.draftPrefill'
-const OUTREACH_DRAFT_CACHE_KEY = 'moysklad.outreachDraftCache.v1'
-const OUTREACH_DRAFT_CACHE_MAX = 40
-/** Status shown after successful generate (and restored from cache). */
+/** Status shown after successful generate (and restored from Redis/file cache). */
 const AI_GENERATED_STATUS = 'AI сгенерировал креативный текст — можно править вручную.'
 
 interface DraftPrefill {
   clientId: string
   channel?: string
   salesFilter?: string
-}
-
-interface OutreachDraftCacheEntry {
-  message: string
-  groundingNotes: string
-  genSource: string
-  facts: ClientFacts | null
-  sanity: SanityResult | null
-  clientName: string
-  title: string
-  channel: string
-  status: string
-  savedAt: number
-}
-
-function outreachDraftCacheKey(clientId: string, channel: string): string {
-  return `${clientId}::${(channel || 'telegram').trim().toLowerCase()}`
-}
-
-function readOutreachDraftCache(): Record<string, OutreachDraftCacheEntry> {
-  try {
-    const raw = sessionStorage.getItem(OUTREACH_DRAFT_CACHE_KEY)
-
-    if (!raw) {
-      return {}
-    }
-
-    const parsed = JSON.parse(raw) as Record<string, OutreachDraftCacheEntry>
-
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeOutreachDraftCache(map: Record<string, OutreachDraftCacheEntry>): void {
-  const pruned = Object.entries(map)
-    .filter(([, v]) => v && typeof v.message === 'string' && v.message.trim())
-    .sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0))
-    .slice(0, OUTREACH_DRAFT_CACHE_MAX)
-
-  try {
-    sessionStorage.setItem(OUTREACH_DRAFT_CACHE_KEY, JSON.stringify(Object.fromEntries(pruned)))
-  } catch {
-    // quota / private mode — in-memory still works via caller ref
-  }
-}
-
-function getCachedOutreachDraft(
-  clientId: string,
-  channel: string,
-  memory?: Record<string, OutreachDraftCacheEntry>
-): null | OutreachDraftCacheEntry {
-  const key = outreachDraftCacheKey(clientId, channel)
-  const hit = (memory && memory[key]) || readOutreachDraftCache()[key]
-
-  if (!hit || typeof hit.message !== 'string' || !hit.message.trim()) {
-    return null
-  }
-
-  return hit
-}
-
-function putCachedOutreachDraft(
-  clientId: string,
-  channel: string,
-  entry: Omit<OutreachDraftCacheEntry, 'savedAt' | 'channel'> & { status?: string },
-  memory?: Record<string, OutreachDraftCacheEntry>
-): void {
-  if (!clientId || !(entry.message || '').trim()) {
-    return
-  }
-
-  const key = outreachDraftCacheKey(clientId, channel)
-  const next: OutreachDraftCacheEntry = {
-    message: entry.message,
-    groundingNotes: entry.groundingNotes || '',
-    genSource: entry.genSource || '',
-    facts: entry.facts ?? null,
-    sanity: entry.sanity ?? null,
-    clientName: entry.clientName || '',
-    title: entry.title || (entry.clientName ? `Черновик · ${entry.clientName}` : ''),
-    channel: (channel || 'telegram').trim().toLowerCase(),
-    status: entry.status || AI_GENERATED_STATUS,
-    savedAt: Date.now()
-  }
-  const all = { ...(memory || readOutreachDraftCache()), [key]: next }
-
-  if (memory) {
-    memory[key] = next
-  }
-
-  writeOutreachDraftCache(all)
 }
 
 function readDraftPrefill(): DraftPrefill | null {
@@ -1545,7 +1450,6 @@ function CampaignsPage() {
   const groundingNotesRef = useRef('')
   const genSourceRef = useRef('')
   const sanityRef = useRef<SanityResult | null>(null)
-  const draftCacheMemoryRef = useRef<Record<string, OutreachDraftCacheEntry>>(readOutreachDraftCache())
 
   useEffect(() => {
     offerRef.current = offer
@@ -1591,62 +1495,40 @@ function CampaignsPage() {
     setActionStatus(status)
   }, [])
 
-  const persistOutreachDraftCache = useCallback(
-    (
-      clientId: string,
-      nextChannel: string,
-      patch?: Partial<OutreachDraftCacheEntry>
-    ) => {
-      const message = (patch?.message ?? offerRef.current).trim()
-
-      if (!clientId || !message) {
-        return
-      }
-
-      putCachedOutreachDraft(
-        clientId,
-        nextChannel,
-        {
-          message,
-          groundingNotes: patch?.groundingNotes ?? groundingNotesRef.current,
-          genSource: patch?.genSource ?? genSourceRef.current,
-          facts: patch?.facts !== undefined ? patch.facts : factsRef.current,
-          sanity: patch?.sanity !== undefined ? patch.sanity : sanityRef.current,
-          clientName: patch?.clientName ?? selectedClientNameRef.current,
-          title: patch?.title ?? titleRef.current,
-          status: patch?.status ?? AI_GENERATED_STATUS
-        },
-        draftCacheMemoryRef.current
-      )
-    },
-    []
-  )
-
-  const restoreOutreachDraftCache = useCallback(
-    (entry: OutreachDraftCacheEntry) => {
-      const name = (entry.clientName || selectedClientNameRef.current || '').trim()
+  const restoreServerDraft = useCallback(
+    (draft: {
+      message?: string
+      grounding_notes?: string
+      source?: string
+      status?: string
+      client_name?: string
+      title?: string
+      facts?: ClientFacts | null
+      sanity?: SanityResult | null
+    }) => {
+      const name = (draft.client_name || selectedClientNameRef.current || '').trim()
 
       if (name) {
         setSelectedClientName(name)
         selectedClientNameRef.current = name
-        setTitle(entry.title || `Черновик · ${name}`)
-      } else if (entry.title) {
-        setTitle(entry.title)
+        setTitle(draft.title || `Черновик · ${name}`)
+      } else if (draft.title) {
+        setTitle(draft.title)
       }
 
-      setFacts(entry.facts || null)
-      setSanity(entry.sanity || null)
-      setGroundingNotes(entry.groundingNotes || '')
-      setGenSource(entry.genSource || 'cache')
+      setFacts(draft.facts || null)
+      setSanity(draft.sanity || null)
+      setGroundingNotes(draft.grounding_notes || '')
+      setGenSource(draft.source || 'redis-cache')
       setError('')
-      applyOfferText(entry.message, entry.status || AI_GENERATED_STATUS)
+      applyOfferText(draft.message || '', draft.status || AI_GENERATED_STATUS)
     },
     [applyOfferText]
   )
 
-  /** Sync title + clear draft fields immediately; generation catches up later. */
+  /** Sync title + clear draft fields immediately (no auto LLM). */
   const applyClientSelectionUi = useCallback(
-    (clientId: string, clientName: string, clearOfferForAi: boolean) => {
+    (clientId: string, clientName: string) => {
       const name = (clientName || '').trim()
       setSelectedClientId(clientId)
       setSelectedClientName(name)
@@ -1657,12 +1539,7 @@ function CampaignsPage() {
       setGroundingNotes('')
       setGenSource('')
       setError('')
-
-      if (clearOfferForAi) {
-        applyOfferText('', 'Генерируем креативный текст…')
-      } else {
-        applyOfferText('', '')
-      }
+      applyOfferText('', 'Загружаем кэш…')
     },
     [applyOfferText]
   )
@@ -1829,35 +1706,75 @@ function CampaignsPage() {
       .catch(() => undefined)
   }, [call])
 
-  const loadOutreach = useCallback(
-    async (
-      clientId: string,
-      nextChannel = channel,
-      runAi = mode === 'auto',
-      opts?: { force?: boolean }
-    ) => {
-      const force = Boolean(opts?.force)
+  const loadCachedDraft = useCallback(
+    async (clientId: string, nextChannel = channel) => {
+      outreachAbortRef.current?.abort()
+      outreachGenRef.current += 1
+      const gen = outreachGenRef.current
+      const isCurrent = () => gen === outreachGenRef.current
 
-      // Serve cached creative draft for already-visited contacts (instant).
-      if (runAi && !force) {
-        const hit = getCachedOutreachDraft(
-          clientId,
-          nextChannel,
-          draftCacheMemoryRef.current
-        )
+      setGenerating(false)
+      setError('')
+      setActionStatus('Загружаем кэш…')
 
-        if (hit) {
-          outreachAbortRef.current?.abort()
-          outreachGenRef.current += 1
-          restoreOutreachDraftCache(hit)
-          setGenerating(false)
+      try {
+        const q = new URLSearchParams({
+          client_id: clientId,
+          channel: nextChannel || 'telegram'
+        })
+        const data = await call<{
+          hit?: boolean
+          draft?: {
+            message?: string
+            grounding_notes?: string
+            source?: string
+            status?: string
+            client_name?: string
+            title?: string
+            facts?: ClientFacts | null
+            sanity?: SanityResult | null
+          } | null
+          cache_backend?: string
+        }>(`/campaigns/draft-cache?${q}`)
+
+        if (!isCurrent()) {
+          return
+        }
+
+        if (data.hit && data.draft?.message?.trim()) {
+          restoreServerDraft({
+            ...data.draft,
+            client_name: selectedClientNameRef.current || data.draft.client_name,
+            title:
+              selectedClientNameRef.current
+                ? `Черновик · ${selectedClientNameRef.current}`
+                : data.draft.title,
+            source: data.draft.source || data.cache_backend || 'redis-cache'
+          })
 
           return
         }
-      }
 
-      // Cancel in-flight generate for the previous client so stale deltas
-      // cannot overwrite the newly selected title/draft.
+        applyOfferText(
+          '',
+          'Нет кэша — нажмите «Сгенерировать AI» / «Букет из истории» / другое.'
+        )
+        setGenSource('')
+      } catch (err) {
+        if (!isCurrent()) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        applyOfferText('', 'Кэш недоступен — можно сгенерировать кнопкой.')
+      }
+    },
+    [applyOfferText, call, channel, restoreServerDraft]
+  )
+
+  /** Force LLM generate (Сгенерировать AI). Result is saved to Redis on the server. */
+  const loadOutreach = useCallback(
+    async (clientId: string, nextChannel = channel) => {
       outreachAbortRef.current?.abort()
       const ac = new AbortController()
       outreachAbortRef.current = ac
@@ -1867,176 +1784,126 @@ function CampaignsPage() {
       setGenerating(true)
       setError('')
 
-      // Title + clear already applied in selectAudienceClient; keep title in
-      // sync if regenerate / prefill path skipped that helper.
       const knownName = selectedClientNameRef.current.trim()
 
       if (knownName) {
         setTitle(`Черновик · ${knownName}`)
       }
 
-      if (runAi) {
-        if (offerRef.current.trim()) {
-          applyOfferText('', 'Генерируем креативный текст…')
-        } else {
-          setActionStatus('Генерируем креативный текст…')
-        }
-
-        setSanity(null)
-        setGroundingNotes('')
-        setGenSource('')
-      } else {
-        setActionStatus('')
-      }
+      applyOfferText('', 'Генерируем креативный текст…')
+      setSanity(null)
+      setGroundingNotes('')
+      setGenSource('')
 
       try {
-        if (runAi) {
-          let streamed = ''
+        let streamed = ''
 
-          await callStream('/campaigns/generate/stream', {
-            method: 'POST',
-            timeoutMs: OUTREACH_AI_TIMEOUT_MS,
-            signal: ac.signal,
-            body: {
-              client_id: clientId,
-              channel: nextChannel,
-              refresh_ai: true,
-              seller_name: sellerName,
-              seller_facts: sellerFacts
-            },
-            onEvent: raw => {
-              if (!isCurrent()) {
-                return
+        await callStream('/campaigns/generate/stream', {
+          method: 'POST',
+          timeoutMs: OUTREACH_AI_TIMEOUT_MS,
+          signal: ac.signal,
+          body: {
+            client_id: clientId,
+            channel: nextChannel,
+            refresh_ai: true,
+            seller_name: sellerName,
+            seller_facts: sellerFacts
+          },
+          onEvent: raw => {
+            if (!isCurrent()) {
+              return
+            }
+
+            if (!raw || typeof raw !== 'object') {
+              return
+            }
+
+            const ev = raw as Record<string, unknown>
+            const type = String(ev.type || '')
+
+            if (type === 'status' && typeof ev.text === 'string') {
+              setActionStatus(ev.text)
+            } else if (type === 'delta' && typeof ev.text === 'string') {
+              streamed += ev.text
+              applyOfferText(streamed, 'Генерируем… (поток)')
+            } else if (type === 'replace' && typeof ev.text === 'string') {
+              streamed = ev.text
+              applyOfferText(streamed, 'Текст обновлён')
+            } else if (type === 'error') {
+              const err = String(ev.error || 'stream error')
+              setError(
+                /403|security policy|access denied/i.test(err)
+                  ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${err}`
+                  : `LLM: ${err}`
+              )
+            } else if (type === 'done') {
+              const nextFacts =
+                ev.facts && typeof ev.facts === 'object' ? (ev.facts as ClientFacts) : null
+              const nextSanity =
+                ev.sanity && typeof ev.sanity === 'object'
+                  ? (ev.sanity as SanityResult)
+                  : null
+              const nextNotes =
+                typeof ev.grounding_notes === 'string' ? ev.grounding_notes : ''
+              const nextSource = typeof ev.source === 'string' ? ev.source : ''
+
+              if (nextFacts) {
+                setFacts(nextFacts)
               }
 
-              if (!raw || typeof raw !== 'object') {
-                return
+              if (nextNotes) {
+                setGroundingNotes(nextNotes)
               }
 
-              const ev = raw as Record<string, unknown>
-              const type = String(ev.type || '')
+              if (nextSource) {
+                setGenSource(nextSource)
+              }
 
-              if (type === 'status' && typeof ev.text === 'string') {
-                setActionStatus(ev.text)
-              } else if (type === 'delta' && typeof ev.text === 'string') {
-                streamed += ev.text
-                applyOfferText(streamed, 'Генерируем… (поток)')
-              } else if (type === 'replace' && typeof ev.text === 'string') {
-                streamed = ev.text
-                applyOfferText(streamed, 'Текст обновлён')
-              } else if (type === 'error') {
-                const err = String(ev.error || 'stream error')
+              if (nextSanity) {
+                setSanity(nextSanity)
+              }
+
+              const msg = pickOutreachMessage(ev) || streamed
+              const status = nextSanity?.auto_revised
+                ? 'AI сгенерировал текст (sanity поправил формулировку).'
+                : AI_GENERATED_STATUS
+
+              if (msg) {
+                streamed = msg
+                applyOfferText(msg, status)
+              } else {
+                setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
+                setActionStatus('')
+              }
+
+              if (typeof ev.error === 'string' && ev.error) {
                 setError(
-                  /403|security policy|access denied/i.test(err)
-                    ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${err}`
-                    : `LLM: ${err}`
+                  /403|security policy|access denied/i.test(ev.error)
+                    ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
+                    : `LLM: ${ev.error}`
                 )
-              } else if (type === 'done') {
-                const nextFacts =
-                  ev.facts && typeof ev.facts === 'object' ? (ev.facts as ClientFacts) : null
-                const nextSanity =
-                  ev.sanity && typeof ev.sanity === 'object'
-                    ? (ev.sanity as SanityResult)
-                    : null
-                const nextNotes =
-                  typeof ev.grounding_notes === 'string' ? ev.grounding_notes : ''
-                const nextSource = typeof ev.source === 'string' ? ev.source : ''
+              }
 
-                if (nextFacts) {
-                  setFacts(nextFacts)
-                }
+              const remoteName =
+                typeof ev.client_name === 'string' ? ev.client_name.trim() : ''
+              const localName = selectedClientNameRef.current.trim()
 
-                if (nextNotes) {
-                  setGroundingNotes(nextNotes)
-                }
+              if (remoteName && !localName) {
+                setSelectedClientName(remoteName)
+                selectedClientNameRef.current = remoteName
+                setTitle(`Черновик · ${remoteName}`)
+              } else if (localName) {
+                setTitle(`Черновик · ${localName}`)
+              } else if (remoteName) {
+                setTitle(`Черновик · ${remoteName}`)
+              }
 
-                if (nextSource) {
-                  setGenSource(nextSource)
-                }
-
-                if (nextSanity) {
-                  setSanity(nextSanity)
-                }
-
-                const msg = pickOutreachMessage(ev) || streamed
-                const status = nextSanity?.auto_revised
-                  ? 'AI сгенерировал текст (sanity поправил формулировку).'
-                  : AI_GENERATED_STATUS
-
-                if (msg) {
-                  streamed = msg
-                  applyOfferText(msg, status)
-                } else {
-                  setError('Сервер не вернул текст сообщения. Попробуйте ещё раз.')
-                  setActionStatus('')
-                }
-
-                if (typeof ev.error === 'string' && ev.error) {
-                  setError(
-                    /403|security policy|access denied/i.test(ev.error)
-                      ? `LLM недоступен (OpenRouter 403). Проверьте ключ. ${ev.error}`
-                      : `LLM: ${ev.error}`
-                  )
-                }
-
-                // Prefer already-synced local name; only fill title if still empty/generic.
-                const remoteName =
-                  typeof ev.client_name === 'string' ? ev.client_name.trim() : ''
-                const localName = selectedClientNameRef.current.trim()
-                const resolvedName = localName || remoteName
-
-                if (remoteName && !localName) {
-                  setSelectedClientName(remoteName)
-                  selectedClientNameRef.current = remoteName
-                  setTitle(`Черновик · ${remoteName}`)
-                } else if (localName) {
-                  setTitle(`Черновик · ${localName}`)
-                } else if (remoteName) {
-                  setTitle(`Черновик · ${remoteName}`)
-                }
-
-                if (msg) {
-                  persistOutreachDraftCache(clientId, nextChannel, {
-                    message: msg,
-                    groundingNotes: nextNotes,
-                    genSource: nextSource || 'llm',
-                    facts: nextFacts,
-                    sanity: nextSanity,
-                    clientName: resolvedName,
-                    title: resolvedName ? `Черновик · ${resolvedName}` : titleRef.current,
-                    status
-                  })
-                }
+              if (ev.cached) {
+                setGenSource(prev => prev || 'redis-cache')
               }
             }
-          })
-        } else {
-          const detail = await call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
-
-          if (!isCurrent()) {
-            return
           }
-
-          setFacts(factsFromDetail(detail))
-          setGroundingNotes('')
-          setGenSource('')
-          setSanity(null)
-          setActionStatus('')
-
-          const detailName = detail.client?.name?.trim() || ''
-
-          if (detailName) {
-            setSelectedClientName(detailName)
-            selectedClientNameRef.current = detailName
-            setTitle(`Черновик · ${detailName}`)
-          }
-
-          const preferred = channelFromMessaging(detail.messaging?.primary_channel)
-
-          if (!selectedClientId) {
-            setChannel(preferred)
-          }
-        }
+        })
       } catch (err) {
         if (!isCurrent()) {
           return
@@ -2054,61 +1921,30 @@ function CampaignsPage() {
         }
       }
     },
-    [
-      applyOfferText,
-      call,
-      callStream,
-      channel,
-      mode,
-      persistOutreachDraftCache,
-      restoreOutreachDraftCache,
-      selectedClientId,
-      sellerFacts,
-      sellerName
-    ]
+    [applyOfferText, callStream, channel, sellerFacts, sellerName]
   )
 
   useEffect(() => {
-    if (!prefillReady || !selectedClientId) {return}
-    void loadOutreach(selectedClientId, channel, true)
-    // only on client pick / prefill — not on every channel keystroke
+    if (!prefillReady || !selectedClientId) {
+      return
+    }
+
+    // Default: load durable Redis/file cache — never auto-LLM on select.
+    void loadCachedDraft(selectedClientId, channel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillReady, selectedClientId])
 
   const selectAudienceClient = (row: ClientRow) => {
-    if (!row.id) {return}
-
-    // Persist current contact draft before switching away.
-    const prevId = selectedClientIdRef.current
-
-    if (prevId && offerRef.current.trim()) {
-      persistOutreachDraftCache(prevId, channelRef.current)
+    if (!row.id) {
+      return
     }
 
-    const nextChannel =
-      row.phone && !row.tg_nick ? 'whatsapp' : 'telegram'
+    const nextChannel = row.phone && !row.tg_nick ? 'whatsapp' : 'telegram'
     setMode('auto')
     setChannel(nextChannel)
-
-    const hit = getCachedOutreachDraft(row.id, nextChannel, draftCacheMemoryRef.current)
-
-    if (hit) {
-      // Instant restore — no «Генерируем…» wait for known contacts.
-      outreachAbortRef.current?.abort()
-      outreachGenRef.current += 1
-      setSelectedClientId(row.id)
-      setSelectedClientName((row.name || hit.clientName || '').trim())
-      selectedClientNameRef.current = (row.name || hit.clientName || '').trim()
-      restoreOutreachDraftCache({
-        ...hit,
-        clientName: row.name || hit.clientName,
-        title: row.name ? `Черновик · ${row.name}` : hit.title
-      })
-      setGenerating(false)
-    } else {
-      // 1) Title + fields sync immediately  2) generate runs in parallel after.
-      applyClientSelectionUi(row.id, row.name || '', true)
-    }
+    outreachAbortRef.current?.abort()
+    outreachGenRef.current += 1
+    applyClientSelectionUi(row.id, row.name || '')
   }
 
   const regenerateAi = async () => {
@@ -2118,8 +1954,7 @@ function CampaignsPage() {
       return
     }
 
-    // Force bypass cache — fresh creative pass.
-    await loadOutreach(selectedClientId, channel, true, { force: true })
+    await loadOutreach(selectedClientId, channel)
   }
 
   const humanizeDraft = async () => {
@@ -2177,16 +2012,6 @@ function CampaignsPage() {
                 ? 'Переписали тон (текст почти тот же — правки лёгкие).'
                 : 'Текст обновлён: продающе и по-человечески.'
             )
-
-            if (selectedClientId && msg.trim()) {
-              persistOutreachDraftCache(selectedClientId, channel, {
-                message: msg,
-                status:
-                  msg.trim() === draft
-                    ? 'Переписали тон (текст почти тот же — правки лёгкие).'
-                    : 'Текст обновлён: продающе и по-человечески.'
-              })
-            }
 
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
@@ -2277,13 +2102,6 @@ function CampaignsPage() {
                 : 'Не удалось предложить букет — проверьте историю.'
             )
 
-            if (selectedClientId && msg.trim()) {
-              persistOutreachDraftCache(selectedClientId, channel, {
-                message: msg,
-                status: 'Предложен конкретный букет из истории заказов.'
-              })
-            }
-
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
             }
@@ -2373,13 +2191,6 @@ function CampaignsPage() {
                 ? 'Парафраза почти совпала с исходником — попробуйте ещё раз.'
                 : 'Полная парафраза: формулировки сменены, факты те же.'
             )
-
-            if (selectedClientId && msg.trim() && !same) {
-              persistOutreachDraftCache(selectedClientId, channel, {
-                message: msg,
-                status: 'Полная парафраза: формулировки сменены, факты те же.'
-              })
-            }
 
             if (typeof ev.grounding_notes === 'string' && ev.grounding_notes) {
               setGroundingNotes(ev.grounding_notes)
@@ -2724,12 +2535,6 @@ function CampaignsPage() {
               <button
                 className="ms-link-btn"
                 onClick={() => {
-                  const prevId = selectedClientIdRef.current
-
-                  if (prevId && offerRef.current.trim()) {
-                    persistOutreachDraftCache(prevId, channelRef.current)
-                  }
-
                   outreachAbortRef.current?.abort()
                   outreachGenRef.current += 1
                   setSelectedClientId(null)
@@ -3109,7 +2914,9 @@ function CampaignsPage() {
           </div>
           {genSource ? (
             <p className="ms-muted">
-              Источник текста: {genSource === 'cache' ? 'кэш (уже выбранный контакт)' : genSource}
+              Источник текста: {genSource === 'redis-cache' || genSource === 'redis+file' || genSource === 'file'
+                ? `кэш (${genSource})`
+                : genSource}
             </p>
           ) : null}
         </form>
