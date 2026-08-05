@@ -1,0 +1,138 @@
+name: Diagnose OpenRouter egress (Selectel)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Probe key direct vs Railway egress
+        env:
+          SELECTEL_HOST: ${{ secrets.SELECTEL_IRIS_HOST }}
+          SELECTEL_USER: ${{ secrets.SELECTEL_IRIS_USER }}
+          SELECTEL_SSH_KEY: ${{ secrets.SELECTEL_IRIS_SSH_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.SELECTEL_IRIS_OPENROUTER_API_KEY }}
+          OPENROUTER_BASE_URL: ${{ secrets.SELECTEL_IRIS_OPENROUTER_BASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${SELECTEL_HOST:-}"
+          test -n "${SELECTEL_USER:-}"
+          test -n "${SELECTEL_SSH_KEY:-}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SELECTEL_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SELECTEL_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30)
+
+          echo "## Secrets present"
+          echo "OPENROUTER_API_KEY set: $([ -n "${OPENROUTER_API_KEY:-}" ] && echo yes || echo NO)"
+          echo "OPENROUTER_BASE_URL set: $([ -n "${OPENROUTER_BASE_URL:-}" ] && echo yes || echo NO)"
+          if [ -n "${OPENROUTER_BASE_URL:-}" ]; then
+            echo "OPENROUTER_BASE_URL host: $(python3 - <<'PY'
+import os
+from urllib.parse import urlparse
+u=os.environ.get("OPENROUTER_BASE_URL","")
+p=urlparse(u)
+print(p.scheme + "://" + p.netloc + ("/t/***" if "/t/" in u else "") + "/api/v1")
+PY
+)"
+          fi
+
+          echo
+          echo "## On VDS: env files (names only + base_url host)"
+          "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo "--- /root/deploy.env ---"
+          if [ -f /root/deploy.env ]; then
+            grep -E '^(OPENROUTER_API_KEY|OPENROUTER_BASE_URL)=' /root/deploy.env \
+              | sed -E 's/^(OPENROUTER_API_KEY)=.*/\1=<set len='$(grep -E '^OPENROUTER_API_KEY=' /root/deploy.env | cut -d= -f2- | wc -c)'>/; s#^(OPENROUTER_BASE_URL)=https?://[^/]+#\1=https://HOST#; s#/t/[^/]+/#/t/***/#'
+          else
+            echo "MISSING /root/deploy.env"
+          fi
+          echo "--- volume /opt/data/.env ---"
+          if [ -f /opt/data/.env ]; then
+            grep -E '^(OPENROUTER_API_KEY|OPENROUTER_BASE_URL)=' /opt/data/.env \
+              | sed -E 's/^(OPENROUTER_API_KEY)=.*/\1=<set>/; s#^(OPENROUTER_BASE_URL)=https?://[^/]+#\1=https://HOST#; s#/t/[^/]+/#/t/***/#'
+          else
+            echo "MISSING /opt/data/.env"
+          fi
+          echo "--- hermes container ---"
+          docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml ps hermes || true
+          docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml exec -T hermes \
+            sh -c 'echo KEY=${#OPENROUTER_API_KEY}; echo BASE=$OPENROUTER_BASE_URL' 2>/dev/null \
+            | sed -E 's#https?://[^/]+#https://HOST#; s#/t/[^/]+/#/t/***/#' || echo "exec failed"
+          REMOTE
+
+          echo
+          echo "## Live API probes (from VDS)"
+          # Pass key+base via env to remote without printing them
+          "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
+            "OPENROUTER_API_KEY=$(printf %q "$OPENROUTER_API_KEY") OPENROUTER_BASE_URL=$(printf %q "${OPENROUTER_BASE_URL:-}") bash -s" <<'REMOTE'
+          set -euo pipefail
+          KEY="${OPENROUTER_API_KEY:-}"
+          BASE="${OPENROUTER_BASE_URL:-}"
+          if [ -z "$KEY" ]; then echo "NO KEY"; exit 1; fi
+
+          echo "### A) Direct openrouter.ai/api/v1/models"
+          CODE=$(curl -sS -o /tmp/or_direct.json -w '%{http_code}' \
+            -H "Authorization: Bearer $KEY" \
+            https://openrouter.ai/api/v1/models || true)
+          echo "HTTP $CODE"
+          python3 - <<'PY'
+          import json
+          try:
+            d=json.load(open("/tmp/or_direct.json"))
+          except Exception as e:
+            print("body_parse_error", e); raise SystemExit
+          if isinstance(d.get("data"), list):
+            print("ok models:", len(d["data"]))
+          else:
+            print("body:", str(d)[:300])
+          PY
+
+          echo "### B) Direct chat/completions (tiny)"
+          CODE=$(curl -sS -o /tmp/or_direct_chat.json -w '%{http_code}' \
+            -H "Authorization: Bearer $KEY" \
+            -H "Content-Type: application/json" \
+            https://openrouter.ai/api/v1/chat/completions \
+            -d '{"model":"deepseek/deepseek-v4-flash-0731","messages":[{"role":"user","content":"ping"}],"max_tokens":4}' || true)
+          echo "HTTP $CODE"
+          python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/or_direct_chat.json"))
+          print(str(d)[:400])
+          PY
+
+          if [ -n "$BASE" ]; then
+            echo "### C) Via OPENROUTER_BASE_URL /models"
+            CODE=$(curl -sS -o /tmp/or_proxy.json -w '%{http_code}' \
+              -H "Authorization: Bearer $KEY" \
+              "$BASE/models" || true)
+            echo "HTTP $CODE"
+            python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/or_proxy.json"))
+          if isinstance(d.get("data"), list):
+            print("ok models:", len(d["data"]))
+          else:
+            print("body:", str(d)[:300])
+          PY
+
+            echo "### D) Via OPENROUTER_BASE_URL chat/completions"
+            CODE=$(curl -sS -o /tmp/or_proxy_chat.json -w '%{http_code}' \
+              -H "Authorization: Bearer $KEY" \
+              -H "Content-Type: application/json" \
+              "$BASE/chat/completions" \
+              -d '{"model":"deepseek/deepseek-v4-flash-0731","messages":[{"role":"user","content":"ping"}],"max_tokens":4}' || true)
+            echo "HTTP $CODE"
+            python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/or_proxy_chat.json"))
+          print(str(d)[:400])
+          PY
+          else
+            echo "### C/D skipped — OPENROUTER_BASE_URL empty in Actions secret"
+          fi
+          REMOTE
