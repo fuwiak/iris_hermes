@@ -34,13 +34,26 @@ Entrypoint (`docker/railway-entrypoint.sh`) on every boot:
 - sets `dashboard.theme` / `display.skin` to **iris** when missing or `mono`/`default`
 - ensures `plugins.enabled` includes **moysklad** (unless explicitly disabled)
 - seeds chat model **`deepseek/deepseek-v4-flash-0731`** + `agent.reasoning_effort: medium` when unset (UI: Deepseek V4 Flash 0731 · Med)
-- syncs `MOYSKLAD_API_TOKEN` from process env into `$HERMES_HOME/.env`
+- syncs `MOYSKLAD_*` and `OPENROUTER_API_KEY` / `DEEPSEEK_API_KEY` from
+  process env into `$HERMES_HOME/.env` (volume). Required because Hermes loads
+  the volume `.env` with `override=True` — a stale OpenRouter key otherwise
+  survives after you rotate `deploy.env`.
 
 Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone does not enable the Hermes plugin.
 
 ### OpenRouter `Access denied by security policy` (HTTP 403)
 
-This is **OpenRouter’s API** rejecting the key/account — not Hermes dashboard auth, CSRF, Caddy, or Cloudflare. Logs show `provider=openrouter` / `base_url=https://openrouter.ai/api/v1`. Fix: replace `OPENROUTER_API_KEY` at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), or switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`).
+This is **OpenRouter’s API** rejecting the key/account — not Hermes dashboard auth, CSRF, Caddy, or Cloudflare. Logs show `provider=openrouter` / `base_url=https://openrouter.ai/api/v1`.
+
+Fix (pick one):
+
+1. Set GitHub secret `SELECTEL_IRIS_OPENROUTER_API_KEY` to the new key and push
+   (deploy patches `/root/deploy.env`; entrypoint syncs into the volume).
+2. Or edit `/root/deploy.env` on the VDS, then
+   `docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml up -d --force-recreate hermes`.
+3. Or switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`).
+
+Updating only a local laptop `.env` does **not** fix production.
 
 ## Deploy
 
@@ -56,6 +69,7 @@ Secrets:
 - `SELECTEL_IRIS_USER`
 - `SELECTEL_IRIS_SSH_KEY`
 - `SELECTEL_IRIS_DEPLOY_ENV` (full `/root/deploy.env` body)
+- `SELECTEL_IRIS_OPENROUTER_API_KEY` (optional; patches OpenRouter key on each deploy)
 
 Manual on VDS:
 

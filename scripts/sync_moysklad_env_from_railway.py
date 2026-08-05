@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Upsert MoySklad secrets into HERMES_HOME/.env from Railway CLI.
+"""Upsert deploy secrets into HERMES_HOME/.env from Railway CLI or process env.
 
 Usage:
   scripts/sync_moysklad_env_from_railway.py
   scripts/sync_moysklad_env_from_railway.py --env-file ~/.hermes/.env
+  scripts/sync_moysklad_env_from_railway.py --prefer-process-env
 
-Never prints secret values. Requires `railway` CLI linked to the project.
+Never prints secret values.
+
+Why this exists for OpenRouter: Hermes ``load_hermes_dotenv`` loads
+``$HERMES_HOME/.env`` with ``override=True``, so a stale volume key wins over
+compose ``env_file`` after key rotation — chat then keeps returning OpenRouter
+HTTP 403 ``Access denied by security policy``. Boot sync copies process-env
+keys into the volume file so deploy.env updates take effect.
 """
 
 from __future__ import annotations
@@ -19,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-KEYS = (
+MOYSKLAD_KEYS = (
     "MOYSKLAD_API_TOKEN",
     "MOYSKLAD_API_URL",
     "MOYSKLAD_AUTO_SYNC",
@@ -27,6 +34,15 @@ KEYS = (
     "MOYSKLAD_SYNC_LIMIT",
     "MOYSKLAD_SYNC_ORDERS_LIMIT",
 )
+
+# LLM provider keys that must follow compose/deploy.env after rotation.
+LLM_KEYS = (
+    "OPENROUTER_API_KEY",
+    "DEEPSEEK_API_KEY",
+)
+
+# Back-compat alias for importers / older call sites.
+KEYS = MOYSKLAD_KEYS
 
 
 def _fetch_from_railway() -> dict[str, str]:
@@ -51,7 +67,7 @@ def _fetch_from_railway() -> dict[str, str]:
     if not isinstance(data, dict):
         raise SystemExit("unexpected railway JSON shape (expected object)")
     out: dict[str, str] = {}
-    for key in KEYS:
+    for key in MOYSKLAD_KEYS:
         raw = data.get(key)
         if raw is None:
             continue
@@ -66,17 +82,26 @@ def _fetch_from_railway() -> dict[str, str]:
     return out
 
 
-def _fetch_from_process_env() -> dict[str, str]:
+def _fetch_keys_from_process_env(keys: tuple[str, ...]) -> dict[str, str]:
     out: dict[str, str] = {}
-    for key in KEYS:
+    for key in keys:
         value = (os.environ.get(key) or "").strip()
         if value:
             out[key] = value
     return out
 
 
+def _fetch_from_process_env() -> dict[str, str]:
+    """MoySklad + LLM keys present in the process environment."""
+    out = _fetch_keys_from_process_env(MOYSKLAD_KEYS)
+    out.update(_fetch_keys_from_process_env(LLM_KEYS))
+    return out
+
+
 def upsert_env_file(path: Path, mapping: dict[str, str]) -> tuple[int, int]:
     """Rewrite KEY=value lines in place. Returns (updated, added)."""
+    if not mapping:
+        return 0, 0
     path.parent.mkdir(parents=True, exist_ok=True)
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     lines = text.splitlines()
@@ -95,7 +120,7 @@ def upsert_env_file(path: Path, mapping: dict[str, str]) -> tuple[int, int]:
     if missing:
         if out and out[-1].strip():
             out.append("")
-        out.append("# MoySklad Remap 1.2 (synced from Railway / process env)")
+        out.append("# Synced from process env / Railway (deploy secrets)")
         for key in missing:
             out.append(f"{key}={mapping[key]}")
             added += 1
@@ -124,21 +149,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--prefer-process-env",
         action="store_true",
-        help="Prefer already-exported env vars (Railway container) over CLI",
+        help="Prefer already-exported env vars (container / compose) over CLI",
     )
     args = parser.parse_args(argv)
 
-    mapping = _fetch_from_process_env() if args.prefer_process_env else {}
-    if "MOYSKLAD_API_TOKEN" not in mapping:
+    if args.prefer_process_env:
+        mapping = _fetch_from_process_env()
+        # LLM-only rotation is valid — do not fall back to Railway CLI.
+        if not mapping:
+            print("✓ nothing to sync from process env")
+            return 0
+    else:
         mapping = _fetch_from_railway()
 
     target = args.env_file or default_env_path()
     updated, added = upsert_env_file(target, mapping)
-    token_len = len(mapping.get("MOYSKLAD_API_TOKEN", ""))
-    print(
-        f"✓ {target}: updated={updated} added={added} "
-        f"MOYSKLAD_API_TOKEN len={token_len}"
-    )
+    # Lengths only — never print secret values.
+    bits = [f"updated={updated}", f"added={added}"]
+    for key in ("MOYSKLAD_API_TOKEN", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY"):
+        if key in mapping:
+            bits.append(f"{key}_len={len(mapping[key])}")
+    print(f"✓ {target}: " + " ".join(bits))
     return 0
 
 

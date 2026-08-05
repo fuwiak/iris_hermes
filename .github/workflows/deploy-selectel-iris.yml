@@ -27,6 +27,8 @@ jobs:
           SELECTEL_USER: ${{ secrets.SELECTEL_IRIS_USER }}
           SELECTEL_SSH_KEY: ${{ secrets.SELECTEL_IRIS_SSH_KEY }}
           DEPLOY_ENV: ${{ secrets.SELECTEL_IRIS_DEPLOY_ENV }}
+          # Optional: rotate OpenRouter without rewriting full DEPLOY_ENV body.
+          OPENROUTER_API_KEY: ${{ secrets.SELECTEL_IRIS_OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
           test -n "${SELECTEL_HOST:-}"
@@ -36,6 +38,8 @@ jobs:
           printf '%s\n' "$SELECTEL_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$SELECTEL_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes)
 
           rsync -az --delete \
             --exclude '.git' \
@@ -47,12 +51,25 @@ jobs:
             ./ "${SELECTEL_USER}@${SELECTEL_HOST}:/opt/iris_hermes/"
 
           if [ -n "${DEPLOY_ENV:-}" ]; then
-            printf '%s\n' "$DEPLOY_ENV" | ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            printf '%s\n' "$DEPLOY_ENV" | "${SSH[@]}" \
               "${SELECTEL_USER}@${SELECTEL_HOST}" 'cat > /root/deploy.env'
           fi
 
-          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
-            "${SELECTEL_USER}@${SELECTEL_HOST}" \
+          # Patch OpenRouter key into /root/deploy.env (volume synced on hermes boot).
+          if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+            printf '%s' "$OPENROUTER_API_KEY" | "${SSH[@]}" \
+              "${SELECTEL_USER}@${SELECTEL_HOST}" \
+              'set -euo pipefail
+               test -f /root/deploy.env
+               umask 077
+               cat > /tmp/iris_or_key
+               export OPENROUTER_API_KEY="$(cat /tmp/iris_or_key)"
+               rm -f /tmp/iris_or_key
+               python3 /opt/iris_hermes/scripts/sync_moysklad_env_from_railway.py \
+                 --prefer-process-env --env-file /root/deploy.env'
+          fi
+
+          "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
             'bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh'
 
       - name: Health summary

@@ -16,8 +16,11 @@ PY="${INSTALL_DIR}/.venv/bin/python"
 
 cd "$HERMES_HOME"
 
-# Persist MoySklad secrets from process env into the volume .env when missing.
-if [ -n "${MOYSKLAD_API_TOKEN:-}" ] && [ -x "$PY" ]; then
+# Persist deploy secrets from process env into the volume .env.
+# Hermes load_hermes_dotenv uses override=True — a stale OPENROUTER_API_KEY on
+# the volume otherwise wins over compose env_file after key rotation (chat keeps
+# returning OpenRouter HTTP 403 "Access denied by security policy").
+if [ -x "$PY" ]; then
   "$PY" "$INSTALL_DIR/scripts/sync_moysklad_env_from_railway.py" \
     --prefer-process-env \
     --env-file "$HERMES_HOME/.env" \
