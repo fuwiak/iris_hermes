@@ -38,7 +38,11 @@ _LOGIN_HTML_TEMPLATE = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — Hermes Agent</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+<link rel="alternate icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<title>Sign in — Iris.crm</title>
 <style>
   /* Brand fonts shipped by @nous-research/ui — same files the SPA loads. */
   @font-face {{
@@ -71,12 +75,12 @@ _LOGIN_HTML_TEMPLATE = """\
   }}
 
   :root {{
-    --background-base: #170d02;
-    --background: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
-    --hairline-strong: color-mix(in srgb, #ffac02 35%, transparent);
+    --background-base: #0a0a0a;
+    --background: #0a0a0a;
+    --midground: #c084fc;
+    --foreground: #f4ede4;
+    --hairline: color-mix(in srgb, #c084fc 18%, transparent);
+    --hairline-strong: color-mix(in srgb, #c084fc 35%, transparent);
   }}
 
   *, *::before, *::after {{ box-sizing: border-box; }}
@@ -133,26 +137,29 @@ _LOGIN_HTML_TEMPLATE = """\
     main {{ animation: none; }}
   }}
 
-  /* Brand wordmark above the card — same uppercase + wide-tracking
-     idiom DS Buttons use. */
+  /* Iris.crm logo above the card. */
   .brand {{
     text-align: center;
     margin-bottom: 1.75rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600;
-    font-size: 1.05rem;
-    letter-spacing: 0.32em;
-    text-transform: uppercase;
-    color: var(--midground);
   }}
-  .brand .dot {{
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    background: var(--midground);
-    margin: 0 0.55em 0.18em;
-    vertical-align: middle;
-    border-radius: 1px;
+  .brand img {{
+    display: block;
+    margin: 0 auto;
+    height: 3.25rem;
+    width: auto;
+    max-width: 14rem;
+    object-fit: contain;
+  }}
+  .brand .sr-only {{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }}
 
   .card {{
@@ -302,10 +309,13 @@ _LOGIN_HTML_TEMPLATE = """\
 </head>
 <body>
 <main>
-  <div class="brand">Nous<span class="dot"></span>Research</div>
+  <div class="brand">
+    <img src="/iris-logo.png" alt="Iris.crm" />
+    <span class="sr-only">Iris.crm</span>
+  </div>
   <div class="card">
     <h1>Sign in</h1>
-    <p class="subtitle">Choose a sign-in method to continue to the Hermes Agent dashboard.</p>
+    <p class="subtitle">Choose a sign-in method to continue to the Iris.crm dashboard.</p>
     <div class="provider-list">
 {provider_buttons}
     </div>
@@ -325,7 +335,10 @@ _EMPTY_HTML = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign-in unavailable — Hermes Agent</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="alternate icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<title>Sign-in unavailable — Iris.crm</title>
 <style>
   @font-face {
     font-family: 'Collapse';
@@ -342,10 +355,10 @@ _EMPTY_HTML = """\
     src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
   }
   :root {
-    --background-base: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
+    --background-base: #0a0a0a;
+    --midground: #c084fc;
+    --foreground: #f4ede4;
+    --hairline: color-mix(in srgb, #c084fc 18%, transparent);
   }
   *, *::before, *::after { box-sizing: border-box; }
   html, body {

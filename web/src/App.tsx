@@ -638,11 +638,11 @@ export default function App() {
               >
                 <PluginSlot name="header-left" />
 
-                <Typography className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase">
-                  Hermes
-                  <br />
-                  Agent
-                </Typography>
+                <img
+                  src="/iris-logo.png"
+                  alt={t.app.brand}
+                  className="h-8 w-auto max-w-[9rem] object-contain"
+                />
               </div>
 
               <Button
@@ -818,7 +818,7 @@ export default function App() {
                   !chatOverriddenByPlugin &&
                   (pluginsLoading ? (
                     isDesktopEmbedRoute ? (
-                      <RouteFallback label="Loading Hermes…" />
+                      <RouteFallback label="Loading Iris…" />
                     ) : null
                   ) : desktopHostMounted ? (
                     <div
@@ -836,7 +836,7 @@ export default function App() {
                               label={
                                 isDesktopSettingsRoute
                                   ? "Loading Settings…"
-                                  : "Loading Hermes…"
+                                  : "Loading Iris…"
                               }
                             />
                           ) : null
@@ -857,7 +857,7 @@ export default function App() {
                       </Suspense>
                     </div>
                   ) : isDesktopEmbedRoute ? (
-                    <RouteFallback label="Loading Hermes…" />
+                    <RouteFallback label="Loading Iris…" />
                   ) : null)}
               </div>
               <PluginSlot name="post-main" />

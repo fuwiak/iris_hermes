@@ -278,7 +278,7 @@ export default function DesktopChatHost({
           className="absolute inset-0 z-10 flex items-center justify-center p-8 text-sm opacity-70"
           aria-busy="true"
         >
-          Loading Hermes…
+          Loading Iris…
         </div>
       ) : null}
       <div

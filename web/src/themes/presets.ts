@@ -235,8 +235,8 @@ export const irisTheme: DashboardTheme = {
     radius: "1rem",
   },
   assets: {
-    logo: "/iris-logo.svg",
-    crest: "/favicon.svg",
+    logo: "/iris-logo.png",
+    crest: "/apple-touch-icon.png",
   },
   colorOverrides: {
     primary: "#c084fc",

@@ -16197,6 +16197,18 @@ def mount_spa(application: FastAPI):
             html = html.replace('src="/assets/', f'src="{prefix}/assets/')
             html = html.replace('href="/favicon.ico"', f'href="{prefix}/favicon.ico"')
             html = html.replace('href="/favicon.svg"', f'href="{prefix}/favicon.svg"')
+            html = html.replace('href="/favicon.png"', f'href="{prefix}/favicon.png"')
+            html = html.replace(
+                'href="/favicon-16x16.png"', f'href="{prefix}/favicon-16x16.png"'
+            )
+            html = html.replace(
+                'href="/favicon-32x32.png"', f'href="{prefix}/favicon-32x32.png"'
+            )
+            html = html.replace(
+                'href="/apple-touch-icon.png"',
+                f'href="{prefix}/apple-touch-icon.png"',
+            )
+            html = html.replace('href="/iris-logo.png"', f'href="{prefix}/iris-logo.png"')
             html = html.replace('href="/fonts/', f'href="{prefix}/fonts/')
             html = html.replace('href="/ds-assets/', f'href="{prefix}/ds-assets/')
             html = html.replace('src="/ds-assets/', f'src="{prefix}/ds-assets/')
