@@ -1417,6 +1417,7 @@ function CampaignsPage() {
   const [audienceLoadingMore, setAudienceLoadingMore] = useState(false)
   const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
+  const [selectedClientName, setSelectedClientName] = useState('')
   const [facts, setFacts] = useState<ClientFacts | null>(null)
   const [groundingNotes, setGroundingNotes] = useState('')
   const [genSource, setGenSource] = useState('')
@@ -1436,10 +1437,18 @@ function CampaignsPage() {
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Bumps on each client switch / generate — stale stream events are ignored. */
+  const outreachGenRef = useRef(0)
+  const outreachAbortRef = useRef<AbortController | null>(null)
+  const selectedClientNameRef = useRef('')
 
   useEffect(() => {
     offerRef.current = offer
   }, [offer])
+
+  useEffect(() => {
+    selectedClientNameRef.current = selectedClientName
+  }, [selectedClientName])
 
   const applyOfferText = useCallback((next: string, status: string) => {
     const text = (next || '').trim() ? next : ''
@@ -1448,6 +1457,29 @@ function CampaignsPage() {
     setOfferTick(t => t + 1)
     setActionStatus(status)
   }, [])
+
+  /** Sync title + clear draft fields immediately; generation catches up later. */
+  const applyClientSelectionUi = useCallback(
+    (clientId: string, clientName: string, clearOfferForAi: boolean) => {
+      const name = (clientName || '').trim()
+      setSelectedClientId(clientId)
+      setSelectedClientName(name)
+      selectedClientNameRef.current = name
+      setTitle(name ? `Черновик · ${name}` : 'Черновик · клиент')
+      setFacts(null)
+      setSanity(null)
+      setGroundingNotes('')
+      setGenSource('')
+      setError('')
+
+      if (clearOfferForAi) {
+        applyOfferText('', 'Генерируем креативный текст…')
+      } else {
+        applyOfferText('', '')
+      }
+    },
+    [applyOfferText]
+  )
 
   useEffect(() => {
     const prefill = readDraftPrefill()
@@ -1613,16 +1645,37 @@ function CampaignsPage() {
 
   const loadOutreach = useCallback(
     async (clientId: string, nextChannel = channel, runAi = mode === 'auto') => {
+      // Cancel in-flight generate for the previous client so stale deltas
+      // cannot overwrite the newly selected title/draft.
+      outreachAbortRef.current?.abort()
+      const ac = new AbortController()
+      outreachAbortRef.current = ac
+      const gen = ++outreachGenRef.current
+      const isCurrent = () => gen === outreachGenRef.current && !ac.signal.aborted
+
       setGenerating(true)
       setError('')
-      setActionStatus(runAi ? 'Генерируем текст…' : '')
+
+      // Title + clear already applied in selectAudienceClient; keep title in
+      // sync if regenerate / prefill path skipped that helper.
+      const knownName = selectedClientNameRef.current.trim()
+
+      if (knownName) {
+        setTitle(`Черновик · ${knownName}`)
+      }
 
       if (runAi) {
-        // Clear immediately so seller sees a fresh creative pass, not stale draft.
-        applyOfferText('', 'Генерируем креативный текст…')
+        if (offerRef.current.trim()) {
+          applyOfferText('', 'Генерируем креативный текст…')
+        } else {
+          setActionStatus('Генерируем креативный текст…')
+        }
+
         setSanity(null)
         setGroundingNotes('')
         setGenSource('')
+      } else {
+        setActionStatus('')
       }
 
       try {
@@ -1632,6 +1685,7 @@ function CampaignsPage() {
           await callStream('/campaigns/generate/stream', {
             method: 'POST',
             timeoutMs: OUTREACH_AI_TIMEOUT_MS,
+            signal: ac.signal,
             body: {
               client_id: clientId,
               channel: nextChannel,
@@ -1640,6 +1694,10 @@ function CampaignsPage() {
               seller_facts: sellerFacts
             },
             onEvent: raw => {
+              if (!isCurrent()) {
+                return
+              }
+
               if (!raw || typeof raw !== 'object') {
                 return
               }
@@ -1702,22 +1760,42 @@ function CampaignsPage() {
                   )
                 }
 
-                if (typeof ev.client_name === 'string' && ev.client_name) {
-                  setTitle(`Черновик · ${ev.client_name}`)
+                // Prefer already-synced local name; only fill title if still empty/generic.
+                const remoteName =
+                  typeof ev.client_name === 'string' ? ev.client_name.trim() : ''
+                const localName = selectedClientNameRef.current.trim()
+
+                if (remoteName && !localName) {
+                  setSelectedClientName(remoteName)
+                  selectedClientNameRef.current = remoteName
+                  setTitle(`Черновик · ${remoteName}`)
+                } else if (localName) {
+                  setTitle(`Черновик · ${localName}`)
+                } else if (remoteName) {
+                  setTitle(`Черновик · ${remoteName}`)
                 }
               }
             }
           })
         } else {
           const detail = await call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
+
+          if (!isCurrent()) {
+            return
+          }
+
           setFacts(factsFromDetail(detail))
           setGroundingNotes('')
           setGenSource('')
           setSanity(null)
           setActionStatus('')
 
-          if (detail.client?.name) {
-            setTitle(`Черновик · ${detail.client.name}`)
+          const detailName = detail.client?.name?.trim() || ''
+
+          if (detailName) {
+            setSelectedClientName(detailName)
+            selectedClientNameRef.current = detailName
+            setTitle(`Черновик · ${detailName}`)
           }
 
           const preferred = channelFromMessaging(detail.messaging?.primary_channel)
@@ -1727,10 +1805,20 @@ function CampaignsPage() {
           }
         }
       } catch (err) {
+        if (!isCurrent()) {
+          return
+        }
+
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
+        }
+
         setError(err instanceof Error ? err.message : String(err))
         setActionStatus('')
       } finally {
-        setGenerating(false)
+        if (isCurrent()) {
+          setGenerating(false)
+        }
       }
     },
     [applyOfferText, call, callStream, channel, mode, selectedClientId, sellerFacts, sellerName]
@@ -1745,7 +1833,9 @@ function CampaignsPage() {
 
   const selectAudienceClient = (row: ClientRow) => {
     if (!row.id) {return}
-    setSelectedClientId(row.id)
+
+    // 1) Title + fields sync immediately  2) generate runs in parallel after.
+    applyClientSelectionUi(row.id, row.name || '', true)
     setMode('auto')
 
     if (row.phone && !row.tg_nick) {setChannel('whatsapp')}
@@ -2336,14 +2426,23 @@ function CampaignsPage() {
           {selectedClientId ? (
             <>
               {' '}
-              · выбран <strong>{facts?.name || selectedClientId}</strong>
+              · выбран <strong>{selectedClientName || facts?.name || selectedClientId}</strong>
               <button
                 className="ms-link-btn"
                 onClick={() => {
+                  outreachAbortRef.current?.abort()
+                  outreachGenRef.current += 1
                   setSelectedClientId(null)
+                  setSelectedClientName('')
+                  selectedClientNameRef.current = ''
                   setFacts(null)
                   setGroundingNotes('')
+                  setGenSource('')
+                  setSanity(null)
+                  setActionStatus('')
+                  applyOfferText('', '')
                   setTitle('Рассылка по фильтрам')
+                  setGenerating(false)
                 }}
                 style={{ marginLeft: '0.5rem' }}
                 type="button"
