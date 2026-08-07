@@ -66,19 +66,26 @@ Example prompts:
 3. Tabs: Все / Маркетплейс / Прямые
 4. Chip clouds **Группы: Мой склад** / **Группы: ИИ** — separate filters by source
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
-6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
-7. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
+6. First-page **снимок** (100 rows) is served instantly when present; full catalog
+   rebuilds in the background (`revalidating` only while MoySklad fetch runs).
+7. **Telegram Desktop export** — place `data/telegram_export.json` (or
+   `$HERMES_HOME/moysklad/telegram_export.json`); chats map onto clients by
+   phone/name, fill **TG conversation** history + empty **ТГ ник** when an
+   `@username` is found. Hook runs on catalog load; manual:
+   `POST /clients/telegram-export/import`.
+8. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
+9. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
    роль / ТГ ник / Тип контрагента** for every **currently shown** row (batched
    as the list grows on scroll). No button. Results persist in **Redis** (when
    `REDIS_URL` set) + `$HERMES_HOME/moysklad/ai_fill_cache/` (and legacy
    `ai_fill.json`); cached entries skip LLM on reload. Cells show a **green
    outline + AI badge**. Never overwrites MoySklad-owned non-empty cells.
    Endpoint: `POST /clients/ai-fill` with `ids` for the visible set.
-8. Client card: **Sync Telegram** pulls gateway session history; AI summary
+10. Client card: **Sync Telegram** pulls gateway session history; AI summary
    supports model picker (`provider`/`model` on `POST /clients/{id}/ai`).
-9. Рассылки: same audience filters as Clients + smart window
+11. Рассылки: same audience filters as Clients + smart window
    `days_before_event` (e.g. 5 days before 8 March / событие марта).
-10. `GET /clients/integrity` — audit tab partition (hybrid / no-orders /
+12. `GET /clients/integrity` — audit tab partition (hybrid / no-orders /
     marker-only) explaining historic «lost clients» counting.
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,

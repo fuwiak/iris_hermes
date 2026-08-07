@@ -148,6 +148,81 @@ router = APIRouter()
 _SYNC_LOCK = threading.Lock()
 _REVALIDATE_LOCK = threading.Lock()
 _REVALIDATE_IN_FLIGHT: set[str] = set()
+_SNAPSHOT_REFRESH_LOCK = threading.Lock()
+_SNAPSHOT_REFRESH_IN_FLIGHT: set[str] = set()
+
+
+def _schedule_snapshot_refresh(
+    snap_key: str,
+    *,
+    catalog: dict[str, Any] | None,
+    sales_filter: str,
+    group: str,
+    q: str,
+    group_source: str,
+    channel_kind: str,
+    require_phone: bool,
+    require_telegram: bool,
+    vip_only: bool,
+    birthday_soon: bool,
+    days_before_event: int,
+    max_orders: int,
+    max_counterparties: int,
+    include_archived: bool,
+) -> bool:
+    """Rebuild first-100 snapshot + telegram export in a daemon thread."""
+    if catalog is None or not isinstance(catalog, dict):
+        return False
+    with _SNAPSHOT_REFRESH_LOCK:
+        if snap_key in _SNAPSHOT_REFRESH_IN_FLIGHT:
+            return False
+        _SNAPSHOT_REFRESH_IN_FLIGHT.add(snap_key)
+
+    def _worker() -> None:
+        try:
+            try:
+                from plugins.moysklad.telegram_export import ensure_export_imported
+
+                ensure_export_imported(list(catalog.get("rows") or []))
+            except Exception:
+                log.warning("moysklad telegram export (bg) failed", exc_info=True)
+            page = clients_page(
+                _client(),
+                sales_filter=sales_filter,
+                group=group,
+                q=q,
+                channel_kind=channel_kind,
+                require_phone=require_phone,
+                require_telegram=require_telegram,
+                vip_only=vip_only,
+                birthday_soon=birthday_soon,
+                group_source=group_source,
+                days_before_event=days_before_event,
+                limit=PAGE_SNAPSHOT_ROWS,
+                offset=0,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+                catalog=catalog,
+            )
+            page["clients"] = enrich_clients(list(page.get("clients") or []))
+            set_page_snapshot(
+                snap_key,
+                _strip_internal(page),
+                synced_at=float(catalog.get("synced_at") or time.time()),
+            )
+        except Exception:
+            log.warning("moysklad snapshot bg refresh failed", exc_info=True)
+        finally:
+            with _SNAPSHOT_REFRESH_LOCK:
+                _SNAPSHOT_REFRESH_IN_FLIGHT.discard(snap_key)
+
+    threading.Thread(
+        target=_worker,
+        name=f"moysklad-snap-{snap_key[-12:]}",
+        daemon=True,
+    ).start()
+    return True
 
 
 def _catalog_meta(
@@ -755,9 +830,64 @@ def get_clients(
         birthday_soon=birthday_soon,
         days_before_event=days_before_event,
     )
+    catalog_key = cache_key(
+        max_orders=max_orders,
+        max_counterparties=max_counterparties,
+        include_archived=include_archived,
+    )
     try:
-        # First page: never block on full MoySklad rebuild when a snapshot exists.
         want_fast = (not refresh) and offset == 0
+
+        # Instant paint: always serve first-100 snapshot when present.
+        if want_fast:
+            snap_env = get_page_snapshot(snap_key)
+            if snap_env is not None:
+                sliced = slice_page_snapshot(snap_env, limit=limit, offset=0)
+                if sliced is not None:
+                    fresh = get_cached(catalog_key)
+                    revalidating = False
+                    if fresh is None:
+                        revalidating = _schedule_catalog_revalidate(
+                            catalog_key,
+                            max_orders=max_orders,
+                            max_counterparties=max_counterparties,
+                            include_archived=include_archived,
+                        ) or catalog_key in _REVALIDATE_IN_FLIGHT
+                    else:
+                        revalidating = catalog_key in _REVALIDATE_IN_FLIGHT
+                        cat = fresh.get("catalog") if isinstance(fresh, dict) else None
+                        _schedule_snapshot_refresh(
+                            snap_key,
+                            catalog=cat if isinstance(cat, dict) else None,
+                            sales_filter=sales_filter,
+                            group=group,
+                            q=q,
+                            group_source=group_source,
+                            channel_kind=channel_kind,
+                            require_phone=require_phone,
+                            require_telegram=require_telegram,
+                            vip_only=vip_only,
+                            birthday_soon=birthday_soon,
+                            days_before_event=days_before_event,
+                            max_orders=max_orders,
+                            max_counterparties=max_counterparties,
+                            include_archived=include_archived,
+                        )
+                    out_meta = {
+                        "cached": True,
+                        "stale": bool(revalidating or fresh is None),
+                        "revalidating": bool(revalidating),
+                        "snapshot": True,
+                        "synced_at": float(snap_env.get("synced_at") or 0),
+                        "synced_at_label": format_synced_at(
+                            float(snap_env.get("synced_at") or 0)
+                        ),
+                        "cache_ttl_seconds": cache_ttl_seconds(),
+                        "cache_backend": cache_backend_name(),
+                        "counts_refreshed": False,
+                    }
+                    return _attach_cache_meta(_strip_internal(sliced), out_meta)
+
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
@@ -768,23 +898,6 @@ def get_clients(
         )
 
         if catalog is None and want_fast:
-            snap_env = get_page_snapshot(snap_key)
-            if snap_env is not None:
-                sliced = slice_page_snapshot(snap_env, limit=limit, offset=0)
-                if sliced is not None:
-                    out_meta = dict(meta)
-                    out_meta.update(
-                        {
-                            "cached": True,
-                            "stale": True,
-                            "snapshot": True,
-                            "synced_at": float(snap_env.get("synced_at") or 0),
-                            "synced_at_label": format_synced_at(
-                                float(snap_env.get("synced_at") or 0)
-                            ),
-                        }
-                    )
-                    return _attach_cache_meta(_strip_internal(sliced), out_meta)
             # True cold start — must block once to seed catalog + snapshot.
             catalog, meta = _get_catalog(
                 max_orders=max_orders,
@@ -800,6 +913,14 @@ def get_clients(
                 status_code=503,
                 detail="catalog unavailable; retry shortly",
             )
+
+        # One-shot Telegram Desktop export → conversations / ТГ ник.
+        try:
+            from plugins.moysklad.telegram_export import ensure_export_imported
+
+            ensure_export_imported(list(catalog.get("rows") or []))
+        except Exception:
+            log.warning("moysklad telegram export hook failed", exc_info=True)
 
         page = clients_page(
             _client(),
@@ -858,6 +979,9 @@ def get_clients(
             except Exception:
                 log.warning("moysklad page snapshot write failed", exc_info=True)
 
+        meta = dict(meta)
+        meta["snapshot"] = False
+        meta["revalidating"] = bool(meta.get("revalidating"))
         return _attach_cache_meta(_strip_internal(page), meta)
     except HTTPException:
         raise
@@ -1286,7 +1410,7 @@ def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
     """Pull Telegram gateway history into the local client thread."""
     try:
         catalog, meta = _get_catalog(force=False)
-        row = find_row_in_catalog(catalog, client_id)
+        row = find_row_in_catalog(catalog, client_id) if catalog else None
         phone = ""
         tg_nick = ""
         client_name = ""
@@ -1309,6 +1433,39 @@ def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id}/conversation/sync failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/telegram-export/import")
+def post_telegram_export_import(
+    force: bool = Query(False),
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+) -> dict[str, Any]:
+    """Map ``data/telegram_export.json`` chats → TG conversation + ТГ ник."""
+    try:
+        from plugins.moysklad.telegram_export import import_export_into_catalog
+
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=False,
+            blocking=True,
+            refresh_counts=False,
+        )
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="catalog unavailable")
+        result = import_export_into_catalog(
+            list(catalog.get("rows") or []),
+            force=force,
+        )
+        return _attach_cache_meta(result, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad telegram-export import failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

@@ -1440,7 +1440,7 @@ function ClientsPage() {
   const [integrityNote, setIntegrityNote] = useState('')
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
-  const [staleHint, setStaleHint] = useState(Boolean(initialLocal))
+  const [staleHint, setStaleHint] = useState(false)
   const [cardClientId, setCardClientId] = useState<string | null>(null)
   const [recalcOpen, setRecalcOpen] = useState(false)
   const [recalcLoading, setRecalcLoading] = useState(false)
@@ -1556,7 +1556,8 @@ function ClientsPage() {
             setGroupOptionsMs(local.group_options_ms || [])
             setGroupOptionsAi(local.group_options_ai || [])
             setFromCache(true)
-            setStaleHint(true)
+            // Local paint is a snapshot — do not sticky-spin «обновляем…» until server says so.
+            setStaleHint(false)
             setSyncedLabel(local.synced_at_label || '')
             setLoading(false)
           } else {
@@ -1601,6 +1602,7 @@ function ClientsPage() {
           cached?: boolean
           stale?: boolean
           revalidating?: boolean
+          snapshot?: boolean
           synced_at_label?: string
           synced_at?: number
         }>(`/clients?${params}`)
@@ -1637,8 +1639,9 @@ function ClientsPage() {
             setGroupOptionsMs(msOpts)
             setGroupOptionsAi(aiOpts)
           }
-          setFromCache(Boolean(data.cached))
-          setStaleHint(Boolean(data.stale || data.revalidating))
+          setFromCache(Boolean(data.cached || data.snapshot))
+          // «обновляем…» only while server is actually rebuilding — not for every stale/snapshot paint.
+          setStaleHint(Boolean(data.revalidating))
           setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
           if (data.counts) {
             const t = data.counts.total || 0
@@ -1734,11 +1737,17 @@ function ClientsPage() {
   )
 
   const cacheHint = syncedLabel
-    ? `${fromCache ? (staleHint ? 'снимок (обновляем…)' : 'из кэша') : 'свежая выгрузка'} · синхр. ${syncedLabel}`
+    ? `${
+        staleHint
+          ? 'снимок (обновляем…)'
+          : fromCache
+            ? 'снимок'
+            : 'свежая выгрузка'
+      } · синхр. ${syncedLabel}`
     : fromCache
       ? staleHint
         ? 'снимок (обновляем…)'
-        : 'из кэша'
+        : 'снимок'
       : loading && clients.length
         ? 'обновляем…'
         : ''

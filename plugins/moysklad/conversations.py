@@ -198,6 +198,7 @@ def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
         "client_name": thread.get("client_name") or "",
         "phone": thread.get("phone") or "",
         "tg_nick": thread.get("tg_nick") or "",
+        "tg_chat_id": thread.get("tg_chat_id") or "",
         "messages": messages,
         "message_count": len(messages),
         "preview": preview_text(thread),
@@ -322,6 +323,12 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     """Attach conversation preview onto a public client dict (table row)."""
     if not isinstance(client, dict):
         return client
+    try:
+        from plugins.moysklad.telegram_export import apply_export_overlay_to_public
+
+        client = apply_export_overlay_to_public(client)
+    except Exception:
+        pass
     cid = str(client.get("id") or "").strip()
     phone = str(client.get("phone") or "")
     tg_nick = str(client.get("tg_nick") or "")
@@ -338,6 +345,10 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     out["tg_conversation_attr"] = attr
     out["tg_conversation_preview"] = preview
     out["conversation_count"] = int(thread.get("message_count") or 0)
+    if not out.get("tg_chat_id"):
+        tid_chat = thread.get("tg_chat_id") if isinstance(thread, dict) else None
+        if tid_chat:
+            out["tg_chat_id"] = tid_chat
     # Column «TG conversation»: prefer live/local history preview.
     if preview:
         out["tg_conversation"] = preview
