@@ -199,6 +199,164 @@
   background: #481a54;
 }
 
+.ms-th-filter {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.35rem 0.45rem !important;
+  vertical-align: top;
+}
+
+.ms-th-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 7rem;
+}
+
+.ms-th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  padding: 0.2rem 0.15rem;
+  max-width: 16rem;
+}
+
+.ms-th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-th-sort-mark {
+  opacity: 0.45;
+  font-size: 0.7rem;
+  flex: none;
+}
+
+.ms-th-filter.is-sorted .ms-th-sort-mark,
+.ms-th-filter.is-filtered .ms-th-filter-btn {
+  opacity: 1;
+  color: #f0abfc;
+}
+
+.ms-th-filter-btn {
+  border: 0;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  border-radius: 0.3rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  flex: none;
+}
+
+.ms-th-filter-btn.is-on,
+.ms-th-filter-btn:hover {
+  opacity: 1;
+  background: color-mix(in srgb, #c084fc 28%, transparent);
+}
+
+.ms-col-filter-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 20;
+  width: min(18rem, 70vw);
+  padding: 0.65rem;
+  border: 1px solid #6b2d7a;
+  border-radius: 0.65rem;
+  background: #2a0f2e;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  display: grid;
+  gap: 0.55rem;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.8rem;
+  color: #f4ede4;
+}
+
+.ms-col-filter-sorts {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.ms-col-filter-sorts button {
+  border: 0;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.ms-col-filter-sorts button:hover {
+  background: color-mix(in srgb, #c084fc 22%, transparent);
+}
+
+.ms-col-filter-search {
+  display: grid;
+  gap: 0.25rem;
+  color: #e4c8ea;
+}
+
+.ms-col-filter-search input {
+  width: 100%;
+  border: 1px solid #6b2d7a;
+  border-radius: 0.4rem;
+  background: #3a1840;
+  color: #f4ede4;
+  padding: 0.35rem 0.5rem;
+}
+
+.ms-col-filter-values {
+  max-height: 14rem;
+  overflow: auto;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border: 1px solid #592466;
+  border-radius: 0.45rem;
+  background: #3a1840;
+}
+
+.ms-col-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.2rem;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ms-col-filter-check span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-col-filter-hint {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.ms-col-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
 .ms-campaign-form {
   display: grid;
   gap: 0.75rem;

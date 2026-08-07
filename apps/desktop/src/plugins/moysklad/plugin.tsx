@@ -8,7 +8,7 @@ import {
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution
 } from '@hermes/plugin-sdk'
-import { type FormEvent, type UIEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 interface GroupChipOption {
   name: string
@@ -405,22 +405,37 @@ function applyAiFillResults(
 const CLIENT_COLUMNS: Array<{
   key: keyof ClientRow | 'channel_display' | 'groups_display' | 'avg_display' | 'last_order_display' | 'orders_display'
   label: string
+  /** Underlying value for sort (numbers/dates preferred over display text). */
+  sortValue?: (row: ClientRow) => string | number | null | undefined
   render: (row: ClientRow) => string
 }> = [
-  { key: 'name', label: 'Наименование', render: r => r.name || '' },
-  { key: 'phone', label: 'Телефон', render: r => r.phone || '' },
-  { key: 'state', label: 'Статус', render: r => r.state || '' },
-  { key: 'sales_type', label: 'Тип канала продаж', render: r => r.sales_type || '' },
+  { key: 'name', label: 'Наименование', sortValue: r => r.name || '', render: r => r.name || '' },
+  { key: 'phone', label: 'Телефон', sortValue: r => r.phone || '', render: r => r.phone || '' },
+  { key: 'state', label: 'Статус', sortValue: r => r.state || '', render: r => r.state || '' },
+  {
+    key: 'sales_type',
+    label: 'Тип канала продаж',
+    sortValue: r => r.sales_type || '',
+    render: r => r.sales_type || ''
+  },
   {
     key: 'channel_display',
     label: 'Канал продаж',
+    sortValue: r =>
+      (r.channels || []).length ? (r.channels || []).join(', ') : r.channel || '',
     render: r =>
       (r.channels || []).length ? (r.channels || []).join(', ') : r.channel || ''
   },
-  { key: 'avg_display', label: 'Средний чек', render: r => money(r.avg_check) },
+  {
+    key: 'avg_display',
+    label: 'Средний чек',
+    sortValue: r => (r.avg_check == null ? null : Number(r.avg_check)),
+    render: r => money(r.avg_check)
+  },
   {
     key: 'last_order_display',
     label: 'Дата последнего заказа',
+    sortValue: r => r.last_order_at || '',
     render: r =>
       r.last_order_at
         ? (r.last_order_at || '').slice(0, 16).replace('T', ' ')
@@ -429,12 +444,28 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'orders_display',
     label: 'Всего заказов',
+    sortValue: r => (r.order_count == null ? null : Number(r.order_count)),
     render: r => (r.order_count == null ? '—' : String(r.order_count))
   },
-  { key: 'bonus_points', label: 'Баллы начисленные', render: r => String(r.bonus_points ?? '') },
+  {
+    key: 'bonus_points',
+    label: 'Баллы начисленные',
+    sortValue: r => {
+      const n = Number(r.bonus_points)
+      return Number.isFinite(n) ? n : String(r.bonus_points ?? '')
+    },
+    render: r => String(r.bonus_points ?? '')
+  },
   {
     key: 'groups_display',
     label: 'Группы',
+    sortValue: r => {
+      const ms = String(r.ms_groups || '').trim()
+      const ai = (r.ai_groups || []).filter(Boolean)
+      if (ms && ai.length) return `МС: ${ms} · AI: ${ai.join(', ')}`
+      if (ai.length) return `AI: ${ai.join(', ')}`
+      return r.groups || (r.tags || []).join(', ')
+    },
     render: r => {
       const ms = String(r.ms_groups || '').trim()
       const ai = (r.ai_groups || []).filter(Boolean)
@@ -443,20 +474,32 @@ const CLIENT_COLUMNS: Array<{
       return r.groups || (r.tags || []).join(', ')
     }
   },
-  { key: 'role', label: 'Заказчик или получатель', render: r => r.role || '' },
-  { key: 'actual_address', label: 'Фактический адрес', render: r => r.actual_address || '' },
+  { key: 'role', label: 'Заказчик или получатель', sortValue: r => r.role || '', render: r => r.role || '' },
+  {
+    key: 'actual_address',
+    label: 'Фактический адрес',
+    sortValue: r => r.actual_address || '',
+    render: r => r.actual_address || ''
+  },
   {
     key: 'actual_address_comment',
     label: 'Фактический адрес (Комментарий)',
+    sortValue: r => r.actual_address_comment || '',
     render: r => r.actual_address_comment || ''
   },
-  { key: 'company_type', label: 'Тип контрагента', render: r => r.company_type || '' },
-  { key: 'sex', label: 'Пол', render: r => r.sex || '' },
-  { key: 'email', label: 'E-mail', render: r => r.email || '' },
-  { key: 'tg_nick', label: 'ТГ ник', render: r => r.tg_nick || '' },
+  {
+    key: 'company_type',
+    label: 'Тип контрагента',
+    sortValue: r => r.company_type || '',
+    render: r => r.company_type || ''
+  },
+  { key: 'sex', label: 'Пол', sortValue: r => r.sex || '', render: r => r.sex || '' },
+  { key: 'email', label: 'E-mail', sortValue: r => r.email || '', render: r => r.email || '' },
+  { key: 'tg_nick', label: 'ТГ ник', sortValue: r => r.tg_nick || '', render: r => r.tg_nick || '' },
   {
     key: 'tg_conversation',
     label: 'TG conversation',
+    sortValue: r => r.tg_conversation_preview || r.tg_conversation || '',
     render: r => {
       const preview = r.tg_conversation_preview || r.tg_conversation || ''
       const n = r.conversation_count
@@ -469,6 +512,276 @@ const CLIENT_COLUMNS: Array<{
     }
   }
 ]
+
+type ClientColKey = (typeof CLIENT_COLUMNS)[number]['key']
+type SortDir = 'asc' | 'desc'
+
+interface ColumnSortSpec {
+  key: ClientColKey
+  dir: SortDir
+}
+
+interface ColumnFilterSpec {
+  /** Case-insensitive substring match on display value. */
+  query: string
+  /**
+   * Selected unique display values. ``null`` = all values allowed.
+   * Empty array = match nothing.
+   */
+  selected: string[] | null
+}
+
+const EMPTY_FILTER: ColumnFilterSpec = { query: '', selected: null }
+const BLANK_FILTER_LABEL = '(пусто)'
+const UNIQUE_FILTER_CAP = 60
+
+function columnDisplayValue(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow): string {
+  const raw = col.render(row)
+  return raw == null ? '' : String(raw)
+}
+
+function columnSortRaw(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow): string | number | null {
+  if (col.sortValue) {
+    const v = col.sortValue(row)
+    if (v == null || v === '') return null
+    return v
+  }
+  const s = columnDisplayValue(col, row)
+  return s === '' || s === '—' ? null : s
+}
+
+function compareColumnValues(
+  a: string | number | null,
+  b: string | number | null,
+  dir: SortDir
+): number {
+  const mul = dir === 'asc' ? 1 : -1
+  if (a == null && b == null) return 0
+  if (a == null) return 1
+  if (b == null) return -1
+  if (typeof a === 'number' && typeof b === 'number') {
+    return (a - b) * mul
+  }
+  return String(a).localeCompare(String(b), 'ru', { sensitivity: 'base', numeric: true }) * mul
+}
+
+function filterLabel(value: string): string {
+  return value === '' || value === '—' ? BLANK_FILTER_LABEL : value
+}
+
+function applyClientColumnFilters(
+  rows: ClientRow[],
+  filters: Partial<Record<ClientColKey, ColumnFilterSpec>>,
+  sort: ColumnSortSpec | null
+): ClientRow[] {
+  let out = rows
+  const active = CLIENT_COLUMNS.filter(col => {
+    const f = filters[col.key]
+    return Boolean(f && (f.query.trim() || f.selected != null))
+  })
+  if (active.length) {
+    out = rows.filter(row =>
+      active.every(col => {
+        const f = filters[col.key] || EMPTY_FILTER
+        const display = columnDisplayValue(col, row)
+        const label = filterLabel(display)
+        if (f.query.trim()) {
+          const q = f.query.trim().toLowerCase()
+          if (!display.toLowerCase().includes(q) && !label.toLowerCase().includes(q)) {
+            return false
+          }
+        }
+        if (f.selected != null) {
+          return f.selected.includes(label)
+        }
+        return true
+      })
+    )
+  }
+  if (sort) {
+    const col = CLIENT_COLUMNS.find(c => c.key === sort.key)
+    if (col) {
+      out = [...out].sort((ra, rb) =>
+        compareColumnValues(columnSortRaw(col, ra), columnSortRaw(col, rb), sort.dir)
+      )
+    }
+  }
+  return out
+}
+
+function uniqueColumnValues(rows: ClientRow[], col: (typeof CLIENT_COLUMNS)[number]): string[] {
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    const label = filterLabel(columnDisplayValue(col, row))
+    counts.set(label, (counts.get(label) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'))
+    .map(([label]) => label)
+}
+
+function ClientsColumnHeader({
+  col,
+  sort,
+  filter,
+  uniqueValues,
+  open,
+  onToggleOpen,
+  onSort,
+  onFilterChange,
+  onClearFilter
+}: {
+  col: (typeof CLIENT_COLUMNS)[number]
+  sort: ColumnSortSpec | null
+  filter: ColumnFilterSpec
+  uniqueValues: string[]
+  open: boolean
+  onToggleOpen: () => void
+  onSort: (dir: SortDir | null) => void
+  onFilterChange: (next: ColumnFilterSpec) => void
+  onClearFilter: () => void
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const activeSort = sort?.key === col.key ? sort.dir : null
+  const filterActive = Boolean(filter.query.trim() || filter.selected != null)
+  const showUniques = uniqueValues.length > 0 && uniqueValues.length <= UNIQUE_FILTER_CAP
+  const [draftQuery, setDraftQuery] = useState(filter.query)
+  const [draftSelected, setDraftSelected] = useState<string[] | null>(filter.selected)
+
+  useEffect(() => {
+    if (!open) return
+    setDraftQuery(filter.query)
+    setDraftSelected(filter.selected)
+  }, [open, filter.query, filter.selected])
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (event: MouseEvent) => {
+      const el = menuRef.current
+      if (el && !el.contains(event.target as Node)) {
+        onToggleOpen()
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open, onToggleOpen])
+
+  const cycleHeaderSort = () => {
+    if (activeSort === 'asc') onSort('desc')
+    else if (activeSort === 'desc') onSort(null)
+    else onSort('asc')
+  }
+
+  const toggleValue = (label: string) => {
+    const base = draftSelected == null ? [...uniqueValues] : [...draftSelected]
+    const idx = base.indexOf(label)
+    if (idx >= 0) base.splice(idx, 1)
+    else base.push(label)
+    if (base.length === uniqueValues.length) setDraftSelected(null)
+    else setDraftSelected(base)
+  }
+
+  return (
+    <th className={`ms-th-filter${filterActive ? ' is-filtered' : ''}${activeSort ? ' is-sorted' : ''}`}>
+      <div className="ms-th-inner" ref={menuRef}>
+        <button
+          className="ms-th-sort"
+          onClick={cycleHeaderSort}
+          title="Сортировка: клик = А→Я / Я→А / сброс"
+          type="button"
+        >
+          <span className="ms-th-label">{col.label}</span>
+          <span className="ms-th-sort-mark" aria-hidden="true">
+            {activeSort === 'asc' ? '▲' : activeSort === 'desc' ? '▼' : '↕'}
+          </span>
+        </button>
+        <button
+          className={`ms-th-filter-btn${filterActive || open ? ' is-on' : ''}`}
+          onClick={onToggleOpen}
+          title="Фильтр как в Excel"
+          type="button"
+        >
+          ▾
+        </button>
+        {open ? (
+          <div className="ms-col-filter-menu" role="dialog">
+            <div className="ms-col-filter-sorts">
+              <button onClick={() => onSort('asc')} type="button">
+                Сортировка А → Я
+              </button>
+              <button onClick={() => onSort('desc')} type="button">
+                Сортировка Я → А
+              </button>
+            </div>
+            <label className="ms-col-filter-search">
+              Содержит
+              <input
+                autoFocus
+                onChange={e => setDraftQuery(e.target.value)}
+                placeholder="текст…"
+                value={draftQuery}
+              />
+            </label>
+            {showUniques ? (
+              <div className="ms-col-filter-values">
+                <label className="ms-col-filter-check">
+                  <input
+                    checked={draftSelected == null}
+                    onChange={() => setDraftSelected(null)}
+                    type="checkbox"
+                  />
+                  (Выделить всё)
+                </label>
+                {uniqueValues.map(label => {
+                  const checked = draftSelected == null || draftSelected.includes(label)
+                  return (
+                    <label className="ms-col-filter-check" key={label}>
+                      <input
+                        checked={checked}
+                        onChange={() => toggleValue(label)}
+                        type="checkbox"
+                      />
+                      <span title={label}>{label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            ) : uniqueValues.length > UNIQUE_FILTER_CAP ? (
+              <p className="ms-muted ms-col-filter-hint">
+                Уникальных значений слишком много ({uniqueValues.length}) — используйте «Содержит».
+              </p>
+            ) : null}
+            <div className="ms-col-filter-actions">
+              <button
+                className="ms-btn"
+                onClick={() => {
+                  onClearFilter()
+                  onToggleOpen()
+                }}
+                type="button"
+              >
+                Сбросить
+              </button>
+              <button
+                className="ms-btn ms-btn-primary"
+                onClick={() => {
+                  onFilterChange({
+                    query: draftQuery,
+                    selected: draftSelected
+                  })
+                  onToggleOpen()
+                }}
+                type="button"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </th>
+  )
+}
 
 interface Campaign {
   id: string
@@ -1453,12 +1766,39 @@ function ClientsPage() {
 
   const [recalcError, setRecalcError] = useState('')
   const [aiFillStatus, setAiFillStatus] = useState('')
+  const [columnSort, setColumnSort] = useState<ColumnSortSpec | null>(null)
+  const [columnFilters, setColumnFilters] = useState<Partial<Record<ClientColKey, ColumnFilterSpec>>>(
+    {}
+  )
+  const [openFilterKey, setOpenFilterKey] = useState<ClientColKey | null>(null)
   const loadGen = useRef(0)
   const loadingMoreRef = useRef(false)
   const lazyAiTriedRef = useRef(new Set<string>())
   const lazyAiInFlightRef = useRef(false)
   const clientsRef = useRef<ClientRow[]>([])
   clientsRef.current = clients
+
+  const displayClients = useMemo(
+    () => applyClientColumnFilters(clients, columnFilters, columnSort),
+    [clients, columnFilters, columnSort]
+  )
+
+  const columnUniques = useMemo(() => {
+    const map: Partial<Record<ClientColKey, string[]>> = {}
+    for (const col of CLIENT_COLUMNS) {
+      map[col.key] = uniqueColumnValues(clients, col)
+    }
+    return map
+  }, [clients])
+
+  const columnFilterActive = useMemo(
+    () =>
+      CLIENT_COLUMNS.some(col => {
+        const f = columnFilters[col.key]
+        return Boolean(f && (f.query.trim() || f.selected != null))
+      }),
+    [columnFilters]
+  )
 
   /** Auto-fill empty CRM fields for every currently shown row (batched). */
   const drainLazyAiFill = useCallback(() => {
@@ -1696,6 +2036,13 @@ function ClientsPage() {
     void load()
   }, [salesFilter, group, groupSource, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
+  // Drop Excel column filters when the main audience filter changes.
+  useEffect(() => {
+    setColumnFilters({})
+    setColumnSort(null)
+    setOpenFilterKey(null)
+  }, [salesFilter, group, groupSource, q])
+
   // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
   useEffect(() => {
     if (!staleHint || loading) {
@@ -1856,8 +2203,25 @@ function ClientsPage() {
       {error ? <div className="ms-error">{error}</div> : null}
       <p className="ms-muted">
         Найдено: {matched}
-        {clients.length ? ` · показано ${clients.length}` : ''}
+        {clients.length ? ` · загружено ${clients.length}` : ''}
+        {columnFilterActive ? ` · после фильтров ${displayClients.length}` : ''}
         {integrityNote ? ` · ${integrityNote}` : ''}
+        {columnFilterActive || columnSort ? (
+          <>
+            {' · '}
+            <button
+              className="ms-link-btn"
+              onClick={() => {
+                setColumnFilters({})
+                setColumnSort(null)
+                setOpenFilterKey(null)
+              }}
+              type="button"
+            >
+              сбросить сортировку/фильтры колонок
+            </button>
+          </>
+        ) : null}
       </p>
       {recalcOpen ? (
         <div className="ms-modal-backdrop" onClick={() => setRecalcOpen(false)}>
@@ -1971,12 +2335,35 @@ function ClientsPage() {
             <thead>
               <tr>
                 {CLIENT_COLUMNS.map(col => (
-                  <th key={col.key}>{col.label}</th>
+                  <ClientsColumnHeader
+                    col={col}
+                    filter={columnFilters[col.key] || EMPTY_FILTER}
+                    key={col.key}
+                    onClearFilter={() =>
+                      setColumnFilters(prev => {
+                        const next = { ...prev }
+                        delete next[col.key]
+                        return next
+                      })
+                    }
+                    onFilterChange={next =>
+                      setColumnFilters(prev => ({ ...prev, [col.key]: next }))
+                    }
+                    onSort={dir =>
+                      setColumnSort(dir ? { key: col.key, dir } : null)
+                    }
+                    onToggleOpen={() =>
+                      setOpenFilterKey(prev => (prev === col.key ? null : col.key))
+                    }
+                    open={openFilterKey === col.key}
+                    sort={columnSort}
+                    uniqueValues={columnUniques[col.key] || []}
+                  />
                 ))}
               </tr>
             </thead>
             <tbody>
-              {clients.map(row => (
+              {displayClients.map(row => (
                 <tr key={row.id || row.name}>
                   {CLIENT_COLUMNS.map(col => {
                     const value = col.render(row)
@@ -2095,7 +2482,9 @@ function CampaignsPage() {
   const [addContactName, setAddContactName] = useState('')
   const [addContactNick, setAddContactNick] = useState('')
   const [addContactChatId, setAddContactChatId] = useState('')
+  const [addContactQuery, setAddContactQuery] = useState('')
   const [addContactSaving, setAddContactSaving] = useState(false)
+  const [addContactResolving, setAddContactResolving] = useState(false)
   const [pickMode, setPickMode] = useState<'single' | 'multi'>('single')
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
@@ -2854,11 +3243,54 @@ function CampaignsPage() {
     applyClientSelectionUi(contactId, name)
   }
 
+  const resolveOutreachContactQuery = async () => {
+    const q = addContactQuery.trim() || addContactNick.trim() || addContactChatId.trim()
+    if (!q) {
+      setError('Укажите @ник, t.me/… или numeric chat id — расшифруем через Bot API')
+      return
+    }
+    setAddContactResolving(true)
+    setError('')
+    try {
+      const data = await call<{
+        tg_nick?: string
+        tg_chat_id?: string
+        name?: string
+        resolved_via?: string
+      }>('/campaigns/telegram-contacts/resolve', {
+        method: 'POST',
+        body: {
+          query: addContactQuery.trim(),
+          tg_nick: addContactNick.trim(),
+          tg_chat_id: addContactChatId.trim()
+        }
+      })
+      if (data.tg_nick) {
+        setAddContactNick(data.tg_nick)
+      }
+      if (data.tg_chat_id) {
+        setAddContactChatId(String(data.tg_chat_id))
+      }
+      if (data.name && !addContactName.trim()) {
+        setAddContactName(data.name)
+      }
+      setActionStatus(
+        `✓ Расшифровано (${data.resolved_via || 'api'}): ` +
+          `${data.tg_nick ? `@${data.tg_nick}` : ''} ${data.tg_chat_id || ''}`.trim()
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAddContactResolving(false)
+    }
+  }
+
   const addCustomOutreachContact = async () => {
     const nick = addContactNick.trim().replace(/^@/, '')
     const chatId = addContactChatId.trim()
-    if (!nick && !chatId) {
-      setError('Укажите @ник или numeric chat id')
+    const query = addContactQuery.trim()
+    if (!nick && !chatId && !query) {
+      setError('Укажите @ник, t.me/… или numeric chat id — расшифруем через Bot API')
       return
     }
 
@@ -2872,13 +3304,16 @@ function CampaignsPage() {
           tg_nick?: string
           tg_chat_id?: string
           label?: string
+          resolved_via?: string
         }
       }>('/campaigns/telegram-contacts', {
         method: 'POST',
         body: {
           name: addContactName.trim(),
           tg_nick: nick,
-          tg_chat_id: chatId
+          tg_chat_id: chatId,
+          query,
+          resolve: true
         }
       })
       await loadOutreachContacts()
@@ -2888,8 +3323,13 @@ function CampaignsPage() {
       setAddContactName('')
       setAddContactNick('')
       setAddContactChatId('')
+      setAddContactQuery('')
       setAddContactOpen(false)
-      setActionStatus(`✓ Контакт добавлен: ${data.contact?.label || nick || chatId}`)
+      setActionStatus(
+        `✓ Контакт добавлен` +
+          (data.contact?.resolved_via ? ` (${data.contact.resolved_via})` : '') +
+          `: ${data.contact?.label || nick || chatId || query}`
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -3940,6 +4380,24 @@ function CampaignsPage() {
             {addContactOpen ? (
               <div className="ms-add-contact">
                 <label>
+                  @ник / t.me / chat id
+                  <input
+                    onChange={e => setAddContactQuery(e.target.value)}
+                    placeholder="@papa2139 или https://t.me/papa2139 или 415321451"
+                    value={addContactQuery}
+                  />
+                </label>
+                <div className="ms-compose-actions">
+                  <button
+                    className="ms-btn"
+                    disabled={addContactResolving || addContactSaving}
+                    onClick={() => void resolveOutreachContactQuery()}
+                    type="button"
+                  >
+                    {addContactResolving ? 'Расшифровываем…' : 'Расшифровать (API)'}
+                  </button>
+                </div>
+                <label>
                   Имя
                   <input
                     onChange={e => setAddContactName(e.target.value)}
@@ -3948,7 +4406,7 @@ function CampaignsPage() {
                   />
                 </label>
                 <label>
-                  @ник
+                  @ник (после расшифровки)
                   <input
                     onChange={e => setAddContactNick(e.target.value)}
                     placeholder="papa2139"
@@ -3963,9 +4421,13 @@ function CampaignsPage() {
                     value={addContactChatId}
                   />
                 </label>
+                <p className="ms-muted">
+                  Расшифровка: Bot API getChat + Telegram export overlay. Cold @ник
+                  без истории с Business может не резолвиться — тогда нужен numeric id.
+                </p>
                 <button
                   className="ms-btn ms-btn-primary"
-                  disabled={addContactSaving}
+                  disabled={addContactSaving || addContactResolving}
                   onClick={() => void addCustomOutreachContact()}
                   type="button"
                 >
