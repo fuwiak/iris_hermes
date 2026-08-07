@@ -418,13 +418,33 @@ def _guess_sex_from_name(name: str) -> str:
 
 
 def _guess_state(row: dict[str, Any]) -> str:
-    orders = int(row.get("order_count") or row.get("Всего заказов") or 0)
-    last = str(row.get("last_order_at") or row.get("Дата последнего заказа") or "")
-    if orders <= 0:
+    from plugins.moysklad.order_status import summarize_order_context
+
+    ctx = row.get("_orders_context") if isinstance(row.get("_orders_context"), list) else []
+    payment = summarize_order_context(ctx)
+    fulfilled = int(
+        row.get("fulfilled_order_count")
+        or payment.get("fulfilled_order_count")
+        or 0
+    )
+    total = int(
+        row.get("order_count")
+        or row.get("Всего заказов")
+        or payment.get("order_count")
+        or 0
+    )
+    unpaid_n = int(payment.get("unpaid_order_count") or 0)
+    cancelled_n = int(payment.get("cancelled_order_count") or 0)
+    if payment.get("failed_only") or (total > 0 and fulfilled <= 0 and (unpaid_n + cancelled_n) > 0):
+        return "несостоявшийся"
+    last = str(
+        row.get("last_order_at")
+        or row.get("Дата последнего заказа")
+        or payment.get("last_paid_order_at")
+        or ""
+    )
+    if fulfilled <= 1:
         return "новый"
-    if orders == 1:
-        return "новый"
-    # crude: if last order year looks old
     year_m = re.search(r"(20\d{2})", last)
     if year_m:
         try:
@@ -888,10 +908,11 @@ def ai_group_labels_for_client(client_id: str) -> list[str]:
     entry = get_ai_fill_entry(cid)
     if not isinstance(entry, dict):
         return []
-    ai_fields = entry.get("ai_fields") or []
-    if "groups" not in ai_fields:
+    fields = entry.get("fields") or {}
+    value = fields.get("groups")
+    # Prefer fields.groups even if ai_fields stamp was rewritten/lost.
+    if value is None:
         return []
-    value = (entry.get("fields") or {}).get("groups")
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
     if isinstance(value, str) and value.strip():

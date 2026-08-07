@@ -173,12 +173,17 @@ def test_debt_suppresses_upsell_recommendation():
 
 
 def test_unpaid_order_sets_do_not_upsell():
+    """Recent unpaid → payment chase. Stale unpaid → failed, no chase."""
+    from datetime import date, timedelta
+
+    recent = (date.today() - timedelta(days=7)).isoformat() + " 12:00:00"
     row = _sample_row()
     row["balance"] = 0
     row["_orders_context"] = [
         {
             "id": "o1",
-            "moment": "2025-03-05 12:00:00",
+            "moment": recent,
+            "date": recent,
             "sum": 5000,
             "payed_sum": 1000,
             "unpaid": 4000,
@@ -189,4 +194,57 @@ def test_unpaid_order_sets_do_not_upsell():
     detail = build_client_detail(row)
     assert detail["risks"]["unpaid_order_count"] == 1
     assert detail["risks"]["do_not_upsell"] is True
+    assert detail["risks"]["failed_customer"] is False
     assert detail["orders"][0]["unpaid"] == 4000.0
+
+
+def test_stale_unpaid_is_failed_customer_not_payment_chase():
+    row = _sample_row()
+    row["balance"] = 0
+    row["_orders_context"] = [
+        {
+            "id": "o-old",
+            "moment": "2025-03-05 12:00:00",
+            "date": "2025-03-05 12:00:00",
+            "sum": 5000,
+            "payed_sum": 0,
+            "unpaid": 5000,
+            "channel": "Telegram",
+            "product_snippet": "Розы",
+        }
+    ]
+    detail = build_client_detail(row)
+    assert detail["risks"]["failed_customer"] is True
+    assert detail["risks"]["do_not_upsell"] is False
+    rec = detail["ai"]["recommendation"].lower()
+    assert "несостояв" in rec or "оплат" in rec
+    assert "сверке оплаты" not in rec
+    from plugins.moysklad.outreach import heuristic_outreach_message
+
+    draft = heuristic_outreach_message(detail, seller_name="Тест")
+    assert "оплат" not in draft["message"].lower() or "не спрашиваем" in draft["message"].lower()
+    assert "сверк" not in draft["message"].lower()
+
+
+def test_cancelled_order_is_failed_not_new_customer():
+    from plugins.moysklad.ai_fill import _guess_state
+    from plugins.moysklad.order_status import classify_order_payment, summarize_order_context
+
+    order = {
+        "sum": 3000,
+        "payed_sum": 0,
+        "unpaid": 3000,
+        "state": "Отменен",
+        "applicable": False,
+        "moment": "2025-06-01",
+    }
+    assert classify_order_payment(order) == "cancelled"
+    summary = summarize_order_context([order])
+    assert summary["failed_only"] is True
+    assert summary["fulfilled_order_count"] == 0
+    row = {
+        "_orders_context": [order],
+        "order_count": 1,
+        "fulfilled_order_count": 0,
+    }
+    assert _guess_state(row) == "несостоявшийся"

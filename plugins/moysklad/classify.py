@@ -17,6 +17,7 @@ from plugins.moysklad.groups import (
     collect_featured_group_counts,
     split_group_options_by_source,
 )
+from plugins.moysklad.order_status import classify_order_payment, summarize_order_context
 from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_HYBRID,
     channel_name_from_order,
@@ -115,7 +116,8 @@ def build_enriched_catalog(
         state_name = ""
         if isinstance(state, dict):
             state_name = str(state.get("name") or "").strip()
-        order_ctx_by_agent[agent_id].append({
+        applicable = order.get("applicable")
+        ctx_item = {
             "id": str(order.get("id") or "").strip(),
             "Канал продаж": ch or "",
             "channel": ch or "",
@@ -124,14 +126,18 @@ def build_enriched_catalog(
             "payed_sum": payed if order.get("payedSum") is not None else None,
             "unpaid": unpaid,
             "state": state_name,
+            "applicable": applicable if isinstance(applicable, bool) else None,
             "Дата": order.get("moment"),
             "moment": order.get("moment"),
             "description": desc,
             "name": oname,
             "product_snippet": snippet,
             "_month": month,
-        })
-        if amount > 0:
+        }
+        ctx_item["payment_status"] = classify_order_payment(ctx_item)
+        order_ctx_by_agent[agent_id].append(ctx_item)
+        # Avg check only from paid orders — failed checkouts must not inflate.
+        if amount > 0 and ctx_item["payment_status"] == "paid":
             sums_by_agent[agent_id].append(amount)
         name = _agent_name_from_order(order)
         if name and agent_id not in names_by_agent:
@@ -173,31 +179,31 @@ def build_enriched_catalog(
         row["Тип канала продаж"] = sales_type
         row["Тип продаж"] = sales_type
 
+        payment = summarize_order_context(ctx if isinstance(ctx, list) else [])
         amounts = sums_by_agent.get(cp_id) or []
-        if not amounts:
-            for item in ctx:
-                try:
-                    amt = float((item or {}).get("sum") or (item or {}).get("Сумма") or 0)
-                except (TypeError, ValueError):
-                    amt = 0.0
-                if amt > 0:
-                    amounts.append(amt)
-        order_count = len(ctx) if ctx else 0
-        # NULL-safe: no positive amounts → avg_check is None (UI shows «—»).
-        avg_check = (round(sum(amounts) / len(amounts), 2) if amounts else None)
-        last_order = ""
-        for item in ctx:
-            moment = str(
-                (item or {}).get("moment")
-                or (item or {}).get("Дата")
-                or ""
-            ).strip()
-            if moment and moment > last_order:
-                last_order = moment
+        if not amounts and payment.get("avg_check_paid") is not None:
+            amounts = [float(payment["avg_check_paid"])]
+        # Display totals include all API orders; fulfilled = paid only.
+        order_count = int(payment.get("order_count") or 0)
+        fulfilled = int(payment.get("fulfilled_order_count") or 0)
+        avg_check = payment.get("avg_check_paid")
+        if avg_check is None and amounts:
+            avg_check = round(sum(amounts) / len(amounts), 2)
+        last_order = (
+            payment.get("last_paid_order_at")
+            or payment.get("last_order_at")
+            or ""
+        )
         row["Всего заказов"] = order_count
         row["Средний чек"] = avg_check if avg_check is not None else ""
         row["Дата последнего заказа"] = last_order or ""
         row["order_count"] = order_count
+        row["fulfilled_order_count"] = fulfilled
+        row["paid_order_count"] = int(payment.get("paid_order_count") or 0)
+        row["unpaid_order_count"] = int(payment.get("unpaid_order_count") or 0)
+        row["cancelled_order_count"] = int(payment.get("cancelled_order_count") or 0)
+        row["failed_only"] = bool(payment.get("failed_only"))
+        row["customer_outcome"] = payment.get("customer_outcome") or "none"
         row["avg_check"] = avg_check
         row["last_order_at"] = last_order or None
         refresh_row_channel_fields(row)
@@ -266,24 +272,20 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
     )
     if last_order_at == "":
         last_order_at = None
+    payment = summarize_order_context(ctx if isinstance(ctx, list) else [])
     if isinstance(ctx, list) and ctx:
-        amounts: list[float] = []
-        last = ""
-        for item in ctx:
-            if not isinstance(item, dict):
-                continue
+        order_count = int(payment.get("order_count") or len(ctx))
+        avg_check = payment.get("avg_check_paid")
+        if avg_check is None and raw_avg not in (None, ""):
             try:
-                amount = float(item.get("sum") or item.get("Сумма") or 0)
+                avg_check = float(raw_avg)
             except (TypeError, ValueError):
-                amount = 0.0
-            if amount > 0:
-                amounts.append(amount)
-            moment = str(item.get("moment") or item.get("Дата") or "").strip()
-            if moment and moment > last:
-                last = moment
-        order_count = len(ctx)
-        avg_check = round(sum(amounts) / len(amounts), 2) if amounts else None
-        last_order_at = last or None
+                avg_check = None
+        last_order_at = (
+            payment.get("last_paid_order_at")
+            or payment.get("last_order_at")
+            or last_order_at
+        )
     elif not ctx:
         # No order context and no stored count → keep zeros / nulls honest.
         if not order_count:
@@ -307,8 +309,31 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         "channel": channel_display,
         "sales_type": sales_type,
         "order_count": order_count,
+        "fulfilled_order_count": int(
+            row.get("fulfilled_order_count")
+            or payment.get("fulfilled_order_count")
+            or 0
+        ),
+        "paid_order_count": int(
+            row.get("paid_order_count") or payment.get("paid_order_count") or 0
+        ),
+        "unpaid_order_count": int(
+            row.get("unpaid_order_count") or payment.get("unpaid_order_count") or 0
+        ),
+        "cancelled_order_count": int(
+            row.get("cancelled_order_count")
+            or payment.get("cancelled_order_count")
+            or 0
+        ),
+        "failed_only": bool(row.get("failed_only") or payment.get("failed_only")),
+        "customer_outcome": (
+            row.get("customer_outcome")
+            or payment.get("customer_outcome")
+            or "none"
+        ),
         "avg_check": avg_check,
         "last_order_at": last_order_at,
+        "birthdate": row.get("Дата рождения") or row.get("birthdate") or "",
         "bonus_points": row.get("Баллы начисленные") or "",
         "role": row.get("Заказчик или получатель") or "",
         "actual_address": row.get("Фактический адрес") or "",

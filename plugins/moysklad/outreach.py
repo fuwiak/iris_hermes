@@ -420,7 +420,14 @@ def heuristic_outreach_message(
             fact_hint = f" {clause}."
 
     greeting = f"Здравствуйте, {first}!"
-    if risks.get("do_not_upsell"):
+    if risks.get("failed_customer"):
+        message = (
+            f"{greeting} {intro}{fact_hint} "
+            f"Если снова планируете букет — напишите, подберём спокойно под ваш повод. "
+            f"Про прошлые неоплаченные заказы не спрашиваем."
+        )
+        notes = "Несостоявшийся клиент — без chase оплаты и без ссылок на сорвавшийся заказ."
+    elif risks.get("do_not_upsell"):
         message = _payment_reminder_message(detail, seller_name=seller_name)
         notes = "Риск/долг в фактах — без upsell букетов, только сверка оплаты."
     elif data_thin or not orders:

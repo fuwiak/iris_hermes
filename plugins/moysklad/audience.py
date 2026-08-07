@@ -192,6 +192,34 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
             if month:
                 # Mid-month default for «событие марта» buckets.
                 _add(_next_annual(month, 15, today=today))
+
+    # Soft occasions from paid/any order months — so «N дней до события»
+    # finds clients with seasonal history even without explicit tags.
+    for item in row.get("_orders_context") or []:
+        if not isinstance(item, dict):
+            continue
+        month = item.get("_month")
+        if month is None:
+            moment = str(item.get("moment") or item.get("Дата") or "")
+            if len(moment) >= 7 and moment[4] == "-":
+                try:
+                    month = int(moment[5:7])
+                except ValueError:
+                    month = None
+        try:
+            month_i = int(month) if month is not None else 0
+        except (TypeError, ValueError):
+            month_i = 0
+        if month_i == 2:
+            _add(_next_annual(2, 14, today=today))
+        elif month_i == 3:
+            _add(_next_annual(3, 8, today=today))
+        elif month_i == 9:
+            _add(_next_annual(9, 1, today=today))
+        elif month_i in (11, 12, 1):
+            _add(_next_annual(1, 1, today=today))
+            if month_i == 11:
+                _add(_next_annual(11, 27, today=today))
     return found
 
 
@@ -205,6 +233,9 @@ def row_matches_days_before_event(
 
     ``days <= 0`` disables the window filter (always True).
     Window is inclusive: delta in ``[0, days]``.
+
+    If no concrete dates resolve, fall back to soft birthday/occasion tags so
+    the chip does not empty the whole audience list.
     """
     try:
         window = int(days)
@@ -214,13 +245,14 @@ def row_matches_days_before_event(
         return True
     today = today or date.today()
     dates = event_dates_for_row(row, today=today)
-    if not dates:
+    if dates:
+        for event_date in dates:
+            delta = (event_date - today).days
+            if 0 <= delta <= window:
+                return True
         return False
-    for event_date in dates:
-        delta = (event_date - today).days
-        if 0 <= delta <= window:
-            return True
-    return False
+    # No dated events — keep tagged «событие» / ДР clients visible.
+    return row_matches_birthday_occasion(row)
 
 
 def normalize_group_source(value: str) -> str:

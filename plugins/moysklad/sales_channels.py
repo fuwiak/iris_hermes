@@ -478,6 +478,20 @@ _ATTR_ALIASES: dict[str, tuple[str, ...]] = {
         "телеграм диалог",
     ),
     "sex": ("пол", "sex", "gender"),
+    "birthdate": (
+        "дата рождения",
+        "день рождения",
+        "др",
+        "birthday",
+        "birthdate",
+        "birth day",
+    ),
+    "company_type": (
+        "тип контрагента",
+        "тип компании",
+        "company type",
+        "форма собственности",
+    ),
 }
 
 
@@ -603,9 +617,11 @@ def counterparty_row_from_api(
         "Тип канала продаж": sales_type,
         "Тип продаж": sales_type,
         "Тип контрагента": _company_type_label(
-            cp.get("companyType") or cp.get("company_type")
+            cp.get("companyType") or cp.get("company_type") or attrs.get("company_type")
         ),
         "Пол": sex,
+        "Дата рождения": attrs.get("birthdate") or "",
+        "birthdate": attrs.get("birthdate") or "",
         "Фактический адрес": actual_address,
         "Фактический адрес (Комментарий)": attrs.get("actual_address_comment") or "",
         "Баллы начисленные": attrs.get("bonus_points") or "",

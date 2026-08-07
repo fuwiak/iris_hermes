@@ -46,7 +46,7 @@ def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
     }
     fills = heuristic_fill_row(row)
     assert fills.get("sex") == "Женский"
-    assert fills.get("state") in {"активный", "новый", "спящий"}
+    assert fills.get("state") in {"активный", "новый", "спящий", "несостоявшийся"}
     assert fills.get("groups")
     assert "постоянный клиент" in fills["groups"] or "премиум" in fills["groups"] or fills["groups"]
 

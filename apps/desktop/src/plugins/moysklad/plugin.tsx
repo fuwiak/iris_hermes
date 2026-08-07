@@ -39,7 +39,8 @@ function GroupCloudSection({
   activeSource,
   sourceKey,
   onToggle,
-  limit = 24
+  limit = 24,
+  emptyHint
 }: {
   title: string
   items: GroupChipOption[]
@@ -48,8 +49,19 @@ function GroupCloudSection({
   sourceKey: 'ms' | 'ai'
   onToggle: (name: string, source: 'ms' | 'ai') => void
   limit?: number
+  emptyHint?: string
 }) {
-  if (!items.length) {return null}
+  if (!items.length) {
+    return (
+      <div className="ms-filter-block ms-group-cloud">
+        <div className="ms-group-cloud-head">
+          <span className="ms-group-cloud-title">{title}</span>
+          <span className="ms-muted">0</span>
+        </div>
+        <p className="ms-muted">{emptyHint || 'Нет групп для фильтра'}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="ms-filter-block ms-group-cloud">
@@ -2169,6 +2181,7 @@ function ClientsPage() {
       <GroupCloudSection
         activeGroup={group}
         activeSource={groupSource}
+        emptyHint="Нет тегов МойСклад в текущей выборке"
         items={groupOptionsMs}
         limit={28}
         onToggle={(name, source) => {
@@ -2186,6 +2199,7 @@ function ClientsPage() {
       <GroupCloudSection
         activeGroup={group}
         activeSource={groupSource}
+        emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
         items={groupOptionsAi}
         limit={28}
         onToggle={(name, source) => {
@@ -2897,6 +2911,7 @@ function CampaignsPage() {
 
   useEffect(() => {
     void loadAudience()
+    setContactsOpen(true)
   }, [
     salesFilter,
     group,
@@ -4094,6 +4109,7 @@ function CampaignsPage() {
         <GroupCloudSection
           activeGroup={group}
           activeSource={groupSource}
+          emptyHint="Нет тегов МойСклад в текущей выборке"
           items={groupOptionsMs}
           onToggle={(name, source) => {
             if (group === name && groupSource === source) {
@@ -4110,6 +4126,7 @@ function CampaignsPage() {
         <GroupCloudSection
           activeGroup={group}
           activeSource={groupSource}
+          emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
           items={groupOptionsAi}
           onToggle={(name, source) => {
             if (group === name && groupSource === source) {
@@ -4164,15 +4181,13 @@ function CampaignsPage() {
                   Несколько
                 </button>
               </div>
-              {audiencePreview.length ? (
-                <button
-                  className="ms-link-btn"
-                  onClick={() => setContactsOpen(open => !open)}
-                  type="button"
-                >
-                  {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
-                </button>
-              ) : null}
+              <button
+                className="ms-link-btn"
+                onClick={() => setContactsOpen(open => !open)}
+                type="button"
+              >
+                {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
+              </button>
             </div>
           </div>
           {contactsOpen ? (
@@ -4240,7 +4255,11 @@ function CampaignsPage() {
                 </div>
               ) : (
                 <p className="ms-muted">
-                  {loading ? 'Загрузка аудитории…' : 'Нет клиентов под текущие фильтры / поиск.'}
+                  {loading
+                    ? 'Загрузка аудитории…'
+                    : daysBeforeEvent > 0
+                      ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события (даты из тегов / сезона заказов). Снимите фильтр или выберите другую группу.`
+                      : 'Нет клиентов под текущие фильтры / поиск.'}
                 </p>
               )}
             </>

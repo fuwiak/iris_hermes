@@ -133,10 +133,25 @@ def heuristic_groups_for_row(row: dict[str, Any]) -> list[str]:
     elif avg >= 10000:
         parts.append("букет от 10 000")
 
-    orders = _as_int(row.get("Всего заказов") or row.get("order_count"))
-    if orders >= 3:
+    from plugins.moysklad.order_status import summarize_order_context
+
+    payment = summarize_order_context(
+        row.get("_orders_context") if isinstance(row.get("_orders_context"), list) else []
+    )
+    fulfilled = _as_int(
+        row.get("fulfilled_order_count")
+        if row.get("fulfilled_order_count") is not None
+        else payment.get("fulfilled_order_count")
+    )
+    orders = _as_int(row.get("Всего заказов") or row.get("order_count") or payment.get("order_count"))
+    if payment.get("failed_only") or (orders > 0 and fulfilled <= 0 and (
+        int(payment.get("unpaid_order_count") or 0)
+        + int(payment.get("cancelled_order_count") or 0)
+    ) > 0):
+        parts.append("несостоявшийся")
+    elif fulfilled >= 3:
         parts.append("постоянный клиент")
-    elif orders <= 1:
+    elif fulfilled <= 1:
         parts.append("новый")
 
     # Sales-type tags come from order channels only — MoySklad group tags

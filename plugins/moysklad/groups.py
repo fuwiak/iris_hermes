@@ -156,14 +156,23 @@ def row_groups(row: dict[str, Any]) -> list[str]:
 
 
 def row_ai_groups(row: dict[str, Any]) -> list[str]:
-    """Groups filled by AI overlay for this counterparty (may be empty)."""
+    """AI overlay groups; fall back to heuristics so chip cloud never vanishes."""
     cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
-    if not cid:
-        return []
-    try:
-        from plugins.moysklad.ai_fill import ai_group_labels_for_client
+    stamped: list[str] = []
+    if cid:
+        try:
+            from plugins.moysklad.ai_fill import ai_group_labels_for_client
 
-        return ai_group_labels_for_client(cid)
+            stamped = ai_group_labels_for_client(cid)
+        except Exception:
+            stamped = []
+    if stamped:
+        return stamped
+    # Soft AI: deterministic heuristic proposals (same as AI fill without LLM).
+    try:
+        from plugins.moysklad.assign_groups import heuristic_groups_for_row
+
+        return heuristic_groups_for_row(row)
     except Exception:
         return []
 

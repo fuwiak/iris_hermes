@@ -97,48 +97,94 @@ def compute_risks(
     *,
     data_thin: bool = False,
 ) -> dict[str, Any]:
-    """Grounded debt / unpaid / upsell-block flags. Never invents debt."""
+    """Grounded debt / unpaid / upsell-block flags. Never invents debt.
+
+    Stale unpaid / cancelled-only history → ``failed_customer`` (not payment chase).
+    Recent unpaid or balance debt → ``do_not_upsell`` + payment nudge.
+    """
+    from plugins.moysklad.order_status import (
+        classify_order_payment,
+        order_is_recent,
+        summarize_order_context,
+    )
+
     balance = _parse_balance_rub(client.get("balance"))
     # Negative balance ⇒ client owes the company (MoySklad Remap semantics).
     has_debt = balance is not None and balance < -0.009
     debt_amount = round(abs(balance), 2) if has_debt else 0.0
 
+    payment = summarize_order_context(orders)
     unpaid_orders: list[dict[str, Any]] = []
+    recent_unpaid_orders: list[dict[str, Any]] = []
     unpaid_total = 0.0
+    recent_unpaid_total = 0.0
     for o in orders or []:
+        status = classify_order_payment(o)
+        if status == "cancelled":
+            continue
         unpaid = o.get("unpaid")
-        if unpaid is None:
+        if unpaid is None and status != "unpaid":
             continue
         try:
-            unpaid_f = float(unpaid)
+            unpaid_f = float(unpaid) if unpaid is not None else (
+                float(o.get("sum") or 0) if status == "unpaid" else 0.0
+            )
         except (TypeError, ValueError):
             continue
-        if unpaid_f > 0.009:
-            unpaid_orders.append(
-                {
-                    "id": o.get("id"),
-                    "date": (o.get("date") or "")[:16],
-                    "sum": o.get("sum"),
-                    "unpaid": round(unpaid_f, 2),
-                    "product_snippet": o.get("product_snippet") or None,
-                }
-            )
-            unpaid_total += unpaid_f
+        if unpaid_f <= 0.009 and status != "unpaid":
+            continue
+        if unpaid_f <= 0.009:
+            continue
+        entry = {
+            "id": o.get("id"),
+            "date": (o.get("date") or o.get("moment") or "")[:16],
+            "sum": o.get("sum"),
+            "unpaid": round(unpaid_f, 2),
+            "payment_status": status,
+            "product_snippet": o.get("product_snippet") or None,
+            "recent": order_is_recent(o),
+        }
+        unpaid_orders.append(entry)
+        unpaid_total += unpaid_f
+        if entry["recent"]:
+            recent_unpaid_orders.append(entry)
+            recent_unpaid_total += unpaid_f
 
     tags_blob = " ".join(str(t) for t in (client.get("tags") or []))
     state_blob = str(client.get("state") or "")
     debt_tag = bool(_DEBT_TAG_RE.search(tags_blob + " " + state_blob))
 
-    do_not_upsell = bool(has_debt or unpaid_orders or debt_tag)
+    failed_customer = bool(
+        payment.get("failed_only")
+        or (
+            unpaid_orders
+            and not recent_unpaid_orders
+            and not has_debt
+            and int(payment.get("paid_order_count") or 0) <= 0
+        )
+        or "несостояв" in state_blob.lower().replace("ё", "е")
+    )
+    # Recent unpaid with zero paid → still chase payment, not «несостоявшийся».
+    if recent_unpaid_orders and int(payment.get("paid_order_count") or 0) <= 0:
+        failed_customer = False
+    # Payment chase only for live debt / recent unpaid — not abandoned 2025 carts.
+    do_not_upsell = bool(has_debt or recent_unpaid_orders or (debt_tag and not failed_customer))
     flags: list[str] = []
     if has_debt:
         flags.append(f"долг по балансу ≈ {debt_amount:.0f} ₽")
-    if unpaid_orders:
+    if recent_unpaid_orders:
         flags.append(
-            f"неоплаченных заказов: {len(unpaid_orders)} "
-            f"(≈ {unpaid_total:.0f} ₽)"
+            f"свежих неоплаченных заказов: {len(recent_unpaid_orders)} "
+            f"(≈ {recent_unpaid_total:.0f} ₽)"
         )
-    if debt_tag:
+    elif unpaid_orders:
+        flags.append(
+            f"старые неоплаченные/сорвавшиеся заказы: {len(unpaid_orders)} "
+            f"(≈ {unpaid_total:.0f} ₽) — не гонять «где оплата?»"
+        )
+    if failed_customer:
+        flags.append("несостоявшийся клиент (оплаченных заказов нет)")
+    if debt_tag and not failed_customer:
         flags.append("в тегах/статусе есть признак долга/неоплаты")
     if data_thin:
         flags.append("тонкая история — осторожные выводы")
@@ -149,7 +195,13 @@ def compute_risks(
         "debt_amount": debt_amount if has_debt else None,
         "unpaid_order_count": len(unpaid_orders),
         "unpaid_total": round(unpaid_total, 2) if unpaid_orders else 0.0,
-        "unpaid_orders_preview": unpaid_orders[:5],
+        "recent_unpaid_count": len(recent_unpaid_orders),
+        "recent_unpaid_total": round(recent_unpaid_total, 2) if recent_unpaid_orders else 0.0,
+        "unpaid_orders_preview": (recent_unpaid_orders or unpaid_orders)[:5],
+        "paid_order_count": int(payment.get("paid_order_count") or 0),
+        "cancelled_order_count": int(payment.get("cancelled_order_count") or 0),
+        "failed_customer": failed_customer,
+        "customer_outcome": payment.get("customer_outcome") or "none",
         "debt_tag": debt_tag,
         "do_not_upsell": do_not_upsell,
         "data_thin_warning": bool(data_thin),
@@ -372,10 +424,30 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
         "payed_sum": payed_f,
         "unpaid": unpaid_f,
         "state": str(item.get("state") or "").strip() or None,
+        "applicable": item.get("applicable") if isinstance(item.get("applicable"), bool) else None,
+        "payment_status": str(
+            item.get("payment_status")
+            or classify_order_payment_safe(item, payed_f, unpaid_f)
+        ),
         "channel": channel,
         "product_snippet": snippet,
         "description": desc,
     }
+
+
+def classify_order_payment_safe(
+    item: dict[str, Any],
+    payed_f: Optional[float],
+    unpaid_f: Optional[float],
+) -> str:
+    from plugins.moysklad.order_status import classify_order_payment
+
+    stamped = dict(item)
+    if payed_f is not None:
+        stamped["payed_sum"] = payed_f
+    if unpaid_f is not None:
+        stamped["unpaid"] = unpaid_f
+    return classify_order_payment(stamped)
 
 
 def _split_tags(tags: list[Any]) -> dict[str, list[str]]:
@@ -587,14 +659,21 @@ def heuristic_ai(
 
     occasion = " ".join(occasion_parts) + "."
 
-    if risks.get("do_not_upsell"):
+    if risks.get("failed_customer"):
+        rec = (
+            "Несостоявшийся клиент: оплаченных заказов нет "
+            "(неоплата / отмена / сорвавшийся чекаут). "
+            "НЕ спрашивать «где оплата?» и не ссылаться на старый заказ как на покупку. "
+            "Мягкий re-contact без истории оплат, либо пропустить в рассылке «оплата»."
+        )
+    elif risks.get("do_not_upsell"):
         bits = []
         if risks.get("has_debt") and risks.get("debt_amount") is not None:
             bits.append(f"долг ≈ {float(risks['debt_amount']):.0f} ₽")
-        if risks.get("unpaid_order_count"):
+        if risks.get("recent_unpaid_count"):
             bits.append(
-                f"неоплаченных заказов: {risks['unpaid_order_count']} "
-                f"(≈ {float(risks.get('unpaid_total') or 0):.0f} ₽)"
+                f"свежих неоплаченных: {risks['recent_unpaid_count']} "
+                f"(≈ {float(risks.get('recent_unpaid_total') or 0):.0f} ₽)"
             )
         rec = (
             "НЕ предлагать дорогие букеты / upsell. "
@@ -631,6 +710,7 @@ def heuristic_ai(
         "source": "heuristic",
         "data_thin": data_thin,
         "do_not_upsell": bool(risks.get("do_not_upsell")),
+        "failed_customer": bool(risks.get("failed_customer")),
     }
 
 

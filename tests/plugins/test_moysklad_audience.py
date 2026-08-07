@@ -87,6 +87,46 @@ def test_split_group_options_by_source() -> None:
     assert not any(i["name"] == "премиум" for i in split["ms"])
 
 
+def test_days_before_event_soft_tag_fallback() -> None:
+    """Tagged event without concrete date still matches window filter."""
+    today = date(2026, 6, 1)  # far from fixed occasions
+    row = {"_moysklad_tags": ["день рождения", "событие"], "_moysklad_id": "x"}
+    assert row_matches_days_before_event(row, 5, today=today) is True
+    assert row_matches_days_before_event(row, 5, today=today) is True
+
+
+def test_days_before_from_order_season() -> None:
+    today = date(2026, 3, 4)
+    row = {
+        "_moysklad_id": "s1",
+        "_moysklad_tags": [],
+        "_orders_context": [
+            {"moment": "2025-03-10 12:00:00", "sum": 1000, "_month": 3},
+        ],
+    }
+    assert row_matches_days_before_event(row, 5, today=today) is True
+
+
+def test_row_ai_groups_heuristic_fallback(monkeypatch) -> None:
+    from plugins.moysklad import groups as groups_mod
+
+    monkeypatch.setattr(
+        "plugins.moysklad.ai_fill.ai_group_labels_for_client",
+        lambda _cid: [],
+    )
+    row = {
+        "_moysklad_id": "h1",
+        "order_count": 1,
+        "avg_check": 15000,
+        "_orders_context": [{"Канал продаж": "Telegram", "sum": 15000, "payment_status": "paid"}],
+        "fulfilled_order_count": 1,
+        "paid_order_count": 1,
+    }
+    tokens = groups_mod.row_ai_groups(row)
+    assert tokens
+    assert any("новый" in t.lower() or "премиум" in t.lower() for t in tokens)
+
+
 def test_catalog_integrity_partition() -> None:
     rows = [
         {
