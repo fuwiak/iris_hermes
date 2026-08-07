@@ -63,6 +63,57 @@ def test_normalize_group_aliases_and_counts() -> None:
     assert names.get("букет от 10 000") == 1
     # No double-count under nominative alias
     assert "событие март" not in names
+    by_name = {item["name"]: item for item in cloud}
+    assert by_name["8 марта"]["source"] == "ms"
+    assert by_name["8 марта"]["ms_count"] == 1
+    assert by_name["8 марта"]["ai_count"] == 0
+
+
+def test_group_cloud_marks_ms_vs_ai(monkeypatch) -> None:
+    """Chip cloud merges MoySklad tags + AI overlay and labels source."""
+    from plugins.moysklad import groups as groups_mod
+
+    def _fake_ai(cid: str) -> list[str]:
+        return {
+            "c-ms": [],
+            "c-ai": ["премиум", "новый"],
+            "c-both": ["8 марта"],
+        }.get(cid, [])
+
+    monkeypatch.setattr(groups_mod, "row_ai_groups", lambda row: _fake_ai(
+        str(row.get("_moysklad_id") or "")
+    ))
+
+    rows = [
+        {
+            "_moysklad_id": "c-ms",
+            "_moysklad_tags": ["8 марта"],
+            "_moysklad_tags_display": "8 марта",
+        },
+        {
+            "_moysklad_id": "c-ai",
+            "_moysklad_tags": [],
+        },
+        {
+            "_moysklad_id": "c-both",
+            "_moysklad_tags": ["8 марта"],
+            "_moysklad_tags_display": "8 марта",
+        },
+    ]
+    cloud = collect_featured_group_counts(rows, sales_filter="direct")
+    by_name = {item["name"]: item for item in cloud}
+
+    march = by_name["8 марта"]
+    assert march["source"] == "both"
+    assert march["ms_count"] == 2
+    assert march["ai_count"] == 1
+
+    assert by_name["премиум"]["source"] == "ai"
+    assert by_name["премиум"]["ai_count"] == 1
+    assert by_name["премиум"]["ms_count"] == 0
+    assert by_name["новый"]["source"] == "ai"
+
+    assert row_has_group(rows[1], "премиум") is True
 
 
 def test_heuristic_groups_avg_and_orders() -> None:

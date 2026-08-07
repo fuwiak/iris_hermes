@@ -875,3 +875,37 @@ td.ms-ai-added {
   white-space: nowrap;
   max-width: 18rem;
 }
+
+.ms-group-chip.is-ms {
+  border-color: color-mix(in srgb, #5b8def 55%, transparent);
+}
+.ms-group-chip.is-ai {
+  border-color: color-mix(in srgb, #5db872 65%, transparent);
+  background: color-mix(in srgb, #5db872 14%, transparent);
+}
+.ms-group-chip.is-both {
+  border-color: color-mix(in srgb, #c084fc 55%, transparent);
+}
+.ms-chip-src {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.ms-chip-src-ms {
+  color: #9ec1ff;
+  background: color-mix(in srgb, #5b8def 22%, transparent);
+}
+.ms-chip-src-ai {
+  color: #c8f5d4;
+  background: color-mix(in srgb, #5db872 28%, transparent);
+}
+.ms-chip-src-both {
+  color: #e9d5ff;
+  background: color-mix(in srgb, #c084fc 28%, transparent);
+}

@@ -155,15 +155,96 @@ def row_groups(row: dict[str, Any]) -> list[str]:
     return moysklad_group_tokens(row)
 
 
+def row_ai_groups(row: dict[str, Any]) -> list[str]:
+    """Groups filled by AI overlay for this counterparty (may be empty)."""
+    cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+    if not cid:
+        return []
+    try:
+        from plugins.moysklad.ai_fill import ai_group_labels_for_client
+
+        return ai_group_labels_for_client(cid)
+    except Exception:
+        return []
+
+
+def row_all_groups(row: dict[str, Any]) -> list[str]:
+    """MoySklad tags ∪ AI overlay groups (deduped by canonical key)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in list(row_groups(row)) + list(row_ai_groups(row)):
+        key = normalize_group_key(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(canonical_group_label(name))
+    return out
+
+
 def row_has_group(row: dict[str, Any], group: str) -> bool:
     target = normalize_group_key(group)
     if not target:
         return True
-    return any(normalize_group_key(n) == target for n in row_groups(row))
+    return any(normalize_group_key(n) == target for n in row_all_groups(row))
 
 
 def group_chip_hue(name: str) -> int:
     return sum(ord(c) for c in name) % 360
+
+
+def _count_group_hits(
+    rows: list[dict[str, Any]],
+    *,
+    featured: tuple[str, ...],
+    selected_key: str,
+) -> tuple[Counter[str], Counter[str], dict[str, str]]:
+    """Return (ms_counter, ai_counter, display_label_by_key)."""
+    featured_keys = {normalize_group_key(label): label for label in featured}
+    display: dict[str, str] = {
+        normalize_group_key(label): canonical_group_label(label) for label in featured
+    }
+    ms_counter: Counter[str] = Counter()
+    ai_counter: Counter[str] = Counter()
+    event_re = re.compile(r"событи", re.IGNORECASE)
+
+    def _hits_for(tokens: list[str], *, include_all: bool) -> set[str]:
+        hit_keys: set[str] = set()
+        for label in featured:
+            label_key = normalize_group_key(label)
+            if any(
+                normalize_group_key(group) == label_key
+                or _token_matches_any(group, (label, display.get(label_key, label)))
+                for group in tokens
+            ):
+                hit_keys.add(label_key)
+        for group in tokens:
+            gkey = normalize_group_key(group)
+            if not gkey:
+                continue
+            if include_all or event_re.search(group) or event_re.search(gkey):
+                display.setdefault(gkey, canonical_group_label(group))
+                hit_keys.add(gkey)
+            elif gkey in featured_keys:
+                hit_keys.add(gkey)
+                display.setdefault(gkey, canonical_group_label(featured_keys[gkey]))
+            elif gkey == selected_key:
+                display.setdefault(gkey, canonical_group_label(group))
+                hit_keys.add(gkey)
+        return hit_keys
+
+    for row in rows:
+        ms_tokens = row_groups(row)
+        ai_tokens = row_ai_groups(row)
+        for key in _hits_for(ms_tokens, include_all=False):
+            if key:
+                ms_counter[key] += 1
+        for key in _hits_for(ai_tokens, include_all=True):
+            if key:
+                ai_counter[key] += 1
+        if selected_key and selected_key not in display:
+            display[selected_key] = canonical_group_label(selected_key)
+
+    return ms_counter, ai_counter, display
 
 
 def collect_featured_group_counts(
@@ -172,74 +253,65 @@ def collect_featured_group_counts(
     sales_filter: str = "all",
     selected: str = "",
 ) -> list[dict[str, Any]]:
-    """Chip cloud: shared occasions + event-<month>, counts after label normalize."""
+    """Chip cloud: MoySklad (МС) + AI overlay groups, one chip per canonical key.
+
+    Each item has ``source``: ``ms`` | ``ai`` | ``both``.
+    """
     featured = crm_featured_groups(sales_filter)
     featured_keys = [normalize_group_key(label) for label in featured]
-    counter: Counter[str] = Counter()
-    display: dict[str, str] = {
-        normalize_group_key(label): canonical_group_label(label) for label in featured
-    }
     selected_name = str(selected or "").strip()
     selected_key = normalize_group_key(selected_name)
+    ms_counter, ai_counter, display = _count_group_hits(
+        rows, featured=featured, selected_key=selected_key
+    )
     if selected_key and selected_key not in display:
         display[selected_key] = canonical_group_label(selected_name) or selected_name
 
-    event_re = re.compile(r"событи", re.IGNORECASE)
-    for row in rows:
-        groups = row_groups(row)
-        if not groups:
-            continue
-        hit_keys: set[str] = set()
-        for label in featured:
-            label_key = normalize_group_key(label)
-            if any(
-                normalize_group_key(group) == label_key
-                or _token_matches_any(group, (label, display.get(label_key, label)))
-                for group in groups
-            ):
-                hit_keys.add(label_key)
-        for group in groups:
-            gkey = normalize_group_key(group)
-            if event_re.search(group) or event_re.search(gkey):
-                display.setdefault(gkey, canonical_group_label(group))
-                hit_keys.add(gkey)
-        if selected_key and any(normalize_group_key(g) == selected_key for g in groups):
-            hit_keys.add(selected_key)
-        for key in hit_keys:
-            if key:
-                counter[key] += 1
-
-    items: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
-    for label, key in zip(featured, featured_keys):
-        count = int(counter.get(key, 0))
-        if count <= 0 and key != selected_key:
-            continue
-        items.append({
-            "name": display.get(key) or label,
-            "count": count,
-            "hue": group_chip_hue(display.get(key) or label),
-            "source": "ms",
-        })
-        seen_keys.add(key)
-    for key, count in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0])):
-        if key in seen_keys:
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for key in featured_keys:
+        if key and key not in seen:
+            seen.add(key)
+            all_keys.append(key)
+    for key in sorted(
+        set(ms_counter) | set(ai_counter) | ({selected_key} if selected_key else set()),
+        key=lambda k: (-(ms_counter.get(k, 0) + ai_counter.get(k, 0)), k),
+    ):
+        if not key or key in seen:
             continue
         label = display.get(key, key)
-        if not event_re.search(label) and key != selected_key:
+        # MS: featured/events only (already in featured_keys loop).
+        # AI: also surface AI-only tags like «премиум» / «новый».
+        if (
+            key == selected_key
+            or re.search(r"событи", label, re.I)
+            or ai_counter.get(key, 0) > 0
+        ):
+            seen.add(key)
+            all_keys.append(key)
+
+    items: list[dict[str, Any]] = []
+    for key in all_keys:
+        ms_n = int(ms_counter.get(key, 0))
+        ai_n = int(ai_counter.get(key, 0))
+        if ms_n <= 0 and ai_n <= 0 and key != selected_key:
             continue
+        if ms_n > 0 and ai_n > 0:
+            source = "both"
+            count = max(ms_n, ai_n)
+        elif ai_n > 0:
+            source = "ai"
+            count = ai_n
+        else:
+            source = "ms"
+            count = ms_n
+        label = display.get(key) or key
         items.append({
             "name": label,
             "count": int(count),
+            "ms_count": ms_n,
+            "ai_count": ai_n,
             "hue": group_chip_hue(label),
-            "source": "ms",
-        })
-        seen_keys.add(key)
-    if selected_key and selected_key not in seen_keys:
-        items.append({
-            "name": display[selected_key],
-            "count": int(counter.get(selected_key, 0)),
-            "hue": group_chip_hue(display[selected_key]),
-            "source": "ms",
+            "source": source,
         })
     return items

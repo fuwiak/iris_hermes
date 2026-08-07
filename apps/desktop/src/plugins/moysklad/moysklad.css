@@ -736,3 +736,86 @@ td.ms-ai-added {
   white-space: nowrap;
   max-width: 18rem;
 }
+
+.ms-group-cloud {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.ms-group-cloud-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+.ms-group-cloud-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.ms-legend {
+  display: inline-flex;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+.ms-legend .leg-ms { color: #9ec1ff; }
+.ms-legend .leg-ai { color: #7dffa0; }
+.ms-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.ms-group-chip {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, #3a1840 55%, transparent);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ms-group-chip.is-active {
+  outline: 2px solid #c084fc;
+  font-weight: 600;
+}
+.ms-group-chip.is-ms {
+  border-color: color-mix(in srgb, #5b8def 55%, transparent);
+}
+.ms-group-chip.is-ai {
+  border-color: color-mix(in srgb, #5db872 65%, transparent);
+  background: color-mix(in srgb, #5db872 14%, transparent);
+}
+.ms-group-chip.is-both {
+  border-color: color-mix(in srgb, #c084fc 55%, transparent);
+}
+.ms-chip-src {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.ms-chip-src-ms {
+  color: #9ec1ff;
+  background: color-mix(in srgb, #5b8def 22%, transparent);
+}
+.ms-chip-src-ai {
+  color: #c8f5d4;
+  background: color-mix(in srgb, #5db872 28%, transparent);
+}
+.ms-chip-src-both {
+  color: #e9d5ff;
+  background: color-mix(in srgb, #c084fc 28%, transparent);
+}
+.ms-group-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  font-size: 0.75rem;
+}

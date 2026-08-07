@@ -10,6 +10,27 @@ import {
 } from '@hermes/plugin-sdk'
 import { type FormEvent, type UIEvent, useCallback, useEffect, useRef, useState } from 'react'
 
+interface GroupChipOption {
+  name: string
+  count: number
+  source?: 'ms' | 'ai' | 'both' | string
+  ms_count?: number
+  ai_count?: number
+  hue?: number
+}
+
+function groupChipSrcLabel(source?: string): string {
+  if (source === 'ai') return 'AI'
+  if (source === 'both') return 'МС+AI'
+  return 'МС'
+}
+
+function groupChipSrcClass(source?: string): string {
+  if (source === 'ai') return 'is-ai'
+  if (source === 'both') return 'is-both'
+  return 'is-ms'
+}
+
 interface ClientOrder {
   id?: string
   name?: string
@@ -1080,7 +1101,7 @@ function ClientsPage() {
   const [matched, setMatched] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [nextOffset, setNextOffset] = useState(0)
-  const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
+  const [groupOptions, setGroupOptions] = useState<GroupChipOption[]>([])
   const [syncedLabel, setSyncedLabel] = useState('')
   const [fromCache, setFromCache] = useState(false)
   const [cardClientId, setCardClientId] = useState<string | null>(null)
@@ -1132,7 +1153,7 @@ function ClientsPage() {
           has_more?: boolean
           next_offset?: number
           returned?: number
-          group_options?: Array<{ name: string; count: number }>
+          group_options?: GroupChipOption[]
           cached?: boolean
           synced_at_label?: string
           synced_at?: number
@@ -1305,17 +1326,42 @@ function ClientsPage() {
         />
       </div>
       {groupOptions.length > 0 ? (
-        <div className="ms-chips">
-          {groupOptions.slice(0, 24).map(opt => (
-            <button
-              className={`ms-chip${group === opt.name ? ' is-active' : ''}`}
-              key={opt.name}
-              onClick={() => setGroup(group === opt.name ? '' : opt.name)}
-              type="button"
-            >
-              {opt.name} <span>{opt.count}</span>
-            </button>
-          ))}
+        <div className="ms-group-cloud">
+          <div className="ms-group-cloud-head">
+            <span className="ms-group-cloud-title">Группы</span>
+            <span aria-hidden className="ms-legend">
+              <span className="leg-ms">● МС</span>
+              <span className="leg-ai">● AI</span>
+            </span>
+            <span className="ms-muted">МойСклад + AI · {groupOptions.length}</span>
+          </div>
+          <div className="ms-group-chips">
+            {groupOptions.slice(0, 28).map(opt => {
+              const src = opt.source || 'ms'
+              return (
+                <button
+                  className={`ms-group-chip ${groupChipSrcClass(src)}${group === opt.name ? ' is-active' : ''}`}
+                  key={`${opt.name}:${src}`}
+                  onClick={() => setGroup(group === opt.name ? '' : opt.name)}
+                  title={[
+                    `${opt.count} клиентов`,
+                    `источник: ${groupChipSrcLabel(src)}`,
+                    opt.ms_count ? `МС ${opt.ms_count}` : '',
+                    opt.ai_count ? `AI ${opt.ai_count}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  type="button"
+                >
+                  <span className={`ms-chip-src ms-chip-src-${src}`}>
+                    {groupChipSrcLabel(src)}
+                  </span>
+                  {opt.name}
+                  <span className="ms-group-chip-count">{opt.count}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       ) : null}
       {error ? <div className="ms-error">{error}</div> : null}
@@ -1510,7 +1556,7 @@ function CampaignsPage() {
   const [audienceHasMore, setAudienceHasMore] = useState(false)
   const [audienceNextOffset, setAudienceNextOffset] = useState(0)
   const [audienceLoadingMore, setAudienceLoadingMore] = useState(false)
-  const [groupOptions, setGroupOptions] = useState<Array<{ name: string; count: number }>>([])
+  const [groupOptions, setGroupOptions] = useState<GroupChipOption[]>([])
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
   const [selectedClientName, setSelectedClientName] = useState('')
   const [facts, setFacts] = useState<ClientFacts | null>(null)
@@ -1735,7 +1781,7 @@ function CampaignsPage() {
           counts?: Counts
           matched_total?: number
           clients?: ClientRow[]
-          group_options?: Array<{ name: string; count: number }>
+          group_options?: GroupChipOption[]
           has_more?: boolean
           next_offset?: number
         }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`)
@@ -2704,18 +2750,30 @@ function CampaignsPage() {
         </div>
         {groupOptions.length > 0 ? (
           <div className="ms-filter-block">
-            <span className="ms-filter-label">Тег / повод (группы МойСклад)</span>
-            <div className="ms-chips">
-              {groupOptions.slice(0, 20).map(opt => (
-                <button
-                  className={`ms-chip${group === opt.name ? ' is-active' : ''}`}
-                  key={opt.name}
-                  onClick={() => setGroup(group === opt.name ? '' : opt.name)}
-                  type="button"
-                >
-                  {opt.name} <span>{opt.count}</span>
-                </button>
-              ))}
+            <span className="ms-filter-label">Группы (МойСклад + AI)</span>
+            <span aria-hidden className="ms-legend">
+              <span className="leg-ms">● МС</span>
+              <span className="leg-ai">● AI</span>
+            </span>
+            <div className="ms-group-chips">
+              {groupOptions.slice(0, 24).map(opt => {
+                const src = opt.source || 'ms'
+                return (
+                  <button
+                    className={`ms-group-chip ${groupChipSrcClass(src)}${group === opt.name ? ' is-active' : ''}`}
+                    key={`${opt.name}:${src}`}
+                    onClick={() => setGroup(group === opt.name ? '' : opt.name)}
+                    title={`${opt.count} · ${groupChipSrcLabel(src)}`}
+                    type="button"
+                  >
+                    <span className={`ms-chip-src ms-chip-src-${src}`}>
+                      {groupChipSrcLabel(src)}
+                    </span>
+                    {opt.name}
+                    <span className="ms-group-chip-count">{opt.count}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         ) : null}

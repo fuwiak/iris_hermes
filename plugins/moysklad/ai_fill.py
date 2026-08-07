@@ -532,3 +532,22 @@ def clear_ai_fill(client_id: str = "") -> dict[str, Any]:
         return {"ok": True, "cleared": client_id}
     _save_store({})
     return {"ok": True, "cleared": "all"}
+
+
+def ai_group_labels_for_client(client_id: str) -> list[str]:
+    """Return AI-stamped group labels for one client (empty if none)."""
+    cid = str(client_id or "").strip()
+    if not cid:
+        return []
+    entry = _load_store().get(cid)
+    if not isinstance(entry, dict):
+        return []
+    ai_fields = entry.get("ai_fields") or []
+    if "groups" not in ai_fields:
+        return []
+    value = (entry.get("fields") or {}).get("groups")
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str) and value.strip():
+        return [p.strip() for p in re.split(r"[,;|/]", value) if p.strip()]
+    return []

@@ -109,17 +109,17 @@
       h(
         "div",
         { className: "ms-group-cloud-head" },
-        h("span", { className: "ms-group-cloud-title" }, "Группы (МойСклад)"),
+        h("span", { className: "ms-group-cloud-title" }, "Группы"),
         h(
           "span",
           { className: "ms-legend", "aria-hidden": "true" },
-          h("span", { className: "leg-ms" }, "МС"),
-          h("span", { className: "leg-ai" }, "AI в таблице"),
+          h("span", { className: "leg-ms" }, "● МС"),
+          h("span", { className: "leg-ai" }, "● AI"),
         ),
         h(
           "span",
           { className: "ms-group-cloud-hint" },
-          "ТЗ + события по месяцам · " + options.length,
+          "МойСклад + AI · " + options.length,
         ),
         selected
           ? h(
@@ -145,18 +145,26 @@
         ),
         options.map(function (item) {
           const active = selected && selected.toLowerCase() === String(item.name).toLowerCase();
+          const src = String(item.source || "ms");
+          const srcClass =
+            src === "ai" ? " is-ai" : src === "both" ? " is-both" : " is-ms";
+          const srcLabel = src === "ai" ? "AI" : src === "both" ? "МС+AI" : "МС";
+          const titleBits = [item.count + " клиентов", "источник: " + srcLabel];
+          if (item.ms_count) titleBits.push("МС " + item.ms_count);
+          if (item.ai_count) titleBits.push("AI " + item.ai_count);
           return h(
             "button",
             {
-              key: item.name,
+              key: item.name + ":" + src,
               type: "button",
-              className: "ms-group-chip" + (active ? " is-active" : ""),
-              style: { "--chip-hue": item.hue || 200 },
-              title: item.count + " клиентов",
+              className: "ms-group-chip" + srcClass + (active ? " is-active" : ""),
+              style: { "--chip-hue": item.hue || (src === "ai" ? 280 : 200) },
+              title: titleBits.join(" · "),
               onClick: function () {
                 onSelect(item.name);
               },
             },
+            h("span", { className: "ms-chip-src ms-chip-src-" + src }, srcLabel),
             item.name,
             h("span", { className: "ms-group-chip-count" }, String(item.count)),
           );
