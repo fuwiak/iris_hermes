@@ -74,6 +74,7 @@ from plugins.moysklad.campaigns import (
     save_seller_settings,
 )
 from plugins.moysklad.telegram_send import (
+    resolve_peer_identity,
     send_outreach_to_client,
     telegram_account_snapshot,
     telegram_send_status,
@@ -678,6 +679,15 @@ class MarkSentBatchBody(BaseModel):
 
 class OutreachContactBody(BaseModel):
     name: str = ""
+    tg_nick: str = ""
+    tg_chat_id: str = ""
+    # Free-form: @nick, t.me/…, or numeric id — resolved via Bot API getChat.
+    query: str = ""
+    resolve: bool = True
+
+
+class OutreachResolveBody(BaseModel):
+    query: str = ""
     tg_nick: str = ""
     tg_chat_id: str = ""
 
@@ -1521,18 +1531,42 @@ def get_campaign_telegram_contacts(
 
 @router.post("/campaigns/telegram-contacts")
 def post_campaign_telegram_contact(body: OutreachContactBody) -> dict[str, Any]:
-    """Add a custom outreach contact (@nick and/or numeric chat id)."""
+    """Add a custom outreach contact (@nick / t.me / chat id), resolving via Bot API."""
     try:
         contact = add_custom_contact(
             name=body.name,
             tg_nick=body.tg_nick,
             tg_chat_id=body.tg_chat_id,
+            query=body.query,
+            resolve=bool(body.resolve),
         )
         return {"ok": True, "contact": contact}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad POST /campaigns/telegram-contacts failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/telegram-contacts/resolve")
+def post_campaign_telegram_contact_resolve(body: OutreachResolveBody) -> dict[str, Any]:
+    """Resolve @nick / t.me / numeric id via getChat + local export overlay."""
+    try:
+        out = resolve_peer_identity(
+            query=body.query,
+            tg_nick=body.tg_nick,
+            tg_chat_id=body.tg_chat_id,
+        )
+        if not out.get("ok"):
+            raise HTTPException(
+                status_code=400,
+                detail=str(out.get("detail") or out.get("error") or "resolve failed"),
+            )
+        return {"ok": True, **out}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad POST /campaigns/telegram-contacts/resolve failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

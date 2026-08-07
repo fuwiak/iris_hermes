@@ -135,6 +135,160 @@ def coerce_business_chat_id(
     }
 
 
+def _lookup_peer_in_local_stores(
+    *,
+    nick: str = "",
+    chat_id: str = "",
+) -> dict[str, Any] | None:
+    """Best-effort resolve from export overlay / custom contacts / conversations."""
+    nick = normalize_tg_nick(nick)
+    chat_id = str(chat_id or "").strip()
+    try:
+        from plugins.moysklad.outreach_contacts import load_custom_contacts
+        from plugins.moysklad.telegram_export import load_overlay
+
+        for c in load_custom_contacts():
+            if nick and c.get("tg_nick") == nick:
+                return {
+                    "tg_nick": c.get("tg_nick") or nick,
+                    "tg_chat_id": str(c.get("tg_chat_id") or ""),
+                    "name": c.get("name") or "",
+                    "resolved_via": "custom_store",
+                }
+            if chat_id and str(c.get("tg_chat_id") or "") == chat_id:
+                return {
+                    "tg_nick": c.get("tg_nick") or "",
+                    "tg_chat_id": chat_id,
+                    "name": c.get("name") or "",
+                    "resolved_via": "custom_store",
+                }
+
+        overlay = load_overlay()
+        by_client = overlay.get("by_client_id") or {}
+        if isinstance(by_client, dict):
+            for entry in by_client.values():
+                if not isinstance(entry, dict):
+                    continue
+                entry_nick = normalize_tg_nick(entry.get("tg_nick") or "")
+                entry_chat = str(entry.get("tg_chat_id") or "").strip()
+                if nick and entry_nick == nick:
+                    return {
+                        "tg_nick": entry_nick or nick,
+                        "tg_chat_id": entry_chat,
+                        "name": entry.get("chat_name") or entry.get("name") or "",
+                        "resolved_via": "export_overlay",
+                    }
+                if chat_id and entry_chat == chat_id:
+                    return {
+                        "tg_nick": entry_nick,
+                        "tg_chat_id": chat_id,
+                        "name": entry.get("chat_name") or entry.get("name") or "",
+                        "resolved_via": "export_overlay",
+                    }
+    except Exception:
+        log.debug("local peer lookup failed", exc_info=True)
+    return None
+
+
+def resolve_peer_identity(
+    *,
+    tg_nick: str = "",
+    tg_chat_id: str = "",
+    query: str = "",
+    token: str | None = None,
+) -> dict[str, Any]:
+    """Resolve @nick / t.me / numeric id → {tg_nick, tg_chat_id, name}.
+
+    Order: parse query → local stores (export/custom) → Bot API getChat.
+    """
+    raw_query = str(query or "").strip()
+    nick = normalize_tg_nick(tg_nick)
+    chat_id = str(tg_chat_id or "").strip()
+
+    if raw_query:
+        if _TG_PEER_ID_RE.fullmatch(raw_query):
+            chat_id = chat_id or raw_query
+        else:
+            m = _TME_RE.search(raw_query)
+            if m:
+                nick = nick or normalize_tg_nick(m.group(1))
+            elif raw_query.startswith("tg://user?id="):
+                digits = raw_query.split("id=", 1)[-1].strip()
+                if _TG_PEER_ID_RE.fullmatch(digits):
+                    chat_id = chat_id or digits
+            else:
+                nick = nick or normalize_tg_nick(raw_query)
+
+    if not nick and not chat_id:
+        return {
+            "ok": False,
+            "error": "peer_missing",
+            "detail": "Укажите @ник, t.me/… или numeric chat id",
+        }
+
+    local = _lookup_peer_in_local_stores(nick=nick, chat_id=chat_id)
+    if local and (local.get("tg_chat_id") or local.get("tg_nick")):
+        # Prefer filling missing side from local, then still try getChat to enrich.
+        nick = nick or str(local.get("tg_nick") or "")
+        chat_id = chat_id or str(local.get("tg_chat_id") or "")
+        name_hint = str(local.get("name") or "")
+        via = str(local.get("resolved_via") or "local")
+    else:
+        name_hint = ""
+        via = ""
+
+    # Bot API getChat — works for known peers / public usernames the bot can see.
+    lookup = f"@{nick}" if nick and not chat_id else (chat_id or f"@{nick}")
+    chat = fetch_chat(lookup, token=token)
+    if chat.get("ok") and chat.get("id") is not None:
+        resolved_nick = normalize_tg_nick(chat.get("username") or nick)
+        first = str(chat.get("first_name") or "").strip()
+        last = str(chat.get("last_name") or "").strip()
+        full = " ".join(p for p in (first, last) if p)
+        return {
+            "ok": True,
+            "tg_nick": resolved_nick,
+            "tg_chat_id": str(chat["id"]),
+            "name": name_hint or full,
+            "resolved_via": "getChat",
+            "chat_type": chat.get("type"),
+        }
+
+    if chat_id and _TG_PEER_ID_RE.fullmatch(chat_id):
+        # Numeric id alone is enough for Business send even without nick.
+        return {
+            "ok": True,
+            "tg_nick": nick,
+            "tg_chat_id": chat_id,
+            "name": name_hint,
+            "resolved_via": via or "numeric",
+            "warning": chat.get("detail") or None,
+        }
+
+    if nick and local and local.get("tg_chat_id"):
+        return {
+            "ok": True,
+            "tg_nick": nick,
+            "tg_chat_id": str(local["tg_chat_id"]),
+            "name": name_hint,
+            "resolved_via": via or "local",
+        }
+
+    return {
+        "ok": False,
+        "error": "telegram_chat_unresolved",
+        "detail": (
+            chat.get("detail")
+            or "Bot API не знает этот чат (getChat). Нужен numeric chat id "
+            "из business_message / Telegram export, либо пусть контакт напишет "
+            "на Business-аккаунт."
+        ),
+        "tg_nick": nick or None,
+        "tg_chat_id": chat_id or None,
+        "cause": chat,
+    }
+
+
 def send_telegram_message(
     *,
     text: str,

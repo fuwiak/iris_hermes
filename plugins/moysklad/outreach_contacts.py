@@ -105,11 +105,32 @@ def add_custom_contact(
     name: str = "",
     tg_nick: str = "",
     tg_chat_id: str = "",
+    query: str = "",
+    resolve: bool = True,
 ) -> dict[str, Any]:
     nick = normalize_tg_nick(tg_nick)
     chat_id = str(tg_chat_id or "").strip()
+    raw_query = str(query or "").strip()
+
+    if resolve and (nick or chat_id or raw_query):
+        from plugins.moysklad.telegram_send import resolve_peer_identity
+
+        resolved = resolve_peer_identity(
+            tg_nick=nick, tg_chat_id=chat_id, query=raw_query
+        )
+        if not resolved.get("ok"):
+            raise ValueError(resolved.get("detail") or resolved.get("error") or "resolve failed")
+        nick = normalize_tg_nick(resolved.get("tg_nick") or nick)
+        chat_id = str(resolved.get("tg_chat_id") or chat_id).strip()
+        if not name:
+            name = str(resolved.get("name") or "").strip()
+        resolved_via = str(resolved.get("resolved_via") or "resolve")
+    else:
+        resolved_via = "manual"
+
     if not nick and not chat_id:
-        raise ValueError("tg_nick or tg_chat_id required")
+        raise ValueError("Укажите @ник, t.me/… или numeric chat id")
+
     contact = _normalize_contact(
         {
             "id": f"custom:{uuid.uuid4().hex[:12]}",
@@ -120,6 +141,7 @@ def add_custom_contact(
         source="custom",
     )
     assert contact is not None
+    contact["resolved_via"] = resolved_via
     with _LOCK:
         items = load_custom_contacts()
         # de-dupe by nick or chat_id
