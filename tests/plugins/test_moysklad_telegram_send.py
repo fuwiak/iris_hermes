@@ -204,3 +204,40 @@ def test_coerce_business_chat_id_unresolved(monkeypatch):
     out = tg.coerce_business_chat_id("@papa2139")
     assert out["ok"] is False
     assert out["error"] == "telegram_chat_unresolved"
+
+
+def test_telegram_account_snapshot_probes_connection(monkeypatch):
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_USERNAME", "BoberSystemsAssistant_bot")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-xyz")
+
+    monkeypatch.setattr(
+        tg,
+        "fetch_business_connection",
+        lambda *a, **k: {
+            "ok": True,
+            "id": "biz-xyz",
+            "is_enabled": True,
+            "can_reply": True,
+            "can_read_messages": False,
+            "user_username": "pstasinski",
+            "user_first_name": "Паша",
+            "user_chat_id": 5305427956,
+            "rights": {"can_reply": True},
+        },
+    )
+    snap = tg.telegram_account_snapshot()
+    assert snap["configured"] is True
+    assert snap["bot_username"] == "BoberSystemsAssistant_bot"
+    assert snap["business_connection_id"] == "biz-xyz"
+    assert snap["account"]["ok"] is True
+    assert snap["account"]["username"] == "pstasinski"
+    assert snap["account"]["can_reply"] is True
+
+
+def test_telegram_send_status_includes_connection_id(monkeypatch):
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-1")
+    status = tg.telegram_send_status()
+    assert status["business_connection_configured"] is True
+    assert status["business_connection_id"] == "biz-1"

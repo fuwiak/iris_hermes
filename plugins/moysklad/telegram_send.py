@@ -341,4 +341,48 @@ def telegram_send_status() -> dict[str, Any]:
         "configured": bool(token),
         "bot_username": outreach_bot_username() or None,
         "business_connection_configured": bool(resolve_business_connection_id()),
+        "business_connection_id": resolve_business_connection_id() or None,
     }
+
+
+def telegram_account_snapshot(
+    business_connection_id: str | None = None,
+    *,
+    token: str | None = None,
+    probe: bool = True,
+) -> dict[str, Any]:
+    """UI-facing Telegram Business account block (no secrets).
+
+    When ``probe`` is true and a connection id is known, calls
+    ``getBusinessConnection`` so the campaigns page can show @username /
+    can_reply without exposing the bot token.
+    """
+    status = telegram_send_status()
+    biz = (business_connection_id or resolve_business_connection_id() or "").strip()
+    out: dict[str, Any] = {
+        **status,
+        "business_connection_id": biz or None,
+        "account": None,
+    }
+    if not probe or not biz or not outreach_bot_token():
+        return out
+    conn = fetch_business_connection(biz, token=token)
+    if not conn.get("ok"):
+        out["account"] = {
+            "ok": False,
+            "error": conn.get("error"),
+            "detail": conn.get("detail"),
+        }
+        return out
+    out["account"] = {
+        "ok": True,
+        "id": conn.get("id"),
+        "is_enabled": conn.get("is_enabled"),
+        "can_reply": conn.get("can_reply"),
+        "can_read_messages": conn.get("can_read_messages"),
+        "username": conn.get("user_username") or None,
+        "first_name": conn.get("user_first_name") or None,
+        "user_chat_id": conn.get("user_chat_id"),
+        "rights": conn.get("rights") or {},
+    }
+    return out

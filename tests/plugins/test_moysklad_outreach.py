@@ -284,10 +284,20 @@ def test_seller_settings_persist(tmp_path, monkeypatch):
     saved = campaigns.save_seller_settings(
         seller_name="Анна из Iris",
         seller_facts="Сезонные букеты, доставка",
+        telegram_business_connection_id="biz-conn-1",
     )
     assert saved["seller_name"] == "Анна из Iris"
+    assert saved["telegram_business_connection_id"] == "biz-conn-1"
     loaded = campaigns.get_seller_settings()
     assert loaded["seller_facts"] == "Сезонные букеты, доставка"
+    assert loaded["telegram_business_connection_id"] == "biz-conn-1"
+    # None leaves previous biz id
+    campaigns.save_seller_settings(
+        seller_name="Анна",
+        seller_facts="x",
+        telegram_business_connection_id=None,
+    )
+    assert campaigns.get_seller_settings()["telegram_business_connection_id"] == "biz-conn-1"
 
 
 def test_create_draft_stores_client_facts(tmp_path, monkeypatch):
