@@ -7536,6 +7536,23 @@ _PLATFORM_OVERRIDES: dict[str, dict[str, Any]] = {
         "env_vars": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USERS", "TELEGRAM_PROXY"),
         "required_env": ("TELEGRAM_BOT_TOKEN",),
     },
+    "telegram_business": {
+        "name": "Telegram Business",
+        "description": (
+            "Send on behalf of a linked Business account (CRM / Рассылки). "
+            "Separate from the Telegram chat gateway — does not own the bot webhook."
+        ),
+        "docs_url": "https://core.telegram.org/bots/api#businessconnection",
+        "env_vars": (
+            "TELEGRAM_BUSINESS_BOT_TOKEN",
+            "TELEGRAM_BUSINESS_CONNECTION_ID",
+            "TELEGRAM_BUSINESS_BOT_USERNAME",
+        ),
+        "required_env": (
+            "TELEGRAM_BUSINESS_BOT_TOKEN",
+            "TELEGRAM_BUSINESS_CONNECTION_ID",
+        ),
+    },
     "discord": {
         "name": "Discord",
         "description": "Connect Hermes to Discord DMs, channels, and threads.",
@@ -7778,6 +7795,7 @@ _PLATFORM_OVERRIDES: dict[str, dict[str, Any]] = {
 # the end alphabetically.
 _PLATFORM_ORDER: tuple[str, ...] = (
     "telegram",
+    "telegram_business",
     "discord",
     "slack",
     "mattermost",
@@ -9344,6 +9362,34 @@ async def test_messaging_platform(platform_id: str, profile: Optional[str] = Non
         raise HTTPException(
             status_code=404, detail=f"Unknown messaging platform: {platform_id}"
         )
+
+    # Telegram Business is credential-probe only (no getUpdates). Test hits
+    # Bot API directly so Office admin works without a gateway restart.
+    if platform_id == "telegram_business":
+        with _profile_scope(profile):
+            try:
+                from plugins.platforms.telegram_business.client import (
+                    probe_business_integration,
+                )
+
+                result = probe_business_integration()
+            except Exception as exc:
+                _log.exception("telegram_business probe failed")
+                return {
+                    "ok": False,
+                    "state": "error",
+                    "message": str(exc),
+                }
+            return {
+                "ok": bool(result.get("ok")),
+                "state": "connected" if result.get("ok") else "not_configured",
+                "message": result.get("message") or "",
+                "details": {
+                    k: result.get(k)
+                    for k in ("bot", "telegram_account")
+                    if k in result
+                },
+            }
 
     with _profile_scope(profile) as scoped_dir:
         env_on_disk = load_env()

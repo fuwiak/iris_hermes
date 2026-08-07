@@ -783,6 +783,8 @@ function PlatformActionBar({
 const PLATFORM_INTRO: Record<string, string> = {
   telegram:
     'In Telegram, talk to @BotFather, run /newbot, and copy the token it gives you. Then grab your numeric user ID from @userinfobot.',
+  telegram_business:
+    'Separate from Telegram chat. In Telegram: Settings → Business → Chatbots → link a bot, enable Reply (and Read if needed). Paste the bot token and business_connection_id here. MoySklad Рассылки sends on behalf of that Business account.',
   discord:
     'Open the Discord Developer Portal, create an application, add a Bot, then copy its token. Invite the bot to your server with the right scopes.',
   slack:

@@ -5,6 +5,21 @@ from __future__ import annotations
 import json
 
 import plugins.moysklad.telegram_send as tg
+import plugins.platforms.telegram_business.client as tb
+
+
+def _clear_biz_env(monkeypatch):
+    for key in (
+        "TELEGRAM_BUSINESS_BOT_TOKEN",
+        "TELEGRAM_BUSINESS_CONNECTION_ID",
+        "TELEGRAM_BUSINESS_BOT_USERNAME",
+        "MOYSKLAD_TELEGRAM_BOT_TOKEN",
+        "MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID",
+        "MOYSKLAD_TELEGRAM_BOT_USERNAME",
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_BOT_USERNAME",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_resolve_chat_id_from_nick():
@@ -25,14 +40,24 @@ def test_resolve_chat_id_from_numeric_and_tme(monkeypatch):
 
 
 def test_send_missing_token(monkeypatch):
-    monkeypatch.delenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    _clear_biz_env(monkeypatch)
     out = tg.send_telegram_message(text="hi", chat_id="@x")
     assert out["ok"] is False
     assert out["error"] == "telegram_token_missing"
 
 
+def test_business_env_precedes_moysklad_alias(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:BIZ")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:LEGACY")
+    assert tg.outreach_bot_token() == "1:BIZ"
+    monkeypatch.setenv("TELEGRAM_BUSINESS_CONNECTION_ID", "biz-new")
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-old")
+    assert tg.resolve_business_connection_id() == "biz-new"
+
+
 def test_send_posts_business_connection(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TESTTOKEN")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-abc")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_USERNAME", "BoberSystemsAssistant_bot")
@@ -65,7 +90,7 @@ def test_send_posts_business_connection(monkeypatch):
             captured["json"] = json
             return _Resp(b'{"ok":true,"result":{"message_id":7,"chat":{"id":42}}}')
 
-    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    monkeypatch.setattr(tb.httpx, "Client", _Client)
     out = tg.send_telegram_message(text="Здравствуйте!", chat_id="@client")
     assert out["ok"] is True
     assert out["message_id"] == 7
@@ -76,8 +101,8 @@ def test_send_posts_business_connection(monkeypatch):
 
 
 def test_outreach_uses_client_nick(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
-    monkeypatch.delenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", raising=False)
 
     class _Resp:
         content = b'{"ok":true,"result":{"message_id":1,"chat":{"id":1}}}'
@@ -100,12 +125,13 @@ def test_outreach_uses_client_nick(monkeypatch):
             assert "business_connection_id" not in json
             return _Resp()
 
-    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    monkeypatch.setattr(tb.httpx, "Client", _Client)
     out = tg.send_outreach_to_client(text="ping", tg_nick="nick")
     assert out["ok"] is True
 
 
 def test_fetch_business_connection_parses_rights(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-1")
 
@@ -134,7 +160,7 @@ def test_fetch_business_connection_parses_rights(monkeypatch):
             assert params["business_connection_id"] == "biz-1"
             return _Resp()
 
-    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    monkeypatch.setattr(tb.httpx, "Client", _Client)
     out = tg.fetch_business_connection()
     assert out["ok"] is True
     assert out["can_reply"] is True
@@ -148,6 +174,7 @@ def test_coerce_business_chat_id_numeric_passthrough():
 
 
 def test_coerce_business_chat_id_via_get_chat(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
 
     class _Resp:
@@ -171,7 +198,7 @@ def test_coerce_business_chat_id_via_get_chat(monkeypatch):
             assert params["chat_id"] == "@papa2139"
             return _Resp()
 
-    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    monkeypatch.setattr(tb.httpx, "Client", _Client)
     out = tg.coerce_business_chat_id("https://t.me/papa2139")
     assert out["ok"] is True
     assert out["chat_id"] == "4242"
@@ -179,6 +206,7 @@ def test_coerce_business_chat_id_via_get_chat(monkeypatch):
 
 
 def test_coerce_business_chat_id_unresolved(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
 
     class _Resp:
@@ -200,19 +228,20 @@ def test_coerce_business_chat_id_unresolved(monkeypatch):
         def post(self, url, json=None, params=None):
             return _Resp()
 
-    monkeypatch.setattr(tg.httpx, "Client", _Client)
+    monkeypatch.setattr(tb.httpx, "Client", _Client)
     out = tg.coerce_business_chat_id("@papa2139")
     assert out["ok"] is False
     assert out["error"] == "telegram_chat_unresolved"
 
 
 def test_telegram_account_snapshot_probes_connection(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_USERNAME", "BoberSystemsAssistant_bot")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-xyz")
 
     monkeypatch.setattr(
-        tg,
+        tb,
         "fetch_business_connection",
         lambda *a, **k: {
             "ok": True,
@@ -236,8 +265,18 @@ def test_telegram_account_snapshot_probes_connection(monkeypatch):
 
 
 def test_telegram_send_status_includes_connection_id(monkeypatch):
+    _clear_biz_env(monkeypatch)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", "1:TEST")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID", "biz-1")
     status = tg.telegram_send_status()
     assert status["business_connection_configured"] is True
     assert status["business_connection_id"] == "biz-1"
+
+
+def test_office_platform_override_lists_telegram_business():
+    from hermes_cli.web_server import _PLATFORM_OVERRIDES, _PLATFORM_ORDER
+
+    assert "telegram_business" in _PLATFORM_OVERRIDES
+    assert _PLATFORM_OVERRIDES["telegram_business"]["name"] == "Telegram Business"
+    assert "telegram_business" in _PLATFORM_ORDER
+    assert _PLATFORM_ORDER.index("telegram_business") == _PLATFORM_ORDER.index("telegram") + 1

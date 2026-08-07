@@ -3748,8 +3748,9 @@ function CampaignsPage() {
               {bizSaving ? 'Сохраняем…' : 'Сохранить аккаунт'}
             </button>
             <p className="ms-muted">
-              Telegram → Настройки → Business → Чат-боты → подключите бота к @аккаунту
-              (напр. pstasinski), включите Reply. Затем вставьте connection id сюда.
+              Настройка токена и connection id — в Офис → Telegram Business
+              (отдельно от обычного Telegram). Telegram → Настройки → Business →
+              Чат-боты → подключите бота к @аккаунту, включите Reply.
             </p>
           </div>
           <label>

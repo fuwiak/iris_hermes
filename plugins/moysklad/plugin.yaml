@@ -35,14 +35,14 @@ optional_env:
     prompt: "Redis URL"
     password: false
   - name: MOYSKLAD_TELEGRAM_BOT_TOKEN
-    description: "Telegram Business bot token for Рассылки send (e.g. @BoberSystemsAssistant_bot). Falls back to TELEGRAM_BOT_TOKEN."
-    prompt: "MoySklad Telegram Business bot token"
+    description: "Legacy alias for TELEGRAM_BUSINESS_BOT_TOKEN. Prefer Office → Telegram Business."
+    prompt: "MoySklad Telegram Business bot token (legacy)"
     password: true
   - name: MOYSKLAD_TELEGRAM_BOT_USERNAME
-    description: "Outreach bot username without @ (optional display)."
-    prompt: "MoySklad Telegram bot username"
+    description: "Legacy display username; prefer TELEGRAM_BUSINESS_BOT_USERNAME."
+    prompt: "MoySklad Telegram bot username (legacy)"
     password: false
   - name: MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID
-    description: "Telegram Business connection id for sendMessage on behalf of the shop account."
-    prompt: "Telegram business_connection_id"
+    description: "Legacy alias for TELEGRAM_BUSINESS_CONNECTION_ID. Prefer Office → Telegram Business."
+    prompt: "Telegram business_connection_id (legacy)"
     password: false

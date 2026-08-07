@@ -1,0 +1,26 @@
+name: telegram-business-platform
+label: Telegram Business
+kind: platform
+version: 1.0.0
+description: >
+  Telegram Business integration for Hermes — outbound send and admin on behalf
+  of a linked Business account (e.g. shop @username). Separate from the
+  gateway Telegram chat adapter: does not own getUpdates / webhook. Used by
+  MoySklad Рассылки and other CRM outreach. Configure in Офис / Office.
+author: Hermes Agent
+requires_env:
+  - name: TELEGRAM_BUSINESS_BOT_TOKEN
+    description: "Bot token linked in Telegram → Settings → Business → Chatbots"
+    prompt: "Telegram Business bot token"
+    url: "https://t.me/BotFather"
+    password: true
+  - name: TELEGRAM_BUSINESS_CONNECTION_ID
+    description: "business_connection_id from Bot API BusinessConnection"
+    prompt: "Telegram Business connection id"
+    url: "https://core.telegram.org/bots/api#businessconnection"
+    password: false
+optional_env:
+  - name: TELEGRAM_BUSINESS_BOT_USERNAME
+    description: "Bot username without @ (display only)"
+    prompt: "Business bot username"
+    password: false

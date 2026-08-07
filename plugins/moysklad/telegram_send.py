@@ -1,9 +1,8 @@
 """Outbound Telegram send for MoySklad Рассылки (Business bot).
 
-Uses Bot API ``sendMessage``. When ``MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID``
-(or seller_settings) is set, messages go on behalf of the Telegram Business
-account. Token defaults to ``MOYSKLAD_TELEGRAM_BOT_TOKEN``, then
-``TELEGRAM_BOT_TOKEN``.
+Uses Bot API ``sendMessage`` via the native Hermes Telegram Business
+integration (Office → Telegram Business). Credential precedence lives in
+``plugins.platforms.telegram_business.client``.
 
 Does not touch the bot webhook (Railway / gateway may own updates).
 """
@@ -11,18 +10,23 @@ Does not touch the bot webhook (Railway / gateway may own updates).
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any, Optional
 
-import httpx
-
-from plugins.moysklad.campaigns import get_seller_settings
 from plugins.moysklad.conversations import normalize_tg_nick
+from plugins.platforms.telegram_business.client import (
+    business_bot_token as outreach_bot_token,
+    business_bot_username as outreach_bot_username,
+    fetch_bot_identity,
+    fetch_business_connection,
+    resolve_business_connection_id,
+    telegram_account_snapshot,
+    telegram_api,
+    telegram_send_status,
+)
 
 log = logging.getLogger(__name__)
 
-_API = "https://api.telegram.org"
 # Client-card heuristic: real Telegram user ids are long; keep floor for resolve.
 _TG_CHAT_ID_RE = re.compile(r"^-?\d{5,20}$")
 # After getChat / explicit numeric override, accept any integer peer id.
@@ -31,129 +35,6 @@ _TME_RE = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,64})",
     re.IGNORECASE,
 )
-
-
-def outreach_bot_token() -> str:
-    return (
-        (os.getenv("MOYSKLAD_TELEGRAM_BOT_TOKEN") or "").strip()
-        or (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
-    )
-
-
-def outreach_bot_username() -> str:
-    return (
-        (os.getenv("MOYSKLAD_TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
-        or (os.getenv("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
-    )
-
-
-def resolve_business_connection_id() -> str:
-    env_id = (os.getenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID") or "").strip()
-    if env_id:
-        return env_id
-    stored = get_seller_settings().get("telegram_business_connection_id") or ""
-    return str(stored).strip()
-
-
-def telegram_api(
-    method: str,
-    *,
-    token: str | None = None,
-    params: dict[str, Any] | None = None,
-    json_body: dict[str, Any] | None = None,
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    """Call Bot API method. Returns parsed JSON ``{ok, ...}``; never raises for API errors."""
-    token = (token or outreach_bot_token()).strip()
-    method = (method or "").strip().lstrip("/")
-    if not token:
-        return {
-            "ok": False,
-            "error": "telegram_token_missing",
-            "detail": "Set MOYSKLAD_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN",
-        }
-    if not method:
-        return {"ok": False, "error": "telegram_method_missing", "detail": "method required"}
-
-    url = f"{_API}/bot{token}/{method}"
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            if json_body is not None:
-                resp = client.post(url, json=json_body)
-            else:
-                resp = client.post(url, params=params or {})
-            data = resp.json() if resp.content else {}
-    except Exception as exc:  # pragma: no cover - network
-        log.warning("moysklad telegram %s failed: %s", method, exc)
-        return {"ok": False, "error": "telegram_network", "detail": str(exc)}
-
-    if not isinstance(data, dict):
-        return {"ok": False, "error": "telegram_bad_response", "detail": str(data)}
-    if data.get("ok"):
-        return data
-    return {
-        "ok": False,
-        "error": "telegram_api",
-        "detail": str(data.get("description") or resp.text or f"{method} failed"),
-        "error_code": data.get("error_code"),
-        "raw": data,
-    }
-
-
-def fetch_bot_identity(token: str | None = None) -> dict[str, Any]:
-    """GET getMe — verify outreach bot identity."""
-    data = telegram_api("getMe", token=token)
-    if not data.get("ok"):
-        return data
-    result = data.get("result") or {}
-    return {
-        "ok": True,
-        "id": result.get("id"),
-        "username": result.get("username"),
-        "first_name": result.get("first_name"),
-        "can_join_groups": result.get("can_join_groups"),
-        "can_read_all_group_messages": result.get("can_read_all_group_messages"),
-    }
-
-
-def fetch_business_connection(
-    business_connection_id: str | None = None,
-    *,
-    token: str | None = None,
-) -> dict[str, Any]:
-    """Pull BusinessConnection via getBusinessConnection (rights / can_reply)."""
-    biz = (business_connection_id or resolve_business_connection_id()).strip()
-    if not biz:
-        return {
-            "ok": False,
-            "error": "business_connection_missing",
-            "detail": "Set MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID",
-        }
-    data = telegram_api(
-        "getBusinessConnection",
-        token=token,
-        params={"business_connection_id": biz},
-    )
-    if not data.get("ok"):
-        return data
-    result = data.get("result") or {}
-    rights = result.get("rights") or {}
-    # Bot API keeps legacy top-level can_reply alongside rights.can_reply.
-    can_reply = bool(result.get("can_reply") or rights.get("can_reply"))
-    can_read = bool(rights.get("can_read_messages"))
-    user = result.get("user") or {}
-    return {
-        "ok": True,
-        "id": result.get("id") or biz,
-        "is_enabled": bool(result.get("is_enabled")),
-        "can_reply": can_reply,
-        "can_read_messages": can_read,
-        "rights": rights,
-        "user_chat_id": result.get("user_chat_id"),
-        "user_username": user.get("username"),
-        "user_first_name": user.get("first_name"),
-        "date": result.get("date"),
-    }
 
 
 def fetch_chat(chat_id: str, *, token: str | None = None) -> dict[str, Any]:
@@ -270,7 +151,7 @@ def send_telegram_message(
         return {
             "ok": False,
             "error": "telegram_token_missing",
-            "detail": "Set MOYSKLAD_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN",
+            "detail": "Set TELEGRAM_BUSINESS_BOT_TOKEN (Office) or MOYSKLAD_TELEGRAM_BOT_TOKEN / TELEGRAM_BOT_TOKEN",
         }
     if not chat_id:
         return {
@@ -332,57 +213,3 @@ def send_outreach_to_client(
         tg_chat_id=tg_chat_id,
     )
     return send_telegram_message(text=text, chat_id=chat_id)
-
-
-def telegram_send_status() -> dict[str, Any]:
-    """Non-secret status for UI / health."""
-    token = outreach_bot_token()
-    return {
-        "configured": bool(token),
-        "bot_username": outreach_bot_username() or None,
-        "business_connection_configured": bool(resolve_business_connection_id()),
-        "business_connection_id": resolve_business_connection_id() or None,
-    }
-
-
-def telegram_account_snapshot(
-    business_connection_id: str | None = None,
-    *,
-    token: str | None = None,
-    probe: bool = True,
-) -> dict[str, Any]:
-    """UI-facing Telegram Business account block (no secrets).
-
-    When ``probe`` is true and a connection id is known, calls
-    ``getBusinessConnection`` so the campaigns page can show @username /
-    can_reply without exposing the bot token.
-    """
-    status = telegram_send_status()
-    biz = (business_connection_id or resolve_business_connection_id() or "").strip()
-    out: dict[str, Any] = {
-        **status,
-        "business_connection_id": biz or None,
-        "account": None,
-    }
-    if not probe or not biz or not outreach_bot_token():
-        return out
-    conn = fetch_business_connection(biz, token=token)
-    if not conn.get("ok"):
-        out["account"] = {
-            "ok": False,
-            "error": conn.get("error"),
-            "detail": conn.get("detail"),
-        }
-        return out
-    out["account"] = {
-        "ok": True,
-        "id": conn.get("id"),
-        "is_enabled": conn.get("is_enabled"),
-        "can_reply": conn.get("can_reply"),
-        "can_read_messages": conn.get("can_read_messages"),
-        "username": conn.get("user_username") or None,
-        "first_name": conn.get("user_first_name") or None,
-        "user_chat_id": conn.get("user_chat_id"),
-        "rights": conn.get("rights") or {},
-    }
-    return out

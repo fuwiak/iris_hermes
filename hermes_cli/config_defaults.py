@@ -3790,19 +3790,51 @@ OPTIONAL_ENV_VARS = {
         "advanced": True,
     },
     "MOYSKLAD_TELEGRAM_BOT_TOKEN": {
-        "description": "Telegram Business bot token for MoySklad Рассылки outbound send",
-        "prompt": "MoySklad Telegram Business bot token",
+        "description": (
+            "Legacy alias for TELEGRAM_BUSINESS_BOT_TOKEN (Office → Telegram Business). "
+            "Prefer TELEGRAM_BUSINESS_* for MoySklad Рассылки outbound send."
+        ),
+        "prompt": "MoySklad Telegram Business bot token (legacy)",
         "url": "https://t.me/BotFather",
         "password": True,
         "category": "tool",
         "advanced": True,
     },
     "MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID": {
-        "description": "Telegram business_connection_id for sendMessage on behalf of the shop",
-        "prompt": "Telegram business_connection_id",
+        "description": (
+            "Legacy alias for TELEGRAM_BUSINESS_CONNECTION_ID. "
+            "Prefer Office → Telegram Business."
+        ),
+        "prompt": "Telegram business_connection_id (legacy)",
         "url": "https://core.telegram.org/bots/api#businessconnection",
         "password": False,
         "category": "tool",
+        "advanced": True,
+    },
+    "TELEGRAM_BUSINESS_BOT_TOKEN": {
+        "description": (
+            "Bot token for Telegram Business (CRM / Рассылки). "
+            "Linked in Telegram → Settings → Business → Chatbots. "
+            "Separate from TELEGRAM_BOT_TOKEN (gateway chat)."
+        ),
+        "prompt": "Telegram Business bot token",
+        "url": "https://t.me/BotFather",
+        "password": True,
+        "category": "messaging",
+    },
+    "TELEGRAM_BUSINESS_CONNECTION_ID": {
+        "description": "business_connection_id for sendMessage on behalf of the Business account",
+        "prompt": "Telegram Business connection id",
+        "url": "https://core.telegram.org/bots/api#businessconnection",
+        "password": False,
+        "category": "messaging",
+    },
+    "TELEGRAM_BUSINESS_BOT_USERNAME": {
+        "description": "Business bot username without @ (display only)",
+        "prompt": "Telegram Business bot username",
+        "url": None,
+        "password": False,
+        "category": "messaging",
         "advanced": True,
     },
 

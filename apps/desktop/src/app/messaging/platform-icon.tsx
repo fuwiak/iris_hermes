@@ -53,6 +53,7 @@ interface PlatformIconSpec {
 
 const PLATFORM_ICONS: Record<string, PlatformIconSpec> = {
   telegram: { Icon: SiTelegram, color: '#26A5E4', kind: 'brand' },
+  telegram_business: { Icon: SiTelegram, color: '#0A84FF', kind: 'brand' },
   discord: { Icon: SiDiscord, color: '#5865F2', kind: 'brand' },
   // Slack removed from Simple Icons by Salesforce request — letter monogram.
   slack: { color: '#4A154B', kind: 'brand', monogram: 'S' },
