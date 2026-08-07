@@ -314,12 +314,151 @@ def _peek_any(key: str) -> Optional[dict[str, Any]]:
     return None
 
 
+# --- First-page snapshots (instant paint; independent of full catalog) -------
+
+PAGE_SNAPSHOT_ROWS = 100
+_PAGE_MEMORY: dict[str, dict[str, Any]] = {}
+
+
+def page_snapshot_key(
+    *,
+    sales_filter: str = "all",
+    group: str = "",
+    q: str = "",
+    group_source: str = "any",
+    channel_kind: str = "",
+    require_phone: bool = False,
+    require_telegram: bool = False,
+    vip_only: bool = False,
+    birthday_soon: bool = False,
+    days_before_event: int = 0,
+) -> str:
+    """Stable key for the first-page clients snapshot (filter dims only)."""
+    parts = (
+        "moysklad:clients:page:v1",
+        _account_fingerprint(),
+        f"sf={(sales_filter or 'all').strip().lower()}",
+        f"g={(group or '').strip().lower()}",
+        f"q={(q or '').strip().lower()}",
+        f"gs={(group_source or 'any').strip().lower()}",
+        f"ck={(channel_kind or '').strip().lower()}",
+        f"ph={1 if require_phone else 0}",
+        f"tg={1 if require_telegram else 0}",
+        f"vip={1 if vip_only else 0}",
+        f"bd={1 if birthday_soon else 0}",
+        f"dbe={int(days_before_event or 0)}",
+    )
+    return ":".join(parts)
+
+
+def set_page_snapshot(
+    key: str,
+    page: dict[str, Any],
+    *,
+    synced_at: float | None = None,
+) -> dict[str, Any]:
+    """Persist first-page payload for instant cold/SWR paint."""
+    payload = dict(page or {})
+    clients = list(payload.get("clients") or [])[:PAGE_SNAPSHOT_ROWS]
+    payload["clients"] = clients
+    payload["returned"] = len(clients)
+    envelope = {
+        "synced_at": float(synced_at or time.time()),
+        "page": payload,
+    }
+    redis_ttl = redis_retention_seconds()
+
+    with _LOCK:
+        _PAGE_MEMORY[key] = envelope
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.setex(
+                key, redis_ttl, json.dumps(envelope, ensure_ascii=False, default=str)
+            )
+        except Exception as exc:
+            log.warning("MoySklad page snapshot Redis set failed: %s", exc)
+
+    path = _file_path(key)
+    try:
+        path.write_text(
+            json.dumps(envelope, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.warning("MoySklad page snapshot file write failed: %s", exc)
+
+    return envelope
+
+
+def get_page_snapshot(key: str) -> Optional[dict[str, Any]]:
+    """Return page-snapshot envelope ``{synced_at, page}`` or None."""
+    with _LOCK:
+        mem = _PAGE_MEMORY.get(key)
+        if mem and isinstance(mem, dict) and isinstance(mem.get("page"), dict):
+            return mem
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            raw = client.get(key)
+            if raw:
+                envelope = json.loads(raw)
+                if isinstance(envelope, dict) and isinstance(envelope.get("page"), dict):
+                    with _LOCK:
+                        _PAGE_MEMORY[key] = envelope
+                    return envelope
+        except Exception as exc:
+            log.warning("MoySklad page snapshot Redis get failed: %s", exc)
+
+    path = _file_path(key)
+    try:
+        if path.is_file():
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(envelope, dict) and isinstance(envelope.get("page"), dict):
+                with _LOCK:
+                    _PAGE_MEMORY[key] = envelope
+                return envelope
+    except Exception as exc:
+        log.warning("MoySklad page snapshot file read failed: %s", exc)
+    return None
+
+
+def slice_page_snapshot(
+    envelope: dict[str, Any],
+    *,
+    limit: int,
+    offset: int = 0,
+) -> Optional[dict[str, Any]]:
+    """Return a response-shaped page dict sliced to ``limit``/``offset``."""
+    if offset != 0:
+        return None
+    page = envelope.get("page")
+    if not isinstance(page, dict):
+        return None
+    clients = list(page.get("clients") or [])
+    lim = max(1, min(int(limit or PAGE_SNAPSHOT_ROWS), PAGE_SNAPSHOT_ROWS))
+    sliced = clients[:lim]
+    out = dict(page)
+    out["clients"] = sliced
+    out["returned"] = len(sliced)
+    out["has_more"] = bool(page.get("has_more")) or len(clients) > lim
+    if "next_offset" in page:
+        out["next_offset"] = int(page.get("next_offset") or lim)
+    else:
+        out["next_offset"] = lim
+    return out
+
+
 def invalidate(key: str | None = None) -> None:
     with _LOCK:
         if key is None:
             _MEMORY.clear()
+            _PAGE_MEMORY.clear()
         else:
             _MEMORY.pop(key, None)
+            _PAGE_MEMORY.pop(key, None)
 
     if key is None:
         return

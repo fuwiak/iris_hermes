@@ -1325,9 +1325,11 @@ function ClientCardModal({
   )
 }
 
-const CLIENTS_PAGE_SIZE = 50
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v1:'
+const CLIENTS_PAGE_SIZE = 100
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v2:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const CLIENTS_REVALIDATE_POLL_MS = 4000
+const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
 
 interface ClientsLocalCachePayload {
   saved_at: number
@@ -1691,6 +1693,25 @@ function ClientsPage() {
     void load()
   }, [salesFilter, group, groupSource, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
+  // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
+  useEffect(() => {
+    if (!staleHint || loading) {
+      return
+    }
+
+    const started = Date.now()
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > CLIENTS_REVALIDATE_POLL_MAX_MS) {
+        window.clearInterval(timer)
+        setStaleHint(false)
+        return
+      }
+      void load()
+    }, CLIENTS_REVALIDATE_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [staleHint, loading, load])
+
   // Lazy AI: whenever shown set grows/changes, fill empty cells for those rows.
   useEffect(() => {
     if (!clients.length || loading) {
@@ -1713,10 +1734,10 @@ function ClientsPage() {
   )
 
   const cacheHint = syncedLabel
-    ? `${fromCache ? (staleHint ? 'кэш (обновляем…)' : 'из кэша') : 'свежая выгрузка'} · синхр. ${syncedLabel}`
+    ? `${fromCache ? (staleHint ? 'снимок (обновляем…)' : 'из кэша') : 'свежая выгрузка'} · синхр. ${syncedLabel}`
     : fromCache
       ? staleHint
-        ? 'кэш (обновляем…)'
+        ? 'снимок (обновляем…)'
         : 'из кэша'
       : loading && clients.length
         ? 'обновляем…'
@@ -2031,6 +2052,26 @@ function CampaignsPage() {
   const [sellerName, setSellerName] = useState('')
   const [sellerFacts, setSellerFacts] = useState('')
   const [sellerLoaded, setSellerLoaded] = useState(false)
+  const [bizConnectionId, setBizConnectionId] = useState('')
+  const [telegramAccount, setTelegramAccount] = useState<{
+    configured?: boolean
+    bot_username?: string | null
+    business_connection_configured?: boolean
+    business_connection_id?: string | null
+    account?: {
+      ok?: boolean
+      username?: string | null
+      first_name?: string | null
+      can_reply?: boolean
+      can_read_messages?: boolean
+      is_enabled?: boolean
+      error?: string
+      detail?: string
+    } | null
+  } | null>(null)
+  const [bizSaving, setBizSaving] = useState(false)
+  const [pickMode, setPickMode] = useState<'single' | 'multi'>('single')
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -2166,27 +2207,107 @@ function CampaignsPage() {
   }, [])
 
   useEffect(() => {
-    void call<{ seller_name?: string; seller_facts?: string }>('/campaigns/seller-settings')
+    void call<{
+      seller_name?: string
+      seller_facts?: string
+      telegram_business_connection_id?: string
+      telegram_account?: typeof telegramAccount
+    }>('/campaigns/seller-settings')
       .then(data => {
         setSellerName(data.seller_name || '')
         setSellerFacts(data.seller_facts || '')
+        const biz =
+          data.telegram_business_connection_id ||
+          data.telegram_account?.business_connection_id ||
+          ''
+        setBizConnectionId(biz)
+        if (data.telegram_account) {
+          setTelegramAccount(data.telegram_account)
+        }
       })
       .catch(() => undefined)
       .finally(() => setSellerLoaded(true))
   }, [call])
 
   const persistSellerSettings = useCallback(
-    (name: string, factsText: string) => {
+    (name: string, factsText: string, bizId?: string | null) => {
       if (sellerSaveTimer.current) {clearTimeout(sellerSaveTimer.current)}
       sellerSaveTimer.current = setTimeout(() => {
-        void call('/campaigns/seller-settings', {
-          method: 'PUT',
-          body: { seller_name: name, seller_facts: factsText }
-        }).catch(() => undefined)
+        const body: Record<string, string> = {
+          seller_name: name,
+          seller_facts: factsText
+        }
+
+        if (bizId !== undefined && bizId !== null) {
+          body.telegram_business_connection_id = bizId
+        }
+
+        void call<{ telegram_account?: typeof telegramAccount }>(
+          '/campaigns/seller-settings',
+          {
+            method: 'PUT',
+            body
+          }
+        )
+          .then(data => {
+            if (data.telegram_account) {
+              setTelegramAccount(data.telegram_account)
+            }
+          })
+          .catch(() => undefined)
       }, 450)
     },
     [call]
   )
+
+  const refreshTelegramAccount = useCallback(async () => {
+    try {
+      const data = await call<{
+        configured?: boolean
+        bot_username?: string | null
+        business_connection_id?: string | null
+        account?: typeof telegramAccount extends { account?: infer A } ? A : never
+      }>('/campaigns/telegram-account')
+      setTelegramAccount(data)
+      if (data.business_connection_id) {
+        setBizConnectionId(data.business_connection_id)
+      }
+    } catch {
+      /* ignore probe errors — UI shows last known */
+    }
+  }, [call])
+
+  const saveBusinessConnection = async () => {
+    setBizSaving(true)
+    setError('')
+
+    try {
+      const data = await call<{
+        telegram_business_connection_id?: string
+        telegram_account?: typeof telegramAccount
+      }>('/campaigns/seller-settings', {
+        method: 'PUT',
+        body: {
+          seller_name: sellerName,
+          seller_facts: sellerFacts,
+          telegram_business_connection_id: bizConnectionId.trim()
+        }
+      })
+      setBizConnectionId(data.telegram_business_connection_id || bizConnectionId.trim())
+      if (data.telegram_account) {
+        setTelegramAccount(data.telegram_account)
+      }
+      setActionStatus(
+        data.telegram_account?.account?.ok
+          ? `✓ Business: @${data.telegram_account.account.username || 'аккаунт'} подключён`
+          : 'Connection ID сохранён — проверьте права Reply в Telegram Business'
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBizSaving(false)
+    }
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setAudienceQDebounced(audienceQ.trim()), 280)
@@ -2613,12 +2734,144 @@ function CampaignsPage() {
       return
     }
 
+    if (pickMode === 'multi') {
+      setSelectedClientIds(prev =>
+        prev.includes(row.id!)
+          ? prev.filter(id => id !== row.id)
+          : [...prev, row.id!]
+      )
+
+      return
+    }
+
     const nextChannel = row.phone && !row.tg_nick ? 'whatsapp' : 'telegram'
     setMode('auto')
     setChannel(nextChannel)
+    setSelectedClientIds([row.id])
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
     applyClientSelectionUi(row.id, row.name || '')
+  }
+
+  const markSentToConversation = async () => {
+    const draft = offerRef.current.trim()
+    const multiIds =
+      pickMode === 'multi'
+        ? selectedClientIds
+        : selectedClientId
+          ? [selectedClientId]
+          : []
+
+    if (!multiIds.length) {
+      setError('Выберите контакт(ы) в аудитории — исходящее уйдёт в Telegram / историю.')
+
+      return
+    }
+
+    if (!draft) {
+      setError('Сначала введите или сгенерируйте текст сообщения.')
+
+      return
+    }
+
+    setCheckingSanity(true)
+    setError('')
+    setActionStatus(
+      channel.startsWith('telegram')
+        ? multiIds.length > 1
+          ? `Отправка ${multiIds.length} контактам через Telegram Business…`
+          : 'Отправка через Telegram Business bot…'
+        : 'Пишем исходящее в историю…'
+    )
+
+    try {
+      if (multiIds.length > 1) {
+        const data = await call<{
+          sent_ok?: number
+          total?: number
+          results?: Array<{
+            client_id?: string
+            ok?: boolean
+            delivery?: { ok?: boolean; detail?: string; error?: string }
+            error?: string
+          }>
+        }>('/campaigns/mark-sent-batch', {
+          method: 'POST',
+          body: {
+            message: draft,
+            channel,
+            client_ids: multiIds,
+            open_deep_link: false,
+            deliver: true
+          }
+        })
+        const ok = data.sent_ok || 0
+        const total = data.total || multiIds.length
+        const failDetails = (data.results || [])
+          .filter(r => !r.delivery?.ok)
+          .slice(0, 3)
+          .map(
+            r =>
+              `${r.client_id}: ${r.delivery?.detail || r.delivery?.error || r.error || 'fail'}`
+          )
+          .join('; ')
+
+        applyOfferText(
+          draft,
+          `✓ Batch: ${ok}/${total} отправлено через Business bot`
+        )
+
+        if (ok < total) {
+          setError(`Часть не ушла (${total - ok}): ${failDetails || 'см. логи'}`)
+        }
+
+        return
+      }
+
+      const data = await call<{
+        conversation?: ClientConversation
+        facts?: ClientFacts
+        deep_link?: string
+        delivery?: { ok?: boolean; detail?: string; error?: string; skipped?: boolean }
+      }>('/campaigns/mark-sent', {
+        method: 'POST',
+        body: {
+          message: draft,
+          channel,
+          client_id: multiIds[0],
+          open_deep_link: true,
+          deliver: true
+        }
+      })
+
+      if (data.facts) {
+        setFacts(data.facts)
+      } else if (data.conversation) {
+        setFacts(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
+      }
+
+      if (data.delivery?.ok) {
+        applyOfferText(draft, '✓ Отправлено в Telegram (Business bot) + история.')
+      } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
+        const detail = data.delivery.detail || data.delivery.error || 'ошибка'
+        applyOfferText(
+          draft,
+          `⚠ В историю записано; Bot API: ${detail}`
+        )
+        setError(`Telegram: ${detail}`)
+      } else {
+        applyOfferText(draft, '✓ Исходящее добавлено в историю (лейбл исходящее).')
+      }
+
+      if (data.deep_link) {
+        window.open(data.deep_link, '_blank', 'noopener')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
+    } finally {
+      setCheckingSanity(false)
+    }
   }
 
   const regenerateAi = async () => {
@@ -2960,76 +3213,6 @@ function CampaignsPage() {
     }
   }
 
-  const markSentToConversation = async () => {
-    if (!selectedClientId) {
-      setError('Выберите клиента — исходящее уйдёт в Telegram / историю.')
-
-      return
-    }
-
-    const draft = offerRef.current.trim()
-
-    if (!draft) {
-      setError('Сначала введите или сгенерируйте текст сообщения.')
-
-      return
-    }
-
-    setCheckingSanity(true)
-    setError('')
-    setActionStatus(
-      channel.startsWith('telegram')
-        ? 'Отправка через Telegram Business bot…'
-        : 'Пишем исходящее в историю…'
-    )
-
-    try {
-      const data = await call<{
-        conversation?: ClientConversation
-        facts?: ClientFacts
-        deep_link?: string
-        delivery?: { ok?: boolean; detail?: string; error?: string; skipped?: boolean }
-      }>('/campaigns/mark-sent', {
-        method: 'POST',
-        body: {
-          message: draft,
-          channel,
-          client_id: selectedClientId,
-          open_deep_link: true,
-          deliver: true
-        }
-      })
-
-      if (data.facts) {
-        setFacts(data.facts)
-      } else if (data.conversation) {
-        setFacts(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
-      }
-
-      if (data.delivery?.ok) {
-        applyOfferText(draft, '✓ Отправлено в Telegram (Business bot) + история.')
-      } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
-        const detail = data.delivery.detail || data.delivery.error || 'ошибка'
-        applyOfferText(
-          draft,
-          `⚠ В историю записано; Bot API: ${detail}`
-        )
-        setError(`Telegram: ${detail}`)
-      } else {
-        applyOfferText(draft, '✓ Исходящее добавлено в историю (лейбл исходящее).')
-      }
-
-      if (data.deep_link) {
-        window.open(data.deep_link, '_blank', 'noopener')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setActionStatus('')
-    } finally {
-      setCheckingSanity(false)
-    }
-  }
-
   const createDraft = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
@@ -3232,6 +3415,7 @@ function CampaignsPage() {
                   outreachGenRef.current += 1
                   setSelectedClientId(null)
                   setSelectedClientName('')
+                  setSelectedClientIds([])
                   selectedClientNameRef.current = ''
                   setFacts(null)
                   setGroundingNotes('')
@@ -3358,24 +3542,61 @@ function CampaignsPage() {
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
             <p className="ms-muted">
-              Клиенты аудитории (поиск / подгрузка — доступны все {audience}):
+              Контакты аудитории (поиск / подгрузка — доступны все {audience}):
+              {pickMode === 'multi' && selectedClientIds.length ? (
+                <>
+                  {' '}
+                  · выбрано <strong>{selectedClientIds.length}</strong>
+                  <button
+                    className="ms-link-btn"
+                    onClick={() => setSelectedClientIds([])}
+                    style={{ marginLeft: '0.5rem' }}
+                    type="button"
+                  >
+                    сбросить выбор
+                  </button>
+                </>
+              ) : null}
             </p>
-            {audiencePreview.length ? (
-              <button
-                className="ms-link-btn"
-                onClick={() => setContactsOpen(open => !open)}
-                type="button"
-              >
-                {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
-              </button>
-            ) : null}
+            <div className="ms-audience-pick-actions">
+              <div className="ms-filter-tabs" role="group">
+                <button
+                  className={`ms-filter-tab${pickMode === 'single' ? ' is-active' : ''}`}
+                  onClick={() => setPickMode('single')}
+                  type="button"
+                >
+                  1 контакт
+                </button>
+                <button
+                  className={`ms-filter-tab${pickMode === 'multi' ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setPickMode('multi')
+                    if (selectedClientId && !selectedClientIds.includes(selectedClientId)) {
+                      setSelectedClientIds([selectedClientId])
+                    }
+                  }}
+                  type="button"
+                >
+                  Несколько
+                </button>
+              </div>
+              {audiencePreview.length ? (
+                <button
+                  className="ms-link-btn"
+                  onClick={() => setContactsOpen(open => !open)}
+                  type="button"
+                >
+                  {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
+                </button>
+              ) : null}
+            </div>
           </div>
           {contactsOpen ? (
             <>
               <div className="ms-search">
                 <input
                   onChange={e => setAudienceQ(e.target.value)}
-                  placeholder="Найти клиента в аудитории по имени / телефону…"
+                  placeholder="Найти клиента в аудитории по имени / телефону / @tg…"
                   type="search"
                   value={audienceQ}
                 />
@@ -3393,17 +3614,27 @@ function CampaignsPage() {
                   }}
                 >
                   <div className="ms-chips">
-                    {audiencePreview.map(row => (
-                      <button
-                        className={`ms-chip${selectedClientId === row.id ? ' is-active' : ''}`}
-                        key={row.id || row.name}
-                        onClick={() => selectAudienceClient(row)}
-                        type="button"
-                      >
-                        {row.name || row.phone || row.id}
-                        {row.order_count != null ? <span>{row.order_count}</span> : null}
-                      </button>
-                    ))}
+                    {audiencePreview.map(row => {
+                      const active =
+                        pickMode === 'multi'
+                          ? Boolean(row.id && selectedClientIds.includes(row.id))
+                          : selectedClientId === row.id
+                      const nick = (row.tg_nick || '').replace(/^@/, '')
+
+                      return (
+                        <button
+                          className={`ms-chip${active ? ' is-active' : ''}`}
+                          key={row.id || row.name}
+                          onClick={() => selectAudienceClient(row)}
+                          title={nick ? `@${nick}` : row.phone || row.id}
+                          type="button"
+                        >
+                          {row.name || row.phone || row.id}
+                          {nick ? <span>@{nick}</span> : null}
+                          {row.order_count != null ? <span>{row.order_count}</span> : null}
+                        </button>
+                      )
+                    })}
                   </div>
                   {audienceLoadingMore ? (
                     <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
@@ -3459,6 +3690,68 @@ function CampaignsPage() {
       </div>
       <div className="ms-compose-split">
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
+          <div className="ms-tg-account">
+            <div className="ms-tg-account-head">
+              <strong>Telegram Business аккаунт</strong>
+              <button
+                className="ms-link-btn"
+                disabled={!sellerLoaded || bizSaving}
+                onClick={() => void refreshTelegramAccount()}
+                type="button"
+              >
+                Проверить
+              </button>
+            </div>
+            <p className="ms-muted ms-tg-account-status">
+              {telegramAccount?.bot_username
+                ? `Бот @${telegramAccount.bot_username}`
+                : 'Бот не настроен (MOYSKLAD_TELEGRAM_BOT_TOKEN)'}
+              {telegramAccount?.account?.ok ? (
+                <>
+                  {' '}
+                  · аккаунт{' '}
+                  <strong>
+                    @{telegramAccount.account.username || '—'}
+                  </strong>
+                  {telegramAccount.account.can_reply ? ' · reply ✓' : ' · reply ✗'}
+                  {telegramAccount.account.can_read_messages ? ' · read ✓' : ' · read ✗'}
+                </>
+              ) : telegramAccount?.account && telegramAccount.account.ok === false ? (
+                <>
+                  {' '}
+                  ·{' '}
+                  {telegramAccount.account.detail ||
+                    telegramAccount.account.error ||
+                    'connection error'}
+                </>
+              ) : telegramAccount?.business_connection_configured ? (
+                ' · connection id есть, нажмите «Проверить»'
+              ) : (
+                ' · добавьте connection id ниже'
+              )}
+            </p>
+            <label>
+              Business connection ID
+              <input
+                disabled={!sellerLoaded || bizSaving}
+                onChange={e => setBizConnectionId(e.target.value)}
+                placeholder="из Telegram Business → Chatbots / env"
+                value={bizConnectionId}
+              />
+            </label>
+            <button
+              className="ms-btn"
+              disabled={!sellerLoaded || bizSaving}
+              onClick={() => void saveBusinessConnection()}
+              type="button"
+            >
+              {bizSaving ? 'Сохраняем…' : 'Сохранить аккаунт'}
+            </button>
+            <p className="ms-muted">
+              Telegram → Настройки → Business → Чат-боты → подключите бота к @аккаунту
+              (напр. pstasinski), включите Reply. Затем вставьте connection id сюда.
+            </p>
+          </div>
           <label>
             Название
             <input onChange={e => setTitle(e.target.value)} required value={title} />
@@ -3601,7 +3894,7 @@ function CampaignsPage() {
             >
               {checkingSanity ? 'Проверяем…' : 'Проверить смысл'}
             </button>
-            {selectedClientId ? (
+            {selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0) ? (
               <button
                 className="ms-btn"
                 disabled={
@@ -3616,7 +3909,9 @@ function CampaignsPage() {
                 type="button"
               >
                 {channel.startsWith('telegram')
-                  ? 'Отправить в Telegram'
+                  ? pickMode === 'multi' && selectedClientIds.length > 1
+                    ? `Отправить выбранным (${selectedClientIds.length})`
+                    : 'Отправить в Telegram'
                   : 'Отправить → в историю'}
               </button>
             ) : null}

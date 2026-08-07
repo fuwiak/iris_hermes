@@ -22,6 +22,7 @@ def hermes_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("MOYSKLAD_CACHE_TTL_SECONDS", "3600")
     # Clear process memory between tests.
     cc._MEMORY.clear()
+    cc._PAGE_MEMORY.clear()
     return home
 
 
@@ -64,6 +65,27 @@ def test_redis_retention_exceeds_logical_ttl(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("MOYSKLAD_CACHE_TTL_SECONDS", "3600")
     monkeypatch.delenv("MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS", raising=False)
     assert cc.redis_retention_seconds() >= cc.cache_ttl_seconds() * 7
+
+
+def test_page_snapshot_roundtrip_first_100(hermes_home: Path) -> None:
+    key = cc.page_snapshot_key(sales_filter="direct", group="", q="", group_source="any")
+    clients = [{"id": str(i), "name": f"c{i}"} for i in range(120)]
+    page = {
+        "clients": clients,
+        "counts": {"total": 120, "direct": 120, "marketplace": 0},
+        "matched_total": 120,
+        "has_more": True,
+        "next_offset": 100,
+    }
+    env = cc.set_page_snapshot(key, page, synced_at=123.0)
+    assert len(env["page"]["clients"]) == cc.PAGE_SNAPSHOT_ROWS
+    hit = cc.get_page_snapshot(key)
+    assert hit is not None
+    sliced = cc.slice_page_snapshot(hit, limit=100, offset=0)
+    assert sliced is not None
+    assert len(sliced["clients"]) == 100
+    assert sliced["has_more"] is True
+    assert cc.slice_page_snapshot(hit, limit=50, offset=5) is None  # only offset 0
 
 
 def test_invalidate_removes_file(hermes_home: Path) -> None:

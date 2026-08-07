@@ -134,14 +134,17 @@ CDN-style **stale-while-revalidate**:
 | Page load / filter / search | Serve durable cache if present (fresh or stale) |
 | Fresh hit | No MoySklad call |
 | TTL expiry (stale peek) | Serve stale immediately + background rebuild |
+| Cold miss + page snapshot | Serve first **100** rows instantly + background rebuild |
 | Desktop remount | Paint `localStorage` snapshot, then revalidate via API |
-| Scroll near bottom | Fetch next `offset` page (`limit=50`); already-loaded rows stay in UI |
-| Cold miss (no durable bytes) | Blocking download from MoySklad |
+| Scroll near bottom | Fetch next `offset` page (`limit=100`); already-loaded rows stay in UI |
+| Cold miss (no durable bytes) | Blocking download from MoySklad (seeds catalog + page snapshot) |
 | **Синхронизация** button / `POST /sync` / `?refresh=true` | Force refresh + rewrite cache |
 
 - **TTL (freshness):** `MOYSKLAD_CACHE_TTL_SECONDS` (default `21600` = 6 hours)
 - **Redis retention:** `MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS` (default ≥7× TTL)
   so expired keys stay peekable on ephemeral disks
+- **Page snapshot:** first 100 clients per filter key under
+  `moysklad:clients:page:v1:…` (Redis/file) — independent of full catalog
 - **Backend:** Redis when `REDIS_URL` is set **and** the `redis` Python package
   is installed; otherwise JSON files under `$HERMES_HOME/moysklad/cache/`
   (Selectel compose already sets `REDIS_URL=redis://redis:6379/0` — file
@@ -149,7 +152,7 @@ CDN-style **stale-while-revalidate**:
 - Cache key includes a hash of the API token + query bounds
   (`max_orders` / `max_counterparties` / archived).
 - `/clients` returns `matched_total`, `has_more`, `next_offset`, plus
-  `cached` / `stale` / `revalidating` — counts are **post-dedupe**.
+  `cached` / `stale` / `revalidating` / `snapshot` — counts are **post-dedupe**.
 
 ### Multi-stage client dedupe
 

@@ -75,18 +75,24 @@ from plugins.moysklad.campaigns import (
 )
 from plugins.moysklad.telegram_send import (
     send_outreach_to_client,
+    telegram_account_snapshot,
     telegram_send_status,
 )
 from plugins.moysklad.catalog_cache import (
+    PAGE_SNAPSHOT_ROWS,
     cache_backend_name,
     cache_key,
     cache_ttl_seconds,
     format_synced_at,
     get_cached,
+    get_page_snapshot,
     invalidate,
+    page_snapshot_key,
     peek_cached,
     refresh_audience_counts,
     set_cached,
+    set_page_snapshot,
+    slice_page_snapshot,
 )
 from plugins.moysklad.classify import (
     build_enriched_catalog,
@@ -229,13 +235,16 @@ def _get_catalog(
     max_counterparties: int = 0,
     include_archived: bool = False,
     force: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    blocking: bool = True,
+    refresh_counts: bool = True,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Return ``(catalog, meta)`` where meta has sync/cache fields.
 
     CDN-style stale-while-revalidate:
     - Fresh durable cache → serve (no MoySklad)
     - Expired but peekable → serve stale + background refresh
-    - Missing / ``force=True`` → blocking rebuild
+    - Missing + ``blocking=False`` → ``(None, meta)`` + background refresh
+    - Missing / ``force=True`` + ``blocking=True`` → blocking rebuild
     """
     key = cache_key(
         max_orders=max_orders,
@@ -247,9 +256,11 @@ def _get_catalog(
         if envelope is not None:
             catalog = envelope["catalog"]
             synced_at = float(envelope.get("synced_at") or 0)
-            catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                key, catalog, synced_at=synced_at
-            )
+            counts_rewritten = False
+            if refresh_counts:
+                catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                    key, catalog, synced_at=synced_at
+                )
             return catalog, _catalog_meta(
                 envelope, cached=True, counts_refreshed=counts_rewritten
             )
@@ -258,10 +269,7 @@ def _get_catalog(
         stale_env = peek_cached(key)
         if stale_env is not None and isinstance(stale_env.get("catalog"), dict):
             catalog = stale_env["catalog"]
-            synced_at = float(stale_env.get("synced_at") or 0)
-            catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                key, catalog, synced_at=synced_at
-            )
+            # Skip O(n) counts rewrite on stale path — keep first paint fast.
             scheduled = _schedule_catalog_revalidate(
                 key,
                 max_orders=max_orders,
@@ -273,8 +281,27 @@ def _get_catalog(
                 cached=True,
                 stale=True,
                 revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
-                counts_refreshed=counts_rewritten,
+                counts_refreshed=False,
             )
+
+        if not blocking:
+            scheduled = _schedule_catalog_revalidate(
+                key,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+            )
+            return None, {
+                "cached": False,
+                "stale": True,
+                "revalidating": scheduled or key in _REVALIDATE_IN_FLIGHT,
+                "counts_refreshed": False,
+                "synced_at": 0.0,
+                "synced_at_label": "",
+                "cache_ttl_seconds": cache_ttl_seconds(),
+                "cache_backend": cache_backend_name(),
+                "snapshot": False,
+            }
 
     with _SYNC_LOCK:
         # Another request may have filled the cache while we waited.
@@ -283,19 +310,17 @@ def _get_catalog(
             if envelope is not None:
                 catalog = envelope["catalog"]
                 synced_at = float(envelope.get("synced_at") or 0)
-                catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                    key, catalog, synced_at=synced_at
-                )
+                counts_rewritten = False
+                if refresh_counts:
+                    catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                        key, catalog, synced_at=synced_at
+                    )
                 return catalog, _catalog_meta(
                     envelope, cached=True, counts_refreshed=counts_rewritten
                 )
             stale_env = peek_cached(key)
             if stale_env is not None and isinstance(stale_env.get("catalog"), dict):
                 catalog = stale_env["catalog"]
-                synced_at = float(stale_env.get("synced_at") or 0)
-                catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                    key, catalog, synced_at=synced_at
-                )
                 scheduled = _schedule_catalog_revalidate(
                     key,
                     max_orders=max_orders,
@@ -307,8 +332,26 @@ def _get_catalog(
                     cached=True,
                     stale=True,
                     revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
-                    counts_refreshed=counts_rewritten,
+                    counts_refreshed=False,
                 )
+            if not blocking:
+                scheduled = _schedule_catalog_revalidate(
+                    key,
+                    max_orders=max_orders,
+                    max_counterparties=max_counterparties,
+                    include_archived=include_archived,
+                )
+                return None, {
+                    "cached": False,
+                    "stale": True,
+                    "revalidating": scheduled or key in _REVALIDATE_IN_FLIGHT,
+                    "counts_refreshed": False,
+                    "synced_at": 0.0,
+                    "synced_at_label": "",
+                    "cache_ttl_seconds": cache_ttl_seconds(),
+                    "cache_backend": cache_backend_name(),
+                    "snapshot": False,
+                }
 
         return _rebuild_catalog_locked(
             key,
@@ -499,6 +542,16 @@ class MarkSentBody(BaseModel):
     deliver: bool = True
 
 
+class MarkSentBatchBody(BaseModel):
+    """Send one draft to many audience clients (same text, sequential deliver)."""
+
+    message: str = ""
+    channel: str = "telegram"
+    client_ids: list[str] = Field(default_factory=list)
+    open_deep_link: bool = False
+    deliver: bool = True
+
+
 class SellerSettingsBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
@@ -683,20 +736,71 @@ def get_clients(
     birthday_soon: bool = Query(False),
     group_source: str = Query("any"),
     days_before_event: int = Query(0, ge=0, le=365),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(5000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
     refresh: bool = Query(False),
 ) -> dict[str, Any]:
+    snap_key = page_snapshot_key(
+        sales_filter=sales_filter,
+        group=group,
+        q=q,
+        group_source=group_source,
+        channel_kind=channel_kind,
+        require_phone=require_phone,
+        require_telegram=require_telegram,
+        vip_only=vip_only,
+        birthday_soon=birthday_soon,
+        days_before_event=days_before_event,
+    )
     try:
+        # First page: never block on full MoySklad rebuild when a snapshot exists.
+        want_fast = (not refresh) and offset == 0
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
             include_archived=include_archived,
             force=refresh,
+            blocking=not want_fast,
+            refresh_counts=not want_fast,
         )
+
+        if catalog is None and want_fast:
+            snap_env = get_page_snapshot(snap_key)
+            if snap_env is not None:
+                sliced = slice_page_snapshot(snap_env, limit=limit, offset=0)
+                if sliced is not None:
+                    out_meta = dict(meta)
+                    out_meta.update(
+                        {
+                            "cached": True,
+                            "stale": True,
+                            "snapshot": True,
+                            "synced_at": float(snap_env.get("synced_at") or 0),
+                            "synced_at_label": format_synced_at(
+                                float(snap_env.get("synced_at") or 0)
+                            ),
+                        }
+                    )
+                    return _attach_cache_meta(_strip_internal(sliced), out_meta)
+            # True cold start — must block once to seed catalog + snapshot.
+            catalog, meta = _get_catalog(
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+                force=False,
+                blocking=True,
+                refresh_counts=True,
+            )
+
+        if catalog is None:
+            raise HTTPException(
+                status_code=503,
+                detail="catalog unavailable; retry shortly",
+            )
+
         page = clients_page(
             _client(),
             sales_filter=sales_filter,
@@ -717,6 +821,43 @@ def get_clients(
             catalog=catalog,
         )
         page["clients"] = enrich_clients(list(page.get("clients") or []))
+
+        # Seed/refresh first-100 snapshot for this filter (independent of request limit).
+        if offset == 0:
+            try:
+                if int(limit) >= PAGE_SNAPSHOT_ROWS:
+                    snap_page = page
+                else:
+                    snap_page = clients_page(
+                        _client(),
+                        sales_filter=sales_filter,
+                        group=group,
+                        q=q,
+                        channel_kind=channel_kind,
+                        require_phone=require_phone,
+                        require_telegram=require_telegram,
+                        vip_only=vip_only,
+                        birthday_soon=birthday_soon,
+                        group_source=group_source,
+                        days_before_event=days_before_event,
+                        limit=PAGE_SNAPSHOT_ROWS,
+                        offset=0,
+                        max_orders=max_orders,
+                        max_counterparties=max_counterparties,
+                        include_archived=include_archived,
+                        catalog=catalog,
+                    )
+                    snap_page["clients"] = enrich_clients(
+                        list(snap_page.get("clients") or [])
+                    )
+                set_page_snapshot(
+                    snap_key,
+                    _strip_internal(snap_page),
+                    synced_at=float(meta.get("synced_at") or time.time()),
+                )
+            except Exception:
+                log.warning("moysklad page snapshot write failed", exc_info=True)
+
         return _attach_cache_meta(_strip_internal(page), meta)
     except HTTPException:
         raise
@@ -973,6 +1114,112 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/mark-sent-batch")
+def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
+    """Deliver one message to many clients via Business bot; record each thread."""
+    try:
+        text = (body.message or "").strip()
+        ids = [str(x or "").strip() for x in (body.client_ids or []) if str(x or "").strip()]
+        # De-dupe, preserve order
+        seen: set[str] = set()
+        client_ids: list[str] = []
+        for cid in ids:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            client_ids.append(cid)
+        if not text:
+            raise HTTPException(status_code=400, detail="message required")
+        if not client_ids:
+            raise HTTPException(status_code=400, detail="client_ids required")
+        if len(client_ids) > 50:
+            raise HTTPException(status_code=400, detail="max 50 clients per batch")
+
+        catalog, meta = _get_catalog(force=False)
+        channel = (body.channel or "telegram").strip().lower()
+        results: list[dict[str, Any]] = []
+        sent_ok = 0
+        for client_id in client_ids:
+            row = find_row_in_catalog(catalog, client_id)
+            if row is None:
+                results.append(
+                    {
+                        "client_id": client_id,
+                        "ok": False,
+                        "error": "client_not_found",
+                        "delivery": {"ok": False},
+                    }
+                )
+                continue
+            detail = build_client_detail(row)
+            client = detail.get("client") or {}
+            msg = detail.get("messaging") or {}
+            deep_link = ""
+            if channel == "whatsapp":
+                deep_link = str(msg.get("whatsapp_url") or "")
+            else:
+                deep_link = str(msg.get("telegram_url") or "")
+
+            delivery: dict[str, Any] = {"ok": False, "skipped": True}
+            if body.deliver and channel.startswith("telegram"):
+                delivery = send_outreach_to_client(
+                    text=text,
+                    tg_nick=str(client.get("tg_nick") or ""),
+                    tg_conversation=str(client.get("tg_conversation") or ""),
+                    tg_chat_id=str(
+                        client.get("tg_chat_id")
+                        or row.get("ТГ chat id")
+                        or row.get("tg_chat_id")
+                        or ""
+                    ),
+                )
+
+            source = "campaign_send_batch"
+            if delivery.get("ok"):
+                source = "campaign_telegram_bot"
+                sent_ok += 1
+
+            thread = append_message(
+                client_id=client_id,
+                text=text,
+                direction="outbound",
+                channel=channel,
+                label="",
+                phone=str(client.get("phone") or ""),
+                tg_nick=str(client.get("tg_nick") or ""),
+                client_name=str(client.get("name") or ""),
+                source=source,
+            )
+            open_link = bool(body.open_deep_link) and not delivery.get("ok")
+            results.append(
+                {
+                    "client_id": client_id,
+                    "ok": True,
+                    "client_name": str(client.get("name") or ""),
+                    "delivery": delivery,
+                    "conversation": thread,
+                    "deep_link": deep_link if open_link else "",
+                }
+            )
+
+        payload = {
+            "ok": True,
+            "channel": channel,
+            "total": len(client_ids),
+            "sent_ok": sent_ok,
+            "results": results,
+            "telegram": telegram_send_status(),
+        }
+        return _attach_cache_meta(payload, meta)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mark-sent-batch failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -1393,10 +1640,14 @@ def get_campaigns() -> dict[str, Any]:
 
 @router.get("/campaigns/seller-settings")
 def get_campaign_seller_settings() -> dict[str, Any]:
+    settings = get_seller_settings()
     return {
         "ok": True,
-        **get_seller_settings(),
+        **settings,
         "telegram": telegram_send_status(),
+        "telegram_account": telegram_account_snapshot(
+            settings.get("telegram_business_connection_id") or None
+        ),
     }
 
 
@@ -1407,7 +1658,24 @@ def put_campaign_seller_settings(body: SellerSettingsBody) -> dict[str, Any]:
         seller_facts=body.seller_facts,
         telegram_business_connection_id=body.telegram_business_connection_id,
     )
-    return {"ok": True, **saved, "telegram": telegram_send_status()}
+    return {
+        "ok": True,
+        **saved,
+        "telegram": telegram_send_status(),
+        "telegram_account": telegram_account_snapshot(
+            saved.get("telegram_business_connection_id") or None
+        ),
+    }
+
+
+@router.get("/campaigns/telegram-account")
+def get_campaign_telegram_account() -> dict[str, Any]:
+    """Probe Business connection for campaigns UI (account @nick / rights)."""
+    settings = get_seller_settings()
+    snap = telegram_account_snapshot(
+        settings.get("telegram_business_connection_id") or None
+    )
+    return {"ok": True, **snap}
 
 
 @router.get("/campaigns/draft-cache")
