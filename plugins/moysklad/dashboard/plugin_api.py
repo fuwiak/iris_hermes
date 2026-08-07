@@ -141,7 +141,7 @@ class AiFillBody(BaseModel):
     group: str = ""
     q: str = ""
     ids: list[str] = Field(default_factory=list)
-    limit: int = 40
+    limit: int = 100
     use_llm: bool = True
     force: bool = False
     max_orders: int = 5000

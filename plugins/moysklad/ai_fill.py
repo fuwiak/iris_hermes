@@ -699,7 +699,9 @@ def fill_empty_for_rows(
                 })
                 continue
         targets.append(row)
-        if len(targets) >= max(1, min(int(limit), 100)):
+        # Lazy page fills can request up to ~200 visible rows; keep a hard cap.
+        cap = 200 if id_filter else 100
+        if len(targets) >= max(1, min(int(limit), cap)):
             break
 
     llm_map: dict[str, dict[str, Any]] = {}

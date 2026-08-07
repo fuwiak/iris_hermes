@@ -67,13 +67,13 @@ Example prompts:
 4. Chip cloud **Группы (МойСклад)** filters by tags
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
 6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
-7. **Заполнить AI** — `POST /clients/ai-fill` fills empty **Группы / Статус / Пол /
-   роль / ТГ ник / Тип контрагента** (LLM + heuristic). Lazy: Clients table
-   auto-fills **only the visible page** on load/scroll; results persist in
-   **Redis** (when `REDIS_URL` set) + `$HERMES_HOME/moysklad/ai_fill_cache/`
-   (and legacy `ai_fill.json`). Cached entries skip LLM on reload. Cells show
-   a **green outline + AI badge**. Never overwrites MoySklad-owned non-empty
-   cells. Manual button re-fills the current screen with `force=true`.
+7. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
+   роль / ТГ ник / Тип контрагента** for every **currently shown** row (batched
+   as the list grows on scroll). No button. Results persist in **Redis** (when
+   `REDIS_URL` set) + `$HERMES_HOME/moysklad/ai_fill_cache/` (and legacy
+   `ai_fill.json`); cached entries skip LLM on reload. Cells show a **green
+   outline + AI badge**. Never overwrites MoySklad-owned non-empty cells.
+   Endpoint: `POST /clients/ai-fill` with `ids` for the visible set.
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
 `POST /clients/{id}/ai`, `POST /clients/ai-fill`, `POST /sync`, `GET|POST /campaigns`,
