@@ -225,9 +225,9 @@ def _schedule_catalog_revalidate(
 
 def _get_catalog(
     *,
-    max_orders: int,
-    max_counterparties: int,
-    include_archived: bool,
+    max_orders: int = 5000,
+    max_counterparties: int = 0,
+    include_archived: bool = False,
     force: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(catalog, meta)`` where meta has sync/cache fields.
