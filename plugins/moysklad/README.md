@@ -144,7 +144,7 @@ over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
 
 * Connect in Рассылки → **Личный Telegram**: `api_id` / `api_hash` from
   my.telegram.org → phone → code → 2FA password.
-  Endpoints: `POST /campaigns/telegram-user/{login,code,password,logout}`,
+  Endpoints: `POST /campaigns/telegram-user/{credentials,login,code,password,logout}`,
   `GET /campaigns/telegram-user`.
 * Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).
   Env overrides: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,

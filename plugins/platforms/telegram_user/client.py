@@ -348,10 +348,15 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
     """UI-facing account block. No secrets — only presence flags."""
     api_id, api_hash = api_credentials()
     cfg = load_config()
+    env_api = bool(
+        (os.getenv("TELEGRAM_API_ID") or "").strip()
+        and (os.getenv("TELEGRAM_API_HASH") or "").strip()
+    )
     out: dict[str, Any] = {
         "ok": True,
         "available": telethon_available(),
         "api_configured": bool(api_id and api_hash),
+        "api_source": "env" if env_api else ("config" if api_id and api_hash else ""),
         "session_saved": bool(session_string()),
         "phone": str(cfg.get("phone") or "") or None,
         "authorized": False,

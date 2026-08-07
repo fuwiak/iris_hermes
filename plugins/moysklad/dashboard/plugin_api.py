@@ -1563,6 +1563,15 @@ def get_telegram_user_account(probe: bool = Query(True)) -> dict[str, Any]:
     return {**telegram_user_status(probe=probe), "send_mode": telegram_send_mode()}
 
 
+@router.post("/campaigns/telegram-user/credentials")
+def post_telegram_user_credentials(body: TelegramUserLoginBody) -> dict[str, Any]:
+    """Store my.telegram.org api_id / api_hash without starting a login."""
+    out = tg_user.save_credentials(api_id=body.api_id, api_hash=body.api_hash)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return {**out, **telegram_user_status(probe=False)}
+
+
 @router.post("/campaigns/telegram-user/login")
 def post_telegram_user_login(body: TelegramUserLoginBody) -> dict[str, Any]:
     """Step 1 — store api_id/api_hash if given and request the login code."""

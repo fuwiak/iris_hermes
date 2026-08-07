@@ -2544,6 +2544,7 @@ function CampaignsPage() {
   const [tgUser, setTgUser] = useState<{
     available?: boolean
     api_configured?: boolean
+    api_source?: string
     session_saved?: boolean
     authorized?: boolean
     phone?: string | null
@@ -2809,6 +2810,28 @@ function CampaignsPage() {
     void refreshTgUser(false)
     // Probe once on mount; the panel's buttons re-probe on demand.
   }, [])
+
+  const tgSaveCredentials = async () => {
+    if (!tgApiId.trim() && !tgApiHash.trim()) {
+      setError('Заполните api_id и api_hash с my.telegram.org')
+      return
+    }
+    setTgBusy(true)
+    setError('')
+    try {
+      const data = await call<typeof tgUser>('/campaigns/telegram-user/credentials', {
+        method: 'POST',
+        body: { api_id: tgApiId.trim(), api_hash: tgApiHash.trim() }
+      })
+      setTgUser(data)
+      setTgApiHash('')
+      setActionStatus('✓ api_id / api_hash сохранены')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
 
   const tgLogin = async () => {
     setTgBusy(true)
@@ -4532,6 +4555,7 @@ function CampaignsPage() {
               ) : (
                 'Не подключён — Bot API не видит ваш список контактов и не пишет первым'
               )}
+              {tgUser?.api_source === 'env' ? ' · api_id/api_hash из .env' : ''}
               {tgUser?.detail ? ` · ${tgUser.detail}` : ''}
             </p>
             <div className="ms-compose-actions">
@@ -4579,7 +4603,13 @@ function CampaignsPage() {
                       api_id (my.telegram.org)
                       <input
                         onChange={e => setTgApiId(e.target.value)}
-                        placeholder={tgUser?.api_configured ? 'сохранён' : '1234567'}
+                        placeholder={
+                          tgUser?.api_configured
+                            ? tgUser.api_source === 'env'
+                              ? 'из .env (TELEGRAM_API_ID)'
+                              : 'сохранён'
+                            : '29924508'
+                        }
                         value={tgApiId}
                       />
                     </label>
@@ -4587,19 +4617,35 @@ function CampaignsPage() {
                       api_hash
                       <input
                         onChange={e => setTgApiHash(e.target.value)}
-                        placeholder={tgUser?.api_configured ? 'сохранён' : 'abc123…'}
+                        placeholder={
+                          tgUser?.api_configured
+                            ? tgUser.api_source === 'env'
+                              ? 'из .env (TELEGRAM_API_HASH)'
+                              : 'сохранён'
+                            : 'abc123…'
+                        }
                         type="password"
                         value={tgApiHash}
                       />
                     </label>
-                    <button
-                      className="ms-btn ms-btn-primary"
-                      disabled={tgBusy}
-                      onClick={() => void tgLogin()}
-                      type="button"
-                    >
-                      {tgBusy ? 'Отправляем код…' : 'Получить код'}
-                    </button>
+                    <div className="ms-compose-actions">
+                      <button
+                        className="ms-btn"
+                        disabled={tgBusy}
+                        onClick={() => void tgSaveCredentials()}
+                        type="button"
+                      >
+                        Сохранить api_id / api_hash
+                      </button>
+                      <button
+                        className="ms-btn ms-btn-primary"
+                        disabled={tgBusy}
+                        onClick={() => void tgLogin()}
+                        type="button"
+                      >
+                        {tgBusy ? 'Отправляем код…' : 'Получить код'}
+                      </button>
+                    </div>
                   </>
                 ) : null}
                 {tgStep === 'code' ? (
