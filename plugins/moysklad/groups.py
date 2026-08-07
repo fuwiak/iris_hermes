@@ -18,6 +18,18 @@ from plugins.moysklad.sales_channels import (
     moysklad_group_tokens,
 )
 
+# Soft AI segment chips — always shown in «Группы: ИИ» even at count 0 so the
+# section never disappears when AI-fill store is empty / snapshot is stale.
+AI_FEATURED_GROUPS: tuple[str, ...] = (
+    "новый",
+    "премиум",
+    "постоянный клиент",
+    "несостоявшийся",
+    "букет от 10 000",
+    "прямые продажи",
+    "маркетплейс",
+)
+
 # Shared occasion/segment chips — available on Прямые AND Маркетплейс.
 SHARED_OCCASION_GROUPS = (
     "8 марта",
@@ -364,4 +376,80 @@ def collect_featured_group_counts(
             "hue": group_chip_hue(label),
             "source": source,
         })
-    return items
+    return ensure_ai_featured_chips(items, ai_counter=ai_counter, display=display)
+
+
+def ensure_ai_featured_chips(
+    items: list[dict[str, Any]],
+    *,
+    ai_counter: Counter[str] | None = None,
+    display: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Guarantee «Группы: ИИ» has the soft AI chip set (even at count 0)."""
+    ai_counter = ai_counter or Counter()
+    display = display or {}
+    out = list(items or [])
+    by_key: dict[str, dict[str, Any]] = {
+        normalize_group_key(str(i.get("name") or "")): i for i in out
+    }
+    for label in AI_FEATURED_GROUPS:
+        key = normalize_group_key(label)
+        if not key:
+            continue
+        ai_n = int(ai_counter.get(key, 0))
+        existing = by_key.get(key)
+        if existing is not None:
+            # Promote pure-MS chip that also has AI hits, or force AI visibility.
+            ms_n = int(existing.get("ms_count") or 0)
+            cur_ai = int(existing.get("ai_count") or 0) or ai_n
+            existing["ai_count"] = cur_ai
+            existing["ms_count"] = ms_n
+            if cur_ai > 0 and ms_n > 0:
+                existing["source"] = "both"
+                existing["count"] = max(ms_n, cur_ai)
+            elif cur_ai > 0:
+                existing["source"] = "ai"
+                existing["count"] = cur_ai
+            else:
+                # Keep MS data but also emit a dedicated AI zero-chip below.
+                pass
+            if cur_ai > 0 or existing.get("source") in ("ai", "both"):
+                continue
+        # Always emit an AI-source chip so the UI section never collapses.
+        out.append({
+            "name": display.get(key) or canonical_group_label(label) or label,
+            "count": int(ai_n),
+            "ms_count": int(existing.get("ms_count") or 0) if existing else 0,
+            "ai_count": int(ai_n),
+            "hue": group_chip_hue(label),
+            "source": "ai",
+        })
+        by_key[key] = out[-1]
+    return out
+
+
+def ensure_group_options_by_source(
+    page: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill/repair ``group_options_by_source`` so AI chips always present."""
+    out = dict(page or {})
+    options = list(out.get("group_options") or [])
+    options = ensure_ai_featured_chips(options)
+    out["group_options"] = options
+    by_src = split_group_options_by_source(options)
+    # If split somehow still empty AI (legacy items), seed defaults.
+    if not by_src.get("ai"):
+        by_src["ai"] = [
+            {
+                "name": label,
+                "count": 0,
+                "ms_count": 0,
+                "ai_count": 0,
+                "hue": group_chip_hue(label),
+                "source": "ai",
+                "filter_source": "ai",
+            }
+            for label in AI_FEATURED_GROUPS
+        ]
+    out["group_options_by_source"] = by_src
+    return out

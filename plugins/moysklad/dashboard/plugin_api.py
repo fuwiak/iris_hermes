@@ -106,6 +106,7 @@ from plugins.moysklad.classify import (
     catalog_integrity,
     clients_page,
 )
+from plugins.moysklad.groups import ensure_group_options_by_source
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
 from plugins.moysklad.ai_playground import (
     get_golden_client,
@@ -951,7 +952,10 @@ def get_clients(
                         "cache_backend": cache_backend_name(),
                         "counts_refreshed": False,
                     }
-                    return _attach_cache_meta(_strip_internal(sliced), out_meta)
+                    return _attach_cache_meta(
+                        ensure_group_options_by_source(_strip_internal(sliced)),
+                        out_meta,
+                    )
 
         catalog, meta = _get_catalog(
             max_orders=max_orders,
@@ -1051,7 +1055,10 @@ def get_clients(
         meta = dict(meta)
         meta["snapshot"] = False
         meta["revalidating"] = bool(meta.get("revalidating"))
-        return _attach_cache_meta(_strip_internal(page), meta)
+        return _attach_cache_meta(
+            ensure_group_options_by_source(_strip_internal(page)),
+            meta,
+        )
     except HTTPException:
         raise
     except MoySkladError as exc:

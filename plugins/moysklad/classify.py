@@ -15,6 +15,7 @@ from plugins.moysklad.dedupe import (
 )
 from plugins.moysklad.groups import (
     collect_featured_group_counts,
+    ensure_group_options_by_source,
     split_group_options_by_source,
 )
 from plugins.moysklad.order_status import classify_order_payment, summarize_order_context
@@ -433,7 +434,7 @@ def clients_page(
     next_offset = offset + returned
     has_more = next_offset < matched_total
 
-    return {
+    payload = {
         "ok": True,
         "sales_filter": filter_key,
         "group": group or "",
@@ -463,6 +464,7 @@ def clients_page(
         "_base_rows": base_rows,
         "_all_rows": all_rows,
     }
+    return ensure_group_options_by_source(payload)
 
 
 def catalog_integrity(catalog: dict[str, Any]) -> dict[str, Any]:

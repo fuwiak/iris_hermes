@@ -127,6 +127,36 @@ def test_row_ai_groups_heuristic_fallback(monkeypatch) -> None:
     assert any("новый" in t.lower() or "премиум" in t.lower() for t in tokens)
 
 
+def test_ensure_ai_featured_chips_always_in_ai_section() -> None:
+    from plugins.moysklad.groups import (
+        collect_featured_group_counts,
+        ensure_group_options_by_source,
+        split_group_options_by_source,
+    )
+
+    # MS-only tags, no AI fill store — AI section must still get soft chips.
+    rows = [
+        {
+            "_moysklad_id": "only-ms",
+            "_moysklad_tags": ["8 марта"],
+            "order_count": 0,
+            "_orders_context": [],
+        }
+    ]
+    opts = collect_featured_group_counts(rows, sales_filter="direct")
+    split = split_group_options_by_source(opts)
+    assert any(i["name"] == "8 марта" for i in split["ms"])
+    assert split["ai"], "AI chip section must not be empty"
+    assert any(i["name"] == "новый" for i in split["ai"])
+
+    # Stale snapshot with only MS options — repair path fills AI.
+    repaired = ensure_group_options_by_source(
+        {"group_options": [{"name": "8 марта", "count": 1, "ms_count": 1, "ai_count": 0, "source": "ms"}]}
+    )
+    assert repaired["group_options_by_source"]["ai"]
+    assert any(i["name"] == "премиум" for i in repaired["group_options_by_source"]["ai"])
+
+
 def test_catalog_integrity_partition() -> None:
     rows = [
         {

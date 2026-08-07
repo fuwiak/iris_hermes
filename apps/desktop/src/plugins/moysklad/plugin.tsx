@@ -26,6 +26,41 @@ function groupChipSrcLabel(source?: string): string {
   return 'МС'
 }
 
+const DEFAULT_AI_GROUP_CHIPS: GroupChipOption[] = [
+  'новый',
+  'премиум',
+  'постоянный клиент',
+  'несостоявшийся',
+  'букет от 10 000',
+  'прямые продажи',
+  'маркетплейс'
+].map(name => ({
+  name,
+  count: 0,
+  source: 'ai',
+  filter_source: 'ai',
+  ms_count: 0,
+  ai_count: 0
+}))
+
+function resolveGroupOptionsBySource(data: {
+  group_options?: GroupChipOption[]
+  group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
+}): { ms: GroupChipOption[]; ai: GroupChipOption[] } {
+  const bySrc = data.group_options_by_source
+  let ms = bySrc?.ms || []
+  let ai = bySrc?.ai || []
+  if (!bySrc) {
+    const all = data.group_options || []
+    ms = all.filter(o => (o.source || 'ms') !== 'ai')
+    ai = all.filter(o => o.source === 'ai' || o.source === 'both')
+  }
+  if (!ai.length) {
+    ai = DEFAULT_AI_GROUP_CHIPS
+  }
+  return { ms, ai }
+}
+
 function groupChipSrcClass(source?: string): string {
   if (source === 'ai') return 'is-ai'
   if (source === 'both') return 'is-both'
@@ -1651,7 +1686,7 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 100
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v2:'
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v3:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
@@ -1906,7 +1941,11 @@ function ClientsPage() {
             setNextOffset(local.next_offset || local.clients.length)
             setHasMore(Boolean(local.has_more))
             setGroupOptionsMs(local.group_options_ms || [])
-            setGroupOptionsAi(local.group_options_ai || [])
+            setGroupOptionsAi(
+              local.group_options_ai?.length
+                ? local.group_options_ai
+                : DEFAULT_AI_GROUP_CHIPS
+            )
             setFromCache(true)
             // Local paint is a snapshot — do not sticky-spin «обновляем…» until server says so.
             setStaleHint(false)
@@ -1976,21 +2015,9 @@ function ClientsPage() {
         )
 
         if (!append) {
-          const bySrc = data.group_options_by_source
-          let msOpts: GroupChipOption[] = []
-          let aiOpts: GroupChipOption[] = []
-          if (bySrc) {
-            msOpts = bySrc.ms || []
-            aiOpts = bySrc.ai || []
-            setGroupOptionsMs(msOpts)
-            setGroupOptionsAi(aiOpts)
-          } else {
-            const all = data.group_options || []
-            msOpts = all.filter(o => (o.source || 'ms') !== 'ai')
-            aiOpts = all.filter(o => o.source === 'ai' || o.source === 'both')
-            setGroupOptionsMs(msOpts)
-            setGroupOptionsAi(aiOpts)
-          }
+          const { ms: msOpts, ai: aiOpts } = resolveGroupOptionsBySource(data)
+          setGroupOptionsMs(msOpts)
+          setGroupOptionsAi(aiOpts)
           setFromCache(Boolean(data.cached || data.snapshot))
           // «обновляем…» only while server is actually rebuilding — not for every stale/snapshot paint.
           setStaleHint(Boolean(data.revalidating))
@@ -2865,15 +2892,9 @@ function CampaignsPage() {
         setCounts(page.counts || null)
 
         if (!append) {
-          const bySrc = page.group_options_by_source
-          if (bySrc) {
-            setGroupOptionsMs(bySrc.ms || [])
-            setGroupOptionsAi(bySrc.ai || [])
-          } else {
-            const all = page.group_options || []
-            setGroupOptionsMs(all.filter(o => (o.source || 'ms') !== 'ai'))
-            setGroupOptionsAi(all.filter(o => o.source === 'ai' || o.source === 'both'))
-          }
+          const { ms, ai } = resolveGroupOptionsBySource(page)
+          setGroupOptionsMs(ms)
+          setGroupOptionsAi(ai)
         }
         const next = page.next_offset != null ? page.next_offset : offset + rows.length
         setAudienceNextOffset(next)
