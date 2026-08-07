@@ -1,0 +1,249 @@
+"""Outreach contact picker for MoySklad Рассылки.
+
+Merges:
+* custom contacts (user-added @nick / chat id) — ``outreach_contacts.json``
+* Telegram Desktop export overlay peers (matched clients)
+* catalog clients that already have ТГ ник / chat id
+
+Ids:
+* catalog / overlay → MoySklad client id
+* custom → ``custom:<uuid>``
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import uuid
+from pathlib import Path
+from typing import Any, Optional
+
+from hermes_constants import get_hermes_home
+from plugins.moysklad.conversations import normalize_tg_nick
+
+_LOCK = threading.RLock()
+_STORE_NAME = "outreach_contacts.json"
+
+
+def _store_path() -> Path:
+    root = get_hermes_home() / "moysklad"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / _STORE_NAME
+
+
+def load_custom_contacts() -> list[dict[str, Any]]:
+    path = _store_path()
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    items = raw.get("contacts") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("id") or "").strip()
+        if not cid.startswith("custom:"):
+            continue
+        out.append(_normalize_contact(item, source="custom"))
+    return [c for c in out if c]
+
+
+def save_custom_contacts(contacts: list[dict[str, Any]]) -> None:
+    path = _store_path()
+    payload = {
+        "contacts": [
+            {
+                "id": c["id"],
+                "name": c.get("name") or "",
+                "tg_nick": c.get("tg_nick") or "",
+                "tg_chat_id": c.get("tg_chat_id") or "",
+            }
+            for c in contacts
+            if str(c.get("id") or "").startswith("custom:")
+        ]
+    }
+    tmp = path.with_suffix(".tmp")
+    with _LOCK:
+        tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+
+def _normalize_contact(raw: dict[str, Any], *, source: str) -> Optional[dict[str, Any]]:
+    cid = str(raw.get("id") or "").strip()
+    nick = normalize_tg_nick(raw.get("tg_nick") or "")
+    chat_id = str(raw.get("tg_chat_id") or "").strip()
+    name = str(raw.get("name") or "").strip()
+    if not cid:
+        return None
+    if not nick and not chat_id:
+        return None
+    label_bits = [name] if name else []
+    if nick:
+        label_bits.append(f"@{nick}")
+    elif chat_id:
+        label_bits.append(chat_id)
+    return {
+        "id": cid,
+        "name": name or (f"@{nick}" if nick else chat_id),
+        "tg_nick": nick,
+        "tg_chat_id": chat_id,
+        "source": source,
+        "label": " · ".join(label_bits) if label_bits else cid,
+    }
+
+
+def add_custom_contact(
+    *,
+    name: str = "",
+    tg_nick: str = "",
+    tg_chat_id: str = "",
+) -> dict[str, Any]:
+    nick = normalize_tg_nick(tg_nick)
+    chat_id = str(tg_chat_id or "").strip()
+    if not nick and not chat_id:
+        raise ValueError("tg_nick or tg_chat_id required")
+    contact = _normalize_contact(
+        {
+            "id": f"custom:{uuid.uuid4().hex[:12]}",
+            "name": str(name or "").strip(),
+            "tg_nick": nick,
+            "tg_chat_id": chat_id,
+        },
+        source="custom",
+    )
+    assert contact is not None
+    with _LOCK:
+        items = load_custom_contacts()
+        # de-dupe by nick or chat_id
+        filtered = []
+        for existing in items:
+            same_nick = nick and existing.get("tg_nick") == nick
+            same_chat = chat_id and existing.get("tg_chat_id") == chat_id
+            if same_nick or same_chat:
+                continue
+            filtered.append(existing)
+        filtered.append(contact)
+        save_custom_contacts(filtered)
+    return contact
+
+
+def delete_custom_contact(contact_id: str) -> bool:
+    cid = str(contact_id or "").strip()
+    if not cid.startswith("custom:"):
+        return False
+    with _LOCK:
+        items = load_custom_contacts()
+        next_items = [c for c in items if c.get("id") != cid]
+        if len(next_items) == len(items):
+            return False
+        save_custom_contacts(next_items)
+    return True
+
+
+def get_contact(contact_id: str) -> Optional[dict[str, Any]]:
+    cid = str(contact_id or "").strip()
+    if not cid:
+        return None
+    if cid.startswith("custom:"):
+        for c in load_custom_contacts():
+            if c.get("id") == cid:
+                return c
+        return None
+    # overlay / will be resolved by caller with catalog
+    try:
+        from plugins.moysklad.telegram_export import overlay_for_client
+
+        entry = overlay_for_client(cid)
+        if entry:
+            return _normalize_contact(
+                {
+                    "id": cid,
+                    "name": entry.get("chat_name") or entry.get("name") or "",
+                    "tg_nick": entry.get("tg_nick") or "",
+                    "tg_chat_id": entry.get("tg_chat_id") or "",
+                },
+                source="export",
+            )
+    except Exception:
+        pass
+    return None
+
+
+def list_outreach_contacts(
+    *,
+    catalog_clients: list[dict[str, Any]] | None = None,
+    q: str = "",
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Merged contact list for the campaigns dropdown."""
+    by_id: dict[str, dict[str, Any]] = {}
+
+    for c in load_custom_contacts():
+        by_id[c["id"]] = c
+
+    try:
+        from plugins.moysklad.telegram_export import load_overlay
+
+        overlay = load_overlay()
+        by_client = overlay.get("by_client_id") or {}
+        if isinstance(by_client, dict):
+            for cid, entry in by_client.items():
+                if not isinstance(entry, dict):
+                    continue
+                norm = _normalize_contact(
+                    {
+                        "id": str(cid),
+                        "name": entry.get("chat_name") or entry.get("name") or "",
+                        "tg_nick": entry.get("tg_nick") or "",
+                        "tg_chat_id": entry.get("tg_chat_id") or "",
+                    },
+                    source="export",
+                )
+                if norm and str(cid) not in by_id:
+                    by_id[str(cid)] = norm
+    except Exception:
+        pass
+
+    for row in catalog_clients or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("id") or "").strip()
+        if not cid or cid in by_id:
+            continue
+        nick = normalize_tg_nick(row.get("tg_nick") or "")
+        chat_id = str(row.get("tg_chat_id") or "").strip()
+        if not nick and not chat_id:
+            continue
+        norm = _normalize_contact(
+            {
+                "id": cid,
+                "name": row.get("name") or "",
+                "tg_nick": nick,
+                "tg_chat_id": chat_id,
+            },
+            source="catalog",
+        )
+        if norm:
+            by_id[cid] = norm
+
+    items = list(by_id.values())
+    needle = (q or "").strip().lower().lstrip("@")
+    if needle:
+        items = [
+            c
+            for c in items
+            if needle in (c.get("label") or "").lower()
+            or needle in (c.get("name") or "").lower()
+            or needle in (c.get("tg_nick") or "").lower()
+            or needle in (c.get("tg_chat_id") or "").lower()
+        ]
+    items.sort(key=lambda c: (c.get("name") or c.get("label") or "").lower())
+    return items[: max(1, min(int(limit or 200), 500))]

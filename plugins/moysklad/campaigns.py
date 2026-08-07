@@ -38,20 +38,27 @@ def get_seller_settings() -> dict[str, str]:
         "telegram_business_connection_id": "",
     }
     path = _seller_settings_path()
-    if not path.is_file():
-        return dict(empty)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return dict(empty)
-    if not isinstance(raw, dict):
-        return dict(empty)
+    raw: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                raw = loaded
+        except (OSError, json.JSONDecodeError):
+            raw = {}
+    biz = str(raw.get("telegram_business_connection_id") or "").strip()
+    if not biz:
+        # Prefer native Office Telegram Business env, then legacy MoySklad alias.
+        import os
+
+        biz = (
+            (os.getenv("TELEGRAM_BUSINESS_CONNECTION_ID") or "").strip()
+            or (os.getenv("MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID") or "").strip()
+        )
     return {
         "seller_name": str(raw.get("seller_name") or "").strip(),
         "seller_facts": str(raw.get("seller_facts") or "").strip(),
-        "telegram_business_connection_id": str(
-            raw.get("telegram_business_connection_id") or ""
-        ).strip(),
+        "telegram_business_connection_id": biz,
     }
 
 

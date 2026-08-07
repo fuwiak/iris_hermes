@@ -3,9 +3,15 @@
 Maps ``data/telegram_export.json`` (or ``$HERMES_HOME/moysklad/telegram_export.json``)
 personal chats onto catalog clients by phone (via Contacts) and name, then:
 
-* seeds local ``conversations`` history (TG conversation column / client card)
+* seeds ``conversations`` history (TG conversation column / client card)
 * fills empty ``ТГ ник`` when an ``@username`` can be attributed to the peer
 * stores ``tg_chat_id`` for Bot API delivery
+
+Persistence ladder for the overlay (same as catalog / ai_fill):
+
+1. Redis — when ``REDIS_URL`` / ``MOYSKLAD_REDIS_URL`` is set
+2. File ``$HERMES_HOME/moysklad/telegram_export_overlay.json``
+3. Process-local memory
 
 Export has no per-chat username field — nick fill is best-effort from mentions /
 t.me links that clearly belong to the peer side.
@@ -13,36 +19,46 @@ t.me links that clearly belong to the peer side.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
 from hermes_constants import get_hermes_home
 from plugins.moysklad.conversations import (
     _MAX_MESSAGES,
-    _LOCK,
+    _LOCK as _CONV_LOCK,
     _ensure_thread,
-    _load,
+    _load as _conv_load,
     _now,
-    _save,
+    _save as _conv_save,
     normalize_tg_nick,
+    preview_text,
 )
 from plugins.moysklad.dedupe import normalize_name, normalize_phone as dedupe_phone
 
 log = logging.getLogger(__name__)
 
 _OVERLAY_NAME = "telegram_export_overlay.json"
+_OVERLAY_REDIS_KEY = "moysklad:telegram_export:overlay:v1"
 _IMPORT_LOCK = threading.Lock()
+_CACHE_LOCK = threading.RLock()
 _IMPORT_DONE_FOR: set[str] = set()
+_OVERLAY_MEMORY: dict[str, Any] | None = None
+_OVERLAY_MEMORY_AT = 0.0
+_OVERLAY_MEMORY_FP: str | None = None
+
+DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 _TME_RE = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,64})",
     re.IGNORECASE,
 )
-_MENTION_RE = re.compile(r"@([A-Za-z0-9_]{4,64})")
 _FROM_ID_RE = re.compile(r"^user(\d+)$", re.IGNORECASE)
 
 # Mentions that are never the client peer (studio / bots / suppliers).
@@ -53,6 +69,55 @@ _SKIP_NICKS = frozenset({
     "russian_seller",
     "cvetioptomru",
 })
+
+
+def cache_ttl_seconds() -> int:
+    raw = (os.environ.get("MOYSKLAD_TG_EXPORT_TTL_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_TTL_SECONDS
+    try:
+        return max(3600, int(raw))
+    except ValueError:
+        return DEFAULT_TTL_SECONDS
+
+
+def _redis_url() -> str:
+    return (os.environ.get("REDIS_URL") or os.environ.get("MOYSKLAD_REDIS_URL") or "").strip()
+
+
+def _redis_client():
+    url = _redis_url()
+    if not url:
+        return None
+    try:
+        import redis  # type: ignore[import-not-found]
+    except Exception:
+        log.debug("REDIS_URL set but redis package missing; tg export file cache")
+        return None
+    try:
+        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=2.0)
+        client.ping()
+        return client
+    except Exception as exc:
+        log.warning("MoySklad tg-export Redis unavailable (%s); file cache", exc)
+        return None
+
+
+def cache_backend_name() -> str:
+    if _redis_client() is not None:
+        return "redis+file"
+    return "file"
+
+
+def _account_fingerprint() -> str:
+    token = (os.environ.get("MOYSKLAD_API_TOKEN") or "").strip()
+    if not token:
+        return "no-token"
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+
+
+def _overlay_redis_key() -> str:
+    return f"{_OVERLAY_REDIS_KEY}:{_account_fingerprint()}"
 
 
 def default_export_paths() -> list[Path]:
@@ -71,7 +136,7 @@ def resolve_export_path(explicit: str | Path | None = None) -> Optional[Path]:
     if explicit:
         p = Path(explicit)
         return p if p.is_file() else None
-    env = ( __import__("os").environ.get("MOYSKLAD_TELEGRAM_EXPORT") or "").strip()
+    env = (os.environ.get("MOYSKLAD_TELEGRAM_EXPORT") or "").strip()
     if env:
         p = Path(env)
         if p.is_file():
@@ -88,28 +153,117 @@ def _overlay_path() -> Path:
     return root / _OVERLAY_NAME
 
 
-def load_overlay() -> dict[str, Any]:
-    path = _overlay_path()
-    if not path.is_file():
-        return {"by_client_id": {}, "stats": {}}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"by_client_id": {}, "stats": {}}
+def _empty_overlay() -> dict[str, Any]:
+    return {"by_client_id": {}, "stats": {}, "saved_at": 0.0}
+
+
+def _normalize_overlay(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        return {"by_client_id": {}, "stats": {}}
+        return _empty_overlay()
     by_id = raw.get("by_client_id") if isinstance(raw.get("by_client_id"), dict) else {}
-    return {"by_client_id": by_id, "stats": raw.get("stats") or {}}
+    return {
+        "by_client_id": by_id,
+        "stats": raw.get("stats") if isinstance(raw.get("stats"), dict) else {},
+        "saved_at": float(raw.get("saved_at") or 0),
+        "cache_backend": str(raw.get("cache_backend") or ""),
+    }
+
+
+def _overlay_memory_fingerprint() -> str:
+    return f"{_account_fingerprint()}:{_overlay_path()}"
+
+
+def load_overlay() -> dict[str, Any]:
+    """Load overlay from memory → Redis → file."""
+    global _OVERLAY_MEMORY, _OVERLAY_MEMORY_AT, _OVERLAY_MEMORY_FP
+    fp = _overlay_memory_fingerprint()
+    with _CACHE_LOCK:
+        if (
+            _OVERLAY_MEMORY_FP == fp
+            and isinstance(_OVERLAY_MEMORY, dict)
+            and _OVERLAY_MEMORY.get("by_client_id") is not None
+        ):
+            return {
+                "by_client_id": dict(_OVERLAY_MEMORY.get("by_client_id") or {}),
+                "stats": dict(_OVERLAY_MEMORY.get("stats") or {}),
+                "saved_at": float(_OVERLAY_MEMORY.get("saved_at") or 0),
+                "cache_backend": str(_OVERLAY_MEMORY.get("cache_backend") or "memory"),
+            }
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            raw = client.get(_overlay_redis_key())
+            if raw:
+                overlay = _normalize_overlay(json.loads(raw))
+                overlay["cache_backend"] = "redis"
+                with _CACHE_LOCK:
+                    _OVERLAY_MEMORY = overlay
+                    _OVERLAY_MEMORY_AT = time.time()
+                    _OVERLAY_MEMORY_FP = fp
+                return {
+                    "by_client_id": dict(overlay.get("by_client_id") or {}),
+                    "stats": dict(overlay.get("stats") or {}),
+                    "saved_at": float(overlay.get("saved_at") or 0),
+                    "cache_backend": "redis",
+                }
+        except Exception as exc:
+            log.warning("MoySklad tg-export Redis get failed: %s", exc)
+
+    path = _overlay_path()
+    if path.is_file():
+        try:
+            overlay = _normalize_overlay(json.loads(path.read_text(encoding="utf-8")))
+            overlay["cache_backend"] = "file"
+            with _CACHE_LOCK:
+                _OVERLAY_MEMORY = overlay
+                _OVERLAY_MEMORY_AT = time.time()
+                _OVERLAY_MEMORY_FP = fp
+            return {
+                "by_client_id": dict(overlay.get("by_client_id") or {}),
+                "stats": dict(overlay.get("stats") or {}),
+                "saved_at": float(overlay.get("saved_at") or 0),
+                "cache_backend": "file",
+            }
+        except (OSError, json.JSONDecodeError):
+            pass
+    return _empty_overlay()
 
 
 def save_overlay(overlay: dict[str, Any]) -> None:
+    """Persist overlay to memory + Redis + file."""
+    global _OVERLAY_MEMORY, _OVERLAY_MEMORY_AT, _OVERLAY_MEMORY_FP
+    payload = _normalize_overlay(overlay)
+    payload["saved_at"] = time.time()
+    payload["cache_backend"] = cache_backend_name()
+    ttl = cache_ttl_seconds()
+
+    with _CACHE_LOCK:
+        _OVERLAY_MEMORY = payload
+        _OVERLAY_MEMORY_AT = time.time()
+        _OVERLAY_MEMORY_FP = _overlay_memory_fingerprint()
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.setex(
+                _overlay_redis_key(),
+                ttl,
+                json.dumps(payload, ensure_ascii=False, default=str),
+            )
+        except Exception as exc:
+            log.warning("MoySklad tg-export Redis set failed: %s", exc)
+
     path = _overlay_path()
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps(overlay, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    tmp.replace(path)
+    try:
+        tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError as exc:
+        log.warning("MoySklad tg-export file write failed: %s", exc)
 
 
 def overlay_for_client(client_id: str) -> dict[str, Any]:
@@ -118,6 +272,41 @@ def overlay_for_client(client_id: str) -> dict[str, Any]:
         return {}
     entry = (load_overlay().get("by_client_id") or {}).get(cid)
     return dict(entry) if isinstance(entry, dict) else {}
+
+
+def stamp_catalog_rows_from_overlay(rows: list[dict[str, Any]]) -> int:
+    """Write overlay tg fields onto catalog rows (mutates). Returns stamped count."""
+    by_id = load_overlay().get("by_client_id") or {}
+    if not by_id:
+        return 0
+    stamped = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        entry = by_id.get(cid)
+        if not isinstance(entry, dict):
+            continue
+        changed = False
+        nick = str(entry.get("tg_nick") or "").strip()
+        if nick and not str(row.get("ТГ ник") or row.get("tg_nick") or "").strip():
+            row["ТГ ник"] = nick
+            row["tg_nick"] = nick
+            changed = True
+        chat_id = str(entry.get("tg_chat_id") or "").strip()
+        if chat_id and not str(row.get("tg_chat_id") or "").strip():
+            row["tg_chat_id"] = chat_id
+            changed = True
+        preview = str(entry.get("preview") or "").strip()
+        if preview and not str(row.get("TG conversation") or row.get("tg_conversation") or "").strip():
+            row["TG conversation"] = preview
+            row["tg_conversation"] = preview
+            changed = True
+        if entry.get("message_count") is not None:
+            row["conversation_count"] = int(entry.get("message_count") or 0)
+        if changed:
+            stamped += 1
+    return stamped
 
 
 def _message_text(raw: Any) -> str:
@@ -202,7 +391,6 @@ def _extract_peer_nick(
         m = _FROM_ID_RE.match(str(msg.get("from_id") or ""))
         if m and m.group(1) == studio_id:
             direction_inbound = False
-        # Prefer mentions / links on inbound messages (client side).
         entities = list(msg.get("text_entities") or [])
         for ent in entities:
             if not isinstance(ent, dict):
@@ -254,13 +442,11 @@ def _chat_messages_for_store(
         m = _FROM_ID_RE.match(str(msg.get("from_id") or ""))
         if m:
             from_id = m.group(1)
-        direction = "outbound" if from_id and from_id == studio_id else "inbound"
         if from_id == studio_id:
             direction = "outbound"
         elif from_id:
             direction = "inbound"
         else:
-            # Fallback: name match against studio first_name
             direction = "inbound"
         ts = str(msg.get("date") or "").strip()
         if ts and "T" not in ts:
@@ -320,7 +506,6 @@ def _match_row(
     hits = by_name.get(name) or []
     if len(hits) == 1:
         return hits[0]
-    # Prefix / containment soft match when unique.
     soft: list[dict[str, Any]] = []
     for key, rows in by_name.items():
         if name == key or name in key or key in name:
@@ -336,22 +521,31 @@ def import_export_into_catalog(
     export_path: str | Path | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Match export chats → catalog rows; write conversations + overlay.
+    """Match export chats → catalog rows; write conversations + cached overlay.
 
     Idempotent per ``HERMES_HOME`` fingerprint unless ``force=True``.
     """
     path = resolve_export_path(export_path)
     if path is None:
-        return {"ok": False, "error": "export_not_found", "matched": 0, "imported_messages": 0}
+        return {
+            "ok": False,
+            "error": "export_not_found",
+            "matched": 0,
+            "imported_messages": 0,
+            "cache_backend": cache_backend_name(),
+        }
 
     fp = f"{path}:{path.stat().st_mtime_ns}:{len(rows)}"
     with _IMPORT_LOCK:
         if not force and fp in _IMPORT_DONE_FOR:
             overlay = load_overlay()
+            stamped = stamp_catalog_rows_from_overlay(rows)
             return {
                 "ok": True,
                 "skipped": True,
                 "path": str(path),
+                "stamped_rows": stamped,
+                "cache_backend": cache_backend_name(),
                 **(overlay.get("stats") or {}),
             }
 
@@ -373,8 +567,8 @@ def import_export_into_catalog(
         imported_messages = 0
         nick_filled = 0
 
-        with _LOCK:
-            store = _load()
+        with _CONV_LOCK:
+            store = _conv_load()
             for chat in chats:
                 if not isinstance(chat, dict):
                     continue
@@ -401,10 +595,15 @@ def import_export_into_catalog(
                     row.get("ТГ ник") or row.get("tg_nick") or ""
                 )
                 use_nick = existing_nick or nick
+                display_nick = ""
+                if use_nick:
+                    display_nick = (
+                        f"@{use_nick}" if not str(use_nick).startswith("@") else use_nick
+                    )
                 if nick and not existing_nick:
                     nick_filled += 1
-                    row["ТГ ник"] = f"@{nick}" if not nick.startswith("@") else nick
-                    row["tg_nick"] = row["ТГ ник"]
+                    row["ТГ ник"] = display_nick
+                    row["tg_nick"] = display_nick
 
                 messages = _chat_messages_for_store(chat, studio_id=studio_id)
                 thread = _ensure_thread(
@@ -415,7 +614,6 @@ def import_export_into_catalog(
                     client_name=str(row.get("Наименование") or chat_name),
                 )
                 existing = list(thread.get("messages") or [])
-                # Keep non-export messages; replace prior export batch.
                 kept = [m for m in existing if str(m.get("source") or "") != "telegram_export"]
                 merged = kept + messages
                 if len(merged) > _MAX_MESSAGES:
@@ -425,17 +623,27 @@ def import_export_into_catalog(
                 thread["tg_chat_id"] = str(peer_id or "")
                 thread["updated_at"] = _now()
                 imported_messages += len(messages)
+                preview = preview_text(thread)
+
+                if preview and not str(
+                    row.get("TG conversation") or row.get("tg_conversation") or ""
+                ).strip():
+                    row["TG conversation"] = preview
+                    row["tg_conversation"] = preview
+                if peer_id:
+                    row["tg_chat_id"] = str(peer_id)
 
                 by_client[client_id] = {
                     "tg_chat_id": str(peer_id or ""),
-                    "tg_nick": f"@{use_nick}" if use_nick and not str(use_nick).startswith("@") else use_nick,
+                    "tg_nick": display_nick,
                     "phone": client_phone,
                     "chat_name": chat_name,
                     "message_count": len(messages),
+                    "preview": preview,
                     "export_chat_id": str(chat.get("id") or ""),
                 }
 
-            _save(store)
+            _conv_save(store)
 
         stats = {
             "ok": True,
@@ -446,14 +654,18 @@ def import_export_into_catalog(
             "chats_total": sum(
                 1 for c in chats if isinstance(c, dict) and c.get("type") == "personal_chat"
             ),
+            "cache_backend": cache_backend_name(),
         }
         save_overlay({"by_client_id": by_client, "stats": stats})
+        stamped = stamp_catalog_rows_from_overlay(rows)
+        stats["stamped_rows"] = stamped
         _IMPORT_DONE_FOR.add(fp)
         log.info(
-            "moysklad telegram export: matched=%s msgs=%s nicks=%s path=%s",
+            "moysklad telegram export: matched=%s msgs=%s nicks=%s backend=%s path=%s",
             matched,
             imported_messages,
             nick_filled,
+            cache_backend_name(),
             path,
         )
         return stats
@@ -462,16 +674,24 @@ def import_export_into_catalog(
 def ensure_export_imported(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Lazy one-shot import when export file is present."""
     if resolve_export_path() is None:
-        return {"ok": False, "skipped": True, "error": "export_not_found"}
+        # Still apply cached overlay onto rows (Redis/file may have prior import).
+        stamped = stamp_catalog_rows_from_overlay(rows)
+        return {
+            "ok": stamped > 0,
+            "skipped": True,
+            "error": "export_not_found" if stamped == 0 else None,
+            "stamped_rows": stamped,
+            "cache_backend": cache_backend_name(),
+        }
     try:
         return import_export_into_catalog(rows)
     except Exception as exc:
         log.warning("moysklad telegram export import failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), "cache_backend": cache_backend_name()}
 
 
 def apply_export_overlay_to_public(client: dict[str, Any]) -> dict[str, Any]:
-    """Merge overlay tg_nick / tg_chat_id into a public client dict (empty slots only)."""
+    """Merge overlay tg_nick / tg_chat_id / preview into a public client dict."""
     if not isinstance(client, dict):
         return client
     cid = str(client.get("id") or "").strip()
@@ -487,8 +707,19 @@ def apply_export_overlay_to_public(client: dict[str, Any]) -> dict[str, Any]:
             out["ai_fields"] = fields
     if not str(out.get("tg_chat_id") or "").strip() and entry.get("tg_chat_id"):
         out["tg_chat_id"] = str(entry["tg_chat_id"])
+    preview = str(entry.get("preview") or "").strip()
+    if preview and not str(out.get("tg_conversation") or "").strip():
+        out["tg_conversation"] = preview
+        out["tg_conversation_preview"] = preview
+    if entry.get("message_count") is not None and not out.get("conversation_count"):
+        out["conversation_count"] = int(entry.get("message_count") or 0)
     return out
 
 
 def clear_import_memory_for_tests() -> None:
+    global _OVERLAY_MEMORY, _OVERLAY_MEMORY_AT, _OVERLAY_MEMORY_FP
     _IMPORT_DONE_FOR.clear()
+    with _CACHE_LOCK:
+        _OVERLAY_MEMORY = None
+        _OVERLAY_MEMORY_AT = 0.0
+        _OVERLAY_MEMORY_FP = None

@@ -78,6 +78,12 @@ from plugins.moysklad.telegram_send import (
     telegram_account_snapshot,
     telegram_send_status,
 )
+from plugins.moysklad.outreach_contacts import (
+    add_custom_contact,
+    delete_custom_contact,
+    get_contact,
+    list_outreach_contacts,
+)
 from plugins.moysklad.catalog_cache import (
     PAGE_SNAPSHOT_ROWS,
     cache_backend_name,
@@ -152,6 +158,45 @@ _SNAPSHOT_REFRESH_LOCK = threading.Lock()
 _SNAPSHOT_REFRESH_IN_FLIGHT: set[str] = set()
 
 
+def _apply_telegram_export_and_recache(
+    catalog: dict[str, Any],
+    *,
+    max_orders: int,
+    max_counterparties: int,
+    include_archived: bool,
+    force_import: bool = False,
+) -> dict[str, Any]:
+    """Import/stamp Telegram export onto catalog rows and rewrite durable cache."""
+    from plugins.moysklad.telegram_export import (
+        cache_backend_name as tg_cache_backend_name,
+        ensure_export_imported,
+        import_export_into_catalog,
+        stamp_catalog_rows_from_overlay,
+    )
+
+    rows = list(catalog.get("rows") or [])
+    if force_import:
+        result = import_export_into_catalog(rows, force=True)
+    else:
+        result = ensure_export_imported(rows)
+    # Always stamp from cache (Redis/file) so warm restarts still fill rows.
+    stamped = stamp_catalog_rows_from_overlay(rows)
+    catalog["rows"] = rows
+    key = cache_key(
+        max_orders=max_orders,
+        max_counterparties=max_counterparties,
+        include_archived=include_archived,
+    )
+    try:
+        set_cached(key, catalog, synced_at=float(time.time()))
+    except Exception:
+        log.warning("moysklad catalog recache after tg-export failed", exc_info=True)
+    out = dict(result or {})
+    out["stamped_rows"] = max(int(out.get("stamped_rows") or 0), stamped)
+    out["cache_backend"] = out.get("cache_backend") or tg_cache_backend_name()
+    return out
+
+
 def _schedule_snapshot_refresh(
     snap_key: str,
     *,
@@ -181,9 +226,13 @@ def _schedule_snapshot_refresh(
     def _worker() -> None:
         try:
             try:
-                from plugins.moysklad.telegram_export import ensure_export_imported
-
-                ensure_export_imported(list(catalog.get("rows") or []))
+                _apply_telegram_export_and_recache(
+                    catalog,
+                    max_orders=max_orders,
+                    max_counterparties=max_counterparties,
+                    include_archived=include_archived,
+                    force_import=False,
+                )
             except Exception:
                 log.warning("moysklad telegram export (bg) failed", exc_info=True)
             page = clients_page(
@@ -627,6 +676,12 @@ class MarkSentBatchBody(BaseModel):
     deliver: bool = True
 
 
+class OutreachContactBody(BaseModel):
+    name: str = ""
+    tg_nick: str = ""
+    tg_chat_id: str = ""
+
+
 class SellerSettingsBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
@@ -914,11 +969,15 @@ def get_clients(
                 detail="catalog unavailable; retry shortly",
             )
 
-        # One-shot Telegram Desktop export → conversations / ТГ ник.
+        # One-shot Telegram Desktop export → conversations / ТГ ник (+ Redis/file).
         try:
-            from plugins.moysklad.telegram_export import ensure_export_imported
-
-            ensure_export_imported(list(catalog.get("rows") or []))
+            _apply_telegram_export_and_recache(
+                catalog,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+                force_import=False,
+            )
         except Exception:
             log.warning("moysklad telegram export hook failed", exc_info=True)
 
@@ -1170,6 +1229,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
 
     WhatsApp still returns a deep-link only. Telegram: Bot API send first; on
     failure or missing target, optionally open deep-link for manual send.
+    ``client_id`` may be a MoySklad id or ``custom:<id>`` from outreach contacts.
     """
     try:
         text = (body.message or "").strip()
@@ -1178,32 +1238,66 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail="message required")
         if not client_id:
             raise HTTPException(status_code=400, detail="client_id required")
-        catalog, meta = _get_catalog(force=False)
-        row = find_row_in_catalog(catalog, client_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="client not found in catalog")
-        detail = build_client_detail(row)
-        client = detail.get("client") or {}
-        msg = detail.get("messaging") or {}
+
         channel = (body.channel or "telegram").strip().lower()
         deep_link = ""
-        if channel == "whatsapp":
-            deep_link = str(msg.get("whatsapp_url") or "")
+        phone = ""
+        tg_nick = ""
+        tg_conversation = ""
+        tg_chat_id = ""
+        client_name = ""
+        facts_payload: dict[str, Any] | None = None
+        meta: dict[str, Any] = {}
+
+        if client_id.startswith("custom:"):
+            contact = get_contact(client_id)
+            if contact is None:
+                raise HTTPException(status_code=404, detail="custom contact not found")
+            tg_nick = str(contact.get("tg_nick") or "")
+            tg_chat_id = str(contact.get("tg_chat_id") or "")
+            client_name = str(contact.get("name") or "")
+            if tg_nick:
+                deep_link = f"https://t.me/{tg_nick}"
         else:
-            deep_link = str(msg.get("telegram_url") or "")
+            catalog, meta = _get_catalog(force=False)
+            row = find_row_in_catalog(catalog, client_id)
+            if row is None:
+                # Overlay-only peer without catalog row — still allow send.
+                contact = get_contact(client_id)
+                if contact is None:
+                    raise HTTPException(status_code=404, detail="client not found in catalog")
+                tg_nick = str(contact.get("tg_nick") or "")
+                tg_chat_id = str(contact.get("tg_chat_id") or "")
+                client_name = str(contact.get("name") or "")
+                if tg_nick:
+                    deep_link = f"https://t.me/{tg_nick}"
+            else:
+                detail = build_client_detail(row)
+                client = detail.get("client") or {}
+                msg = detail.get("messaging") or {}
+                phone = str(client.get("phone") or "")
+                tg_nick = str(client.get("tg_nick") or "")
+                tg_conversation = str(client.get("tg_conversation") or "")
+                tg_chat_id = str(
+                    client.get("tg_chat_id")
+                    or row.get("ТГ chat id")
+                    or row.get("tg_chat_id")
+                    or ""
+                )
+                client_name = str(client.get("name") or "")
+                if channel == "whatsapp":
+                    deep_link = str(msg.get("whatsapp_url") or "")
+                else:
+                    deep_link = str(msg.get("telegram_url") or "")
+                facts_payload = None  # filled after append
 
         delivery: dict[str, Any] = {"ok": False, "skipped": True}
         if body.deliver and channel.startswith("telegram"):
             delivery = send_outreach_to_client(
                 text=text,
-                tg_nick=str(client.get("tg_nick") or ""),
-                tg_conversation=str(client.get("tg_conversation") or ""),
-                tg_chat_id=str(
-                    client.get("tg_chat_id")
-                    or row.get("ТГ chat id")
-                    or row.get("tg_chat_id")
-                    or ""
-                ),
+                tg_nick=tg_nick,
+                tg_conversation=tg_conversation,
+                tg_chat_id=tg_chat_id,
             )
 
         source = "campaign_send"
@@ -1216,22 +1310,32 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             direction="outbound",
             channel=channel,
             label="",
-            phone=str(client.get("phone") or ""),
-            tg_nick=str(client.get("tg_nick") or ""),
-            client_name=str(client.get("name") or ""),
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
             source=source,
         )
         open_link = bool(body.open_deep_link) and not delivery.get("ok")
-        payload = {
+        payload: dict[str, Any] = {
             "ok": True,
             "conversation": thread,
-            "facts": facts_panel({**detail, "conversation": thread}),
             "deep_link": deep_link if open_link else "",
             "channel": channel,
             "delivery": delivery,
             "telegram": telegram_send_status(),
         }
-        return _attach_cache_meta(payload, meta)
+        if not client_id.startswith("custom:"):
+            catalog_row = None
+            try:
+                catalog, meta = _get_catalog(force=False)
+                catalog_row = find_row_in_catalog(catalog, client_id)
+            except Exception:
+                catalog_row = None
+            if catalog_row is not None:
+                detail = build_client_detail(catalog_row)
+                payload["facts"] = facts_panel({**detail, "conversation": thread})
+                return _attach_cache_meta(payload, meta)
+        return payload
     except HTTPException:
         raise
     except ValueError as exc:
@@ -1267,38 +1371,75 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         sent_ok = 0
         for client_id in client_ids:
-            row = find_row_in_catalog(catalog, client_id)
-            if row is None:
-                results.append(
-                    {
-                        "client_id": client_id,
-                        "ok": False,
-                        "error": "client_not_found",
-                        "delivery": {"ok": False},
-                    }
-                )
-                continue
-            detail = build_client_detail(row)
-            client = detail.get("client") or {}
-            msg = detail.get("messaging") or {}
+            tg_nick = ""
+            tg_conversation = ""
+            tg_chat_id = ""
+            client_name = ""
+            phone = ""
             deep_link = ""
-            if channel == "whatsapp":
-                deep_link = str(msg.get("whatsapp_url") or "")
+
+            if client_id.startswith("custom:"):
+                contact = get_contact(client_id)
+                if contact is None:
+                    results.append(
+                        {
+                            "client_id": client_id,
+                            "ok": False,
+                            "error": "client_not_found",
+                            "delivery": {"ok": False},
+                        }
+                    )
+                    continue
+                tg_nick = str(contact.get("tg_nick") or "")
+                tg_chat_id = str(contact.get("tg_chat_id") or "")
+                client_name = str(contact.get("name") or "")
+                if tg_nick:
+                    deep_link = f"https://t.me/{tg_nick}"
             else:
-                deep_link = str(msg.get("telegram_url") or "")
+                row = find_row_in_catalog(catalog, client_id)
+                if row is None:
+                    contact = get_contact(client_id)
+                    if contact is None:
+                        results.append(
+                            {
+                                "client_id": client_id,
+                                "ok": False,
+                                "error": "client_not_found",
+                                "delivery": {"ok": False},
+                            }
+                        )
+                        continue
+                    tg_nick = str(contact.get("tg_nick") or "")
+                    tg_chat_id = str(contact.get("tg_chat_id") or "")
+                    client_name = str(contact.get("name") or "")
+                    if tg_nick:
+                        deep_link = f"https://t.me/{tg_nick}"
+                else:
+                    detail = build_client_detail(row)
+                    client = detail.get("client") or {}
+                    msg = detail.get("messaging") or {}
+                    phone = str(client.get("phone") or "")
+                    tg_nick = str(client.get("tg_nick") or "")
+                    tg_conversation = str(client.get("tg_conversation") or "")
+                    tg_chat_id = str(
+                        client.get("tg_chat_id")
+                        or row.get("ТГ chat id")
+                        or row.get("tg_chat_id")
+                        or ""
+                    )
+                    client_name = str(client.get("name") or "")
+                    if channel == "whatsapp":
+                        deep_link = str(msg.get("whatsapp_url") or "")
+                    else:
+                        deep_link = str(msg.get("telegram_url") or "")
 
             delivery: dict[str, Any] = {"ok": False, "skipped": True}
             if body.deliver and channel.startswith("telegram"):
                 delivery = send_outreach_to_client(
                     text=text,
-                    tg_nick=str(client.get("tg_nick") or ""),
-                    tg_conversation=str(client.get("tg_conversation") or ""),
-                    tg_chat_id=str(
-                        client.get("tg_chat_id")
-                        or row.get("ТГ chat id")
-                        or row.get("tg_chat_id")
-                        or ""
-                    ),
+                    tg_nick=tg_nick,
+                    tg_conversation=tg_conversation,
+                    tg_chat_id=tg_chat_id,
                 )
 
             source = "campaign_send_batch"
@@ -1312,9 +1453,9 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                 direction="outbound",
                 channel=channel,
                 label="",
-                phone=str(client.get("phone") or ""),
-                tg_nick=str(client.get("tg_nick") or ""),
-                client_name=str(client.get("name") or ""),
+                phone=phone,
+                tg_nick=tg_nick,
+                client_name=client_name,
                 source=source,
             )
             open_link = bool(body.open_deep_link) and not delivery.get("ok")
@@ -1322,7 +1463,7 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                 {
                     "client_id": client_id,
                     "ok": True,
-                    "client_name": str(client.get("name") or ""),
+                    "client_name": client_name,
                     "delivery": delivery,
                     "conversation": thread,
                     "deep_link": deep_link if open_link else "",
@@ -1345,6 +1486,64 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent-batch failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/telegram-contacts")
+def get_campaign_telegram_contacts(
+    q: str = Query(""),
+    limit: int = Query(200, ge=1, le=500),
+) -> dict[str, Any]:
+    """Dropdown contacts: custom + export overlay + catalog with TG."""
+    try:
+        catalog_clients: list[dict[str, Any]] = []
+        try:
+            catalog, _meta = _get_catalog(force=False, blocking=False, refresh_counts=False)
+            if catalog is not None:
+                page = clients_page(
+                    _client(),
+                    sales_filter="all",
+                    require_telegram=True,
+                    limit=min(limit, 200),
+                    offset=0,
+                    catalog=catalog,
+                )
+                catalog_clients = enrich_clients(list(page.get("clients") or []))
+        except Exception:
+            log.debug("telegram-contacts catalog preview skipped", exc_info=True)
+        contacts = list_outreach_contacts(
+            catalog_clients=catalog_clients, q=q, limit=limit
+        )
+        return {"ok": True, "contacts": contacts, "total": len(contacts)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad GET /campaigns/telegram-contacts failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/telegram-contacts")
+def post_campaign_telegram_contact(body: OutreachContactBody) -> dict[str, Any]:
+    """Add a custom outreach contact (@nick and/or numeric chat id)."""
+    try:
+        contact = add_custom_contact(
+            name=body.name,
+            tg_nick=body.tg_nick,
+            tg_chat_id=body.tg_chat_id,
+        )
+        return {"ok": True, "contact": contact}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad POST /campaigns/telegram-contacts failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.delete("/campaigns/telegram-contacts/{contact_id}")
+def delete_campaign_telegram_contact(contact_id: str) -> dict[str, Any]:
+    cid = (contact_id or "").strip()
+    if not cid.startswith("custom:"):
+        raise HTTPException(status_code=400, detail="only custom contacts can be deleted")
+    if not delete_custom_contact(cid):
+        raise HTTPException(status_code=404, detail="contact not found")
+    return {"ok": True, "deleted": cid}
 
 
 @router.post("/clients/{client_id}/ai")

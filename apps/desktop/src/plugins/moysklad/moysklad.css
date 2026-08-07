@@ -232,6 +232,20 @@
   font-size: 0.8rem;
 }
 
+.ms-contact-picker {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px dashed #6b2d7a;
+  border-radius: 0.75rem;
+  background: #32143a;
+}
+
+.ms-add-contact {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .ms-audience-pick-actions {
   display: flex;
   flex-wrap: wrap;

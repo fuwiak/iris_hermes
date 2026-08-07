@@ -71,8 +71,12 @@ Example prompts:
 7. **Telegram Desktop export** — place `data/telegram_export.json` (or
    `$HERMES_HOME/moysklad/telegram_export.json`); chats map onto clients by
    phone/name, fill **TG conversation** history + empty **ТГ ник** when an
-   `@username` is found. Hook runs on catalog load; manual:
-   `POST /clients/telegram-export/import`.
+   `@username` is found. Matched overlay + threads persist in the same ladder
+   as catalog: **Redis** (`REDIS_URL` / `MOYSKLAD_REDIS_URL`) →
+   `$HERMES_HOME/moysklad/telegram_export_overlay.json` +
+   `conversations.json` → memory. Catalog rows are re-stamped and re-cached
+   after import so Clients list shows TG fields without the export file.
+   Hook runs on catalog load; manual: `POST /clients/telegram-export/import`.
 8. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 9. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
    роль / ТГ ник / Тип контрагента** for every **currently shown** row (batched
@@ -116,9 +120,10 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
    if facts show debt / unpaid orders, flower upsell is rejected and the text
    is revised toward payment reconcile. Button **Проверить смысл** calls
    `POST /campaigns/sanity` explicitly.
-5. **TG conversation** — local thread per client under
-   `$HERMES_HOME/moysklad/conversations.json` (keys: `client_id` / phone /
-   tg nick). Column + client card + facts panel show the thread. Button
+5. **TG conversation** — durable thread per client (Redis when
+   `REDIS_URL` set, else `$HERMES_HOME/moysklad/conversations.json`; keys:
+   `client_id` / phone / tg nick). Column + client card + facts panel show
+   the thread. Button
    **Отправить в Telegram** calls `POST /campaigns/mark-sent` with
    `deliver=true`: Bot API `sendMessage` via
    `MOYSKLAD_TELEGRAM_BOT_TOKEN` (Business bot, e.g.

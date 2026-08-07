@@ -1,15 +1,24 @@
 """Per-client messaging thread store for MoySklad CRM.
 
-MVP: local append-on-send under ``$HERMES_HOME/moysklad/conversations.json``.
+Persistence ladder (same idea as catalog / ai_fill / telegram_export overlay):
+
+1. Redis — when ``REDIS_URL`` / ``MOYSKLAD_REDIS_URL`` is set
+2. File ``$HERMES_HOME/moysklad/conversations.json``
+3. Process-local memory
+
 Linked by client_id, normalized phone, and Telegram nick. Full live pull from
 gateway Telegram sessions can attach later via the same keys (see README).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import os
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,12 +26,67 @@ from typing import Any, Optional
 
 from hermes_constants import get_hermes_home
 
+log = logging.getLogger(__name__)
+
 _LOCK = threading.Lock()
 _PHONE_RE = re.compile(r"\D+")
 _URL_RE = re.compile(r"^https?://|^tg:", re.IGNORECASE)
+_MEMORY_STORE: dict[str, Any] | None = None
+_MEMORY_FP: str | None = None
+_CONV_REDIS_KEY = "moysklad:conversations:v1"
+DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # Soft cap so the JSON store stays readable in UI / AI facts.
 _MAX_MESSAGES = 200
+
+
+def cache_ttl_seconds() -> int:
+    raw = (os.environ.get("MOYSKLAD_CONVERSATIONS_TTL_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_TTL_SECONDS
+    try:
+        return max(3600, int(raw))
+    except ValueError:
+        return DEFAULT_TTL_SECONDS
+
+
+def _redis_url() -> str:
+    return (os.environ.get("REDIS_URL") or os.environ.get("MOYSKLAD_REDIS_URL") or "").strip()
+
+
+def _redis_client():
+    url = _redis_url()
+    if not url:
+        return None
+    try:
+        import redis  # type: ignore[import-not-found]
+    except Exception:
+        log.debug("REDIS_URL set but redis package missing; conversations file cache")
+        return None
+    try:
+        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=2.0)
+        client.ping()
+        return client
+    except Exception as exc:
+        log.warning("MoySklad conversations Redis unavailable (%s); file cache", exc)
+        return None
+
+
+def cache_backend_name() -> str:
+    if _redis_client() is not None:
+        return "redis+file"
+    return "file"
+
+
+def _account_fingerprint() -> str:
+    token = (os.environ.get("MOYSKLAD_API_TOKEN") or "").strip()
+    if not token:
+        return "no-token"
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+
+
+def _redis_key() -> str:
+    return f"{_CONV_REDIS_KEY}:{_account_fingerprint()}"
 
 
 def _store_path() -> Path:
@@ -53,26 +117,101 @@ def _empty_store() -> dict[str, Any]:
     return {"threads": {}, "index": {}}
 
 
+def _memory_fingerprint() -> str:
+    return f"{_account_fingerprint()}:{_store_path()}"
+
+
+def clear_memory_for_tests() -> None:
+    """Drop process-local cache (tests / HERMES_HOME switches)."""
+    global _MEMORY_STORE, _MEMORY_FP
+    _MEMORY_STORE = None
+    _MEMORY_FP = None
+
+
 def _load() -> dict[str, Any]:
+    """Load store: memory → Redis → file."""
+    global _MEMORY_STORE, _MEMORY_FP
+    fp = _memory_fingerprint()
+    if (
+        _MEMORY_FP == fp
+        and isinstance(_MEMORY_STORE, dict)
+        and isinstance(_MEMORY_STORE.get("threads"), dict)
+    ):
+        return _MEMORY_STORE
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            raw = client.get(_redis_key())
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    threads = data.get("threads") if isinstance(data.get("threads"), dict) else {}
+                    index = data.get("index") if isinstance(data.get("index"), dict) else {}
+                    store = {"threads": threads, "index": index}
+                    _MEMORY_STORE = store
+                    _MEMORY_FP = fp
+                    return store
+        except Exception as exc:
+            log.warning("MoySklad conversations Redis get failed: %s", exc)
+
     path = _store_path()
     if not path.is_file():
-        return _empty_store()
+        store = _empty_store()
+        _MEMORY_STORE = store
+        _MEMORY_FP = fp
+        return store
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return _empty_store()
+        store = _empty_store()
+        _MEMORY_STORE = store
+        _MEMORY_FP = fp
+        return store
     if not isinstance(raw, dict):
-        return _empty_store()
+        store = _empty_store()
+        _MEMORY_STORE = store
+        _MEMORY_FP = fp
+        return store
     threads = raw.get("threads") if isinstance(raw.get("threads"), dict) else {}
     index = raw.get("index") if isinstance(raw.get("index"), dict) else {}
-    return {"threads": threads, "index": index}
+    store = {"threads": threads, "index": index}
+    _MEMORY_STORE = store
+    _MEMORY_FP = fp
+    return store
 
 
 def _save(store: dict[str, Any]) -> None:
+    """Persist store to memory + Redis + file."""
+    global _MEMORY_STORE, _MEMORY_FP
+    payload = {
+        "threads": store.get("threads") if isinstance(store.get("threads"), dict) else {},
+        "index": store.get("index") if isinstance(store.get("index"), dict) else {},
+        "saved_at": time.time(),
+        "cache_backend": cache_backend_name(),
+    }
+    _MEMORY_STORE = {
+        "threads": payload["threads"],
+        "index": payload["index"],
+    }
+    _MEMORY_FP = _memory_fingerprint()
+    ttl = cache_ttl_seconds()
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.setex(
+                _redis_key(),
+                ttl,
+                json.dumps(payload, ensure_ascii=False, default=str),
+            )
+        except Exception as exc:
+            log.warning("MoySklad conversations Redis set failed: %s", exc)
+
     path = _store_path()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(
-        json.dumps(store, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     tmp.replace(path)

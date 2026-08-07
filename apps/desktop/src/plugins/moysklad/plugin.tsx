@@ -2062,6 +2062,7 @@ function CampaignsPage() {
   const [sellerFacts, setSellerFacts] = useState('')
   const [sellerLoaded, setSellerLoaded] = useState(false)
   const [bizConnectionId, setBizConnectionId] = useState('')
+  const [bizBotUsername, setBizBotUsername] = useState('')
   const [telegramAccount, setTelegramAccount] = useState<{
     configured?: boolean
     bot_username?: string | null
@@ -2079,6 +2080,22 @@ function CampaignsPage() {
     } | null
   } | null>(null)
   const [bizSaving, setBizSaving] = useState(false)
+  const [outreachContacts, setOutreachContacts] = useState<
+    Array<{
+      id: string
+      name?: string
+      tg_nick?: string
+      tg_chat_id?: string
+      label?: string
+      source?: string
+    }>
+  >([])
+  const [contactPickerId, setContactPickerId] = useState('')
+  const [addContactOpen, setAddContactOpen] = useState(false)
+  const [addContactName, setAddContactName] = useState('')
+  const [addContactNick, setAddContactNick] = useState('')
+  const [addContactChatId, setAddContactChatId] = useState('')
+  const [addContactSaving, setAddContactSaving] = useState(false)
   const [pickMode, setPickMode] = useState<'single' | 'multi'>('single')
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
@@ -2221,6 +2238,7 @@ function CampaignsPage() {
       seller_facts?: string
       telegram_business_connection_id?: string
       telegram_account?: typeof telegramAccount
+      telegram?: { bot_username?: string | null }
     }>('/campaigns/seller-settings')
       .then(data => {
         setSellerName(data.seller_name || '')
@@ -2230,13 +2248,58 @@ function CampaignsPage() {
           data.telegram_account?.business_connection_id ||
           ''
         setBizConnectionId(biz)
+        const bot =
+          data.telegram_account?.bot_username ||
+          data.telegram?.bot_username ||
+          ''
+        setBizBotUsername(bot || '')
         if (data.telegram_account) {
           setTelegramAccount(data.telegram_account)
         }
       })
       .catch(() => undefined)
-      .finally(() => setSellerLoaded(true))
+      .finally(() => {
+        setSellerLoaded(true)
+        void call<{
+          configured?: boolean
+          bot_username?: string | null
+          business_connection_id?: string | null
+          account?: typeof telegramAccount extends { account?: infer A } ? A : never
+        }>('/campaigns/telegram-account')
+          .then(snap => {
+            setTelegramAccount(snap)
+            if (snap.business_connection_id) {
+              setBizConnectionId(snap.business_connection_id)
+            }
+            if (snap.bot_username) {
+              setBizBotUsername(snap.bot_username)
+            }
+          })
+          .catch(() => undefined)
+      })
   }, [call])
+
+  const loadOutreachContacts = useCallback(async () => {
+    try {
+      const data = await call<{
+        contacts?: Array<{
+          id: string
+          name?: string
+          tg_nick?: string
+          tg_chat_id?: string
+          label?: string
+          source?: string
+        }>
+      }>('/campaigns/telegram-contacts?limit=300')
+      setOutreachContacts(data.contacts || [])
+    } catch {
+      /* keep previous */
+    }
+  }, [call])
+
+  useEffect(() => {
+    void loadOutreachContacts()
+  }, [loadOutreachContacts])
 
   const persistSellerSettings = useCallback(
     (name: string, factsText: string, bizId?: string | null) => {
@@ -2280,6 +2343,9 @@ function CampaignsPage() {
       setTelegramAccount(data)
       if (data.business_connection_id) {
         setBizConnectionId(data.business_connection_id)
+      }
+      if (data.bot_username) {
+        setBizBotUsername(data.bot_username)
       }
     } catch {
       /* ignore probe errors — UI shows last known */
@@ -2757,9 +2823,78 @@ function CampaignsPage() {
     setMode('auto')
     setChannel(nextChannel)
     setSelectedClientIds([row.id])
+    setContactPickerId(row.id)
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
     applyClientSelectionUi(row.id, row.name || '')
+  }
+
+  const selectContactFromPicker = (contactId: string) => {
+    setContactPickerId(contactId)
+    if (!contactId) {
+      return
+    }
+
+    const contact = outreachContacts.find(c => c.id === contactId)
+    const name = contact?.name || contact?.label || contactId
+
+    if (pickMode === 'multi') {
+      setSelectedClientIds(prev =>
+        prev.includes(contactId) ? prev : [...prev, contactId]
+      )
+      setChannel('telegram')
+      return
+    }
+
+    setMode('auto')
+    setChannel('telegram')
+    setSelectedClientIds([contactId])
+    outreachAbortRef.current?.abort()
+    outreachGenRef.current += 1
+    applyClientSelectionUi(contactId, name)
+  }
+
+  const addCustomOutreachContact = async () => {
+    const nick = addContactNick.trim().replace(/^@/, '')
+    const chatId = addContactChatId.trim()
+    if (!nick && !chatId) {
+      setError('Укажите @ник или numeric chat id')
+      return
+    }
+
+    setAddContactSaving(true)
+    setError('')
+    try {
+      const data = await call<{
+        contact?: {
+          id: string
+          name?: string
+          tg_nick?: string
+          tg_chat_id?: string
+          label?: string
+        }
+      }>('/campaigns/telegram-contacts', {
+        method: 'POST',
+        body: {
+          name: addContactName.trim(),
+          tg_nick: nick,
+          tg_chat_id: chatId
+        }
+      })
+      await loadOutreachContacts()
+      if (data.contact?.id) {
+        selectContactFromPicker(data.contact.id)
+      }
+      setAddContactName('')
+      setAddContactNick('')
+      setAddContactChatId('')
+      setAddContactOpen(false)
+      setActionStatus(`✓ Контакт добавлен: ${data.contact?.label || nick || chatId}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAddContactSaving(false)
+    }
   }
 
   const markSentToConversation = async () => {
@@ -3712,9 +3847,9 @@ function CampaignsPage() {
               </button>
             </div>
             <p className="ms-muted ms-tg-account-status">
-              {telegramAccount?.bot_username
-                ? `Бот @${telegramAccount.bot_username}`
-                : 'Бот не настроен (MOYSKLAD_TELEGRAM_BOT_TOKEN)'}
+              {telegramAccount?.bot_username || bizBotUsername
+                ? `Бот @${telegramAccount?.bot_username || bizBotUsername}`
+                : 'Бот не настроен (Офис → Telegram Business)'}
               {telegramAccount?.account?.ok ? (
                 <>
                   {' '}
@@ -3733,18 +3868,26 @@ function CampaignsPage() {
                     telegramAccount.account.error ||
                     'connection error'}
                 </>
-              ) : telegramAccount?.business_connection_configured ? (
+              ) : telegramAccount?.business_connection_configured || bizConnectionId ? (
                 ' · connection id есть, нажмите «Проверить»'
               ) : (
                 ' · добавьте connection id ниже'
               )}
             </p>
             <label>
+              Bot username
+              <input
+                disabled
+                placeholder="@BoberSystemsAssistant_bot"
+                value={bizBotUsername ? `@${bizBotUsername.replace(/^@/, '')}` : ''}
+              />
+            </label>
+            <label>
               Business connection ID
               <input
                 disabled={!sellerLoaded || bizSaving}
                 onChange={e => setBizConnectionId(e.target.value)}
-                placeholder="из Telegram Business → Chatbots / env"
+                placeholder="из Офис → Telegram Business / env"
                 value={bizConnectionId}
               />
             </label>
@@ -3757,11 +3900,81 @@ function CampaignsPage() {
               {bizSaving ? 'Сохраняем…' : 'Сохранить аккаунт'}
             </button>
             <p className="ms-muted">
-              Настройка токена и connection id — в Офис → Telegram Business
-              (отдельно от обычного Telegram). Telegram → Настройки → Business →
-              Чат-боты → подключите бота к @аккаунту, включите Reply.
+              Токен и connection id — Офис → Telegram Business. Здесь поля
+              подставляются автоматически из env / seller_settings.
             </p>
           </div>
+
+          <div className="ms-contact-picker">
+            <label>
+              Кому отправить
+              <select
+                onChange={e => selectContactFromPicker(e.target.value)}
+                value={contactPickerId || selectedClientId || ''}
+              >
+                <option value="">— выберите контакт —</option>
+                {outreachContacts.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.label || c.name || c.tg_nick || c.id}
+                    {c.source === 'custom' ? ' · свой' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="ms-compose-actions">
+              <button
+                className="ms-btn"
+                onClick={() => setAddContactOpen(open => !open)}
+                type="button"
+              >
+                {addContactOpen ? 'Скрыть форму' : 'Добавить свой контакт'}
+              </button>
+              <button
+                className="ms-link-btn"
+                onClick={() => void loadOutreachContacts()}
+                type="button"
+              >
+                Обновить список
+              </button>
+            </div>
+            {addContactOpen ? (
+              <div className="ms-add-contact">
+                <label>
+                  Имя
+                  <input
+                    onChange={e => setAddContactName(e.target.value)}
+                    placeholder="Ася"
+                    value={addContactName}
+                  />
+                </label>
+                <label>
+                  @ник
+                  <input
+                    onChange={e => setAddContactNick(e.target.value)}
+                    placeholder="papa2139"
+                    value={addContactNick}
+                  />
+                </label>
+                <label>
+                  Chat id (numeric)
+                  <input
+                    onChange={e => setAddContactChatId(e.target.value)}
+                    placeholder="415321451"
+                    value={addContactChatId}
+                  />
+                </label>
+                <button
+                  className="ms-btn ms-btn-primary"
+                  disabled={addContactSaving}
+                  onClick={() => void addCustomOutreachContact()}
+                  type="button"
+                >
+                  {addContactSaving ? 'Добавляем…' : 'Добавить и выбрать'}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
           <label>
             Название
             <input onChange={e => setTitle(e.target.value)} required value={title} />

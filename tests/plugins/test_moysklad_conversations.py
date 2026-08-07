@@ -5,6 +5,7 @@ from __future__ import annotations
 from plugins.moysklad.client_card import build_client_detail
 from plugins.moysklad.conversations import (
     append_message,
+    clear_memory_for_tests,
     enrich_client_row,
     get_thread,
     preview_text,
@@ -15,6 +16,7 @@ from plugins.moysklad.outreach import facts_panel
 
 def test_append_outbound_and_preview(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     thread = append_message(
         client_id="cp-1",
         text="Здравствуйте! Сверимся по оплате.",
@@ -41,6 +43,7 @@ def test_append_outbound_and_preview(tmp_path, monkeypatch):
 
 def test_inbound_append_same_thread(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     append_message(
         client_id="cp-2",
         text="Исходящее",
@@ -60,6 +63,7 @@ def test_inbound_append_same_thread(tmp_path, monkeypatch):
 
 def test_seed_from_attr_once(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     first = seed_from_moysklad_attr(
         client_id="cp-3",
         attr_value="Клиент писал: нужна доставка к пятнице",
@@ -77,6 +81,7 @@ def test_seed_from_attr_once(tmp_path, monkeypatch):
 
 def test_url_attr_not_seeded_as_message(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     thread = seed_from_moysklad_attr(
         client_id="cp-4",
         attr_value="https://t.me/c/1/2",
@@ -86,6 +91,7 @@ def test_url_attr_not_seeded_as_message(tmp_path, monkeypatch):
 
 def test_enrich_and_facts_include_conversation(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     append_message(
         client_id="cp-out-1",
         text="Черновик для фактов",
