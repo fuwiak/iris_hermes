@@ -2216,10 +2216,59 @@ function CampaignsPage() {
       return
     }
 
-    // Default: load durable Redis/file cache — never auto-LLM on select.
+    // Default: load durable Redis/file cache — never auto-LLM on select/channel.
     void loadCachedDraft(selectedClientId, channel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillReady, selectedClientId])
+  }, [prefillReady, selectedClientId, channel])
+
+  // Persist manual edits / button results to Redis/file so reopen skips LLM.
+  useEffect(() => {
+    const cid = selectedClientId
+    const msg = offer.trim()
+
+    if (!cid || !msg || generating || rewriting || paraphrasing || suggestingBouquet) {
+      return
+    }
+
+    if (msg.length < 8) {
+      return
+    }
+
+    const t = setTimeout(() => {
+      void call('/campaigns/draft-cache', {
+        method: 'PUT',
+        body: {
+          client_id: cid,
+          channel,
+          message: msg,
+          grounding_notes: groundingNotes,
+          source: genSource || 'manual',
+          status: actionStatus || AI_GENERATED_STATUS,
+          client_name: selectedClientNameRef.current || '',
+          title: title || '',
+          facts: facts || {},
+          sanity: sanity || null
+        }
+      }).catch(() => undefined)
+    }, 700)
+
+    return () => clearTimeout(t)
+  }, [
+    actionStatus,
+    call,
+    channel,
+    facts,
+    genSource,
+    generating,
+    groundingNotes,
+    offer,
+    paraphrasing,
+    rewriting,
+    sanity,
+    selectedClientId,
+    suggestingBouquet,
+    title
+  ])
 
   const selectAudienceClient = (row: ClientRow) => {
     if (!row.id) {
@@ -2693,15 +2742,26 @@ function CampaignsPage() {
               const total = Number(ev.total || limit)
               const name = String(ev.client_name || ev.client_id || 'клиент')
               const msg = String(ev.message || '').trim()
-              setActionStatus(`Персонализация ${done}/${total} · ${name}`)
-              setBatchProgress(`${done}/${total} · последний: ${name}`)
+              const fromCache = Boolean(ev.from_cache)
+              setActionStatus(
+                `Персонализация ${done}/${total} · ${name}` +
+                  (fromCache ? ' · кэш' : '')
+              )
+              setBatchProgress(
+                `${done}/${total} · последний: ${name}` + (fromCache ? ' (кэш)' : '')
+              )
 
               if (msg && ev.ok !== false) {
                 okCount += 1
 
                 if (!firstMsg) {
                   firstMsg = msg
-                  applyOfferText(msg, `Первый черновик · ${name}`)
+                  applyOfferText(
+                    msg,
+                    fromCache
+                      ? `Из кэша · ${name}`
+                      : `Первый черновик · ${name}`
+                  )
                 }
 
                 pendingCreates.push(
@@ -2729,8 +2789,10 @@ function CampaignsPage() {
                 )
               }
             } else if (type === 'batch_done') {
+              const hits = Number(ev.cache_hits || 0)
               setBatchProgress(
-                `Готово: ${Number(ev.ok_count ?? okCount)} из ${Number(ev.total || limit)}`
+                `Готово: ${Number(ev.ok_count ?? okCount)} из ${Number(ev.total || limit)}` +
+                  (hits ? ` · из кэша ${hits}` : '')
               )
             } else if (type === 'error') {
               setError(String(ev.error || 'batch error'))

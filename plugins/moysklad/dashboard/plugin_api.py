@@ -1254,6 +1254,7 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
     """AI (or heuristic) outreach text + facts panel for one client.
 
     Uses the same durable catalog cache as /clients (marketplace/direct).
+    Serves Redis/file draft cache unless ``refresh_ai`` forces a new LLM pass.
     """
     try:
         client_id = (body.client_id or "").strip()
@@ -1271,14 +1272,51 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
         seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
         if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
             save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+        force = bool(body.refresh_ai)
+        if not force:
+            cached = get_outreach_draft(client_id, body.channel)
+            msg = str((cached or {}).get("message") or "").strip()
+            if cached and msg:
+                return _attach_cache_meta(
+                    {
+                        "ok": True,
+                        "message": msg,
+                        "grounding_notes": cached.get("grounding_notes") or "",
+                        "source": cached.get("source") or "redis-cache",
+                        "from_cache": True,
+                        "cached": True,
+                        "facts": cached.get("facts")
+                        if isinstance(cached.get("facts"), dict)
+                        else {},
+                        "sanity": cached.get("sanity")
+                        if isinstance(cached.get("sanity"), dict)
+                        else None,
+                        "client_id": client_id,
+                        "client_name": cached.get("client_name") or "",
+                        "seller_name": seller_name,
+                        "seller_facts": seller_facts,
+                        "channel": body.channel,
+                        "cache_backend": outreach_cache_backend_name(),
+                    },
+                    meta,
+                )
         outreach = build_outreach_for_row(
             row,
             channel=body.channel,
-            refresh_ai=bool(body.refresh_ai),
+            refresh_ai=force,
             seller_name=seller_name,
             seller_facts=seller_facts,
+            use_draft_cache=True,
+            force_refresh=force,
         )
-        return _attach_cache_meta({"ok": True, **outreach}, meta)
+        return _attach_cache_meta(
+            {
+                "ok": True,
+                **outreach,
+                "cache_backend": outreach_cache_backend_name(),
+            },
+            meta,
+        )
     except HTTPException:
         raise
     except MoySkladError as exc:
@@ -1296,6 +1334,7 @@ def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
 
     First status event is emitted before catalog I/O so the UI is not stuck
     on a silent wait. Tokens stream as plain text (or ``message`` JSON field).
+    Cached drafts short-circuit when ``refresh_ai`` is false.
     """
     client_id = (body.client_id or "").strip()
     if not client_id:
@@ -1303,8 +1342,35 @@ def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
     seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
     if (body.seller_name or "").strip() or (body.seller_facts or "").strip():
         save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
+    force = bool(body.refresh_ai)
 
     def _events() -> Iterator[dict[str, Any]]:
+        if not force:
+            cached = get_outreach_draft(client_id, body.channel)
+            msg = str((cached or {}).get("message") or "").strip()
+            if cached and msg:
+                yield {"type": "status", "text": "Из кэша Redis/файл…"}
+                yield {
+                    "type": "done",
+                    "ok": True,
+                    "message": msg,
+                    "grounding_notes": cached.get("grounding_notes") or "",
+                    "source": cached.get("source") or "redis-cache",
+                    "from_cache": True,
+                    "cached": True,
+                    "cache_backend": outreach_cache_backend_name(),
+                    "facts": cached.get("facts")
+                    if isinstance(cached.get("facts"), dict)
+                    else {},
+                    "sanity": cached.get("sanity")
+                    if isinstance(cached.get("sanity"), dict)
+                    else None,
+                    "client_id": client_id,
+                    "client_name": cached.get("client_name") or "",
+                    "channel": body.channel,
+                }
+                return
+
         yield {"type": "status", "text": "Генерируем креативный текст…"}
         try:
             catalog, _meta = _get_catalog(
@@ -1320,7 +1386,7 @@ def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
             for ev in iter_generate_outreach_for_row_events(
                 row,
                 channel=body.channel,
-                refresh_ai=bool(body.refresh_ai),
+                refresh_ai=force,
                 seller_name=seller_name,
                 seller_facts=seller_facts,
             ):

@@ -88,13 +88,18 @@ Audience filters on **Рассылки** use the **same durable catalog cache** 
 marketplace/direct classification as **Клиенты**. Personalized drafts:
 
 1. Open a client card → **Черновик рассылки** (or pick a chip in Рассылки).
-2. **Авто (AI)** calls `POST /campaigns/generate` with client facts + card
+2. Selecting a client loads **Redis/file draft cache** (`GET /campaigns/draft-cache`)
+   — no auto-LLM. Manual edits debounce-save back to cache.
+3. **Сгенерировать AI** / bouquet / rewrite / paraphrase force a new pass and
+   write the result to cache. Batch **Персонализировать** serves cache hits
+   first (`from_cache`) so re-runs do not re-LLM the same clients.
+4. **Авто (AI)** calls `POST /campaigns/generate` with client facts + card
    recommendation; text is editable before save.
-3. Side **Факты** panel shows orders / avg check / channels / tags / last order
+5. Side **Факты** panel shows orders / avg check / channels / tags / last order
    plus three audit blocks (**История и профиль**, **Повод и intent**,
    **Риски / ограничения**) so a human can audit grounding (no invented
    discounts/phones/debt).
-4. After generate/rewrite a **sanity** pass runs (LLM + heuristic fallback):
+6. After generate/rewrite a **sanity** pass runs (LLM + heuristic fallback):
    if facts show debt / unpaid orders, flower upsell is rejected and the text
    is revised toward payment reconcile. Button **Проверить смысл** calls
    `POST /campaigns/sanity` explicitly.

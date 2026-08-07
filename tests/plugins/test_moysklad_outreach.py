@@ -548,6 +548,7 @@ def test_iter_personalize_batch_events_yields_per_client(monkeypatch):
             "client_name": row.get("name"),
             "source": "heuristic",
             "grounding_notes": "",
+            "from_cache": False,
         },
     )
     rows = [
@@ -563,6 +564,63 @@ def test_iter_personalize_batch_events_yields_per_client(monkeypatch):
     assert names == {"Аня", "Боря"}
     assert events[-1]["type"] == "batch_done"
     assert events[-1]["ok_count"] == 2
+    assert events[-1].get("cache_hits") == 0
+
+
+def test_build_outreach_for_row_serves_and_writes_draft_cache(tmp_path, monkeypatch):
+    """Personalize / reopen must not re-LLM when Redis/file draft exists."""
+    from plugins.moysklad import outreach as o
+    from plugins.moysklad import outreach_cache as oc
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("MOYSKLAD_REDIS_URL", raising=False)
+    oc.clear_memory_for_tests()
+
+    calls = {"n": 0}
+
+    def _fake_generate(detail, **_kw):
+        calls["n"] += 1
+        return {
+            "message": "Свежий LLM текст про пионы",
+            "grounding_notes": "история",
+            "source": "llm",
+            "facts": {"name": "Тест"},
+            "channel": "telegram",
+        }
+
+    monkeypatch.setattr(o, "generate_outreach_message", _fake_generate)
+    monkeypatch.setattr(
+        o,
+        "build_client_detail",
+        lambda row: {
+            "client": {"id": row["id"], "name": row["name"]},
+            "orders": [],
+            "risks": {},
+            "ai": {},
+        },
+    )
+    monkeypatch.setattr(
+        o,
+        "facts_panel",
+        lambda _d: {"name": "Тест", "client_id": "c-cache"},
+    )
+
+    row = {"id": "c-cache", "name": "Тест"}
+    first = o.build_outreach_for_row(row, channel="telegram", force_refresh=False)
+    assert first["message"]
+    assert first.get("from_cache") is False
+    assert calls["n"] == 1
+    assert oc.get_outreach_draft("c-cache", "telegram")["message"] == first["message"]
+
+    second = o.build_outreach_for_row(row, channel="telegram", force_refresh=False)
+    assert second.get("from_cache") is True
+    assert second["message"] == first["message"]
+    assert calls["n"] == 1  # no second LLM
+
+    forced = o.build_outreach_for_row(row, channel="telegram", force_refresh=True)
+    assert forced.get("from_cache") is False
+    assert calls["n"] == 2
 
 
 def test_heuristic_bouquet_names_historical_product():

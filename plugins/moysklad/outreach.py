@@ -1464,9 +1464,46 @@ def build_outreach_for_row(
     refresh_ai: bool = True,
     seller_name: str = "",
     seller_facts: str = "",
+    use_draft_cache: bool = True,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    """Catalog row → detail → outreach draft payload."""
+    """Catalog row → detail → outreach draft payload.
+
+    When ``use_draft_cache`` and not ``force_refresh``, serves Redis/file draft
+    if present (avoids re-LLM on personalize / re-open). Fresh LLM results are
+    written back to the same cache.
+    """
+    from plugins.moysklad.outreach_cache import get_outreach_draft, set_outreach_draft
+
     detail = build_client_detail(row)
+    client = detail.get("client") or {}
+    cid = str(client.get("id") or "").strip()
+    cname = str(client.get("name") or "").strip()
+    channel = (channel or "telegram").strip().lower() or "telegram"
+
+    if use_draft_cache and not force_refresh and cid:
+        cached = get_outreach_draft(cid, channel)
+        msg = str((cached or {}).get("message") or "").strip()
+        if cached and msg:
+            panel = cached.get("facts") if isinstance(cached.get("facts"), dict) else None
+            return {
+                "message": msg,
+                "grounding_notes": str(cached.get("grounding_notes") or ""),
+                "source": str(cached.get("source") or "redis-cache"),
+                "from_cache": True,
+                "cached": True,
+                "facts": panel or facts_panel(detail),
+                "sanity": cached.get("sanity")
+                if isinstance(cached.get("sanity"), dict)
+                else None,
+                "seller_name": seller_name,
+                "seller_facts": seller_facts,
+                "channel": channel,
+                "detail_ok": True,
+                "client_id": cid,
+                "client_name": cname or str(cached.get("client_name") or ""),
+            }
+
     result = generate_outreach_message(
         detail,
         channel=channel,
@@ -1475,8 +1512,34 @@ def build_outreach_for_row(
         seller_facts=seller_facts,
     )
     result["detail_ok"] = True
-    result["client_id"] = (detail.get("client") or {}).get("id")
-    result["client_name"] = (detail.get("client") or {}).get("name")
+    result["client_id"] = cid
+    result["client_name"] = cname
+    result["from_cache"] = False
+
+    if use_draft_cache and cid and str(result.get("message") or "").strip():
+        try:
+            set_outreach_draft(
+                cid,
+                channel,
+                {
+                    "message": result.get("message") or "",
+                    "grounding_notes": result.get("grounding_notes") or "",
+                    "source": result.get("source") or "",
+                    "status": "AI черновик (кэш Redis/файл)",
+                    "client_name": cname,
+                    "title": f"Черновик · {cname}" if cname else "",
+                    "facts": result.get("facts")
+                    if isinstance(result.get("facts"), dict)
+                    else {},
+                    "sanity": result.get("sanity")
+                    if isinstance(result.get("sanity"), dict)
+                    else None,
+                },
+            )
+            result["cached"] = True
+        except Exception as exc:  # pragma: no cover
+            log.warning("moysklad outreach cache write failed: %s", exc)
+            result["cached"] = False
     return result
 
 
@@ -2272,12 +2335,15 @@ def iter_personalize_batch_events(
         cid = str((client or {}).get("id") or row.get("id") or "")
         cname = str((client or {}).get("name") or row.get("name") or "")
         try:
+            # Prefer Redis/file draft cache — do not re-LLM every batch run.
             out = build_outreach_for_row(
                 row,
                 channel=channel,
-                refresh_ai=True,
+                refresh_ai=False,
                 seller_name=seller_name,
                 seller_facts=seller_facts,
+                use_draft_cache=True,
+                force_refresh=False,
             )
             return {
                 "ok": True,
@@ -2287,6 +2353,8 @@ def iter_personalize_batch_events(
                 "message": out.get("message") or "",
                 "grounding_notes": out.get("grounding_notes") or "",
                 "source": out.get("source") or "",
+                "from_cache": bool(out.get("from_cache")),
+                "cached": bool(out.get("cached") or out.get("from_cache")),
                 "error": out.get("error"),
             }
         except Exception as exc:  # pragma: no cover
@@ -2296,10 +2364,12 @@ def iter_personalize_batch_events(
                 "client_id": cid,
                 "client_name": cname,
                 "message": "",
+                "from_cache": False,
                 "error": str(exc),
             }
 
     ok_count = 0
+    cache_hits = 0
     done_count = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
@@ -2310,6 +2380,8 @@ def iter_personalize_batch_events(
             done_count += 1
             if payload.get("ok") and payload.get("message"):
                 ok_count += 1
+            if payload.get("from_cache"):
+                cache_hits += 1
             yield {
                 "type": "client_done",
                 "done": done_count,
@@ -2320,6 +2392,7 @@ def iter_personalize_batch_events(
         "type": "batch_done",
         "total": total,
         "ok_count": ok_count,
+        "cache_hits": cache_hits,
     }
 
 
