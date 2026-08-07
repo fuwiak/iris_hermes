@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 _CONTACTS_TTL = 900.0  # seconds — refresh window for the cached contact list
+_DIALOGS_LIMIT = 500  # private chats scanned on top of the saved address book
 _DEFAULT_TIMEOUT = 60.0
 
 _PEER_ID_RE = re.compile(r"^-?\d{1,20}$")
@@ -166,6 +167,19 @@ def _import_telethon(*, install: bool = True) -> tuple[Any, str]:
 def telethon_available() -> bool:
     mod, _ = _import_telethon(install=False)
     return mod is not None
+
+
+def ensure_runtime() -> dict[str, Any]:
+    """Install Telethon on demand so the UI can fix a cold environment."""
+    mod, err = _import_telethon(install=True)
+    if mod is None:
+        return _err(
+            "telethon_missing",
+            "Не удалось установить telethon: "
+            f"{err or 'unknown error'}. Поставьте вручную: "
+            "`uv pip install telethon==1.44.0`",
+        )
+    return {"ok": True, "available": True, "version": getattr(mod, "__version__", "")}
 
 
 # ── background event loop ─────────────────────────────────────────────────
@@ -567,9 +581,9 @@ def logout(*, forget_credentials: bool = False) -> dict[str, Any]:
 # ── contacts ──────────────────────────────────────────────────────────────
 
 
-def _contact_from_user(user: Any) -> Optional[dict[str, Any]]:
+def _contact_from_user(user: Any, *, source: str = "contact") -> Optional[dict[str, Any]]:
     uid = getattr(user, "id", None)
-    if uid is None or getattr(user, "bot", False):
+    if uid is None or getattr(user, "bot", False) or getattr(user, "is_self", False):
         return None
     first = str(getattr(user, "first_name", "") or "").strip()
     last = str(getattr(user, "last_name", "") or "").strip()
@@ -581,6 +595,7 @@ def _contact_from_user(user: Any) -> Optional[dict[str, Any]]:
         "tg_nick": username,
         "name": name or (f"@{username}" if username else str(uid)),
         "phone": str(getattr(user, "phone", "") or "").strip(),
+        "peer_source": source,
     }
 
 
@@ -601,39 +616,80 @@ def contacts_stale(ttl: float = _CONTACTS_TTL) -> bool:
     return (time.time() - fetched) > ttl
 
 
-def fetch_contacts(*, force: bool = False, ttl: float = _CONTACTS_TTL) -> dict[str, Any]:
-    """Pull ``contacts.GetContacts`` and cache it. Falls back to the cache."""
+def fetch_contacts(
+    *,
+    force: bool = False,
+    ttl: float = _CONTACTS_TTL,
+    dialogs_limit: int = _DIALOGS_LIMIT,
+) -> dict[str, Any]:
+    """Cache the address book **and** private chats. Falls back to the cache.
+
+    ``contacts.GetContacts`` only returns *saved* contacts, so people you
+    actually talk to but never added would be missing from the picker. Private
+    dialogs fill that gap.
+    """
     if not force and not contacts_stale(ttl):
         items = cached_contacts()
         return {"ok": True, "contacts": items, "total": len(items), "cached": True}
 
     async def _fetch() -> dict[str, Any]:
         from telethon import functions  # noqa: PLC0415
+        from telethon.tl.types import User  # noqa: PLC0415
 
         client = await _RUNNER.client()
         if not await client.is_user_authorized():
             return _err("not_authorized", "Личный Telegram не подключён")
-        result = await client(functions.contacts.GetContactsRequest(hash=0))
-        users = list(getattr(result, "users", []) or [])
-        _RUNNER.persist_session(client)
-        return {"ok": True, "users": users}
 
-    res = _call(_fetch, timeout=90.0)
+        saved: list[Any] = []
+        try:
+            result = await client(functions.contacts.GetContactsRequest(hash=0))
+            saved = list(getattr(result, "users", []) or [])
+        except Exception as exc:  # pragma: no cover - network
+            log.warning("GetContacts failed: %s", exc)
+
+        dialog_users: list[Any] = []
+        if dialogs_limit:
+            try:
+                async for dialog in client.iter_dialogs(limit=dialogs_limit):
+                    entity = getattr(dialog, "entity", None)
+                    if isinstance(entity, User):
+                        dialog_users.append(entity)
+            except Exception as exc:  # pragma: no cover - network
+                log.warning("iter_dialogs failed: %s", exc)
+
+        _RUNNER.persist_session(client)
+        return {"ok": True, "users": saved, "dialog_users": dialog_users}
+
+    res = _call(_fetch, timeout=180.0)
     if not res.get("ok"):
         items = cached_contacts()
         return {**res, "contacts": items, "total": len(items), "cached": True}
 
-    contacts: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
     for user in res.get("users") or []:
-        norm = _contact_from_user(user)
+        norm = _contact_from_user(user, source="contact")
         if norm:
-            contacts.append(norm)
-    contacts.sort(key=lambda c: (c.get("name") or "").lower())
+            by_id[norm["id"]] = norm
+    dialog_only = 0
+    for user in res.get("dialog_users") or []:
+        norm = _contact_from_user(user, source="dialog")
+        if norm and norm["id"] not in by_id:
+            by_id[norm["id"]] = norm
+            dialog_only += 1
+
+    contacts = sorted(by_id.values(), key=lambda c: (c.get("name") or "").lower())
     _write_json(
         _contacts_path(),
         {"fetched_at": time.time(), "contacts": contacts},
     )
-    return {"ok": True, "contacts": contacts, "total": len(contacts), "cached": False}
+    return {
+        "ok": True,
+        "contacts": contacts,
+        "total": len(contacts),
+        "from_address_book": len(contacts) - dialog_only,
+        "from_dialogs": dialog_only,
+        "cached": False,
+    }
 
 
 def find_cached_contact(

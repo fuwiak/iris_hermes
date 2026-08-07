@@ -2811,6 +2811,23 @@ function CampaignsPage() {
     // Probe once on mount; the panel's buttons re-probe on demand.
   }, [])
 
+  const tgInstallRuntime = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      const data = await call<typeof tgUser & { version?: string }>(
+        '/campaigns/telegram-user/install',
+        { method: 'POST' }
+      )
+      setTgUser(data)
+      setActionStatus(`✓ telethon установлен${data?.version ? ` ${data.version}` : ''}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
+
   const tgSaveCredentials = async () => {
     if (!tgApiId.trim() && !tgApiHash.trim()) {
       setError('Заполните api_id и api_hash с my.telegram.org')
@@ -2911,13 +2928,17 @@ function CampaignsPage() {
     setTgBusy(true)
     setError('')
     try {
-      const data = await call<{ total?: number }>(
-        '/campaigns/telegram-user/contacts/refresh',
-        { method: 'POST' }
-      )
+      const data = await call<{
+        total?: number
+        from_address_book?: number
+        from_dialogs?: number
+      }>('/campaigns/telegram-user/contacts/refresh', { method: 'POST' })
       await loadOutreachContacts()
       await refreshTgUser(false)
-      setActionStatus(`✓ Контакты из Telegram: ${data.total ?? 0}`)
+      setActionStatus(
+        `✓ Контакты из Telegram: ${data.total ?? 0}` +
+          ` (адресная книга ${data.from_address_book ?? 0}, чаты ${data.from_dialogs ?? 0})`
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -4539,6 +4560,20 @@ function CampaignsPage() {
               </button>
             </div>
             <p className="ms-muted ms-tg-account-status">
+              {tgUser && tgUser.available === false ? (
+                <>
+                  ⚠ Нет MTProto-движка (telethon) — вход невозможен.{' '}
+                  <button
+                    className="ms-link-btn"
+                    disabled={tgBusy}
+                    onClick={() => void tgInstallRuntime()}
+                    type="button"
+                  >
+                    {tgBusy ? 'Ставим…' : 'Установить telethon'}
+                  </button>{' '}
+                  ·{' '}
+                </>
+              ) : null}
               {tgUser?.authorized ? (
                 <>
                   ✓ Подключён{' '}

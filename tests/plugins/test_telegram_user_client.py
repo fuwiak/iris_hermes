@@ -123,6 +123,36 @@ def test_contacts_cache_roundtrip(tmp_path, monkeypatch):
     assert tu.find_cached_contact(tg_nick="nobody") is None
 
 
+def test_fetch_contacts_merges_private_dialogs(tmp_path, monkeypatch):
+    """Saved address book is usually tiny — chats are where the people are."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+    class _User:
+        def __init__(self, uid, first, username=""):
+            self.id = uid
+            self.first_name = first
+            self.last_name = ""
+            self.username = username
+            self.phone = ""
+            self.bot = False
+            self.is_self = False
+
+    monkeypatch.setattr(
+        tu,
+        "_call",
+        lambda factory, timeout=60.0: {
+            "ok": True,
+            "users": [_User(1, "Ася", "papa2139")],
+            "dialog_users": [_User(1, "Ася", "papa2139"), _User(2, "Иван")],
+        },
+    )
+    out = tu.fetch_contacts(force=True)
+    assert out["total"] == 2  # deduped by id
+    assert out["from_dialogs"] == 1
+    assert out["from_address_book"] == 1
+    assert {c["id"] for c in out["contacts"]} == {"1", "2"}
+
+
 def test_fetch_contacts_falls_back_to_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     tu._write_json(

@@ -1563,6 +1563,15 @@ def get_telegram_user_account(probe: bool = Query(True)) -> dict[str, Any]:
     return {**telegram_user_status(probe=probe), "send_mode": telegram_send_mode()}
 
 
+@router.post("/campaigns/telegram-user/install")
+def post_telegram_user_install() -> dict[str, Any]:
+    """Lazy-install Telethon (MTProto runtime) and report the result."""
+    out = tg_user.ensure_runtime()
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return {**out, **telegram_user_status(probe=False)}
+
+
 @router.post("/campaigns/telegram-user/credentials")
 def post_telegram_user_credentials(body: TelegramUserLoginBody) -> dict[str, Any]:
     """Store my.telegram.org api_id / api_hash without starting a login."""
@@ -1614,7 +1623,12 @@ def post_telegram_user_contacts_refresh() -> dict[str, Any]:
     out = tg_user.fetch_contacts(force=True)
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
-    return {"ok": True, "total": out.get("total", 0)}
+    return {
+        "ok": True,
+        "total": out.get("total", 0),
+        "from_address_book": out.get("from_address_book", 0),
+        "from_dialogs": out.get("from_dialogs", 0),
+    }
 
 
 @router.get("/campaigns/telegram-contacts")

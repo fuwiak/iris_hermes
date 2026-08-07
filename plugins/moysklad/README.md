@@ -149,6 +149,13 @@ over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
 * Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).
   Env overrides: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
   `TELEGRAM_USER_SESSION`.
+* Telethon is lazy-installed; if the venv is cold the panel shows
+  «Установить telethon» (`POST /campaigns/telegram-user/install`). Manual
+  path: `uv pip install telethon==1.44.0`. Note `uv sync` drops it again
+  unless you install the `telegram-user` extra.
+* The sync merges `contacts.GetContacts` (saved address book) **and** private
+  dialogs — most people you message were never saved as contacts, so the
+  address book alone leaves the picker nearly empty.
 * Contacts sync into `$HERMES_HOME/telegram_user/contacts.json` and show up
   in the «Кому отправить» picker as `tg:<user id>` (`source: telegram`),
   deduped against catalog / overlay peers. Refresh:
