@@ -18,6 +18,7 @@ from plugins.moysklad.sales_channels import (
     channel_name_from_order,
     counterparty_row_from_api,
     entity_ref_id,
+    refresh_row_channel_fields,
     row_matches_sales_filter,
     sales_channel_type_from_channels,
     sales_channels_by_id,
@@ -41,6 +42,8 @@ def _minor_to_rub(value: Any) -> float:
     try:
         if value is None or value == "":
             return 0.0
+        if isinstance(value, dict):
+            value = value.get("sum", value.get("value", 0))
         return float(value) / 100.0
     except (TypeError, ValueError):
         return 0.0
@@ -147,7 +150,29 @@ def build_enriched_catalog(
         # Prefer full order context (with dates/sums) over channel-only stubs.
         ctx = order_ctx_by_agent.get(cp_id) or row.get("_orders_context") or []
         row["_orders_context"] = ctx
+        # Deduped channel list from real orders (preserve first-seen order).
+        order_channels: list[str] = []
+        seen_ch: set[str] = set()
+        for item in ctx:
+            ch = str((item or {}).get("Канал продаж") or (item or {}).get("channel") or "").strip()
+            key = ch.lower()
+            if ch and key not in seen_ch:
+                seen_ch.add(key)
+                order_channels.append(ch)
+        if not order_channels:
+            order_channels = list(channels_by_agent.get(cp_id) or [])
+        row["_order_channels_all"] = order_channels
+        row["Канал продаж"] = ", ".join(order_channels)
+        sales_type = sales_channel_type_from_channels(order_channels)
+        row["Тип канала продаж"] = sales_type
+        row["Тип продаж"] = sales_type
+
         amounts = sums_by_agent.get(cp_id) or []
+        if not amounts:
+            for item in ctx:
+                amt = float((item or {}).get("sum") or (item or {}).get("Сумма") or 0)
+                if amt > 0:
+                    amounts.append(amt)
         order_count = len(ctx) if ctx else len(amounts)
         avg_check = (sum(amounts) / len(amounts)) if amounts else 0.0
         last_order = ""
@@ -165,6 +190,7 @@ def build_enriched_catalog(
         row["order_count"] = order_count
         row["avg_check"] = round(avg_check, 2)
         row["last_order_at"] = last_order
+        refresh_row_channel_fields(row)
         if not row.get("Наименование") and cp_id in names_by_agent:
             row["Наименование"] = names_by_agent[cp_id]
         desc = cp.get("description")
@@ -207,31 +233,59 @@ def _row_matches_query(row: dict[str, Any], q: str) -> bool:
 
 
 def _public_client(row: dict[str, Any]) -> dict[str, Any]:
+    # Always recompute from order context — stale cache may store first-only channel.
+    refresh_row_channel_fields(row)
     channels = unique_sales_channels(row)
     audience = row.get("_audience") or {}
-    sales_type = (
-        row.get("Тип канала продаж")
-        or row.get("Тип продаж")
-        or sales_channel_type_from_channels(channels)
+    sales_type = sales_channel_type_from_channels(channels)
+    channel_display = ", ".join(channels)
+    # Prefer live aggregates from order context when present.
+    ctx = row.get("_orders_context") or []
+    order_count = int(row.get("order_count") or row.get("Всего заказов") or 0)
+    avg_check = float(row.get("avg_check") or row.get("Средний чек") or 0)
+    last_order_at = (
+        row.get("last_order_at") or row.get("Дата последнего заказа") or ""
     )
-    channel = row.get("Канал продаж") or (channels[0] if channels else "")
+    if isinstance(ctx, list) and ctx:
+        amounts: list[float] = []
+        last = ""
+        for item in ctx:
+            if not isinstance(item, dict):
+                continue
+            try:
+                amount = float(item.get("sum") or item.get("Сумма") or 0)
+            except (TypeError, ValueError):
+                amount = 0.0
+            if amount > 0:
+                amounts.append(amount)
+            moment = str(item.get("moment") or item.get("Дата") or "").strip()
+            if moment and moment > last:
+                last = moment
+        order_count = len(ctx)
+        if amounts:
+            avg_check = round(sum(amounts) / len(amounts), 2)
+        if last:
+            last_order_at = last
+    ms_tags = [str(t).strip() for t in (row.get("_moysklad_tags") or []) if str(t).strip()]
+    ms_groups = (
+        str(row.get("Группы") or "").strip()
+        or ", ".join(ms_tags)
+    )
     public = {
         "id": row.get("_moysklad_id") or "",
         "name": row.get("Наименование") or "",
         "phone": row.get("Телефон") or "",
         "email": row.get("email") or row.get("E-mail") or "",
         "state": row.get("_moysklad_state") or row.get("Статус") or "",
-        "tags": list(row.get("_moysklad_tags") or []),
-        "groups": row.get("Группы")
-        or ", ".join(str(t) for t in (row.get("_moysklad_tags") or []) if str(t).strip()),
+        "tags": ms_tags,
+        "groups": ms_groups,
+        "ms_groups": ms_groups,
         "channels": channels,
-        "channel": channel,
+        "channel": channel_display,
         "sales_type": sales_type,
-        "order_count": int(row.get("order_count") or row.get("Всего заказов") or 0),
-        "avg_check": float(row.get("avg_check") or row.get("Средний чек") or 0),
-        "last_order_at": row.get("last_order_at")
-        or row.get("Дата последнего заказа")
-        or "",
+        "order_count": order_count,
+        "avg_check": avg_check,
+        "last_order_at": last_order_at,
         "bonus_points": row.get("Баллы начисленные") or "",
         "role": row.get("Заказчик или получатель") or "",
         "actual_address": row.get("Фактический адрес") or "",
@@ -252,6 +306,7 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         return apply_ai_fill_to_public(public)
     except Exception:
         public.setdefault("ai_fields", [])
+        public.setdefault("ai_groups", [])
         return public
 
 

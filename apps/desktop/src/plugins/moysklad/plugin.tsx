@@ -199,6 +199,8 @@ interface ClientRow {
   channels?: string[]
   tags?: string[]
   groups?: string
+  ms_groups?: string
+  ai_groups?: string[]
   order_count?: number
   avg_check?: number
   last_order_at?: string
@@ -360,7 +362,8 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'channel_display',
     label: 'Канал продаж',
-    render: r => r.channel || (r.channels || []).join(', ')
+    render: r =>
+      (r.channels || []).length ? (r.channels || []).join(', ') : r.channel || ''
   },
   { key: 'avg_display', label: 'Средний чек', render: r => money(r.avg_check) },
   {
@@ -373,7 +376,13 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'groups_display',
     label: 'Группы',
-    render: r => r.groups || (r.tags || []).join(', ')
+    render: r => {
+      const ms = String(r.ms_groups || '').trim()
+      const ai = (r.ai_groups || []).filter(Boolean)
+      if (ms && ai.length) return `МС: ${ms} · AI: ${ai.join(', ')}`
+      if (ai.length) return `AI: ${ai.join(', ')}`
+      return r.groups || (r.tags || []).join(', ')
+    }
   },
   { key: 'role', label: 'Заказчик или получатель', render: r => r.role || '' },
   { key: 'actual_address', label: 'Фактический адрес', render: r => r.actual_address || '' },
@@ -858,7 +867,7 @@ function ClientCardModal({
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState('')
-  const [ordersOpen, setOrdersOpen] = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
 
   useEffect(() => {

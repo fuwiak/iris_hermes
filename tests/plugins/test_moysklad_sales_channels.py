@@ -32,9 +32,29 @@ def test_marketplace_channels() -> None:
 def test_sales_channel_type_marketplace_wins() -> None:
     assert (
         sales_channel_type_from_channels(["Telegram", "FlowWow Floday"])
-        == "маркетплейс"
+        == "маркетплейс/прямые продажи"
     )
     assert sales_channel_type_from_channels(["Витрина", "WhatsApp"]) == "прямые продажи"
+    assert sales_channel_type_from_channels(["Ozon"]) == "маркетплейс"
+
+
+def test_sales_channel_type_hybrid_label() -> None:
+    assert (
+        sales_channel_type_from_channels(["Витрина", "Ozon"])
+        == "маркетплейс/прямые продажи"
+    )
+
+
+def test_unique_sales_channels_lists_all() -> None:
+    row = {
+        "_orders_context": [
+            {"Канал продаж": "Витрина"},
+            {"Канал продаж": "Ozon"},
+            {"Канал продаж": "Витрина"},
+        ],
+        "_moysklad_tags": [],
+    }
+    assert unique_sales_channels(row) == ["Витрина", "Ozon"]
 
 
 def test_unique_sales_channels_ignores_group_tags() -> None:

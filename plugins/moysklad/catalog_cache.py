@@ -58,7 +58,7 @@ def cache_key(
     include_archived: bool,
 ) -> str:
     parts = (
-        "moysklad:catalog:v2",
+        "moysklad:catalog:v3",
         _account_fingerprint(),
         f"o{int(max_orders)}",
         f"c{int(max_counterparties)}",
@@ -68,17 +68,49 @@ def cache_key(
 
 
 def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
-    """Recompute exclusive tab counts on catalog rows (mutates ``catalog``).
+    """Recompute exclusive tab counts + channel/sales-type fields (mutates catalog).
 
-    Stale durable cache kept old direct/marketplace numbers after classifier
-    fixes; every read path must refresh so UI never shows gap
-    ``total != direct + marketplace``.
+    Stale durable cache kept old direct/marketplace numbers and first-only
+    channel strings after classifier fixes; every read path must refresh so
+    UI never shows gap ``total != direct + marketplace`` or a single channel
+    when the client has many.
     """
     from plugins.moysklad.dedupe import recompute_audience_counts
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
 
     rows = list((catalog or {}).get("rows") or [])
+    for row in rows:
+        if isinstance(row, dict):
+            refresh_row_channel_fields(row)
+            # Recompute order aggregates from context when present.
+            ctx = row.get("_orders_context")
+            if isinstance(ctx, list) and ctx:
+                amounts: list[float] = []
+                last = ""
+                for item in ctx:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        amount = float(item.get("sum") or item.get("Сумма") or 0)
+                    except (TypeError, ValueError):
+                        amount = 0.0
+                    if amount > 0:
+                        amounts.append(amount)
+                    moment = str(item.get("moment") or item.get("Дата") or "").strip()
+                    if moment and moment > last:
+                        last = moment
+                row["order_count"] = len(ctx)
+                row["Всего заказов"] = len(ctx)
+                if amounts:
+                    avg = round(sum(amounts) / len(amounts), 2)
+                    row["avg_check"] = avg
+                    row["Средний чек"] = avg
+                if last:
+                    row["last_order_at"] = last
+                    row["Дата последнего заказа"] = last
     counts = recompute_audience_counts(rows)
     if isinstance(catalog, dict):
+        catalog["rows"] = rows
         catalog["counts"] = counts
     return counts
 

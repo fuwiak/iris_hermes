@@ -621,38 +621,80 @@ def _persist_fills(
 
 
 def apply_ai_fill_to_public(client: dict[str, Any]) -> dict[str, Any]:
-    """Merge persisted AI fills into a public client dict (empty slots only)."""
+    """Merge persisted AI fills into a public client dict.
+
+    Empty slots (state/sex/role/tg/…) get AI values. Groups are enriched:
+    MoySklad tags stay, AI labels append (deduped) and are exposed as
+    ``ai_groups`` so the UI can mark МС vs AI.
+    """
     cid = str(client.get("id") or "").strip()
     if not cid:
         client.setdefault("ai_fields", [])
+        client.setdefault("ai_groups", [])
         return client
     entry = get_ai_fill_entry(cid)
     if not isinstance(entry, dict):
+        # Still surface AI overlay groups from store helper when present
+        try:
+            ai_only = ai_group_labels_for_client(cid)
+        except Exception:
+            ai_only = []
+        if ai_only:
+            return _merge_ai_groups_into_public(dict(client), ai_only)
         client.setdefault("ai_fields", [])
+        client.setdefault("ai_groups", [])
         return client
     fields = entry.get("fields") or {}
     ai_fields: list[str] = []
     out = dict(client)
+    out.setdefault("ms_groups", out.get("groups") or "")
     for key in _FILLABLE:
         if key not in fields:
-            continue
-        if not is_empty_cell(out.get(key)):
             continue
         value = fields[key]
         if key == "groups":
             if isinstance(value, list):
-                out["groups"] = ", ".join(str(v) for v in value if str(v).strip())
-                out["tags"] = [str(v).strip() for v in value if str(v).strip()]
+                ai_list = [str(v).strip() for v in value if str(v).strip()]
+            elif isinstance(value, str) and value.strip():
+                ai_list = [p.strip() for p in re.split(r"[,;|/]", value) if p.strip()]
             else:
-                out["groups"] = str(value)
-            ai_fields.append("groups")
-        else:
-            out[key] = value
-            ai_fields.append(key)
+                ai_list = []
+            out = _merge_ai_groups_into_public(out, ai_list)
+            if ai_list:
+                ai_fields.append("groups")
+            continue
+        if not is_empty_cell(out.get(key)):
+            continue
+        out[key] = value
+        ai_fields.append(key)
     # Keep stamp even if MoySklad later filled — only show green on currently AI-shown
     out["ai_fields"] = ai_fields
     out["ai_fill_source"] = entry.get("source") or ""
     out["ai_fill_cached"] = True
+    out.setdefault("ai_groups", [])
+    return out
+
+
+def _merge_ai_groups_into_public(client: dict[str, Any], ai_list: list[str]) -> dict[str, Any]:
+    """Append AI group labels onto MoySklad groups without dropping MS tags."""
+    out = dict(client)
+    ms_raw = str(out.get("ms_groups") or out.get("groups") or "").strip()
+    ms_parts = [p.strip() for p in re.split(r"[,;|/]", ms_raw) if p.strip()]
+    if not ms_parts:
+        ms_parts = [str(t).strip() for t in (out.get("tags") or []) if str(t).strip()]
+    seen = {p.lower() for p in ms_parts}
+    ai_clean: list[str] = []
+    for name in ai_list:
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        ai_clean.append(name)
+    merged = ms_parts + ai_clean
+    out["ms_groups"] = ", ".join(ms_parts)
+    out["ai_groups"] = ai_clean
+    out["groups"] = ", ".join(merged)
+    out["tags"] = list(merged)
     return out
 
 

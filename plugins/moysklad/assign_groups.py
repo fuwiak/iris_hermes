@@ -8,6 +8,7 @@ from typing import Any
 from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_DIRECT,
+    SALES_CHANNEL_TYPE_HYBRID,
     SALES_CHANNEL_TYPE_MARKETPLACE,
     moysklad_group_tokens,
     sales_channel_type_from_channels,
@@ -152,9 +153,9 @@ def heuristic_groups_for_row(row: dict[str, Any]) -> list[str]:
         if stored:
             order_channels = [stored]
     sales_type = sales_channel_type_from_channels(order_channels)
-    if sales_type == SALES_CHANNEL_TYPE_MARKETPLACE:
+    if sales_type in (SALES_CHANNEL_TYPE_MARKETPLACE, SALES_CHANNEL_TYPE_HYBRID):
         parts.append("маркетплейс")
-    elif sales_type == SALES_CHANNEL_TYPE_DIRECT and order_channels:
+    if sales_type in (SALES_CHANNEL_TYPE_DIRECT, SALES_CHANNEL_TYPE_HYBRID) and order_channels:
         parts.append("прямые продажи")
 
     blob = _row_text_blob(row)

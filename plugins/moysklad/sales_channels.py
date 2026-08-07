@@ -89,6 +89,7 @@ MARKETPLACE_AUDIENCE_GROUP_PATTERNS = (
 
 SALES_CHANNEL_TYPE_MARKETPLACE = "маркетплейс"
 SALES_CHANNEL_TYPE_DIRECT = "прямые продажи"
+SALES_CHANNEL_TYPE_HYBRID = "маркетплейс/прямые продажи"
 
 
 def _normalize_channel(channel: str) -> str:
@@ -197,14 +198,44 @@ def moysklad_status_tokens(row: dict[str, Any]) -> list[str]:
 
 def _looks_like_sales_type_label(value: str) -> bool:
     text = _normalize_channel(value)
-    return text in {
+    if text in {
         SALES_CHANNEL_TYPE_DIRECT,
         SALES_CHANNEL_TYPE_MARKETPLACE,
+        SALES_CHANNEL_TYPE_HYBRID,
         "прямые",
         "маркетплейсы",
         "marketplace",
         "direct",
-    }
+        "hybrid",
+    }:
+        return True
+    return "прямы" in text and "маркет" in text
+
+
+def sales_channel_type_from_channels(channels: list[str]) -> str:
+    """Classify channel set: direct | marketplace | hybrid (both).
+
+    Hybrid when the client has ≥1 direct order channel AND ≥1 marketplace
+    order channel — display label ``маркетплейс/прямые продажи``.
+    """
+    if not channels:
+        return SALES_CHANNEL_TYPE_DIRECT
+    has_direct = False
+    has_marketplace = False
+    for channel in channels:
+        if not channel or not str(channel).strip():
+            continue
+        if is_direct_sales_channel(channel):
+            has_direct = True
+        else:
+            has_marketplace = True
+    if has_marketplace and has_direct:
+        return SALES_CHANNEL_TYPE_HYBRID
+    if has_marketplace:
+        return SALES_CHANNEL_TYPE_MARKETPLACE
+    if has_direct:
+        return SALES_CHANNEL_TYPE_DIRECT
+    return SALES_CHANNEL_TYPE_DIRECT
 
 
 def unique_sales_channels(row: dict[str, Any]) -> list[str]:
@@ -233,15 +264,17 @@ def unique_sales_channels(row: dict[str, Any]) -> list[str]:
             result.append(ch)
 
     stored_all = row.get("_order_channels_all")
+    for order in row.get("_orders_context") or []:
+        if isinstance(order, dict):
+            _add(order.get("Канал продаж") or order.get("channel"))
     if isinstance(stored_all, list):
         for ch in stored_all:
             _add(ch)
-    else:
-        for order in row.get("_orders_context") or []:
-            _add(order.get("Канал продаж"))
-    _add(row.get("Канал продаж"))
+    # Prefer order-derived list; fall back to stored field only when empty,
+    # and never treat a comma-joined type label as a channel.
+    if not result:
+        _add(row.get("Канал продаж"))
     # Channel names sometimes live only in MoySklad tags (витрина / watsapp / флау вау).
-    # Occasion groups (8 марта, …) must NOT be treated as channels.
     for tag in moysklad_group_tokens(row):
         if _token_matches_any(tag, DIRECT_AUDIENCE_CHANNELS) or _token_matches_any(
             tag, MARKETPLACE_AUDIENCE_CHANNELS
@@ -300,7 +333,8 @@ def row_audience_bucket(row: dict[str, Any]) -> str:
 
     Marketplace wins when any non-direct order channel exists, or when
     marketplace status/group/FlowWow markers match. Everyone else → direct
-    (including clients with no channel yet).
+    (including clients with no channel yet). Hybrid (both channel types)
+    lands in marketplace.
     """
     if _row_has_marketplace_order_channel(row):
         return "marketplace"
@@ -319,23 +353,15 @@ def row_matches_marketplace_audience(row: dict[str, Any]) -> bool:
     return row_audience_bucket(row) == "marketplace"
 
 
-def sales_channel_type_from_channels(channels: list[str]) -> str:
-    if not channels:
-        return SALES_CHANNEL_TYPE_DIRECT
-    has_direct = False
-    has_marketplace = False
-    for channel in channels:
-        if not channel or not str(channel).strip():
-            continue
-        if is_direct_sales_channel(channel):
-            has_direct = True
-        else:
-            has_marketplace = True
-    if has_marketplace:
-        return SALES_CHANNEL_TYPE_MARKETPLACE
-    if has_direct:
-        return SALES_CHANNEL_TYPE_DIRECT
-    return SALES_CHANNEL_TYPE_DIRECT
+def refresh_row_channel_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite channel list + sales type from order context (cache-safe)."""
+    channels = unique_sales_channels(row)
+    row["_order_channels_all"] = list(channels)
+    row["Канал продаж"] = ", ".join(channels)
+    label = sales_channel_type_from_channels(channels)
+    row["Тип канала продаж"] = label
+    row["Тип продаж"] = label
+    return row
 
 
 def row_matches_sales_filter(row: dict[str, Any], sales_filter: str) -> bool:
@@ -417,8 +443,11 @@ _ATTR_ALIASES: dict[str, tuple[str, ...]] = {
     "role": (
         "заказчик или получатель",
         "заказчик/получатель",
+        "заказчик либо получатель",
         "роль",
         "тип клиента",
+        "заказчик",
+        "получатель",
     ),
     "actual_address_comment": (
         "фактический адрес (комментарий)",
@@ -429,10 +458,14 @@ _ATTR_ALIASES: dict[str, tuple[str, ...]] = {
     "tg_nick": (
         "тг ник",
         "тг никнейм",
+        "тг username",
         "telegram nick",
         "telegram nickname",
+        "telegram username",
         "telegram",
         "телеграм",
+        "username telegram",
+        "ник телеграм",
         "tg",
         "тг",
     ),
@@ -519,6 +552,16 @@ def counterparty_row_from_api(
         state_name = state.strip()
     tags = cp.get("tags") if isinstance(cp.get("tags"), list) else []
     channels = [c for c in (order_channels or []) if c]
+    # Preserve order, unique
+    seen_ch: set[str] = set()
+    uniq_channels: list[str] = []
+    for c in channels:
+        key = str(c).strip().lower()
+        if not key or key in seen_ch:
+            continue
+        seen_ch.add(key)
+        uniq_channels.append(str(c).strip())
+    channels = uniq_channels
     attrs = _attributes_by_alias(cp)
     sex = _sex_label(cp.get("sex")) or _sex_label(attrs.get("sex"))
     actual_address = str(cp.get("actualAddress") or cp.get("actual_address") or "").strip()
@@ -531,6 +574,17 @@ def counterparty_row_from_api(
             balance_rub = round(float(balance_raw) / 100.0, 2)
         except (TypeError, ValueError):
             balance_rub = None
+    tg_nick = attrs.get("tg_nick") or ""
+    if not tg_nick:
+        # Fallback: @nick in description / name
+        blob = " ".join(
+            str(x or "")
+            for x in (cp.get("description"), cp.get("name"), cp.get("email"))
+        )
+        m = re.search(r"@([A-Za-z0-9_]{4,})", blob)
+        if m:
+            tg_nick = "@" + m.group(1)
+    sales_type = sales_channel_type_from_channels(channels)
     return {
         "_moysklad_id": str(cp.get("id") or ""),
         "Наименование": str(cp.get("name") or "").strip(),
@@ -545,9 +599,9 @@ def counterparty_row_from_api(
         "Статус контрагента": state_name,
         "_orders_context": [{"Канал продаж": c} for c in channels],
         "_order_channels_all": channels,
-        "Канал продаж": channels[0] if channels else "",
-        "Тип канала продаж": sales_channel_type_from_channels(channels),
-        "Тип продаж": sales_channel_type_from_channels(channels),
+        "Канал продаж": ", ".join(channels),
+        "Тип канала продаж": sales_type,
+        "Тип продаж": sales_type,
         "Тип контрагента": _company_type_label(
             cp.get("companyType") or cp.get("company_type")
         ),
@@ -556,7 +610,7 @@ def counterparty_row_from_api(
         "Фактический адрес (Комментарий)": attrs.get("actual_address_comment") or "",
         "Баллы начисленные": attrs.get("bonus_points") or "",
         "Заказчик или получатель": attrs.get("role") or "",
-        "ТГ ник": attrs.get("tg_nick") or "",
+        "ТГ ник": tg_nick,
         "TG conversation": attrs.get("tg_conversation") or "",
         "balance": balance_rub,
         "balance_raw": balance_raw if balance_rub is not None else None,

@@ -216,7 +216,8 @@
     { key: "state", label: "Статус" },
     { key: "sales_type", label: "Тип канала продаж" },
     { key: "channel", label: "Канал продаж", from: function (c) {
-      return c.channel || ((c.channels || []).length ? c.channels.join(", ") : "");
+      if (c.channels && c.channels.length) return c.channels.join(", ");
+      return c.channel || "";
     } },
     { key: "avg_check", label: "Средний чек", from: function (c) { return money(c.avg_check); } },
     { key: "last_order_at", label: "Дата последнего заказа", from: function (c) {
@@ -227,6 +228,10 @@
     } },
     { key: "bonus_points", label: "Баллы начисленные" },
     { key: "groups", label: "Группы", from: function (c) {
+      var ms = String(c.ms_groups || "").trim();
+      var ai = (c.ai_groups || []).filter(Boolean);
+      if (ms && ai.length) return "МС: " + ms + " · AI: " + ai.join(", ");
+      if (ai.length) return "AI: " + ai.join(", ");
       if (c.groups) return c.groups;
       return (c.tags || []).join(", ");
     } },
@@ -352,7 +357,7 @@
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [aiLoading, setAiLoading] = useState(false);
-    const [ordersOpen, setOrdersOpen] = useState(false);
+    const [ordersOpen, setOrdersOpen] = useState(true);
     const [note, setNote] = useState("");
 
     useEffect(
