@@ -49,6 +49,23 @@ def test_expired_cache_miss(hermes_home: Path, monkeypatch: pytest.MonkeyPatch) 
     assert cc.get_cached(key) is None
 
 
+def test_peek_cached_returns_stale(hermes_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expired envelope must remain peekable for stale-while-revalidate."""
+    monkeypatch.setenv("MOYSKLAD_CACHE_TTL_SECONDS", "60")
+    key = cc.cache_key(max_orders=50, max_counterparties=0, include_archived=False)
+    cc.set_cached(key, {"rows": [{"id": "stale-1"}], "counts": {"total": 1}}, synced_at=1.0)
+    assert cc.get_cached(key) is None
+    peeked = cc.peek_cached(key)
+    assert peeked is not None
+    assert peeked["catalog"]["rows"][0]["id"] == "stale-1"
+
+
+def test_redis_retention_exceeds_logical_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MOYSKLAD_CACHE_TTL_SECONDS", "3600")
+    monkeypatch.delenv("MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS", raising=False)
+    assert cc.redis_retention_seconds() >= cc.cache_ttl_seconds() * 7
+
+
 def test_invalidate_removes_file(hermes_home: Path) -> None:
     key = cc.cache_key(max_orders=10, max_counterparties=0, include_archived=False)
     cc.set_cached(key, {"rows": [1]})
