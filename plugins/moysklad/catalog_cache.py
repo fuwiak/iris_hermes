@@ -1,13 +1,20 @@
 """Durable cache for MoySklad Clients catalog.
 
-Read path serves cached catalog until TTL expires or an explicit sync
-(force=True) refreshes from MoySklad. Backends, in order:
+Read path is CDN-style stale-while-revalidate:
+
+* Fresh envelope (within TTL) → serve immediately
+* Expired but still present → serve stale; caller revalidates in background
+* Missing → rebuild from MoySklad (blocking)
+
+Backends, in order:
 
 1. Redis — when ``REDIS_URL`` is set and the ``redis`` package is importable
 2. File JSON under ``$HERMES_HOME/moysklad/cache/`` (always available)
 3. Process-local memory (hot layer on top of either durable store)
 
-TTL default: 6 hours. Override with ``MOYSKLAD_CACHE_TTL_SECONDS``.
+Logical TTL default: 6 hours (``MOYSKLAD_CACHE_TTL_SECONDS``).
+Redis retention is longer than logical TTL so expired keys remain
+peekable for SWR (ephemeral disks otherwise lose the file layer).
 """
 
 from __future__ import annotations
@@ -37,6 +44,23 @@ def cache_ttl_seconds() -> int:
         return max(60, int(raw))
     except ValueError:
         return DEFAULT_TTL_SECONDS
+
+
+def redis_retention_seconds() -> int:
+    """How long Redis keeps bytes after write (may exceed logical TTL).
+
+    Keeps stale envelopes available for SWR after freshness expires.
+    Override with ``MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS``.
+    """
+    raw = (os.environ.get("MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS") or "").strip()
+    ttl = cache_ttl_seconds()
+    default = max(ttl * 7, ttl + 7 * 24 * 60 * 60)  # ≥7× TTL or TTL+7d
+    if not raw:
+        return default
+    try:
+        return max(ttl, int(raw))
+    except ValueError:
+        return default
 
 
 def _redis_url() -> str:
@@ -213,7 +237,7 @@ def set_cached(
             existing_env = _MEMORY.get(key)
         if existing_env is None:
             # Peek durable store even if TTL-expired — merge needs prior rows.
-            existing_env = _peek_any(key)
+            existing_env = peek_cached(key)
         prior = (existing_env or {}).get("catalog") if isinstance(existing_env, dict) else None
         payload = merge_catalogs(prior if isinstance(prior, dict) else None, payload)
     else:
@@ -223,7 +247,7 @@ def set_cached(
         payload["counterparties_deduped"] = len(rows)
 
     envelope = _envelope(payload, synced_at=synced_at or time.time())
-    ttl = int(envelope["ttl_seconds"])
+    redis_ttl = redis_retention_seconds()
 
     with _LOCK:
         _MEMORY[key] = envelope
@@ -231,7 +255,10 @@ def set_cached(
     client = _redis_client()
     if client is not None:
         try:
-            client.setex(key, ttl, json.dumps(envelope, ensure_ascii=False, default=str))
+            # Keep stale bytes past logical TTL so SWR can peek after expiry.
+            client.setex(
+                key, redis_ttl, json.dumps(envelope, ensure_ascii=False, default=str)
+            )
         except Exception as exc:
             log.warning("MoySklad Redis set failed: %s", exc)
 
@@ -247,8 +274,21 @@ def set_cached(
     return envelope
 
 
+def peek_cached(key: str) -> Optional[dict[str, Any]]:
+    """Return envelope even when TTL-expired (for stale-while-revalidate).
+
+    Order: process memory → Redis → file. Does not filter on freshness.
+    """
+    with _LOCK:
+        mem = _MEMORY.get(key)
+        if mem and isinstance(mem, dict) and mem.get("catalog") is not None:
+            return mem
+
+    return _peek_any(key)
+
+
 def _peek_any(key: str) -> Optional[dict[str, Any]]:
-    """Read durable envelope ignoring TTL (for stage-4 merges)."""
+    """Read durable envelope ignoring TTL (Redis / file)."""
     client = _redis_client()
     if client is not None:
         try:
@@ -256,6 +296,8 @@ def _peek_any(key: str) -> Optional[dict[str, Any]]:
             if raw:
                 envelope = json.loads(raw)
                 if isinstance(envelope, dict):
+                    with _LOCK:
+                        _MEMORY[key] = envelope
                     return envelope
         except Exception as exc:
             log.warning("MoySklad Redis peek failed: %s", exc)
@@ -264,6 +306,8 @@ def _peek_any(key: str) -> Optional[dict[str, Any]]:
         if path.is_file():
             envelope = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(envelope, dict):
+                with _LOCK:
+                    _MEMORY[key] = envelope
                 return envelope
     except Exception as exc:
         log.warning("MoySklad file cache peek failed: %s", exc)

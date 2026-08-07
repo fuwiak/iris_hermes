@@ -181,11 +181,52 @@ def row_all_groups(row: dict[str, Any]) -> list[str]:
     return out
 
 
-def row_has_group(row: dict[str, Any], group: str) -> bool:
+def row_has_group(
+    row: dict[str, Any],
+    group: str,
+    *,
+    source: str = "any",
+) -> bool:
+    """Match group by canonical key, optionally scoped to МС / AI tokens."""
     target = normalize_group_key(group)
     if not target:
         return True
-    return any(normalize_group_key(n) == target for n in row_all_groups(row))
+    src = (source or "any").strip().lower().replace("ё", "е")
+    if src in ("ms", "moysklad", "мойсклад", "мск", "mcs"):
+        tokens = row_groups(row)
+    elif src in ("ai", "ии", "llm", "heuristic"):
+        tokens = row_ai_groups(row)
+    else:
+        tokens = row_all_groups(row)
+    return any(normalize_group_key(n) == target for n in tokens)
+
+
+def split_group_options_by_source(
+    items: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Split chip cloud into МС / AI lists for separate UI filter sections.
+
+    ``both`` chips appear in both lists with the corresponding count.
+    """
+    ms_items: list[dict[str, Any]] = []
+    ai_items: list[dict[str, Any]] = []
+    for item in items or []:
+        source = str(item.get("source") or "ms")
+        ms_n = int(item.get("ms_count") or 0)
+        ai_n = int(item.get("ai_count") or 0)
+        if source in ("ms", "both") or ms_n > 0:
+            ms_items.append({
+                **item,
+                "count": ms_n or int(item.get("count") or 0),
+                "filter_source": "ms",
+            })
+        if source in ("ai", "both") or ai_n > 0:
+            ai_items.append({
+                **item,
+                "count": ai_n or int(item.get("count") or 0),
+                "filter_source": "ai",
+            })
+    return {"ms": ms_items, "ai": ai_items}
 
 
 def group_chip_hue(name: str) -> int:

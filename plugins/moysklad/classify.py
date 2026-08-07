@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from plugins.moysklad.audience import row_matches_audience_extras
+from plugins.moysklad.audience import normalize_group_source, row_matches_audience_extras
 from plugins.moysklad.catalog_cache import refresh_audience_counts
 from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.dedupe import (
@@ -13,12 +13,18 @@ from plugins.moysklad.dedupe import (
     dedupe_entity_pages,
     recompute_audience_counts,
 )
-from plugins.moysklad.groups import collect_featured_group_counts
+from plugins.moysklad.groups import (
+    collect_featured_group_counts,
+    split_group_options_by_source,
+)
 from plugins.moysklad.sales_channels import (
+    SALES_CHANNEL_TYPE_HYBRID,
     channel_name_from_order,
     counterparty_row_from_api,
     entity_ref_id,
+    is_marketplace_channel,
     refresh_row_channel_fields,
+    row_audience_bucket,
     row_matches_sales_filter,
     sales_channel_type_from_channels,
     sales_channels_by_id,
@@ -170,11 +176,15 @@ def build_enriched_catalog(
         amounts = sums_by_agent.get(cp_id) or []
         if not amounts:
             for item in ctx:
-                amt = float((item or {}).get("sum") or (item or {}).get("Сумма") or 0)
+                try:
+                    amt = float((item or {}).get("sum") or (item or {}).get("Сумма") or 0)
+                except (TypeError, ValueError):
+                    amt = 0.0
                 if amt > 0:
                     amounts.append(amt)
-        order_count = len(ctx) if ctx else len(amounts)
-        avg_check = (sum(amounts) / len(amounts)) if amounts else 0.0
+        order_count = len(ctx) if ctx else 0
+        # NULL-safe: no positive amounts → avg_check is None (UI shows «—»).
+        avg_check = (round(sum(amounts) / len(amounts), 2) if amounts else None)
         last_order = ""
         for item in ctx:
             moment = str(
@@ -185,11 +195,11 @@ def build_enriched_catalog(
             if moment and moment > last_order:
                 last_order = moment
         row["Всего заказов"] = order_count
-        row["Средний чек"] = round(avg_check, 2)
-        row["Дата последнего заказа"] = last_order
+        row["Средний чек"] = avg_check if avg_check is not None else ""
+        row["Дата последнего заказа"] = last_order or ""
         row["order_count"] = order_count
-        row["avg_check"] = round(avg_check, 2)
-        row["last_order_at"] = last_order
+        row["avg_check"] = avg_check
+        row["last_order_at"] = last_order or None
         refresh_row_channel_fields(row)
         if not row.get("Наименование") and cp_id in names_by_agent:
             row["Наименование"] = names_by_agent[cp_id]
@@ -241,11 +251,21 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
     channel_display = ", ".join(channels)
     # Prefer live aggregates from order context when present.
     ctx = row.get("_orders_context") or []
+    raw_avg = row.get("avg_check")
+    if raw_avg is None or raw_avg == "":
+        raw_avg = row.get("Средний чек")
+    try:
+        avg_check: float | None = (
+            float(raw_avg) if raw_avg not in (None, "") else None
+        )
+    except (TypeError, ValueError):
+        avg_check = None
     order_count = int(row.get("order_count") or row.get("Всего заказов") or 0)
-    avg_check = float(row.get("avg_check") or row.get("Средний чек") or 0)
     last_order_at = (
-        row.get("last_order_at") or row.get("Дата последнего заказа") or ""
+        row.get("last_order_at") or row.get("Дата последнего заказа") or None
     )
+    if last_order_at == "":
+        last_order_at = None
     if isinstance(ctx, list) and ctx:
         amounts: list[float] = []
         last = ""
@@ -262,10 +282,13 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
             if moment and moment > last:
                 last = moment
         order_count = len(ctx)
-        if amounts:
-            avg_check = round(sum(amounts) / len(amounts), 2)
-        if last:
-            last_order_at = last
+        avg_check = round(sum(amounts) / len(amounts), 2) if amounts else None
+        last_order_at = last or None
+    elif not ctx:
+        # No order context and no stored count → keep zeros / nulls honest.
+        if not order_count:
+            avg_check = None
+            last_order_at = None
     ms_tags = [str(t).strip() for t in (row.get("_moysklad_tags") or []) if str(t).strip()]
     ms_groups = (
         str(row.get("Группы") or "").strip()
@@ -327,11 +350,14 @@ def clients_page(
     require_telegram: bool = False,
     vip_only: bool = False,
     birthday_soon: bool = False,
+    group_source: str = "any",
+    days_before_event: int = 0,
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
 
-    Extra audience knobs (channel_kind / require_* / vip / birthday) share the
-    same deduped catalog as the Clients table — ``matched_total`` is post-dedupe.
+    Extra audience knobs (channel_kind / require_* / vip / birthday /
+    group_source / days_before_event) share the same deduped catalog as the
+    Clients table — ``matched_total`` is post-dedupe.
     """
     filter_key = _normalize_filter_key(sales_filter)
     catalog = catalog or build_enriched_catalog(
@@ -352,6 +378,12 @@ def clients_page(
     group_options = collect_featured_group_counts(
         base_rows, sales_filter=filter_key, selected=group or ""
     )
+    group_options_by_source = split_group_options_by_source(group_options)
+    src = normalize_group_source(group_source)
+    try:
+        days_window = int(days_before_event or 0)
+    except (TypeError, ValueError):
+        days_window = 0
     matched = [
         r
         for r in base_rows
@@ -363,6 +395,8 @@ def clients_page(
             vip_only=vip_only,
             birthday_soon=birthday_soon,
             group=group,
+            group_source=src,
+            days_before_event=days_window,
         )
     ]
 
@@ -378,12 +412,14 @@ def clients_page(
         "ok": True,
         "sales_filter": filter_key,
         "group": group or "",
+        "group_source": src,
         "q": q or "",
         "channel_kind": (channel_kind or "").strip().lower() or "any",
         "require_phone": bool(require_phone),
         "require_telegram": bool(require_telegram),
         "vip_only": bool(vip_only),
         "birthday_soon": bool(birthday_soon),
+        "days_before_event": days_window,
         "counts": counts,
         "groups_total": len(base_rows),
         "matched_total": matched_total,
@@ -393,6 +429,7 @@ def clients_page(
         "next_offset": next_offset,
         "has_more": has_more,
         "group_options": group_options,
+        "group_options_by_source": group_options_by_source,
         "clients": [_public_client(r) for r in page],
         "orders_scanned": catalog.get("orders_scanned", 0),
         "counterparties_scanned": catalog.get("counterparties_scanned", 0),
@@ -400,6 +437,62 @@ def clients_page(
         "_rows": matched,  # internal for assign (same filter)
         "_base_rows": base_rows,
         "_all_rows": all_rows,
+    }
+
+
+def catalog_integrity(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Explain tab counts vs hybrid/no-orders/marker-only breakdowns.
+
+    Historic «lost ~3000» came from non-exclusive marketplace∪direct filters.
+    Current tabs are an exclusive partition: ``direct + marketplace == total``.
+    """
+    rows: list[dict[str, Any]] = list(catalog.get("rows") or [])
+    counts = catalog.get("counts") or recompute_audience_counts(rows)
+    hybrid_type = 0
+    no_orders = 0
+    marker_only_mp = 0
+    mp_by_channel = 0
+    for row in rows:
+        channels = unique_sales_channels(row)
+        sales_type = sales_channel_type_from_channels(channels)
+        if sales_type == SALES_CHANNEL_TYPE_HYBRID:
+            hybrid_type += 1
+        ctx = row.get("_orders_context") or []
+        if not ctx and not int(row.get("order_count") or row.get("Всего заказов") or 0):
+            no_orders += 1
+        bucket = row_audience_bucket(row)
+        has_mp_channel = any(is_marketplace_channel(c) for c in channels)
+        if bucket == "marketplace":
+            if has_mp_channel:
+                mp_by_channel += 1
+            else:
+                marker_only_mp += 1
+    total = int(counts.get("total") or len(rows))
+    direct = int(counts.get("direct") or 0)
+    marketplace = int(counts.get("marketplace") or 0)
+    other = int(counts.get("other") or 0)
+    return {
+        "ok": True,
+        "total": total,
+        "direct": direct,
+        "marketplace": marketplace,
+        "other": other,
+        "sum_tabs": direct + marketplace,
+        "partition_ok": direct + marketplace == total and other == 0,
+        "hybrid_type": hybrid_type,
+        "no_orders": no_orders,
+        "marketplace_by_channel": mp_by_channel,
+        "marketplace_marker_only": marker_only_mp,
+        "orders_scanned": int(catalog.get("orders_scanned") or 0),
+        "counterparties_scanned": int(catalog.get("counterparties_scanned") or 0),
+        "counterparties_deduped": int(
+            catalog.get("counterparties_deduped") or len(rows)
+        ),
+        "note": (
+            "Вкладки exclusive: hybrid и marker-only считаются в Маркетплейс. "
+            "Колонка «Тип канала» может быть hybrid, даже если вкладка = marketplace. "
+            "Старое расхождение total≠mp+direct — от non-exclusive фильтров."
+        ),
     }
 
 

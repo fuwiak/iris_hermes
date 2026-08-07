@@ -14,6 +14,7 @@ interface GroupChipOption {
   name: string
   count: number
   source?: 'ms' | 'ai' | 'both' | string
+  filter_source?: 'ms' | 'ai' | string
   ms_count?: number
   ai_count?: number
   hue?: number
@@ -29,6 +30,57 @@ function groupChipSrcClass(source?: string): string {
   if (source === 'ai') return 'is-ai'
   if (source === 'both') return 'is-both'
   return 'is-ms'
+}
+
+function GroupCloudSection({
+  title,
+  items,
+  activeGroup,
+  activeSource,
+  sourceKey,
+  onToggle,
+  limit = 24
+}: {
+  title: string
+  items: GroupChipOption[]
+  activeGroup: string
+  activeSource: string
+  sourceKey: 'ms' | 'ai'
+  onToggle: (name: string, source: 'ms' | 'ai') => void
+  limit?: number
+}) {
+  if (!items.length) {return null}
+
+  return (
+    <div className="ms-filter-block ms-group-cloud">
+      <div className="ms-group-cloud-head">
+        <span className="ms-group-cloud-title">{title}</span>
+        <span className="ms-muted">{items.length}</span>
+      </div>
+      <div className="ms-group-chips">
+        {items.slice(0, limit).map(opt => {
+          const src = opt.filter_source || opt.source || sourceKey
+          const active = activeGroup === opt.name && activeSource === sourceKey
+
+          return (
+            <button
+              className={`ms-group-chip ${groupChipSrcClass(src)}${active ? ' is-active' : ''}`}
+              key={`${sourceKey}:${opt.name}`}
+              onClick={() => onToggle(opt.name, sourceKey)}
+              title={`${opt.count} · ${groupChipSrcLabel(src)}`}
+              type="button"
+            >
+              <span className={`ms-chip-src ms-chip-src-${src}`}>
+                {groupChipSrcLabel(sourceKey)}
+              </span>
+              {opt.name}
+              <span className="ms-group-chip-count">{opt.count}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 interface ClientOrder {
@@ -201,9 +253,9 @@ interface ClientRow {
   groups?: string
   ms_groups?: string
   ai_groups?: string[]
-  order_count?: number
-  avg_check?: number
-  last_order_at?: string
+  order_count?: number | null
+  avg_check?: number | null
+  last_order_at?: string | null
   bonus_points?: string | number
   role?: string
   actual_address?: string
@@ -369,9 +421,16 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'last_order_display',
     label: 'Дата последнего заказа',
-    render: r => (r.last_order_at || '').slice(0, 16).replace('T', ' ')
+    render: r =>
+      r.last_order_at
+        ? (r.last_order_at || '').slice(0, 16).replace('T', ' ')
+        : '—'
   },
-  { key: 'orders_display', label: 'Всего заказов', render: r => String(r.order_count ?? 0) },
+  {
+    key: 'orders_display',
+    label: 'Всего заказов',
+    render: r => (r.order_count == null ? '—' : String(r.order_count))
+  },
   { key: 'bonus_points', label: 'Баллы начисленные', render: r => String(r.bonus_points ?? '') },
   {
     key: 'groups_display',
@@ -543,8 +602,11 @@ function channelFromMessaging(primary?: string): string {
   return 'telegram'
 }
 
-function money(n: number | undefined) {
-  const v = Number(n) || 0
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(Number(n))) {return '—'}
+  const v = Number(n)
+
+  if (!Number.isFinite(v) || v <= 0) {return '—'}
 
   try {
     return new Intl.NumberFormat('ru-RU', {
@@ -866,6 +928,9 @@ function ClientCardModal({
   const [detail, setDetail] = useState<ClientDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [aiProvider, setAiProvider] = useState('')
+  const [aiModel, setAiModel] = useState('')
   const [error, setError] = useState('')
   const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
@@ -913,7 +978,13 @@ function ClientCardModal({
     try {
       const payload = await call<{ ai?: ClientDetail['ai'] }>(
         `/clients/${encodeURIComponent(clientId)}/ai`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          body: {
+            provider: aiProvider || undefined,
+            model: aiModel || undefined
+          }
+        }
       )
 
       setDetail(prev => (prev ? { ...prev, ai: payload.ai || prev.ai } : prev))
@@ -921,6 +992,35 @@ function ClientCardModal({
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  const syncTelegramHistory = async () => {
+    setSyncLoading(true)
+    setError('')
+
+    try {
+      const data = await call<{
+        conversation?: ClientConversation & {
+          sync?: { imported?: number; matched_sessions?: number; ok?: boolean; reason?: string }
+        }
+      }>(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
+        method: 'POST'
+      })
+
+      if (data.conversation) {
+        setDetail(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
+        const sync = data.conversation.sync
+        if (sync?.reason === 'no_tg_nick_or_phone') {
+          setError('Нет ТГ ника / телефона — sync невозможен')
+        } else if (sync && sync.ok === false && sync.reason) {
+          setError(`Sync: ${sync.reason}`)
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSyncLoading(false)
     }
   }
 
@@ -1022,6 +1122,18 @@ function ClientCardModal({
               </div>
             </section>
             <section className="ms-card-section">
+              <div className="ms-card-head">
+                <h4>Переписка</h4>
+                <button
+                  className="ms-btn"
+                  disabled={syncLoading}
+                  onClick={() => void syncTelegramHistory()}
+                  title="Подтянуть историю из gateway Telegram по нику/телефону"
+                  type="button"
+                >
+                  {syncLoading ? 'Sync…' : 'Sync Telegram'}
+                </button>
+              </div>
               <ConversationThread conversation={conversation} title="TG conversation" />
             </section>
             <section className="ms-card-section">
@@ -1084,9 +1196,39 @@ function ClientCardModal({
             <section className="ms-card-section">
               <div className="ms-card-head">
                 <h4>Саммари AI</h4>
-                <button className="ms-btn" disabled={aiLoading} onClick={() => void refreshAi()} type="button">
-                  {aiLoading ? 'Генерация…' : 'Обновить AI'}
-                </button>
+                <div className="ms-chips">
+                  <button className="ms-btn" disabled={aiLoading} onClick={() => void refreshAi()} type="button">
+                    {aiLoading ? 'Генерация…' : 'Обновить AI'}
+                  </button>
+                </div>
+              </div>
+              <div className="ms-filter-block">
+                <span className="ms-filter-label">Модель (эксперимент)</span>
+                <div className="ms-chips">
+                  {[
+                    { provider: '', model: '', label: 'default' },
+                    { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek' },
+                    { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o-mini' },
+                    { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', label: 'Haiku' }
+                  ].map(opt => {
+                    const active =
+                      (aiProvider || '') === opt.provider && (aiModel || '') === opt.model
+
+                    return (
+                      <button
+                        className={`ms-chip${active ? ' is-active' : ''}`}
+                        key={opt.label}
+                        onClick={() => {
+                          setAiProvider(opt.provider)
+                          setAiModel(opt.model)
+                        }}
+                        type="button"
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               {ai.data_thin ? <p className="ms-muted">Данных мало — выводы осторожные.</p> : null}
               <p className="ms-ai-label">История и профиль</p>
@@ -1095,7 +1237,12 @@ function ClientCardModal({
               <p>{ai.occasion_intent || '—'}</p>
               <h4>Рекомендация AI</h4>
               <p>{ai.recommendation || '—'}</p>
-              <p className="ms-muted">Источник: {ai.source || 'heuristic'}</p>
+              <p className="ms-muted">
+                Источник: {ai.source || 'heuristic'}
+                {aiProvider || aiModel
+                  ? ` · ${[aiProvider, aiModel].filter(Boolean).join('/')}`
+                  : ''}
+              </p>
             </section>
             <section className="ms-card-section">
               <h4>Быстрые действия</h4>
@@ -1179,6 +1326,65 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 50
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v1:'
+const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+interface ClientsLocalCachePayload {
+  saved_at: number
+  sales_filter: string
+  q: string
+  group: string
+  group_source: string
+  clients: ClientRow[]
+  counts: Counts | null
+  matched_total: number
+  has_more: boolean
+  next_offset: number
+  group_options_ms: GroupChipOption[]
+  group_options_ai: GroupChipOption[]
+  synced_at_label: string
+  from_cache: boolean
+}
+
+function clientsLocalCacheKey(parts: {
+  salesFilter: string
+  q: string
+  group: string
+  groupSource: string
+}): string {
+  return (
+    CLIENTS_LOCAL_CACHE_PREFIX +
+    [parts.salesFilter, parts.groupSource, parts.group, parts.q].join('|')
+  )
+}
+
+function readClientsLocalCache(key: string): ClientsLocalCachePayload | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) {return null}
+    const parsed = JSON.parse(raw) as ClientsLocalCachePayload
+    if (!parsed || !Array.isArray(parsed.clients) || !parsed.clients.length) {
+      return null
+    }
+    if (
+      typeof parsed.saved_at !== 'number' ||
+      Date.now() - parsed.saved_at > CLIENTS_LOCAL_CACHE_MAX_AGE_MS
+    ) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeClientsLocalCache(key: string, payload: ClientsLocalCachePayload): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    // Quota / private mode — ignore; network path still works.
+  }
+}
 
 function mergeClientPages(prev: ClientRow[], incoming: ClientRow[]): ClientRow[] {
   const seen = new Set<string>()
@@ -1203,17 +1409,36 @@ function ClientsPage() {
   const [salesFilter, setSalesFilter] = useState('direct')
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
+  const initialLocal = (() => {
+    if (typeof localStorage === 'undefined') {return null}
+    return readClientsLocalCache(
+      clientsLocalCacheKey({
+        salesFilter: 'direct',
+        q: '',
+        group: '',
+        groupSource: 'any'
+      })
+    )
+  })()
+  const [loading, setLoading] = useState(!initialLocal)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
-  const [clients, setClients] = useState<ClientRow[]>([])
-  const [counts, setCounts] = useState<Counts | null>(null)
-  const [matched, setMatched] = useState(0)
-  const [hasMore, setHasMore] = useState(false)
-  const [nextOffset, setNextOffset] = useState(0)
-  const [groupOptions, setGroupOptions] = useState<GroupChipOption[]>([])
-  const [syncedLabel, setSyncedLabel] = useState('')
-  const [fromCache, setFromCache] = useState(false)
+  const [clients, setClients] = useState<ClientRow[]>(() => initialLocal?.clients || [])
+  const [counts, setCounts] = useState<Counts | null>(() => initialLocal?.counts || null)
+  const [matched, setMatched] = useState(() => initialLocal?.matched_total || 0)
+  const [hasMore, setHasMore] = useState(() => Boolean(initialLocal?.has_more))
+  const [nextOffset, setNextOffset] = useState(() => initialLocal?.next_offset || 0)
+  const [groupOptionsMs, setGroupOptionsMs] = useState<GroupChipOption[]>(
+    () => initialLocal?.group_options_ms || []
+  )
+  const [groupOptionsAi, setGroupOptionsAi] = useState<GroupChipOption[]>(
+    () => initialLocal?.group_options_ai || []
+  )
+  const [integrityNote, setIntegrityNote] = useState('')
+  const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
+  const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
+  const [staleHint, setStaleHint] = useState(Boolean(initialLocal))
   const [cardClientId, setCardClientId] = useState<string | null>(null)
   const [recalcOpen, setRecalcOpen] = useState(false)
   const [recalcLoading, setRecalcLoading] = useState(false)
@@ -1310,13 +1535,41 @@ function ClientsPage() {
       const append = Boolean(opts?.append)
       const offset = append ? (opts?.offset ?? nextOffset) : 0
       const gen = append ? loadGen.current : ++loadGen.current
+      const cacheKey = clientsLocalCacheKey({ salesFilter, q, group, groupSource })
 
       if (append) {
         if (loadingMoreRef.current || !hasMore) {return}
         loadingMoreRef.current = true
         setLoadingMore(true)
       } else {
-        setLoading(true)
+        // CDN-style: paint local snapshot immediately, then revalidate.
+        if (!opts?.refresh) {
+          const local = readClientsLocalCache(cacheKey)
+          if (local) {
+            setClients(local.clients)
+            setCounts(local.counts)
+            setMatched(local.matched_total || 0)
+            setNextOffset(local.next_offset || local.clients.length)
+            setHasMore(Boolean(local.has_more))
+            setGroupOptionsMs(local.group_options_ms || [])
+            setGroupOptionsAi(local.group_options_ai || [])
+            setFromCache(true)
+            setStaleHint(true)
+            setSyncedLabel(local.synced_at_label || '')
+            setLoading(false)
+          } else {
+            setClients([])
+            setCounts(null)
+            setMatched(0)
+            setHasMore(false)
+            setNextOffset(0)
+            setLoading(true)
+            setStaleHint(false)
+          }
+        } else {
+          setLoading(true)
+          setStaleHint(false)
+        }
         setError('')
         lazyAiTriedRef.current.clear()
         setAiFillStatus('')
@@ -1327,6 +1580,7 @@ function ClientsPage() {
           sales_filter: salesFilter,
           q,
           group,
+          group_source: groupSource,
           limit: String(CLIENTS_PAGE_SIZE),
           offset: String(offset)
         })
@@ -1341,7 +1595,10 @@ function ClientsPage() {
           next_offset?: number
           returned?: number
           group_options?: GroupChipOption[]
+          group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
           cached?: boolean
+          stale?: boolean
+          revalidating?: boolean
           synced_at_label?: string
           synced_at?: number
         }>(`/clients?${params}`)
@@ -1363,15 +1620,61 @@ function ClientsPage() {
         )
 
         if (!append) {
-          setGroupOptions(data.group_options || [])
+          const bySrc = data.group_options_by_source
+          let msOpts: GroupChipOption[] = []
+          let aiOpts: GroupChipOption[] = []
+          if (bySrc) {
+            msOpts = bySrc.ms || []
+            aiOpts = bySrc.ai || []
+            setGroupOptionsMs(msOpts)
+            setGroupOptionsAi(aiOpts)
+          } else {
+            const all = data.group_options || []
+            msOpts = all.filter(o => (o.source || 'ms') !== 'ai')
+            aiOpts = all.filter(o => o.source === 'ai' || o.source === 'both')
+            setGroupOptionsMs(msOpts)
+            setGroupOptionsAi(aiOpts)
+          }
           setFromCache(Boolean(data.cached))
+          setStaleHint(Boolean(data.stale || data.revalidating))
           setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
+          if (data.counts) {
+            const t = data.counts.total || 0
+            const d = data.counts.direct || 0
+            const m = data.counts.marketplace || 0
+            setIntegrityNote(
+              t === d + m
+                ? `Вкладки: ${d}+${m}=${t} (partition OK)`
+                : `⚠ вкладки ${d}+${m}≠${t}`
+            )
+          }
+          writeClientsLocalCache(cacheKey, {
+            saved_at: Date.now(),
+            sales_filter: salesFilter,
+            q,
+            group,
+            group_source: groupSource,
+            clients: page,
+            counts: data.counts || null,
+            matched_total: data.matched_total || 0,
+            has_more:
+              data.has_more != null
+                ? Boolean(data.has_more)
+                : computedNext < (data.matched_total || 0),
+            next_offset: computedNext,
+            group_options_ms: msOpts,
+            group_options_ai: aiOpts,
+            synced_at_label:
+              data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''),
+            from_cache: Boolean(data.cached)
+          })
         }
       } catch (err) {
         if (gen !== loadGen.current) {return}
         setError(err instanceof Error ? err.message : String(err))
 
-        if (!append) {setClients([])}
+        // Keep painted local/stale rows on soft refresh failure.
+        if (!append && !clientsRef.current.length) {setClients([])}
       } finally {
         if (append) {
           loadingMoreRef.current = false
@@ -1381,12 +1684,12 @@ function ClientsPage() {
         }
       }
     },
-    [call, group, hasMore, nextOffset, q, salesFilter]
+    [call, group, groupSource, hasMore, nextOffset, q, salesFilter]
   )
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Lazy AI: whenever shown set grows/changes, fill empty cells for those rows.
   useEffect(() => {
@@ -1410,10 +1713,14 @@ function ClientsPage() {
   )
 
   const cacheHint = syncedLabel
-    ? `${fromCache ? 'из кэша' : 'свежая выгрузка'} · синхр. ${syncedLabel}`
+    ? `${fromCache ? (staleHint ? 'кэш (обновляем…)' : 'из кэша') : 'свежая выгрузка'} · синхр. ${syncedLabel}`
     : fromCache
-      ? 'из кэша'
-      : ''
+      ? staleHint
+        ? 'кэш (обновляем…)'
+        : 'из кэша'
+      : loading && clients.length
+        ? 'обновляем…'
+        : ''
 
   return (
     <div className="ms-page" data-selectable-text="true">
@@ -1482,49 +1789,45 @@ function ClientsPage() {
           value={q}
         />
       </div>
-      {groupOptions.length > 0 ? (
-        <div className="ms-group-cloud">
-          <div className="ms-group-cloud-head">
-            <span className="ms-group-cloud-title">Группы</span>
-            <span aria-hidden className="ms-legend">
-              <span className="leg-ms">● МС</span>
-              <span className="leg-ai">● AI</span>
-            </span>
-            <span className="ms-muted">МойСклад + AI · {groupOptions.length}</span>
-          </div>
-          <div className="ms-group-chips">
-            {groupOptions.slice(0, 28).map(opt => {
-              const src = opt.source || 'ms'
-              return (
-                <button
-                  className={`ms-group-chip ${groupChipSrcClass(src)}${group === opt.name ? ' is-active' : ''}`}
-                  key={`${opt.name}:${src}`}
-                  onClick={() => setGroup(group === opt.name ? '' : opt.name)}
-                  title={[
-                    `${opt.count} клиентов`,
-                    `источник: ${groupChipSrcLabel(src)}`,
-                    opt.ms_count ? `МС ${opt.ms_count}` : '',
-                    opt.ai_count ? `AI ${opt.ai_count}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                  type="button"
-                >
-                  <span className={`ms-chip-src ms-chip-src-${src}`}>
-                    {groupChipSrcLabel(src)}
-                  </span>
-                  {opt.name}
-                  <span className="ms-group-chip-count">{opt.count}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
+      <GroupCloudSection
+        activeGroup={group}
+        activeSource={groupSource}
+        items={groupOptionsMs}
+        limit={28}
+        onToggle={(name, source) => {
+          if (group === name && groupSource === source) {
+            setGroup('')
+            setGroupSource('any')
+          } else {
+            setGroup(name)
+            setGroupSource(source)
+          }
+        }}
+        sourceKey="ms"
+        title="Группы: Мой склад"
+      />
+      <GroupCloudSection
+        activeGroup={group}
+        activeSource={groupSource}
+        items={groupOptionsAi}
+        limit={28}
+        onToggle={(name, source) => {
+          if (group === name && groupSource === source) {
+            setGroup('')
+            setGroupSource('any')
+          } else {
+            setGroup(name)
+            setGroupSource(source)
+          }
+        }}
+        sourceKey="ai"
+        title="Группы: ИИ"
+      />
       {error ? <div className="ms-error">{error}</div> : null}
       <p className="ms-muted">
         Найдено: {matched}
         {clients.length ? ` · показано ${clients.length}` : ''}
+        {integrityNote ? ` · ${integrityNote}` : ''}
       </p>
       {recalcOpen ? (
         <div className="ms-modal-backdrop" onClick={() => setRecalcOpen(false)}>
@@ -1631,6 +1934,9 @@ function ClientsPage() {
         <p className="ms-muted">Загрузка клиентов…</p>
       ) : (
         <div className="ms-table-wrap" onScroll={onTableScroll}>
+          {loading && clients.length ? (
+            <p className="ms-muted ms-sync-meta">Обновляем список в фоне…</p>
+          ) : null}
           <table className="ms-table">
             <thead>
               <tr>
@@ -1694,10 +2000,12 @@ function CampaignsPage() {
   const [channel, setChannel] = useState('telegram')
   const [channelKind, setChannelKind] = useState('')
   const [group, setGroup] = useState('')
+  const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [requirePhone, setRequirePhone] = useState(false)
   const [requireTelegram, setRequireTelegram] = useState(false)
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
+  const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
   const [personalize, setPersonalize] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
@@ -1713,7 +2021,8 @@ function CampaignsPage() {
   const [audienceHasMore, setAudienceHasMore] = useState(false)
   const [audienceNextOffset, setAudienceNextOffset] = useState(0)
   const [audienceLoadingMore, setAudienceLoadingMore] = useState(false)
-  const [groupOptions, setGroupOptions] = useState<GroupChipOption[]>([])
+  const [groupOptionsMs, setGroupOptionsMs] = useState<GroupChipOption[]>([])
+  const [groupOptionsAi, setGroupOptionsAi] = useState<GroupChipOption[]>([])
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
   const [selectedClientName, setSelectedClientName] = useState('')
   const [facts, setFacts] = useState<ClientFacts | null>(null)
@@ -1890,6 +2199,7 @@ function CampaignsPage() {
       const params = new URLSearchParams({
         sales_filter: salesFilter,
         group,
+        group_source: groupSource,
         q: opts?.q ?? audienceQDebounced,
         limit: String(opts?.limit ?? 40),
         offset: String(opts?.offset ?? 0)
@@ -1905,13 +2215,19 @@ function CampaignsPage() {
 
       if (birthdaySoon) {params.set('birthday_soon', 'true')}
 
+      if (daysBeforeEvent > 0) {
+        params.set('days_before_event', String(daysBeforeEvent))
+      }
+
       return params
     },
     [
       audienceQDebounced,
       birthdaySoon,
       channelKind,
+      daysBeforeEvent,
       group,
+      groupSource,
       requirePhone,
       requireTelegram,
       salesFilter,
@@ -1939,6 +2255,7 @@ function CampaignsPage() {
           matched_total?: number
           clients?: ClientRow[]
           group_options?: GroupChipOption[]
+          group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
           has_more?: boolean
           next_offset?: number
         }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`)
@@ -1948,7 +2265,17 @@ function CampaignsPage() {
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
 
-        if (!append) {setGroupOptions(page.group_options || [])}
+        if (!append) {
+          const bySrc = page.group_options_by_source
+          if (bySrc) {
+            setGroupOptionsMs(bySrc.ms || [])
+            setGroupOptionsAi(bySrc.ai || [])
+          } else {
+            const all = page.group_options || []
+            setGroupOptionsMs(all.filter(o => (o.source || 'ms') !== 'ai'))
+            setGroupOptionsAi(all.filter(o => o.source === 'ai' || o.source === 'both'))
+          }
+        }
         const next = page.next_offset != null ? page.next_offset : offset + rows.length
         setAudienceNextOffset(next)
         setAudienceHasMore(
@@ -1988,11 +2315,13 @@ function CampaignsPage() {
   }, [
     salesFilter,
     group,
+    groupSource,
     channelKind,
     requirePhone,
     requireTelegram,
     vipOnly,
     birthdaySoon,
+    daysBeforeEvent,
     audienceQDebounced
   ])  
 
@@ -2729,6 +3058,8 @@ function CampaignsPage() {
             require_telegram: requireTelegram,
             vip_only: vipOnly,
             birthday_soon: birthdaySoon,
+            group_source: groupSource,
+            days_before_event: daysBeforeEvent,
             seller_name: sellerName,
             seller_facts: sellerFacts,
             limit,
@@ -2788,6 +3119,8 @@ function CampaignsPage() {
                       require_telegram: requireTelegram,
                       vip_only: vipOnly,
                       birthday_soon: birthdaySoon,
+            group_source: groupSource,
+            days_before_event: daysBeforeEvent,
                       personalize: false,
                       client_id: String(ev.client_id || ''),
                       generate_ai: false,
@@ -2834,6 +3167,8 @@ function CampaignsPage() {
           require_telegram: requireTelegram,
           vip_only: vipOnly,
           birthday_soon: birthdaySoon,
+          group_source: groupSource,
+          days_before_event: daysBeforeEvent,
           personalize,
           client_id: selectedClientId || '',
           generate_ai: mode === 'auto' && !offer.trim(),
@@ -2967,35 +3302,59 @@ function CampaignsPage() {
             </button>
           </div>
         </div>
-        {groupOptions.length > 0 ? (
-          <div className="ms-filter-block">
-            <span className="ms-filter-label">Группы (МойСклад + AI)</span>
-            <span aria-hidden className="ms-legend">
-              <span className="leg-ms">● МС</span>
-              <span className="leg-ai">● AI</span>
-            </span>
-            <div className="ms-group-chips">
-              {groupOptions.slice(0, 24).map(opt => {
-                const src = opt.source || 'ms'
-                return (
-                  <button
-                    className={`ms-group-chip ${groupChipSrcClass(src)}${group === opt.name ? ' is-active' : ''}`}
-                    key={`${opt.name}:${src}`}
-                    onClick={() => setGroup(group === opt.name ? '' : opt.name)}
-                    title={`${opt.count} · ${groupChipSrcLabel(src)}`}
-                    type="button"
-                  >
-                    <span className={`ms-chip-src ms-chip-src-${src}`}>
-                      {groupChipSrcLabel(src)}
-                    </span>
-                    {opt.name}
-                    <span className="ms-group-chip-count">{opt.count}</span>
-                  </button>
-                )
-              })}
-            </div>
+        <div className="ms-filter-block">
+          <span className="ms-filter-label">
+            Связаться за N дней до события
+            {daysBeforeEvent > 0 ? ` · окно ${daysBeforeEvent}д` : ''}
+          </span>
+          <div className="ms-chips">
+            {[0, 3, 5, 7, 14].map(n => (
+              <button
+                className={`ms-chip${daysBeforeEvent === n ? ' is-active' : ''}`}
+                key={n}
+                onClick={() => {
+                  setDaysBeforeEvent(n)
+                  if (n > 0) {setBirthdaySoon(false)}
+                }}
+                type="button"
+              >
+                {n === 0 ? 'Выкл' : `${n} дн`}
+              </button>
+            ))}
           </div>
-        ) : null}
+        </div>
+        <GroupCloudSection
+          activeGroup={group}
+          activeSource={groupSource}
+          items={groupOptionsMs}
+          onToggle={(name, source) => {
+            if (group === name && groupSource === source) {
+              setGroup('')
+              setGroupSource('any')
+            } else {
+              setGroup(name)
+              setGroupSource(source)
+            }
+          }}
+          sourceKey="ms"
+          title="Группы: Мой склад"
+        />
+        <GroupCloudSection
+          activeGroup={group}
+          activeSource={groupSource}
+          items={groupOptionsAi}
+          onToggle={(name, source) => {
+            if (group === name && groupSource === source) {
+              setGroup('')
+              setGroupSource('any')
+            } else {
+              setGroup(name)
+              setGroupSource(source)
+            }
+          }}
+          sourceKey="ai"
+          title="Группы: ИИ"
+        />
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
             <p className="ms-muted">

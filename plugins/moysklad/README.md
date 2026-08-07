@@ -64,7 +64,7 @@ Example prompts:
 1. `hermes plugins enable moysklad`
 2. `hermes dashboard` → **Клиенты**
 3. Tabs: Все / Маркетплейс / Прямые
-4. Chip cloud **Группы (МойСклад)** filters by tags
+4. Chip clouds **Группы: Мой склад** / **Группы: ИИ** — separate filters by source
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
 6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 7. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
@@ -74,6 +74,12 @@ Example prompts:
    `ai_fill.json`); cached entries skip LLM on reload. Cells show a **green
    outline + AI badge**. Never overwrites MoySklad-owned non-empty cells.
    Endpoint: `POST /clients/ai-fill` with `ids` for the visible set.
+8. Client card: **Sync Telegram** pulls gateway session history; AI summary
+   supports model picker (`provider`/`model` on `POST /clients/{id}/ai`).
+9. Рассылки: same audience filters as Clients + smart window
+   `days_before_event` (e.g. 5 days before 8 March / событие марта).
+10. `GET /clients/integrity` — audit tab partition (hybrid / no-orders /
+    marker-only) explaining historic «lost clients» counting.
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
 `POST /clients/{id}/ai`, `POST /clients/ai-fill`, `POST /sync`, `GET|POST /campaigns`,
@@ -120,25 +126,30 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
 
 ### Clients catalog cache
 
-MoySklad counterparties + orders are expensive. The Clients tab caches the
-enriched catalog and **does not re-hit MoySklad** on every table view:
+MoySklad counterparties + orders are expensive. The Clients tab uses
+CDN-style **stale-while-revalidate**:
 
 | Trigger | Behavior |
 |---|---|
-| Page load / filter / search | Serve durable cache if fresh |
+| Page load / filter / search | Serve durable cache if present (fresh or stale) |
+| Fresh hit | No MoySklad call |
+| TTL expiry (stale peek) | Serve stale immediately + background rebuild |
+| Desktop remount | Paint `localStorage` snapshot, then revalidate via API |
 | Scroll near bottom | Fetch next `offset` page (`limit=50`); already-loaded rows stay in UI |
-| TTL expiry | Next read re-downloads from MoySklad |
+| Cold miss (no durable bytes) | Blocking download from MoySklad |
 | **Синхронизация** button / `POST /sync` / `?refresh=true` | Force refresh + rewrite cache |
 
-- **TTL:** `MOYSKLAD_CACHE_TTL_SECONDS` (default `21600` = 6 hours)
+- **TTL (freshness):** `MOYSKLAD_CACHE_TTL_SECONDS` (default `21600` = 6 hours)
+- **Redis retention:** `MOYSKLAD_CACHE_REDIS_RETENTION_SECONDS` (default ≥7× TTL)
+  so expired keys stay peekable on ephemeral disks
 - **Backend:** Redis when `REDIS_URL` is set **and** the `redis` Python package
   is installed; otherwise JSON files under `$HERMES_HOME/moysklad/cache/`
   (Selectel compose already sets `REDIS_URL=redis://redis:6379/0` — file
   fallback still works without the package).
 - Cache key includes a hash of the API token + query bounds
   (`max_orders` / `max_counterparties` / archived).
-- `/clients` returns `matched_total`, `has_more`, `next_offset` — counts are
-  **post-dedupe**.
+- `/clients` returns `matched_total`, `has_more`, `next_offset`, plus
+  `cached` / `stale` / `revalidating` — counts are **post-dedupe**.
 
 ### Multi-stage client dedupe
 

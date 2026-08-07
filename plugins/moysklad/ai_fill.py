@@ -465,7 +465,31 @@ def heuristic_fill_row(row: dict[str, Any]) -> dict[str, Any]:
         if sex:
             out["sex"] = sex
     if "role" in empty:
-        out["role"] = "заказчик"
+        # Prefer recipient when delivery address / comment hints a gift receiver.
+        blob = " ".join(
+            str(x or "")
+            for x in (
+                row.get("description"),
+                row.get("_comment_blob"),
+                row.get("Фактический адрес (Комментарий)"),
+                row.get("actual_address_comment"),
+                row.get("Наименование"),
+            )
+        ).lower()
+        if any(
+            tip in blob
+            for tip in (
+                "получател",
+                "доставит",
+                "доставка для",
+                "подарок",
+                "сюрприз",
+                "адресат",
+            )
+        ):
+            out["role"] = "получатель"
+        else:
+            out["role"] = "заказчик"
     if "tg_nick" in empty:
         nick = _tg_from_conversation(row)
         if nick:

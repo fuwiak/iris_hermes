@@ -149,3 +149,23 @@ def test_public_client_exposes_ai_fields(tmp_path, monkeypatch):
     assert public["ai_fields"]
     for key in public["ai_fields"]:
         assert not is_empty_cell(public.get(key) if key != "groups" else public.get("groups"))
+
+
+def test_heuristic_role_recipient_from_comment(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    row = {
+        "_moysklad_id": "c-role",
+        "Наименование": "Анна",
+        "description": "доставка для получателя — сюрприз",
+        "_moysklad_tags": ["витрина"],
+        "Пол": "Женский",
+        "Заказчик или получатель": "",
+        "ТГ ник": "@anna",
+        "Тип контрагента": "физлицо",
+        "Статус": "активный",
+        "order_count": 1,
+        "avg_check": 5000,
+    }
+    filled = heuristic_fill_row(row)
+    assert filled.get("role") == "получатель"

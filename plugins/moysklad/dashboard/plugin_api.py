@@ -84,10 +84,15 @@ from plugins.moysklad.catalog_cache import (
     format_synced_at,
     get_cached,
     invalidate,
+    peek_cached,
     refresh_audience_counts,
     set_cached,
 )
-from plugins.moysklad.classify import build_enriched_catalog, clients_page
+from plugins.moysklad.classify import (
+    build_enriched_catalog,
+    catalog_integrity,
+    clients_page,
+)
 from plugins.moysklad.client import MoySkladClient, MoySkladError, token_configured
 from plugins.moysklad.ai_playground import (
     get_golden_client,
@@ -103,6 +108,7 @@ from plugins.moysklad.conversations import (
     append_message,
     enrich_clients,
     get_thread,
+    sync_from_gateway,
 )
 from plugins.moysklad.outreach import (
     build_outreach_for_row,
@@ -134,6 +140,182 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 _SYNC_LOCK = threading.Lock()
+_REVALIDATE_LOCK = threading.Lock()
+_REVALIDATE_IN_FLIGHT: set[str] = set()
+
+
+def _catalog_meta(
+    envelope: dict[str, Any],
+    *,
+    cached: bool,
+    stale: bool = False,
+    revalidating: bool = False,
+    counts_refreshed: bool = False,
+) -> dict[str, Any]:
+    synced_at = float(envelope.get("synced_at") or 0)
+    return {
+        "cached": cached,
+        "stale": stale,
+        "revalidating": revalidating,
+        "counts_refreshed": counts_refreshed,
+        "synced_at": synced_at,
+        "synced_at_label": format_synced_at(synced_at),
+        "cache_ttl_seconds": int(envelope.get("ttl_seconds") or cache_ttl_seconds()),
+        "cache_backend": cache_backend_name(),
+    }
+
+
+def _rebuild_catalog_locked(
+    key: str,
+    *,
+    max_orders: int,
+    max_counterparties: int,
+    include_archived: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Blocking MoySklad rebuild; caller must hold ``_SYNC_LOCK`` when needed."""
+    client = _client()
+    catalog = build_enriched_catalog(
+        client,
+        max_orders=max_orders,
+        max_counterparties=max_counterparties,
+        include_archived=include_archived,
+    )
+    envelope = set_cached(key, catalog)
+    return catalog, _catalog_meta(envelope, cached=False)
+
+
+def _schedule_catalog_revalidate(
+    key: str,
+    *,
+    max_orders: int,
+    max_counterparties: int,
+    include_archived: bool,
+) -> bool:
+    """Kick a single background rebuild for ``key``. Returns True if scheduled."""
+    with _REVALIDATE_LOCK:
+        if key in _REVALIDATE_IN_FLIGHT:
+            return False
+        _REVALIDATE_IN_FLIGHT.add(key)
+
+    def _worker() -> None:
+        try:
+            with _SYNC_LOCK:
+                # Fresh write may have landed while we were queued.
+                if get_cached(key) is not None:
+                    return
+                _rebuild_catalog_locked(
+                    key,
+                    max_orders=max_orders,
+                    max_counterparties=max_counterparties,
+                    include_archived=include_archived,
+                )
+        except Exception:
+            log.exception("moysklad catalog background revalidate failed key=%s", key)
+        finally:
+            with _REVALIDATE_LOCK:
+                _REVALIDATE_IN_FLIGHT.discard(key)
+
+    threading.Thread(
+        target=_worker,
+        name=f"moysklad-revalidate-{key[-12:]}",
+        daemon=True,
+    ).start()
+    return True
+
+
+def _get_catalog(
+    *,
+    max_orders: int,
+    max_counterparties: int,
+    include_archived: bool,
+    force: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return ``(catalog, meta)`` where meta has sync/cache fields.
+
+    CDN-style stale-while-revalidate:
+    - Fresh durable cache → serve (no MoySklad)
+    - Expired but peekable → serve stale + background refresh
+    - Missing / ``force=True`` → blocking rebuild
+    """
+    key = cache_key(
+        max_orders=max_orders,
+        max_counterparties=max_counterparties,
+        include_archived=include_archived,
+    )
+    if not force:
+        envelope = get_cached(key)
+        if envelope is not None:
+            catalog = envelope["catalog"]
+            synced_at = float(envelope.get("synced_at") or 0)
+            catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                key, catalog, synced_at=synced_at
+            )
+            return catalog, _catalog_meta(
+                envelope, cached=True, counts_refreshed=counts_rewritten
+            )
+
+        # Logical TTL expired — still serve durable bytes if present.
+        stale_env = peek_cached(key)
+        if stale_env is not None and isinstance(stale_env.get("catalog"), dict):
+            catalog = stale_env["catalog"]
+            synced_at = float(stale_env.get("synced_at") or 0)
+            catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                key, catalog, synced_at=synced_at
+            )
+            scheduled = _schedule_catalog_revalidate(
+                key,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+            )
+            return catalog, _catalog_meta(
+                stale_env,
+                cached=True,
+                stale=True,
+                revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                counts_refreshed=counts_rewritten,
+            )
+
+    with _SYNC_LOCK:
+        # Another request may have filled the cache while we waited.
+        if not force:
+            envelope = get_cached(key)
+            if envelope is not None:
+                catalog = envelope["catalog"]
+                synced_at = float(envelope.get("synced_at") or 0)
+                catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                    key, catalog, synced_at=synced_at
+                )
+                return catalog, _catalog_meta(
+                    envelope, cached=True, counts_refreshed=counts_rewritten
+                )
+            stale_env = peek_cached(key)
+            if stale_env is not None and isinstance(stale_env.get("catalog"), dict):
+                catalog = stale_env["catalog"]
+                synced_at = float(stale_env.get("synced_at") or 0)
+                catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                    key, catalog, synced_at=synced_at
+                )
+                scheduled = _schedule_catalog_revalidate(
+                    key,
+                    max_orders=max_orders,
+                    max_counterparties=max_counterparties,
+                    include_archived=include_archived,
+                )
+                return catalog, _catalog_meta(
+                    stale_env,
+                    cached=True,
+                    stale=True,
+                    revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                    counts_refreshed=counts_rewritten,
+                )
+
+        return _rebuild_catalog_locked(
+            key,
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+        )
 
 
 class AiFillBody(BaseModel):
@@ -174,6 +356,8 @@ class RecalculateProposeBody(BaseModel):
     require_telegram: bool = False
     vip_only: bool = False
     birthday_soon: bool = False
+    group_source: str = "any"
+    days_before_event: int = 0
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -189,6 +373,8 @@ class RecalculateApplyBody(BaseModel):
     require_telegram: bool = False
     vip_only: bool = False
     birthday_soon: bool = False
+    group_source: str = "any"
+    days_before_event: int = 0
     dry_run: bool = True
     push: bool = False
     max_orders: int = 5000
@@ -209,6 +395,8 @@ class CampaignCreateBody(BaseModel):
     require_telegram: bool = False
     vip_only: bool = False
     birthday_soon: bool = False
+    group_source: str = "any"
+    days_before_event: int = 0
     personalize: bool = False
     client_id: str = ""
     include_preview: bool = True
@@ -226,6 +414,8 @@ class OutreachGenerateBody(BaseModel):
     refresh_ai: bool = True
     seller_name: str = ""
     seller_facts: str = ""
+    provider: str = ""
+    model: str = ""
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -237,6 +427,8 @@ class OutreachRewriteBody(BaseModel):
     client_id: str = ""
     seller_name: str = ""
     seller_facts: str = ""
+    provider: str = ""
+    model: str = ""
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -266,8 +458,12 @@ class OutreachPersonalizeBody(BaseModel):
     require_telegram: bool = False
     vip_only: bool = False
     birthday_soon: bool = False
+    group_source: str = "any"
+    days_before_event: int = 0
     seller_name: str = ""
     seller_facts: str = ""
+    provider: str = ""
+    model: str = ""
     limit: int = 20
     max_workers: int = 3
     max_orders: int = 5000
@@ -282,6 +478,16 @@ class ConversationAppendBody(BaseModel):
     label: str = ""
     source: str = "manual"
     open_deep_link: bool = False
+
+
+class ClientAiBody(BaseModel):
+    """Optional model override for client-card summary / recommendation."""
+
+    provider: str = ""
+    model: str = ""
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
 
 
 class MarkSentBody(BaseModel):
@@ -410,84 +616,6 @@ def _client() -> MoySkladClient:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _get_catalog(
-    *,
-    max_orders: int,
-    max_counterparties: int,
-    include_archived: bool,
-    force: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return ``(catalog, meta)`` where meta has sync/cache fields.
-
-    Fresh durable cache is served without hitting MoySklad unless
-    ``force=True`` (Синхронизация) or the TTL expired.
-    """
-    key = cache_key(
-        max_orders=max_orders,
-        max_counterparties=max_counterparties,
-        include_archived=include_archived,
-    )
-    if not force:
-        envelope = get_cached(key)
-        if envelope is not None:
-            catalog = envelope["catalog"]
-            synced_at = float(envelope.get("synced_at") or 0)
-            catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                key, catalog, synced_at=synced_at
-            )
-            return catalog, {
-                "cached": True,
-                "counts_refreshed": counts_rewritten,
-                "synced_at": synced_at,
-                "synced_at_label": format_synced_at(synced_at),
-                "cache_ttl_seconds": int(
-                    envelope.get("ttl_seconds") or cache_ttl_seconds()
-                ),
-                "cache_backend": cache_backend_name(),
-            }
-
-    with _SYNC_LOCK:
-        # Another request may have filled the cache while we waited.
-        if not force:
-            envelope = get_cached(key)
-            if envelope is not None:
-                catalog = envelope["catalog"]
-                synced_at = float(envelope.get("synced_at") or 0)
-                catalog, counts_rewritten = _refresh_cached_catalog_counts(
-                    key, catalog, synced_at=synced_at
-                )
-                return catalog, {
-                    "cached": True,
-                    "counts_refreshed": counts_rewritten,
-                    "synced_at": synced_at,
-                    "synced_at_label": format_synced_at(synced_at),
-                    "cache_ttl_seconds": int(
-                        envelope.get("ttl_seconds") or cache_ttl_seconds()
-                    ),
-                    "cache_backend": cache_backend_name(),
-                }
-
-        client = _client()
-        catalog = build_enriched_catalog(
-            client,
-            max_orders=max_orders,
-            max_counterparties=max_counterparties,
-            include_archived=include_archived,
-        )
-        envelope = set_cached(key, catalog)
-        synced_at = float(envelope.get("synced_at") or time.time())
-        return catalog, {
-            "cached": False,
-            "counts_refreshed": False,
-            "synced_at": synced_at,
-            "synced_at_label": format_synced_at(synced_at),
-            "cache_ttl_seconds": int(
-                envelope.get("ttl_seconds") or cache_ttl_seconds()
-            ),
-            "cache_backend": cache_backend_name(),
-        }
-
-
 def _refresh_cached_catalog_counts(
     key: str,
     catalog: dict[str, Any],
@@ -553,6 +681,8 @@ def get_clients(
     require_telegram: bool = Query(False),
     vip_only: bool = Query(False),
     birthday_soon: bool = Query(False),
+    group_source: str = Query("any"),
+    days_before_event: int = Query(0, ge=0, le=365),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(5000, ge=0, le=100_000),
@@ -577,6 +707,8 @@ def get_clients(
             require_telegram=require_telegram,
             vip_only=vip_only,
             birthday_soon=birthday_soon,
+            group_source=group_source,
+            days_before_event=days_before_event,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -594,6 +726,34 @@ def get_clients(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/integrity")
+def get_clients_integrity(
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+    refresh: bool = Query(False),
+) -> dict[str, Any]:
+    """Audit tab counts vs hybrid / no-orders / marker-only breakdown."""
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=refresh,
+        )
+        report = catalog_integrity(catalog)
+        return _attach_cache_meta(report, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/integrity failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -819,12 +979,24 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
 @router.post("/clients/{client_id}/ai")
 def post_client_ai(
     client_id: str,
+    body: ClientAiBody | None = None,
     max_orders: int = Query(5000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
+    provider: str = Query(""),
+    model: str = Query(""),
 ) -> dict[str, Any]:
-    """Generate AI summary + sales recommendation for a client card."""
+    """Generate AI summary + sales recommendation for a client card.
+
+    Pass ``provider`` / ``model`` (body or query) to try different LLMs.
+    """
     try:
+        body = body or ClientAiBody()
+        max_orders = body.max_orders or max_orders
+        max_counterparties = body.max_counterparties or max_counterparties
+        include_archived = bool(body.include_archived or include_archived)
+        provider = (body.provider or provider or "").strip()
+        model = (body.model or model or "").strip()
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
@@ -835,13 +1007,19 @@ def post_client_ai(
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         detail = build_client_detail(row)
-        ai_block = generate_ai_for_detail(detail)
+        ai_block = generate_ai_for_detail(
+            detail,
+            provider=provider or None,
+            model=model or None,
+        )
         return _attach_cache_meta(
             {
                 "ok": True,
                 "client_id": client_id,
                 "ai": ai_block,
                 "data_thin": detail.get("data_thin"),
+                "provider": provider,
+                "model": model,
             },
             meta,
         )
@@ -853,6 +1031,37 @@ def post_client_ai(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id}/ai failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/{client_id}/conversation/sync")
+def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
+    """Pull Telegram gateway history into the local client thread."""
+    try:
+        catalog, meta = _get_catalog(force=False)
+        row = find_row_in_catalog(catalog, client_id)
+        phone = ""
+        tg_nick = ""
+        client_name = ""
+        if row is not None:
+            detail = build_client_detail(row)
+            client = detail.get("client") or {}
+            phone = str(client.get("phone") or "")
+            tg_nick = str(client.get("tg_nick") or "")
+            client_name = str(client.get("name") or "")
+        thread = sync_from_gateway(
+            client_id=client_id,
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+        return _attach_cache_meta({"ok": True, "conversation": thread}, meta)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/{id}/conversation/sync failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -1089,6 +1298,8 @@ def post_groups_recalculate_propose(body: RecalculateProposeBody) -> dict[str, A
             require_telegram=body.require_telegram,
             vip_only=body.vip_only,
             birthday_soon=body.birthday_soon,
+            group_source=getattr(body, 'group_source', 'any') or 'any',
+            days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
             limit=0,
             offset=0,
             catalog=catalog,
@@ -1130,6 +1341,8 @@ def post_groups_recalculate_apply(body: RecalculateApplyBody) -> dict[str, Any]:
             require_telegram=body.require_telegram,
             vip_only=body.vip_only,
             birthday_soon=body.birthday_soon,
+            group_source=getattr(body, 'group_source', 'any') or 'any',
+            days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
             limit=0,
             offset=0,
             catalog=catalog,
@@ -1716,6 +1929,8 @@ def post_campaign_personalize_stream(body: OutreachPersonalizeBody) -> Any:
             require_telegram=bool(body.require_telegram),
             vip_only=bool(body.vip_only),
             birthday_soon=bool(body.birthday_soon),
+            group_source=getattr(body, 'group_source', 'any') or 'any',
+            days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
             limit=limit,
             offset=0,
             max_orders=body.max_orders,

@@ -364,3 +364,146 @@ def conversation_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
         tg_nick=str(client.get("tg_nick") or ""),
         client_name=str(client.get("name") or ""),
     )
+
+
+def _session_blob(session: dict[str, Any]) -> str:
+    parts = [
+        session.get("title"),
+        session.get("display_name"),
+        session.get("chat_id"),
+        session.get("user_id"),
+        session.get("id"),
+    ]
+    origin = session.get("origin_json") or ""
+    if isinstance(origin, dict):
+        parts.extend(str(v) for v in origin.values())
+    else:
+        parts.append(str(origin))
+    return " ".join(str(p or "") for p in parts).lower()
+
+
+def _role_to_direction(role: str) -> str:
+    r = (role or "").strip().lower()
+    if r in ("user", "human", "inbound"):
+        return "inbound"
+    if r in ("system", "tool"):
+        return "system"
+    return "outbound"
+
+
+def sync_from_gateway(
+    *,
+    client_id: str,
+    phone: str = "",
+    tg_nick: str = "",
+    client_name: str = "",
+    limit_sessions: int = 40,
+    limit_messages: int = 80,
+) -> dict[str, Any]:
+    """Best-effort pull of Telegram gateway session history into local store.
+
+    Matches sessions by ``tg_nick`` / phone digits against title, display_name,
+    chat_id, and origin metadata. Returns public thread + sync meta.
+    """
+    cid = (client_id or "").strip()
+    if not cid:
+        raise ValueError("client_id required")
+    nick = normalize_tg_nick(tg_nick)
+    digits = normalize_phone(phone)
+    imported = 0
+    matched_sessions = 0
+    error = ""
+    try:
+        from hermes_state import SessionDB
+
+        db = SessionDB()
+        sessions = db.search_sessions(source="telegram", limit=max(1, int(limit_sessions)))
+        needles = [n for n in (nick, digits) if n]
+        if not needles:
+            return {
+                **get_thread(client_id=cid, phone=phone, tg_nick=tg_nick),
+                "sync": {
+                    "ok": False,
+                    "reason": "no_tg_nick_or_phone",
+                    "imported": 0,
+                    "matched_sessions": 0,
+                },
+            }
+        hits: list[dict[str, Any]] = []
+        for session in sessions or []:
+            blob = _session_blob(session)
+            if any(n in blob for n in needles):
+                hits.append(session)
+        matched_sessions = len(hits)
+        with _LOCK:
+            store = _load()
+            thread = _ensure_thread(
+                store,
+                client_id=cid,
+                phone=phone,
+                tg_nick=tg_nick,
+                client_name=client_name,
+            )
+            existing = list(thread.get("messages") or [])
+            existing_keys = {
+                (
+                    str(m.get("direction") or ""),
+                    str(m.get("text") or "").strip()[:200],
+                    str(m.get("ts") or "")[:19],
+                )
+                for m in existing
+            }
+            for session in hits:
+                sid = str(session.get("id") or "")
+                if not sid:
+                    continue
+                try:
+                    messages = db.get_messages(sid, limit=max(1, int(limit_messages)))
+                except Exception:
+                    continue
+                for msg in messages or []:
+                    role = str(msg.get("role") or "")
+                    text = str(msg.get("content") or "").strip()
+                    if not text or role == "tool":
+                        continue
+                    # Skip huge tool dumps / JSON blobs.
+                    if text.startswith("{") and len(text) > 400:
+                        continue
+                    direction = _role_to_direction(role)
+                    ts = str(msg.get("timestamp") or msg.get("created_at") or _now())
+                    key = (direction, text[:200], ts[:19])
+                    if key in existing_keys:
+                        continue
+                    existing_keys.add(key)
+                    existing.append({
+                        "id": str(uuid.uuid4()),
+                        "direction": direction,
+                        "channel": "telegram",
+                        "label": _channel_label("telegram", direction) + " · gateway",
+                        "text": text[:4000],
+                        "ts": ts if "T" in ts else _now(),
+                        "source": "gateway_telegram",
+                        "session_id": sid,
+                    })
+                    imported += 1
+            if len(existing) > _MAX_MESSAGES:
+                existing = existing[-_MAX_MESSAGES:]
+            # Stable chronological order when timestamps allow.
+            existing.sort(key=lambda m: str(m.get("ts") or ""))
+            thread["messages"] = existing
+            if imported:
+                thread["updated_at"] = _now()
+            _save(store)
+            public = public_thread(thread)
+    except Exception as exc:
+        error = str(exc)
+        public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
+    public["sync"] = {
+        "ok": not error,
+        "imported": imported,
+        "matched_sessions": matched_sessions,
+        "error": error or None,
+        "source": "gateway_telegram",
+    }
+    return public
+

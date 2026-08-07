@@ -730,8 +730,17 @@ def _parse_ai_json(text: str) -> Optional[dict[str, Any]]:
     return out
 
 
-def generate_ai_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
-    """Call auxiliary LLM; fall back to heuristic on any failure."""
+def generate_ai_for_detail(
+    detail: dict[str, Any],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Call auxiliary LLM; fall back to heuristic on any failure.
+
+    Optional ``provider`` / ``model`` let the UI experiment with different
+    models for summary + recommendation.
+    """
     client = detail.get("client") or {}
     orders = list(detail.get("orders") or [])
     vip = bool(client.get("vip"))
@@ -748,6 +757,19 @@ def generate_ai_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
     )
 
     facts = _facts_payload(detail)
+    # Include conversation preview so summary can use chat history.
+    conversation = detail.get("conversation") or {}
+    messages = list(conversation.get("messages") or [])[-12:]
+    if messages:
+        facts["conversation_preview"] = [
+            {
+                "direction": m.get("direction"),
+                "text": str(m.get("text") or "")[:280],
+                "ts": m.get("ts"),
+            }
+            for m in messages
+            if str(m.get("text") or "").strip()
+        ]
     user = (
         "JSON фактов клиента и заказов (единственный источник истины):\n"
         + json.dumps(facts, ensure_ascii=False, indent=2)
@@ -755,16 +777,21 @@ def generate_ai_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
     try:
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
 
-        response = call_llm(
-            task="compression",
-            messages=[
+        kwargs: dict[str, Any] = {
+            "task": "compression",
+            "messages": [
                 {"role": "system", "content": _AI_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_tokens=900,
-            temperature=0.2,
-            timeout=45.0,
-        )
+            "max_tokens": 900,
+            "temperature": 0.2,
+            "timeout": 45.0,
+        }
+        if provider:
+            kwargs["provider"] = provider
+        if model:
+            kwargs["model"] = model
+        response = call_llm(**kwargs)
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_ai_json(text)
         if not parsed:
@@ -774,6 +801,8 @@ def generate_ai_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
             **parsed,
             "source": "llm",
             "data_thin": data_thin,
+            "provider": provider or "",
+            "model": model or "",
         }
     except Exception as exc:
         log.warning("moysklad client AI unavailable: %s", exc)
