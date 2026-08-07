@@ -1,16 +1,28 @@
 """AI fill for empty MoySklad CRM fields (Группы, Статус, Пол, …).
 
 Mirrors client_segmentation_deepseek: only fill blank cells, stamp
-``_ai_fields`` so the UI can draw green AI markers. Overlays persist under
-``$HERMES_HOME/moysklad/ai_fill.json`` and never overwrite MoySklad values.
+``ai_fields`` so the UI can draw green AI markers. Never overwrites
+MoySklad-owned non-empty cells.
+
+Persistence ladder (same idea as outreach/catalog cache):
+
+1. Redis — when ``REDIS_URL`` / ``MOYSKLAD_REDIS_URL`` is set
+2. Per-client JSON under ``$HERMES_HOME/moysklad/ai_fill_cache/``
+3. Legacy bulk ``$HERMES_HOME/moysklad/ai_fill.json`` (read + migrate)
+4. Process-local memory
+
+Lazy UI fills only the visible page; cached entries skip LLM on reload.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -21,7 +33,9 @@ from plugins.moysklad.sales_channels import moysklad_group_tokens
 
 log = logging.getLogger(__name__)
 
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
+_MEMORY: dict[str, dict[str, Any]] = {}
+DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # Public API key → (row column candidates, human label for LLM)
 _FILLABLE: dict[str, tuple[tuple[str, ...], str]] = {
@@ -144,7 +158,7 @@ _SYSTEM = """Ты — аналитик CRM цветочного магазина
 """
 
 
-def _store_path() -> Path:
+def _legacy_store_path() -> Path:
     root = get_hermes_home() / "moysklad"
     root.mkdir(parents=True, exist_ok=True)
     return root / "ai_fill.json"
@@ -154,26 +168,206 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _load_store() -> dict[str, Any]:
-    path = _store_path()
+def cache_ttl_seconds() -> int:
+    raw = (os.environ.get("MOYSKLAD_AI_FILL_TTL_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_TTL_SECONDS
+    try:
+        return max(3600, int(raw))
+    except ValueError:
+        return DEFAULT_TTL_SECONDS
+
+
+def _redis_url() -> str:
+    return (os.environ.get("REDIS_URL") or os.environ.get("MOYSKLAD_REDIS_URL") or "").strip()
+
+
+def _account_fingerprint() -> str:
+    token = (os.environ.get("MOYSKLAD_API_TOKEN") or "").strip()
+    if not token:
+        return "no-token"
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+
+
+def fill_cache_key(client_id: str) -> str:
+    cid = (client_id or "").strip()
+    return f"moysklad:ai-fill:v1:{_account_fingerprint()}:{cid}"
+
+
+def _file_path(key: str) -> Path:
+    safe = hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+    root = get_hermes_home() / "moysklad" / "ai_fill_cache"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{safe}.json"
+
+
+def _redis_client():
+    url = _redis_url()
+    if not url:
+        return None
+    try:
+        import redis  # type: ignore[import-not-found]
+    except Exception:
+        log.debug("REDIS_URL set but redis package missing; ai_fill file cache")
+        return None
+    try:
+        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=2.0)
+        client.ping()
+        return client
+    except Exception as exc:
+        log.warning("MoySklad ai_fill Redis unavailable (%s); file cache", exc)
+        return None
+
+
+def cache_backend_name() -> str:
+    if _redis_client() is not None:
+        return "redis+file"
+    return "file"
+
+
+def clear_memory_for_tests() -> None:
+    with _LOCK:
+        _MEMORY.clear()
+
+
+def _envelope(entry: dict[str, Any], *, saved_at: float) -> dict[str, Any]:
+    return {
+        "saved_at": float(saved_at),
+        "ttl_seconds": cache_ttl_seconds(),
+        "entry": entry,
+    }
+
+
+def _is_fresh(envelope: dict[str, Any], *, now: float | None = None) -> bool:
+    now = time.time() if now is None else now
+    saved_at = float(envelope.get("saved_at") or 0)
+    ttl = int(envelope.get("ttl_seconds") or cache_ttl_seconds())
+    return saved_at > 0 and (now - saved_at) < ttl
+
+
+def _load_legacy_entry(client_id: str) -> Optional[dict[str, Any]]:
+    path = _legacy_store_path()
     if not path.is_file():
-        return {}
+        return None
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+        return None
+    if not isinstance(raw, dict):
+        return None
+    entry = raw.get(client_id)
+    return dict(entry) if isinstance(entry, dict) else None
 
 
-def _save_store(data: dict[str, Any]) -> None:
-    path = _store_path()
-    tmp = path.with_suffix(".tmp")
+def get_ai_fill_entry(client_id: str) -> Optional[dict[str, Any]]:
+    """Return persisted fill entry for one client, or None."""
+    cid = (client_id or "").strip()
+    if not cid:
+        return None
+    key = fill_cache_key(cid)
+    now = time.time()
     with _LOCK:
-        tmp.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        mem = _MEMORY.get(key)
+        if mem and _is_fresh(mem, now=now):
+            entry = mem.get("entry")
+            return dict(entry) if isinstance(entry, dict) else None
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            raw = client.get(key)
+            if raw:
+                envelope = json.loads(raw)
+                if isinstance(envelope, dict) and _is_fresh(envelope, now=now):
+                    with _LOCK:
+                        _MEMORY[key] = envelope
+                    entry = envelope.get("entry")
+                    return dict(entry) if isinstance(entry, dict) else None
+        except Exception as exc:
+            log.warning("MoySklad ai_fill Redis get failed: %s", exc)
+
+    path = _file_path(key)
+    try:
+        if path.is_file():
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(envelope, dict) and _is_fresh(envelope, now=now):
+                with _LOCK:
+                    _MEMORY[key] = envelope
+                entry = envelope.get("entry")
+                return dict(entry) if isinstance(entry, dict) else None
+    except Exception as exc:
+        log.warning("MoySklad ai_fill file cache read failed: %s", exc)
+
+    legacy = _load_legacy_entry(cid)
+    if legacy:
+        set_ai_fill_entry(cid, legacy)
+        return legacy
+    return None
+
+
+def set_ai_fill_entry(
+    client_id: str,
+    entry: dict[str, Any],
+    *,
+    saved_at: float | None = None,
+) -> dict[str, Any]:
+    """Persist one client's AI fill entry; return envelope."""
+    cid = (client_id or "").strip()
+    if not cid:
+        raise ValueError("client_id required")
+    payload = {
+        "fields": dict(entry.get("fields") or {}),
+        "ai_fields": list(entry.get("ai_fields") or []),
+        "attempted_keys": list(entry.get("attempted_keys") or []),
+        "source": str(entry.get("source") or ""),
+        "updated_at": str(entry.get("updated_at") or _now()),
+    }
+    key = fill_cache_key(cid)
+    envelope = _envelope(payload, saved_at=saved_at or time.time())
+    ttl = int(envelope["ttl_seconds"])
+
+    with _LOCK:
+        _MEMORY[key] = envelope
+
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.setex(key, ttl, json.dumps(envelope, ensure_ascii=False, default=str))
+        except Exception as exc:
+            log.warning("MoySklad ai_fill Redis set failed: %s", exc)
+
+    path = _file_path(key)
+    try:
+        path.write_text(
+            json.dumps(envelope, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
-        tmp.replace(path)
+    except Exception as exc:
+        log.warning("MoySklad ai_fill file cache write failed: %s", exc)
+
+    # Keep legacy bulk file in sync for older readers / ops tooling.
+    try:
+        legacy_path = _legacy_store_path()
+        with _LOCK:
+            store: dict[str, Any] = {}
+            if legacy_path.is_file():
+                try:
+                    raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+                    if isinstance(raw, dict):
+                        store = raw
+                except (OSError, json.JSONDecodeError):
+                    store = {}
+            store[cid] = payload
+            tmp = legacy_path.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(store, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            tmp.replace(legacy_path)
+    except Exception as exc:
+        log.debug("MoySklad ai_fill legacy sync skipped: %s", exc)
+
+    return envelope
 
 
 def is_empty_cell(value: Any) -> bool:
@@ -402,25 +596,27 @@ def _persist_fills(
     fills: dict[str, Any],
     *,
     source: str,
+    attempted_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    if not fills:
-        return {"client_id": client_id, "ai_fields": [], "fields": {}, "source": source}
-    store = _load_store()
-    prev = store.get(client_id) if isinstance(store.get(client_id), dict) else {}
+    prev = get_ai_fill_entry(client_id) or {}
     fields = dict(prev.get("fields") or {})
     ai_fields = list(prev.get("ai_fields") or [])
+    attempted = list(prev.get("attempted_keys") or [])
     for key, value in fills.items():
         fields[key] = value
         if key not in ai_fields:
             ai_fields.append(key)
+    for key in attempted_keys or []:
+        if key not in attempted:
+            attempted.append(key)
     entry = {
         "fields": fields,
         "ai_fields": ai_fields,
+        "attempted_keys": attempted,
         "source": source,
         "updated_at": _now(),
     }
-    store[client_id] = entry
-    _save_store(store)
+    set_ai_fill_entry(client_id, entry)
     return {"client_id": client_id, **entry}
 
 
@@ -430,8 +626,7 @@ def apply_ai_fill_to_public(client: dict[str, Any]) -> dict[str, Any]:
     if not cid:
         client.setdefault("ai_fields", [])
         return client
-    store = _load_store()
-    entry = store.get(cid)
+    entry = get_ai_fill_entry(cid)
     if not isinstance(entry, dict):
         client.setdefault("ai_fields", [])
         return client
@@ -457,6 +652,7 @@ def apply_ai_fill_to_public(client: dict[str, Any]) -> dict[str, Any]:
     # Keep stamp even if MoySklad later filled — only show green on currently AI-shown
     out["ai_fields"] = ai_fields
     out["ai_fill_source"] = entry.get("source") or ""
+    out["ai_fill_cached"] = True
     return out
 
 
@@ -466,18 +662,42 @@ def fill_empty_for_rows(
     client_ids: list[str] | None = None,
     limit: int = 40,
     use_llm: bool = True,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Fill empty fields for matching rows. Returns summary + per-client results."""
+    """Fill empty fields for matching rows. Returns summary + per-client results.
+
+    Cached Redis/file entries skip LLM unless ``force=True``. Pass ``client_ids``
+    for lazy evaluation of the currently visible page.
+    """
     id_filter = {str(i).strip() for i in (client_ids or []) if str(i).strip()}
     targets: list[dict[str, Any]] = []
+    cached_hits: list[dict[str, Any]] = []
     for row in rows:
         cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
         if not cid:
             continue
         if id_filter and cid not in id_filter:
             continue
-        if not empty_fillable_keys(row):
+        empty = empty_fillable_keys(row)
+        if not empty:
             continue
+        existing = None if force else get_ai_fill_entry(cid)
+        if existing:
+            attempted = set(existing.get("attempted_keys") or [])
+            fields = existing.get("fields") or {}
+            still_need = [k for k in empty if k not in fields and k not in attempted]
+            if not still_need:
+                cached_hits.append({
+                    "id": cid,
+                    "name": row.get("Наименование") or row.get("name") or "",
+                    "filled": {},
+                    "ai_fields": list(existing.get("ai_fields") or []),
+                    "fields": fields,
+                    "source": existing.get("source") or "cache",
+                    "from_cache": True,
+                    "empty_before": sorted(empty),
+                })
+                continue
         targets.append(row)
         if len(targets) >= max(1, min(int(limit), 100)):
             break
@@ -489,7 +709,7 @@ def fill_empty_for_rows(
         if llm_map:
             source = "llm"
 
-    results = []
+    results = list(cached_hits)
     filled_fields = 0
     for row in targets:
         cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
@@ -503,34 +723,92 @@ def fill_empty_for_rows(
         row_source = "llm" if any(k in llm for k in merged) else "heuristic"
         if llm and heur and any(k not in llm for k in merged):
             row_source = "llm+heuristic"
-        entry = _persist_fills(cid, merged, source=row_source)
+        entry = _persist_fills(
+            cid,
+            merged,
+            source=row_source,
+            attempted_keys=sorted(empty),
+        )
         filled_fields += len(merged)
         results.append({
             "id": cid,
             "name": row.get("Наименование") or row.get("name") or "",
             "filled": merged,
             "ai_fields": entry.get("ai_fields") or [],
+            "fields": entry.get("fields") or {},
             "source": row_source,
+            "from_cache": False,
             "empty_before": sorted(empty),
         })
 
     return {
         "ok": True,
-        "source": source,
-        "scanned": len(targets),
-        "updated": len(results),
+        "source": source if targets else ("cache" if cached_hits else source),
+        "cache_backend": cache_backend_name(),
+        "scanned": len(targets) + len(cached_hits),
+        "updated": len([r for r in results if not r.get("from_cache")]),
+        "cached": len(cached_hits),
         "filled_field_count": filled_fields,
         "results": results,
     }
 
 
 def clear_ai_fill(client_id: str = "") -> dict[str, Any]:
-    store = _load_store()
-    if client_id:
-        store.pop(client_id, None)
-        _save_store(store)
-        return {"ok": True, "cleared": client_id}
-    _save_store({})
+    cid = (client_id or "").strip()
+    if cid:
+        key = fill_cache_key(cid)
+        with _LOCK:
+            _MEMORY.pop(key, None)
+        client = _redis_client()
+        if client is not None:
+            try:
+                client.delete(key)
+            except Exception as exc:
+                log.warning("MoySklad ai_fill Redis delete failed: %s", exc)
+        path = _file_path(key)
+        try:
+            if path.is_file():
+                path.unlink()
+        except Exception as exc:
+            log.warning("MoySklad ai_fill file delete failed: %s", exc)
+        try:
+            legacy_path = _legacy_store_path()
+            if legacy_path.is_file():
+                raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and cid in raw:
+                    raw.pop(cid, None)
+                    legacy_path.write_text(
+                        json.dumps(raw, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+        except Exception:
+            pass
+        return {"ok": True, "cleared": cid}
+
+    # Clear all: memory + legacy file; Redis keys by pattern when available.
+    with _LOCK:
+        _MEMORY.clear()
+    client = _redis_client()
+    if client is not None:
+        try:
+            pattern = f"moysklad:ai-fill:v1:{_account_fingerprint()}:*"
+            for key in client.scan_iter(match=pattern, count=200):
+                client.delete(key)
+        except Exception as exc:
+            log.warning("MoySklad ai_fill Redis clear-all failed: %s", exc)
+    cache_root = get_hermes_home() / "moysklad" / "ai_fill_cache"
+    if cache_root.is_dir():
+        for path in cache_root.glob("*.json"):
+            try:
+                path.unlink()
+            except Exception:
+                pass
+    legacy_path = _legacy_store_path()
+    try:
+        if legacy_path.is_file():
+            legacy_path.write_text("{}\n", encoding="utf-8")
+    except Exception:
+        pass
     return {"ok": True, "cleared": "all"}
 
 
@@ -539,7 +817,7 @@ def ai_group_labels_for_client(client_id: str) -> list[str]:
     cid = str(client_id or "").strip()
     if not cid:
         return []
-    entry = _load_store().get(cid)
+    entry = get_ai_fill_entry(cid)
     if not isinstance(entry, dict):
         return []
     ai_fields = entry.get("ai_fields") or []

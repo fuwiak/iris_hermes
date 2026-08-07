@@ -68,10 +68,12 @@ Example prompts:
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
 6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 7. **Заполнить AI** — `POST /clients/ai-fill` fills empty **Группы / Статус / Пол /
-   роль / ТГ ник / Тип контрагента** (LLM + heuristic). Values stamped in
-   `$HERMES_HOME/moysklad/ai_fill.json` and shown with **green circle** markers
-   in the Clients table (same idea as client_segmentation `.ai-cell-new`).
-   Never overwrites MoySklad-owned non-empty cells.
+   роль / ТГ ник / Тип контрагента** (LLM + heuristic). Lazy: Clients table
+   auto-fills **only the visible page** on load/scroll; results persist in
+   **Redis** (when `REDIS_URL` set) + `$HERMES_HOME/moysklad/ai_fill_cache/`
+   (and legacy `ai_fill.json`). Cached entries skip LLM on reload. Cells show
+   a **green outline + AI badge**. Never overwrites MoySklad-owned non-empty
+   cells. Manual button re-fills the current screen with `force=true`.
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
 `POST /clients/{id}/ai`, `POST /clients/ai-fill`, `POST /sync`, `GET|POST /campaigns`,

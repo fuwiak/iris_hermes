@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from plugins.moysklad.ai_fill import (
     apply_ai_fill_to_public,
+    clear_memory_for_tests,
     empty_fillable_keys,
     fill_empty_for_rows,
+    get_ai_fill_entry,
     heuristic_fill_row,
     is_empty_cell,
 )
@@ -31,6 +33,7 @@ def test_is_empty_and_fillable_keys():
 
 def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     row = {
         "_moysklad_id": "c2",
         "Наименование": "Мария Букет",
@@ -50,6 +53,9 @@ def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
 
 def test_fill_empty_persists_ai_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("MOYSKLAD_REDIS_URL", raising=False)
+    clear_memory_for_tests()
     rows = [
         {
             "_moysklad_id": "c3",
@@ -63,13 +69,70 @@ def test_fill_empty_persists_ai_fields(tmp_path, monkeypatch):
     out = fill_empty_for_rows(rows, use_llm=False, limit=10)
     assert out["updated"] == 1
     assert out["results"][0]["ai_fields"]
-    public = apply_ai_fill_to_public({"id": "c3", "name": "Анна Роза", "state": "", "groups": "", "tags": [], "sex": ""})
+    assert out["cache_backend"] == "file"
+    entry = get_ai_fill_entry("c3")
+    assert entry and entry.get("fields")
+    public = apply_ai_fill_to_public(
+        {"id": "c3", "name": "Анна Роза", "state": "", "groups": "", "tags": [], "sex": ""}
+    )
     assert public.get("ai_fields")
     assert public.get("state") or public.get("sex") or public.get("groups")
+    assert public.get("ai_fill_cached") is True
+
+
+def test_second_fill_hits_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("MOYSKLAD_REDIS_URL", raising=False)
+    clear_memory_for_tests()
+    rows = [
+        {
+            "_moysklad_id": "c5",
+            "Наименование": "Вера Пион",
+            "order_count": 0,
+            "avg_check": 0,
+            "_moysklad_tags": [],
+            "_orders_context": [],
+        }
+    ]
+    first = fill_empty_for_rows(rows, use_llm=False, limit=5)
+    assert first["updated"] == 1
+    second = fill_empty_for_rows(rows, use_llm=False, limit=5)
+    assert second["updated"] == 0
+    assert second["cached"] == 1
+    assert second["results"][0]["from_cache"] is True
+    forced = fill_empty_for_rows(rows, use_llm=False, limit=5, force=True)
+    assert forced["updated"] == 1
+    assert forced["results"][0]["from_cache"] is False
+
+
+def test_lazy_ids_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    rows = [
+        {
+            "_moysklad_id": "lazy-a",
+            "Наименование": "Алиса",
+            "order_count": 1,
+            "_moysklad_tags": [],
+        },
+        {
+            "_moysklad_id": "lazy-b",
+            "Наименование": "Борис",
+            "order_count": 1,
+            "_moysklad_tags": [],
+        },
+    ]
+    out = fill_empty_for_rows(rows, client_ids=["lazy-a"], use_llm=False, limit=10)
+    assert out["updated"] == 1
+    assert out["results"][0]["id"] == "lazy-a"
+    assert get_ai_fill_entry("lazy-a")
+    assert get_ai_fill_entry("lazy-b") is None
 
 
 def test_public_client_exposes_ai_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
     row = {
         "_moysklad_id": "c4",
         "Наименование": "Ольга Пион",

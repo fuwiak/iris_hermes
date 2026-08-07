@@ -124,7 +124,10 @@ from plugins.moysklad.outreach_cache import (
     get_outreach_draft,
     set_outreach_draft,
 )
-from plugins.moysklad.ai_fill import fill_empty_for_rows
+from plugins.moysklad.ai_fill import (
+    cache_backend_name as ai_fill_cache_backend_name,
+    fill_empty_for_rows,
+)
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +143,7 @@ class AiFillBody(BaseModel):
     ids: list[str] = Field(default_factory=list)
     limit: int = 40
     use_llm: bool = True
+    force: bool = False
     max_orders: int = 5000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -858,6 +862,9 @@ def post_clients_ai_fill(body: AiFillBody) -> dict[str, Any]:
 
     Stamps ``ai_fields`` for green AI markers in the Clients table
     (same idea as client_segmentation ``.ai-cell-new``).
+
+    Pass ``ids`` for lazy evaluation of the visible page; Redis/file cache
+    skips LLM on repeat unless ``force=true``.
     """
     try:
         catalog, meta = _get_catalog(
@@ -866,25 +873,32 @@ def post_clients_ai_fill(body: AiFillBody) -> dict[str, Any]:
             include_archived=body.include_archived,
             force=False,
         )
-        page = clients_page(
-            _client(),
-            sales_filter=body.sales_filter,
-            group=body.group,
-            q=body.q,
-            limit=500,
-            offset=0,
-            max_orders=body.max_orders,
-            max_counterparties=body.max_counterparties,
-            include_archived=body.include_archived,
-            catalog=catalog,
-        )
-        rows = list(page.get("_rows") or catalog.get("rows") or [])
+        # When ids are provided (lazy page fill), scan the full catalog rows
+        # so we can resolve those counterparties without a huge filtered page.
+        if body.ids:
+            rows = list(catalog.get("rows") or [])
+        else:
+            page = clients_page(
+                _client(),
+                sales_filter=body.sales_filter,
+                group=body.group,
+                q=body.q,
+                limit=500,
+                offset=0,
+                max_orders=body.max_orders,
+                max_counterparties=body.max_counterparties,
+                include_archived=body.include_archived,
+                catalog=catalog,
+            )
+            rows = list(page.get("_rows") or catalog.get("rows") or [])
         result = fill_empty_for_rows(
             rows,
             client_ids=list(body.ids or []),
             limit=body.limit,
             use_llm=bool(body.use_llm),
+            force=bool(body.force),
         )
+        result["ai_fill_cache_backend"] = ai_fill_cache_backend_name()
         return _attach_cache_meta(result, meta)
     except HTTPException:
         raise

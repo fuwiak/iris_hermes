@@ -240,11 +240,101 @@ function AiCell({
   }
 
   return (
-    <span className="ms-ai-cell" title="Заполнено AI">
-      <span className="ms-ai-dot" aria-hidden="true" />
+    <span className="ms-ai-cell" title="Заполнено AI (кэш Redis/файл)">
+      <span className="ms-ai-badge" aria-hidden="true">
+        AI
+      </span>
       <span className="ms-ai-value">{value}</span>
     </span>
   )
+}
+
+/** Empty fillable CRM slots that AI may complete (lazy page eval). */
+function rowNeedsLazyAiFill(row: ClientRow): boolean {
+  if (!row.id) {
+    return false
+  }
+
+  if ((row.ai_fields || []).length > 0) {
+    return false
+  }
+
+  const groups = (row.groups || (row.tags || []).join(', ')).trim()
+  const empty = (v: string | undefined | null) => !v || !String(v).trim() || String(v).trim() === '—'
+
+  return (
+    empty(row.state) ||
+    empty(groups) ||
+    empty(row.role) ||
+    empty(row.sex) ||
+    empty(row.company_type)
+  )
+}
+
+function applyAiFillResults(
+  clients: ClientRow[],
+  results: Array<{
+    id?: string
+    filled?: Record<string, unknown>
+    fields?: Record<string, unknown>
+    ai_fields?: string[]
+    source?: string
+  }>
+): ClientRow[] {
+  if (!results.length) {
+    return clients
+  }
+
+  const byId = new Map(
+    results
+      .filter(r => r.id)
+      .map(r => [String(r.id), r] as const)
+  )
+
+  return clients.map(row => {
+    const id = String(row.id || '')
+    const hit = byId.get(id)
+
+    if (!hit) {
+      return row
+    }
+
+    const fields = (hit.fields || hit.filled || {}) as Record<string, unknown>
+    const next: ClientRow = { ...row }
+    const aiFields = [...(hit.ai_fields || row.ai_fields || [])]
+
+    for (const key of aiFields) {
+      const val = fields[key]
+
+      if (val == null || val === '') {
+        continue
+      }
+
+      if (key === 'groups') {
+        if (Array.isArray(val)) {
+          next.groups = val.map(String).filter(Boolean).join(', ')
+          next.tags = val.map(String).filter(Boolean)
+        } else {
+          next.groups = String(val)
+        }
+      } else if (key === 'state') {
+        next.state = String(val)
+      } else if (key === 'sex') {
+        next.sex = String(val)
+      } else if (key === 'role') {
+        next.role = String(val)
+      } else if (key === 'tg_nick') {
+        next.tg_nick = String(val)
+      } else if (key === 'company_type') {
+        next.company_type = String(val)
+      }
+    }
+
+    next.ai_fields = aiFields
+    next.ai_fill_source = hit.source || row.ai_fill_source
+
+    return next
+  })
 }
 
 const CLIENT_COLUMNS: Array<{
@@ -1119,6 +1209,74 @@ function ClientsPage() {
   const [aiFillStatus, setAiFillStatus] = useState('')
   const loadGen = useRef(0)
   const loadingMoreRef = useRef(false)
+  const lazyAiTriedRef = useRef(new Set<string>())
+  const lazyAiInFlightRef = useRef(false)
+
+  const runLazyAiFill = useCallback(
+    (rows: ClientRow[]) => {
+      const ids = rows
+        .filter(rowNeedsLazyAiFill)
+        .map(r => String(r.id))
+        .filter(id => id && !lazyAiTriedRef.current.has(id))
+
+      if (!ids.length || lazyAiInFlightRef.current) {
+        return
+      }
+
+      for (const id of ids) {
+        lazyAiTriedRef.current.add(id)
+      }
+
+      lazyAiInFlightRef.current = true
+      setAiFillStatus(`AI: заполняю ${ids.length} на экране…`)
+      void call<{
+        updated?: number
+        cached?: number
+        filled_field_count?: number
+        source?: string
+        ai_fill_cache_backend?: string
+        cache_backend?: string
+        results?: Array<{
+          id?: string
+          filled?: Record<string, unknown>
+          fields?: Record<string, unknown>
+          ai_fields?: string[]
+          source?: string
+        }>
+      }>('/clients/ai-fill', {
+        method: 'POST',
+        body: {
+          ids,
+          limit: ids.length,
+          use_llm: true,
+          force: false
+        },
+        timeoutMs: 90_000
+      })
+        .then(data => {
+          const results = data.results || []
+          setClients(prev => applyAiFillResults(prev, results))
+          const backend = data.ai_fill_cache_backend || data.cache_backend || ''
+          setAiFillStatus(
+            `✓ AI экран: новых ${data.updated || 0}` +
+              (data.cached ? ` · из кэша ${data.cached}` : '') +
+              (data.filled_field_count ? ` · полей ${data.filled_field_count}` : '') +
+              (backend ? ` · ${backend}` : '')
+          )
+        })
+        .catch(() => {
+          // Silent for lazy path — manual button still surfaces errors.
+          setAiFillStatus('')
+          for (const id of ids) {
+            lazyAiTriedRef.current.delete(id)
+          }
+        })
+        .finally(() => {
+          lazyAiInFlightRef.current = false
+        })
+    },
+    [call]
+  )
 
   const load = useCallback(
     async (opts?: { refresh?: boolean; append?: boolean; offset?: number }) => {
@@ -1133,6 +1291,7 @@ function ClientsPage() {
       } else {
         setLoading(true)
         setError('')
+        lazyAiTriedRef.current.clear()
       }
 
       try {
@@ -1180,6 +1339,9 @@ function ClientsPage() {
           setFromCache(Boolean(data.cached))
           setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
         }
+
+        // Lazy AI: only the page just shown (or appended).
+        runLazyAiFill(page)
       } catch (err) {
         if (gen !== loadGen.current) {return}
         setError(err instanceof Error ? err.message : String(err))
@@ -1194,7 +1356,7 @@ function ClientsPage() {
         }
       }
     },
-    [call, group, hasMore, nextOffset, q, salesFilter]
+    [call, group, hasMore, nextOffset, q, runLazyAiFill, salesFilter]
   )
 
   useEffect(() => {
@@ -1271,26 +1433,41 @@ function ClientsPage() {
               setAiFillLoading(true)
               setAiFillStatus('AI заполняет пустые поля…')
               setError('')
+              const visibleIds = clients.map(c => String(c.id || '')).filter(Boolean)
               void call<{
                 updated?: number
+                cached?: number
                 filled_field_count?: number
                 source?: string
+                ai_fill_cache_backend?: string
+                results?: Array<{
+                  id?: string
+                  filled?: Record<string, unknown>
+                  fields?: Record<string, unknown>
+                  ai_fields?: string[]
+                  source?: string
+                }>
               }>('/clients/ai-fill', {
                 method: 'POST',
                 body: {
                   sales_filter: salesFilter,
                   group,
                   q,
-                  limit: 40,
-                  use_llm: true
-                }
+                  ids: visibleIds,
+                  limit: Math.max(visibleIds.length, 40),
+                  use_llm: true,
+                  force: true
+                },
+                timeoutMs: 120_000
               })
                 .then(data => {
+                  setClients(prev => applyAiFillResults(prev, data.results || []))
                   setAiFillStatus(
-                    `✓ AI: обновлено ${data.updated || 0} клиентов · полей ${data.filled_field_count || 0}` +
+                    `✓ AI: обновлено ${data.updated || 0} · кэш ${data.cached || 0}` +
+                      (data.filled_field_count ? ` · полей ${data.filled_field_count}` : '') +
+                      (data.ai_fill_cache_backend ? ` · ${data.ai_fill_cache_backend}` : '') +
                       (data.source ? ` · ${data.source}` : '')
                   )
-                  return load()
                 })
                 .catch(err => {
                   setError(err instanceof Error ? err.message : String(err))
@@ -1298,7 +1475,7 @@ function ClientsPage() {
                 })
                 .finally(() => setAiFillLoading(false))
             }}
-            title="Заполнить пустые Группы / Статус / Пол / роль / ТГ ник через AI (зелёные метки)"
+            title="Принудительно заполнить пустые поля на экране через AI (зелёные метки + Redis-кэш)"
             type="button"
           >
             {aiFillLoading ? 'AI заполняет…' : 'Заполнить AI'}

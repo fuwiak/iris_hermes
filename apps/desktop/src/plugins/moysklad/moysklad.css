@@ -703,7 +703,7 @@
 }
 
 
-/* AI-filled cells — green circle marker (client_segmentation .ai-cell-new) */
+/* AI-filled cells — green outline + AI badge */
 td.ms-ai-added {
   background: color-mix(in srgb, #5db872 10%, transparent);
 }
@@ -713,12 +713,24 @@ td.ms-ai-added {
   align-items: center;
   gap: 0.35rem;
   max-width: 100%;
-  padding: 0.12rem 0.45rem 0.12rem 0.3rem;
+  padding: 0.12rem 0.45rem 0.12rem 0.25rem;
   border: 2px solid #5db872;
   border-radius: 999px;
   line-height: 1.25;
   color: #c8f5d4;
   background: color-mix(in srgb, #5db872 12%, transparent);
+}
+
+.ms-ai-badge {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 0.18rem 0.28rem;
+  border-radius: 999px;
+  color: #0d2818;
+  background: #5db872;
 }
 
 .ms-ai-dot {
