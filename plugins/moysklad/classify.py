@@ -214,7 +214,7 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         or sales_channel_type_from_channels(channels)
     )
     channel = row.get("Канал продаж") or (channels[0] if channels else "")
-    return {
+    public = {
         "id": row.get("_moysklad_id") or "",
         "name": row.get("Наименование") or "",
         "phone": row.get("Телефон") or "",
@@ -245,6 +245,13 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
             "marketplace": bool(audience.get("marketplace")),
         },
     }
+    try:
+        from plugins.moysklad.ai_fill import apply_ai_fill_to_public
+
+        return apply_ai_fill_to_public(public)
+    except Exception:
+        public.setdefault("ai_fields", [])
+        return public
 
 
 def clients_page(

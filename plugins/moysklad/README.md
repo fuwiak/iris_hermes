@@ -67,9 +67,14 @@ Example prompts:
 4. Chip cloud **Группы (МойСклад)** filters by tags
 5. **Синхронизация** — force re-download from MoySklad into cache (page views otherwise serve cache)
 6. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
+7. **Заполнить AI** — `POST /clients/ai-fill` fills empty **Группы / Статус / Пол /
+   роль / ТГ ник / Тип контрагента** (LLM + heuristic). Values stamped in
+   `$HERMES_HOME/moysklad/ai_fill.json` and shown with **green circle** markers
+   in the Clients table (same idea as client_segmentation `.ai-cell-new`).
+   Never overwrites MoySklad-owned non-empty cells.
 
 API mounts under `/api/plugins/moysklad/` (`GET /clients`, `GET /clients/{id}`,
-`POST /clients/{id}/ai`, `POST /sync`, `GET|POST /campaigns`,
+`POST /clients/{id}/ai`, `POST /clients/ai-fill`, `POST /sync`, `GET|POST /campaigns`,
 `POST /campaigns/generate`, `POST /campaigns/rewrite`,
 `POST /campaigns/sanity`, `GET|PUT /campaigns/seller-settings`, groups).
 Seller signature fields (`seller_name`, `seller_facts`) persist in

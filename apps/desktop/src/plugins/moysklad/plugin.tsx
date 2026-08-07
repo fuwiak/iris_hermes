@@ -189,6 +189,41 @@ interface ClientRow {
   sex?: string
   tg_nick?: string
   tg_conversation?: string
+  ai_fields?: string[]
+  ai_fill_source?: string
+}
+
+/** Public keys stamped by POST /clients/ai-fill for green AI markers. */
+const AI_COLUMN_KEYS: Record<string, string> = {
+  state: 'state',
+  groups_display: 'groups',
+  role: 'role',
+  sex: 'sex',
+  tg_nick: 'tg_nick',
+  company_type: 'company_type'
+}
+
+function AiCell({
+  value,
+  ai
+}: {
+  value: string
+  ai?: boolean
+}) {
+  if (!value) {
+    return <>{'—'}</>
+  }
+
+  if (!ai) {
+    return <>{value}</>
+  }
+
+  return (
+    <span className="ms-ai-cell" title="Заполнено AI">
+      <span className="ms-ai-dot" aria-hidden="true" />
+      <span className="ms-ai-value">{value}</span>
+    </span>
+  )
 }
 
 const CLIENT_COLUMNS: Array<{
@@ -1059,6 +1094,8 @@ function ClientsPage() {
   )
 
   const [recalcError, setRecalcError] = useState('')
+  const [aiFillLoading, setAiFillLoading] = useState(false)
+  const [aiFillStatus, setAiFillStatus] = useState('')
   const loadGen = useRef(0)
   const loadingMoreRef = useRef(false)
 
@@ -1206,6 +1243,45 @@ function ClientsPage() {
           >
             Пересчитать группы
           </button>
+          <button
+            className="ms-btn"
+            disabled={loading || aiFillLoading}
+            onClick={() => {
+              setAiFillLoading(true)
+              setAiFillStatus('AI заполняет пустые поля…')
+              setError('')
+              void call<{
+                updated?: number
+                filled_field_count?: number
+                source?: string
+              }>('/clients/ai-fill', {
+                method: 'POST',
+                body: {
+                  sales_filter: salesFilter,
+                  group,
+                  q,
+                  limit: 40,
+                  use_llm: true
+                }
+              })
+                .then(data => {
+                  setAiFillStatus(
+                    `✓ AI: обновлено ${data.updated || 0} клиентов · полей ${data.filled_field_count || 0}` +
+                      (data.source ? ` · ${data.source}` : '')
+                  )
+                  return load()
+                })
+                .catch(err => {
+                  setError(err instanceof Error ? err.message : String(err))
+                  setAiFillStatus('')
+                })
+                .finally(() => setAiFillLoading(false))
+            }}
+            title="Заполнить пустые Группы / Статус / Пол / роль / ТГ ник через AI (зелёные метки)"
+            type="button"
+          >
+            {aiFillLoading ? 'AI заполняет…' : 'Заполнить AI'}
+          </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
           </button>
@@ -1347,6 +1423,7 @@ function ClientsPage() {
           </div>
         </div>
       ) : null}
+      {aiFillStatus ? <p className="ms-action-status">{aiFillStatus}</p> : null}
       {loading && !clients.length ? (
         <p className="ms-muted">Загрузка клиентов…</p>
       ) : (
@@ -1364,6 +1441,10 @@ function ClientsPage() {
                 <tr key={row.id || row.name}>
                   {CLIENT_COLUMNS.map(col => {
                     const value = col.render(row)
+                    const aiKey = AI_COLUMN_KEYS[col.key]
+                    const isAi = Boolean(
+                      aiKey && (row.ai_fields || []).includes(aiKey) && value
+                    )
 
                     if (col.key === 'name') {
                       return (
@@ -1380,7 +1461,11 @@ function ClientsPage() {
                       )
                     }
 
-                    return <td key={col.key}>{value || '—'}</td>
+                    return (
+                      <td className={isAi ? 'ms-ai-added' : undefined} key={col.key}>
+                        <AiCell ai={isAi} value={value} />
+                      </td>
+                    )
                   })}
                 </tr>
               ))}

@@ -123,12 +123,25 @@ from plugins.moysklad.outreach_cache import (
     get_outreach_draft,
     set_outreach_draft,
 )
+from plugins.moysklad.ai_fill import fill_empty_for_rows
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _SYNC_LOCK = threading.Lock()
+
+
+class AiFillBody(BaseModel):
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    ids: list[str] = Field(default_factory=list)
+    limit: int = 40
+    use_llm: bool = True
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
 
 
 class AssignBody(BaseModel):
@@ -803,6 +816,51 @@ def post_client_ai(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id}/ai failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/ai-fill")
+def post_clients_ai_fill(body: AiFillBody) -> dict[str, Any]:
+    """Fill empty CRM fields (Группы, Статус, Пол, …) via AI + heuristics.
+
+    Stamps ``ai_fields`` for green AI markers in the Clients table
+    (same idea as client_segmentation ``.ai-cell-new``).
+    """
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter,
+            group=body.group,
+            q=body.q,
+            limit=500,
+            offset=0,
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            catalog=catalog,
+        )
+        rows = list(page.get("_rows") or catalog.get("rows") or [])
+        result = fill_empty_for_rows(
+            rows,
+            client_ids=list(body.ids or []),
+            limit=body.limit,
+            use_llm=bool(body.use_llm),
+        )
+        return _attach_cache_meta(result, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/ai-fill failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

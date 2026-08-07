@@ -172,6 +172,28 @@
     return String(value);
   }
 
+  function aiCell(value, isAi) {
+    if (value == null || value === "") {
+      return h("span", { className: "ms-muted" }, "—");
+    }
+    if (!isAi) return String(value);
+    return h(
+      "span",
+      { className: "ms-ai-cell", title: "Заполнено AI" },
+      h("span", { className: "ms-ai-dot", "aria-hidden": "true" }),
+      h("span", { className: "ms-ai-value" }, String(value)),
+    );
+  }
+
+  var AI_COLUMN_KEYS = {
+    state: "state",
+    groups: "groups",
+    role: "role",
+    sex: "sex",
+    tg_nick: "tg_nick",
+    company_type: "company_type",
+  };
+
   function formatDate(value) {
     if (!value) return "";
     var s = String(value);
@@ -269,7 +291,15 @@
                     ),
                   );
                 }
-                return h("td", { key: col.key }, cell(raw));
+                var aiKey = AI_COLUMN_KEYS[col.key];
+                var isAi = Boolean(
+                  aiKey && (c.ai_fields || []).indexOf(aiKey) >= 0 && raw,
+                );
+                return h(
+                  "td",
+                  { key: col.key, className: isAi ? "ms-ai-added" : undefined },
+                  aiCell(raw, isAi),
+                );
               }),
             );
           }),
@@ -842,6 +872,8 @@
     const [cardClientId, setCardClientId] = useState(null);
     const [syncedLabel, setSyncedLabel] = useState("");
     const [fromCache, setFromCache] = useState(false);
+    const [aiFillLoading, setAiFillLoading] = useState(false);
+    const [aiFillStatus, setAiFillStatus] = useState("");
     const loadGen = useRef(0);
     const loadingMoreRef = useRef(false);
 
@@ -1125,6 +1157,49 @@
             },
             "Пересчитать группы",
           ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-btn",
+              disabled: loading || aiFillLoading,
+              title: "Заполнить пустые Группы / Статус / Пол / роль / ТГ ник через AI",
+              onClick: function () {
+                setAiFillLoading(true);
+                setAiFillStatus("AI заполняет пустые поля…");
+                setError(null);
+                api("/clients/ai-fill", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sales_filter: salesFilter,
+                    group: group || "",
+                    q: q || "",
+                    limit: 40,
+                    use_llm: true,
+                  }),
+                })
+                  .then(function (payload) {
+                    setAiFillStatus(
+                      "✓ AI: обновлено " +
+                        (payload.updated || 0) +
+                        " клиентов · полей " +
+                        (payload.filled_field_count || 0) +
+                        (payload.source ? " · " + payload.source : ""),
+                    );
+                    return load({ offset: 0 });
+                  })
+                  .catch(function (err) {
+                    setError(String((err && err.message) || err));
+                    setAiFillStatus("");
+                  })
+                  .finally(function () {
+                    setAiFillLoading(false);
+                  });
+              },
+            },
+            aiFillLoading ? "AI заполняет…" : "Заполнить AI",
+          ),
         ),
       ),
       h(FilterTabs, {
@@ -1160,6 +1235,9 @@
         },
       }),
       error ? h("div", { className: "ms-error" }, error) : null,
+      aiFillStatus
+        ? h("p", { className: "ms-action-status" }, aiFillStatus)
+        : null,
       h(
         "p",
         { className: "ms-muted" },

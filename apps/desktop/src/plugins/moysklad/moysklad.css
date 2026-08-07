@@ -702,3 +702,37 @@
   color: #e8dccf;
 }
 
+
+/* AI-filled cells — green circle marker (client_segmentation .ai-cell-new) */
+td.ms-ai-added {
+  background: color-mix(in srgb, #5db872 10%, transparent);
+}
+
+.ms-ai-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.12rem 0.45rem 0.12rem 0.3rem;
+  border: 2px solid #5db872;
+  border-radius: 999px;
+  line-height: 1.25;
+  color: #c8f5d4;
+  background: color-mix(in srgb, #5db872 12%, transparent);
+}
+
+.ms-ai-dot {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #5db872;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #5db872 35%, transparent);
+}
+
+.ms-ai-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18rem;
+}
