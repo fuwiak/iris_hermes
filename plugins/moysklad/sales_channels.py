@@ -171,17 +171,45 @@ def _status_matches_allowlist(value: str, needles: tuple[str, ...] | list[str]) 
 
 
 def moysklad_group_tokens(row: dict[str, Any]) -> list[str]:
+    """Return MoySklad group/tag labels for a catalog or public client row.
+
+    Prefer the structured ``_moysklad_tags`` list when present — joining with
+    spaces and re-splitting on commas used to glue multi-word tags into one
+    bogus chip (``лофт гарден витрина …``).
+    """
+    tags = row.get("_moysklad_tags")
+    if isinstance(tags, (list, tuple)) and tags:
+        seen: set[str] = set()
+        out: list[str] = []
+        for part in tags:
+            name = str(part or "").strip()
+            key = name.lower()
+            if name and key not in seen:
+                seen.add(key)
+                out.append(name)
+        if out:
+            return out
+
     raw = str(
         row.get("_moysklad_tags_display")
-        or " ".join(str(t) for t in (row.get("_moysklad_tags") or []))
+        or row.get("ms_groups")
+        or row.get("groups")
         or row.get("Группы")
         or ""
     ).strip()
     if not raw:
+        # Last resort: tags may already be a public string list.
+        public_tags = row.get("tags")
+        if isinstance(public_tags, (list, tuple)) and public_tags:
+            return [
+                str(t).strip()
+                for t in public_tags
+                if str(t or "").strip()
+            ]
         return []
     parts = re.split(r"[,/|;]", raw)
-    seen: set[str] = set()
-    out: list[str] = []
+    seen = set()
+    out = []
     for part in parts:
         name = part.strip()
         key = name.lower()

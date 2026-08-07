@@ -57,16 +57,41 @@ def test_normalize_group_aliases_and_counts() -> None:
     assert row_has_group(rows[1], "событие марта") is True
 
     cloud = collect_featured_group_counts(rows, sales_filter="direct")
-    names = {item["name"]: item["count"] for item in cloud}
-    assert names.get("8 марта") == 1
-    assert names.get("событие марта") == 1
-    assert names.get("букет от 10 000") == 1
+    by_name = {item["name"]: item for item in cloud if item.get("source") != "ai" or item.get("ms_count")}
+    # Prefer МС chip when AI featured also emits a zero-count twin.
+    ms_or_both = {
+        item["name"]: item
+        for item in cloud
+        if item.get("source") in ("ms", "both") or int(item.get("ms_count") or 0) > 0
+    }
+    assert ms_or_both.get("8 марта", {}).get("ms_count") == 1
+    assert ms_or_both.get("событие марта", {}).get("ms_count") == 1
+    assert ms_or_both.get("букет от 10 000", {}).get("ms_count") == 1
+    assert ms_or_both.get("Telegram", {}).get("ms_count") == 1
     # No double-count under nominative alias
-    assert "событие март" not in names
-    by_name = {item["name"]: item for item in cloud}
-    assert by_name["8 марта"]["source"] == "ms"
-    assert by_name["8 марта"]["ms_count"] == 1
-    assert by_name["8 марта"]["ai_count"] == 0
+    assert "событие март" not in {i["name"] for i in cloud}
+    assert ms_or_both["8 марта"]["source"] in ("ms", "both")
+    assert ms_or_both["8 марта"]["ai_count"] == 0
+
+
+def test_all_moysklad_tags_become_ms_filter_chips() -> None:
+    """Chip cloud must use every MoySklad tag, not only curated occasions."""
+    from plugins.moysklad.groups import split_group_options_by_source
+
+    rows = [
+        {"_moysklad_id": "1", "_moysklad_tags": ["лофт гарден", "витрина", "свой тег CRM"]},
+        {"_moysklad_id": "2", "_moysklad_tags": ["витрина", "сайт"]},
+        {"_moysklad_id": "3", "_moysklad_tags": ["корпоративный клиент"]},
+    ]
+    cloud = collect_featured_group_counts(rows, sales_filter="direct")
+    split = split_group_options_by_source(cloud)
+    ms_names = {i["name"] for i in split["ms"]}
+    assert "лофт гарден" in ms_names
+    assert "витрина" in ms_names
+    assert "свой тег CRM" in ms_names
+    assert "сайт" in ms_names
+    assert "корпоративный клиент" in ms_names
+    assert split["ai"], "AI section must stay populated"
 
 
 def test_group_cloud_marks_ms_vs_ai(monkeypatch) -> None:

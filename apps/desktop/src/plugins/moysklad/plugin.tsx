@@ -31,9 +31,26 @@ const DEFAULT_AI_GROUP_CHIPS: GroupChipOption[] = [
   'премиум',
   'постоянный клиент',
   'несостоявшийся',
+  'клиент',
   'букет от 10 000',
   'прямые продажи',
-  'маркетплейс'
+  'маркетплейс',
+  'витрина',
+  'telegram',
+  'whatsapp',
+  'сайт',
+  'событие января',
+  'событие февраля',
+  'событие марта',
+  'событие апреля',
+  'событие мая',
+  'событие июня',
+  'событие июля',
+  'событие августа',
+  'событие сентября',
+  'событие октября',
+  'событие ноября',
+  'событие декабря'
 ].map(name => ({
   name,
   count: 0,
@@ -42,6 +59,24 @@ const DEFAULT_AI_GROUP_CHIPS: GroupChipOption[] = [
   ms_count: 0,
   ai_count: 0
 }))
+
+function mergeAiGroupOptions(ai: GroupChipOption[]): GroupChipOption[] {
+  const byName = new Map<string, GroupChipOption>()
+  for (const opt of ai || []) {
+    const key = String(opt.name || '').trim().toLowerCase()
+    if (!key) {continue}
+    byName.set(key, { ...opt, filter_source: opt.filter_source || 'ai' })
+  }
+  for (const fallback of DEFAULT_AI_GROUP_CHIPS) {
+    const key = fallback.name.toLowerCase()
+    if (!byName.has(key)) {
+      byName.set(key, fallback)
+    }
+  }
+  return [...byName.values()].sort(
+    (a, b) => (b.count || 0) - (a.count || 0) || a.name.localeCompare(b.name, 'ru')
+  )
+}
 
 function resolveGroupOptionsBySource(data: {
   group_options?: GroupChipOption[]
@@ -55,9 +90,11 @@ function resolveGroupOptionsBySource(data: {
     ms = all.filter(o => (o.source || 'ms') !== 'ai')
     ai = all.filter(o => o.source === 'ai' || o.source === 'both')
   }
-  if (!ai.length) {
-    ai = DEFAULT_AI_GROUP_CHIPS
-  }
+  // Always keep «Группы: ИИ» populated (defaults + server chips).
+  ai = mergeAiGroupOptions(ai)
+  ms = [...ms].sort(
+    (a, b) => (b.count || 0) - (a.count || 0) || a.name.localeCompare(b.name, 'ru')
+  )
   return { ms, ai }
 }
 
@@ -1686,7 +1723,7 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 100
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v3:'
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v4:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
@@ -1795,7 +1832,7 @@ function ClientsPage() {
     () => initialLocal?.group_options_ms || []
   )
   const [groupOptionsAi, setGroupOptionsAi] = useState<GroupChipOption[]>(
-    () => initialLocal?.group_options_ai || []
+    () => mergeAiGroupOptions(initialLocal?.group_options_ai || [])
   )
   const [integrityNote, setIntegrityNote] = useState('')
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
@@ -1941,11 +1978,7 @@ function ClientsPage() {
             setNextOffset(local.next_offset || local.clients.length)
             setHasMore(Boolean(local.has_more))
             setGroupOptionsMs(local.group_options_ms || [])
-            setGroupOptionsAi(
-              local.group_options_ai?.length
-                ? local.group_options_ai
-                : DEFAULT_AI_GROUP_CHIPS
-            )
+            setGroupOptionsAi(mergeAiGroupOptions(local.group_options_ai || []))
             setFromCache(true)
             // Local paint is a snapshot — do not sticky-spin «обновляем…» until server says so.
             setStaleHint(false)
@@ -2210,7 +2243,7 @@ function ClientsPage() {
         activeSource={groupSource}
         emptyHint="Нет тегов МойСклад в текущей выборке"
         items={groupOptionsMs}
-        limit={28}
+        limit={120}
         onToggle={(name, source) => {
           if (group === name && groupSource === source) {
             setGroup('')
@@ -2228,7 +2261,7 @@ function ClientsPage() {
         activeSource={groupSource}
         emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
         items={groupOptionsAi}
-        limit={28}
+        limit={80}
         onToggle={(name, source) => {
           if (group === name && groupSource === source) {
             setGroup('')
@@ -4132,6 +4165,7 @@ function CampaignsPage() {
           activeSource={groupSource}
           emptyHint="Нет тегов МойСклад в текущей выборке"
           items={groupOptionsMs}
+          limit={120}
           onToggle={(name, source) => {
             if (group === name && groupSource === source) {
               setGroup('')
@@ -4149,6 +4183,7 @@ function CampaignsPage() {
           activeSource={groupSource}
           emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
           items={groupOptionsAi}
+          limit={80}
           onToggle={(name, source) => {
             if (group === name && groupSource === source) {
               setGroup('')

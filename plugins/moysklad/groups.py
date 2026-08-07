@@ -20,14 +20,19 @@ from plugins.moysklad.sales_channels import (
 
 # Soft AI segment chips — always shown in «Группы: ИИ» even at count 0 so the
 # section never disappears when AI-fill store is empty / snapshot is stale.
-AI_FEATURED_GROUPS: tuple[str, ...] = (
+_AI_FEATURED_BASE: tuple[str, ...] = (
     "новый",
     "премиум",
     "постоянный клиент",
     "несостоявшийся",
+    "клиент",
     "букет от 10 000",
     "прямые продажи",
     "маркетплейс",
+    "витрина",
+    "telegram",
+    "whatsapp",
+    "сайт",
 )
 
 # Shared occasion/segment chips — available on Прямые AND Маркетплейс.
@@ -65,6 +70,8 @@ _EVENT_MONTH_FORMS = (
 EVENT_MONTH_GROUPS: tuple[str, ...] = tuple(
     f"событие {genitive}" for genitive, _nominative in _EVENT_MONTH_FORMS
 )
+
+AI_FEATURED_GROUPS: tuple[str, ...] = _AI_FEATURED_BASE + EVENT_MONTH_GROUPS
 
 _MONTH_ALIAS: dict[str, str] = {}
 for genitive, nominative in _EVENT_MONTH_FORMS:
@@ -297,7 +304,9 @@ def _count_group_hits(
     for row in rows:
         ms_tokens = row_groups(row)
         ai_tokens = row_ai_groups(row)
-        for key in _hits_for(ms_tokens, include_all=False):
+        # include_all=True for МС: every MoySklad tag becomes a filter chip,
+        # not only the curated occasion whitelist.
+        for key in _hits_for(ms_tokens, include_all=True):
             if key:
                 ms_counter[key] += 1
         for key in _hits_for(ai_tokens, include_all=True):
@@ -318,6 +327,7 @@ def collect_featured_group_counts(
     """Chip cloud: MoySklad (МС) + AI overlay groups, one chip per canonical key.
 
     Each item has ``source``: ``ms`` | ``ai`` | ``both``.
+    **All** MoySklad tags present on rows are surfaced (not only featured).
     """
     featured = crm_featured_groups(sales_filter)
     featured_keys = [normalize_group_key(label) for label in featured]
@@ -341,12 +351,10 @@ def collect_featured_group_counts(
     ):
         if not key or key in seen:
             continue
-        label = display.get(key, key)
-        # MS: featured/events only (already in featured_keys loop).
-        # AI: also surface AI-only tags like «премиум» / «новый».
+        # Surface every tag that actually appears on clients (МС or AI).
         if (
             key == selected_key
-            or re.search(r"событи", label, re.I)
+            or ms_counter.get(key, 0) > 0
             or ai_counter.get(key, 0) > 0
         ):
             seen.add(key)
@@ -376,6 +384,8 @@ def collect_featured_group_counts(
             "hue": group_chip_hue(label),
             "source": source,
         })
+    # Highest count first so operators see popular MoySklad tags immediately.
+    items.sort(key=lambda i: (-int(i.get("count") or 0), str(i.get("name") or "")))
     return ensure_ai_featured_chips(items, ai_counter=ai_counter, display=display)
 
 
