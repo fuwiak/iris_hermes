@@ -57,6 +57,73 @@ def test_invalidate_removes_file(hermes_home: Path) -> None:
     assert cc.get_cached(key) is None
 
 
+def test_refresh_audience_counts_fixes_stale_cache_totals(hermes_home: Path) -> None:
+    """Stale catalog counts (pre-partition) must be rewritten on refresh."""
+    rows = [
+        {
+            "_moysklad_id": "d1",
+            "_orders_context": [{"Канал продаж": "Telegram"}],
+            "_moysklad_tags": [],
+        },
+        {
+            "_moysklad_id": "m1",
+            "_orders_context": [{"Канал продаж": "FlowWow Floday"}],
+            "_moysklad_tags": [],
+        },
+        {
+            "_moysklad_id": "d2",
+            "_orders_context": [],
+            "_moysklad_tags": [],
+        },
+    ]
+    stale = {
+        "rows": rows,
+        # Old broken numbers: gap + undercounted direct
+        "counts": {"direct": 1, "marketplace": 1, "other": 1, "total": 3},
+    }
+    fresh = cc.refresh_audience_counts(stale)
+    assert fresh["total"] == 3
+    assert fresh["other"] == 0
+    assert fresh["direct"] + fresh["marketplace"] == fresh["total"]
+    assert stale["counts"] == fresh
+
+
+def test_clients_page_ignores_stale_catalog_counts() -> None:
+    from plugins.moysklad.classify import clients_page
+
+    catalog = {
+        "rows": [
+            {
+                "_moysklad_id": "1",
+                "Наименование": "A",
+                "_orders_context": [{"Канал продаж": "Telegram"}],
+                "_moysklad_tags": [],
+                "_audience": {"direct": False, "marketplace": False},
+            },
+            {
+                "_moysklad_id": "2",
+                "Наименование": "B",
+                "_orders_context": [{"Канал продаж": "Ozon"}],
+                "_moysklad_tags": [],
+            },
+        ],
+        "counts": {"direct": 203, "marketplace": 6018, "other": 3358, "total": 2},
+        "orders_scanned": 0,
+        "counterparties_scanned": 2,
+    }
+
+    class _Dummy:
+        pass
+
+    page = clients_page(_Dummy(), sales_filter="all", catalog=catalog, limit=50)
+    counts = page["counts"]
+    assert counts["total"] == 2
+    assert counts["other"] == 0
+    assert counts["direct"] + counts["marketplace"] == counts["total"]
+    assert counts["direct"] == 1
+    assert counts["marketplace"] == 1
+
+
 def test_counterparty_row_maps_crm_columns() -> None:
     row = counterparty_row_from_api(
         {

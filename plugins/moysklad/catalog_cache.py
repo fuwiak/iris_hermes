@@ -58,13 +58,29 @@ def cache_key(
     include_archived: bool,
 ) -> str:
     parts = (
-        "moysklad:catalog:v1",
+        "moysklad:catalog:v2",
         _account_fingerprint(),
         f"o{int(max_orders)}",
         f"c{int(max_counterparties)}",
         f"a{1 if include_archived else 0}",
     )
     return ":".join(parts)
+
+
+def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
+    """Recompute exclusive tab counts on catalog rows (mutates ``catalog``).
+
+    Stale durable cache kept old direct/marketplace numbers after classifier
+    fixes; every read path must refresh so UI never shows gap
+    ``total != direct + marketplace``.
+    """
+    from plugins.moysklad.dedupe import recompute_audience_counts
+
+    rows = list((catalog or {}).get("rows") or [])
+    counts = recompute_audience_counts(rows)
+    if isinstance(catalog, dict):
+        catalog["counts"] = counts
+    return counts
 
 
 def _file_path(key: str) -> Any:

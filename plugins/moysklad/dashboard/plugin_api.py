@@ -84,6 +84,7 @@ from plugins.moysklad.catalog_cache import (
     format_synced_at,
     get_cached,
     invalidate,
+    refresh_audience_counts,
     set_cached,
 )
 from plugins.moysklad.classify import build_enriched_catalog, clients_page
@@ -425,9 +426,14 @@ def _get_catalog(
     if not force:
         envelope = get_cached(key)
         if envelope is not None:
+            catalog = envelope["catalog"]
             synced_at = float(envelope.get("synced_at") or 0)
-            return envelope["catalog"], {
+            catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                key, catalog, synced_at=synced_at
+            )
+            return catalog, {
                 "cached": True,
+                "counts_refreshed": counts_rewritten,
                 "synced_at": synced_at,
                 "synced_at_label": format_synced_at(synced_at),
                 "cache_ttl_seconds": int(
@@ -441,9 +447,14 @@ def _get_catalog(
         if not force:
             envelope = get_cached(key)
             if envelope is not None:
+                catalog = envelope["catalog"]
                 synced_at = float(envelope.get("synced_at") or 0)
-                return envelope["catalog"], {
+                catalog, counts_rewritten = _refresh_cached_catalog_counts(
+                    key, catalog, synced_at=synced_at
+                )
+                return catalog, {
                     "cached": True,
+                    "counts_refreshed": counts_rewritten,
                     "synced_at": synced_at,
                     "synced_at_label": format_synced_at(synced_at),
                     "cache_ttl_seconds": int(
@@ -463,6 +474,7 @@ def _get_catalog(
         synced_at = float(envelope.get("synced_at") or time.time())
         return catalog, {
             "cached": False,
+            "counts_refreshed": False,
             "synced_at": synced_at,
             "synced_at_label": format_synced_at(synced_at),
             "cache_ttl_seconds": int(
@@ -470,6 +482,27 @@ def _get_catalog(
             ),
             "cache_backend": cache_backend_name(),
         }
+
+
+def _refresh_cached_catalog_counts(
+    key: str,
+    catalog: dict[str, Any],
+    *,
+    synced_at: float,
+) -> tuple[dict[str, Any], bool]:
+    """Recompute tab counts on cache hit; persist when they changed."""
+    if not isinstance(catalog, dict):
+        return catalog, False
+    before = dict(catalog.get("counts") or {})
+    after = refresh_audience_counts(catalog)
+    if before == after:
+        return catalog, False
+    try:
+        set_cached(key, catalog, synced_at=synced_at or time.time())
+    except Exception:
+        log.warning("moysklad cache counts rewrite failed", exc_info=True)
+        return catalog, True
+    return catalog, True
 
 
 def _invalidate_cache(

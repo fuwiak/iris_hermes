@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from plugins.moysklad.audience import row_matches_audience_extras
+from plugins.moysklad.catalog_cache import refresh_audience_counts
 from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.dedupe import (
     dedupe_catalog_rows,
@@ -285,7 +286,8 @@ def clients_page(
         include_archived=include_archived,
     )
     all_rows: list[dict[str, Any]] = list(catalog["rows"])
-    counts = catalog["counts"]
+    # Always recompute — durable cache may still hold pre-partition counts.
+    counts = refresh_audience_counts(catalog)
 
     base_rows = [
         r
