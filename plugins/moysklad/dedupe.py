@@ -323,20 +323,24 @@ def dedupe_by_fuzzy_name_phone(rows: Iterable[dict[str, Any]]) -> list[dict[str,
 
 
 def recompute_audience_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
-    """Rebuild tab counts from deduped rows (import matcher lazily)."""
-    from plugins.moysklad.sales_channels import row_matches_sales_filter
+    """Rebuild tab counts from deduped rows.
+
+    Buckets are exclusive: ``direct + marketplace == total`` (``other`` stays 0).
+    """
+    from plugins.moysklad.sales_channels import row_audience_bucket
 
     counts = {"direct": 0, "marketplace": 0, "other": 0, "total": 0}
     for row in rows:
-        is_direct = row_matches_sales_filter(row, "direct")
-        is_mp = row_matches_sales_filter(row, "marketplace")
+        bucket = row_audience_bucket(row)
+        is_direct = bucket == "direct"
+        is_mp = bucket == "marketplace"
         row["_audience"] = {"direct": is_direct, "marketplace": is_mp}
         counts["total"] += 1
         if is_direct:
             counts["direct"] += 1
-        if is_mp:
+        elif is_mp:
             counts["marketplace"] += 1
-        if not is_direct and not is_mp:
+        else:
             counts["other"] += 1
     return counts
 

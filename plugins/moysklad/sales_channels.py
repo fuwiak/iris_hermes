@@ -195,27 +195,58 @@ def moysklad_status_tokens(row: dict[str, Any]) -> list[str]:
     return [status] if status else []
 
 
+def _looks_like_sales_type_label(value: str) -> bool:
+    text = _normalize_channel(value)
+    return text in {
+        SALES_CHANNEL_TYPE_DIRECT,
+        SALES_CHANNEL_TYPE_MARKETPLACE,
+        "прямые",
+        "маркетплейсы",
+        "marketplace",
+        "direct",
+    }
+
+
 def unique_sales_channels(row: dict[str, Any]) -> list[str]:
+    """Unique sales channels from orders / row field — never from group tags.
+
+    Tags like «8 марта» are groups, not channels. Treating every non-direct tag as
+    a marketplace channel wrongly emptied the «Прямые» tab.
+    """
     seen: set[str] = set()
     result: list[str] = []
-    for order in row.get("_orders_context") or []:
-        ch = order.get("Канал продаж")
-        if ch and str(ch).strip():
-            key = str(ch).strip().lower()
-            if key not in seen:
-                seen.add(key)
-                result.append(str(ch).strip())
-    stored = str(row.get("Канал продаж") or "").strip()
-    if stored:
-        key = stored.lower()
-        if key not in seen:
-            result.append(stored)
+
+    def _add(raw: Any) -> None:
+        if raw is None:
+            return
+        text = str(raw).strip()
+        if not text or _looks_like_sales_type_label(text):
+            return
+        for part in text.split(","):
+            ch = part.strip()
+            if not ch or _looks_like_sales_type_label(ch):
+                continue
+            key = ch.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(ch)
+
+    stored_all = row.get("_order_channels_all")
+    if isinstance(stored_all, list):
+        for ch in stored_all:
+            _add(ch)
+    else:
+        for order in row.get("_orders_context") or []:
+            _add(order.get("Канал продаж"))
+    _add(row.get("Канал продаж"))
+    # Channel names sometimes live only in MoySklad tags (витрина / watsapp / флау вау).
+    # Occasion groups (8 марта, …) must NOT be treated as channels.
     for tag in moysklad_group_tokens(row):
-        if is_direct_sales_channel(tag) or is_marketplace_channel(tag):
-            key = tag.lower()
-            if key not in seen:
-                seen.add(key)
-                result.append(tag)
+        if _token_matches_any(tag, DIRECT_AUDIENCE_CHANNELS) or _token_matches_any(
+            tag, MARKETPLACE_AUDIENCE_CHANNELS
+        ):
+            _add(tag)
     return result
 
 
@@ -246,22 +277,12 @@ def _row_matches_audience(
     return False
 
 
-def row_matches_direct_audience(row: dict[str, Any]) -> bool:
-    """CRM tab «Прямые»: only pure direct channels (any MP channel excludes)."""
-    order_channels = unique_sales_channels(row)
-    if any(is_marketplace_channel(c) for c in order_channels):
-        return False
-    return _row_matches_audience(
-        row,
-        channels=DIRECT_AUDIENCE_CHANNELS,
-        statuses=(),
-        groups=(),
-        group_patterns=(),
-    )
+def _row_has_marketplace_order_channel(row: dict[str, Any]) -> bool:
+    return any(is_marketplace_channel(c) for c in unique_sales_channels(row))
 
 
-def row_matches_marketplace_audience(row: dict[str, Any]) -> bool:
-    """CRM tab «Маркетплейс»: FlowWow channels ∪ statuses ∪ groups."""
+def _row_matches_marketplace_markers(row: dict[str, Any]) -> bool:
+    """FlowWow allowlist ∪ marketplace statuses ∪ occasion groups (TZ)."""
     return _row_matches_audience(
         row,
         channels=MARKETPLACE_AUDIENCE_CHANNELS,
@@ -269,6 +290,33 @@ def row_matches_marketplace_audience(row: dict[str, Any]) -> bool:
         groups=MARKETPLACE_AUDIENCE_GROUPS,
         group_patterns=MARKETPLACE_AUDIENCE_GROUP_PATTERNS,
     )
+
+
+def row_audience_bucket(row: dict[str, Any]) -> str:
+    """Exclusive CRM tab: ``marketplace`` | ``direct``.
+
+    Invariant: every client is in exactly one bucket, so
+    ``direct + marketplace == total`` (no «other» gap, no double-count).
+
+    Marketplace wins when any non-direct order channel exists, or when
+    marketplace status/group/FlowWow markers match. Everyone else → direct
+    (including clients with no channel yet).
+    """
+    if _row_has_marketplace_order_channel(row):
+        return "marketplace"
+    if _row_matches_marketplace_markers(row):
+        return "marketplace"
+    return "direct"
+
+
+def row_matches_direct_audience(row: dict[str, Any]) -> bool:
+    """CRM tab «Прямые»: exclusive complement of marketplace."""
+    return row_audience_bucket(row) == "direct"
+
+
+def row_matches_marketplace_audience(row: dict[str, Any]) -> bool:
+    """CRM tab «Маркетплейс»: order MP channels ∪ FlowWow/status/group markers."""
+    return row_audience_bucket(row) == "marketplace"
 
 
 def sales_channel_type_from_channels(channels: list[str]) -> str:

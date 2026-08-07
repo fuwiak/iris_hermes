@@ -382,8 +382,8 @@ def clients_by_sales_type(
         "counterparties_scanned": page["counterparties_scanned"],
         "clients": page["clients"],
         "hint": (
-            "direct = CRM tab «Прямые» (only pure direct channels); "
-            "marketplace = CRM tab «Маркетплейс» (FlowWow ∪ status/group allowlists). "
-            "A client can match marketplace via status/tags without FlowWow orders."
+            "Exclusive tabs: marketplace = non-direct order channels ∪ FlowWow/"
+            "status/group markers; direct = everyone else. "
+            "Invariant: direct + marketplace == all."
         ),
     }
