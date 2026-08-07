@@ -166,12 +166,25 @@ def test_outreach_system_prompts_cover_debt_and_creativity():
     from plugins.moysklad.outreach import _REWRITE_SYSTEM, _SANITY_SYSTEM
 
     prompt = _OUTREACH_SYSTEM("Анна", "")
-    assert "КРЕАТИВНЫЙ" in prompt or "креатив" in prompt.lower()
+    assert "свободн" in prompt.lower() or "чат" in prompt.lower()
+    assert "креатив" in prompt.lower()
     assert "долг" in prompt.lower()
     assert "подар" in prompt.lower()
     assert "продающ" in _REWRITE_SYSTEM.lower()
-    assert "здрав" in _SANITY_SYSTEM.lower() or "долг" in _SANITY_SYSTEM.lower()
-    assert "подар" in _SANITY_SYSTEM.lower()
+    assert "долг" in _SANITY_SYSTEM.lower()
+    # Sanity must stay light — not a style rewrite pass.
+    assert "стиль" in _SANITY_SYSTEM.lower() or "креатив" in _SANITY_SYSTEM.lower()
+
+
+def test_outreach_system_prompt_includes_seller_fields():
+    prompt = _OUTREACH_SYSTEM("Анна из Iris", "Адрес: ул. Цветочная 1")
+    assert "Анна из Iris" in prompt
+    assert "ул. Цветочная 1" in prompt
+    assert "Это Iris" in prompt  # instruction: don't hardcode unless signature says so
+    assert "навязанных скидок" in prompt
+    assert "свободн" in prompt.lower() or "чат" in prompt.lower()
+    assert "креатив" in prompt.lower()
+    assert "подар" in prompt.lower()
 
 
 def test_heuristic_outreach_cites_facts_not_discounts():
@@ -236,16 +249,6 @@ def test_heuristic_outreach_thin_data_avoids_fake_history():
     assert "vip" not in low or "не" in low
     assert "роза" in low or "магазин" in low
     assert out["facts"]["data_thin"] is True
-
-
-def test_outreach_system_prompt_includes_seller_fields():
-    prompt = _OUTREACH_SYSTEM("Анна из Iris", "Адрес: ул. Цветочная 1")
-    assert "Анна из Iris" in prompt
-    assert "ул. Цветочная 1" in prompt
-    assert "Это Iris" in prompt  # instruction: don't hardcode unless signature says so
-    assert "навязанных скидок" in prompt
-    assert "КРЕАТИВНЫЙ" in prompt or "креатив" in prompt.lower()
-    assert "подар" in prompt.lower()
 
 
 def test_rewrite_heuristic_removes_robot_meta():
