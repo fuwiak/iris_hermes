@@ -77,8 +77,11 @@ from plugins.moysklad.telegram_send import (
     resolve_peer_identity,
     send_outreach_to_client,
     telegram_account_snapshot,
+    telegram_send_mode,
     telegram_send_status,
+    telegram_user_status,
 )
+from plugins.platforms.telegram_user import client as tg_user
 from plugins.moysklad.outreach_contacts import (
     add_custom_contact,
     delete_custom_contact,
@@ -693,6 +696,22 @@ class OutreachResolveBody(BaseModel):
     tg_chat_id: str = ""
 
 
+class TelegramUserLoginBody(BaseModel):
+    """Personal-account login step 1 — phone (+ optional my.telegram.org app)."""
+
+    phone: str = ""
+    api_id: str = ""
+    api_hash: str = ""
+
+
+class TelegramUserCodeBody(BaseModel):
+    code: str = ""
+
+
+class TelegramUserPasswordBody(BaseModel):
+    password: str = ""
+
+
 class SellerSettingsBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
@@ -844,6 +863,39 @@ def _invalidate_cache(
             include_archived=include_archived,
         )
     )
+
+
+def _is_contact_id(client_id: str) -> bool:
+    """Outreach-only peer (``custom:…`` / ``tg:…``) with no MoySklad catalog row."""
+    return str(client_id or "").startswith(("custom:", "tg:"))
+
+
+def _contact_row(client_id: str) -> dict[str, Any] | None:
+    """Synthesize a catalog-shaped row for a peer that has no MoySklad card.
+
+    Personal Telegram / custom contacts have a name and a TG handle and no
+    order history — enough for the card, AI draft and send paths to run
+    instead of 404-ing the whole Рассылки flow.
+    """
+    contact = get_contact(client_id)
+    if contact is None:
+        return None
+    return {
+        "_moysklad_id": client_id,
+        "Наименование": str(contact.get("name") or contact.get("label") or ""),
+        "ТГ ник": str(contact.get("tg_nick") or ""),
+        "ТГ chat id": str(contact.get("tg_chat_id") or ""),
+        "_orders_context": [],
+        "_contact_only": True,
+    }
+
+
+def _row_or_contact(catalog: Any, client_id: str) -> dict[str, Any] | None:
+    """Catalog row, falling back to a contact-only row for outreach peers."""
+    row = find_row_in_catalog(catalog, client_id)
+    if row is not None:
+        return row
+    return _contact_row(client_id)
 
 
 def _strip_internal(page: dict[str, Any]) -> dict[str, Any]:
@@ -1118,7 +1170,7 @@ def get_client_detail(
             include_archived=include_archived,
             force=False,
         )
-        row = find_row_in_catalog(catalog, client_id)
+        row = _row_or_contact(catalog, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         detail = build_client_detail(row)
@@ -1266,7 +1318,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
         facts_payload: dict[str, Any] | None = None
         meta: dict[str, Any] = {}
 
-        if client_id.startswith("custom:"):
+        if _is_contact_id(client_id):
             contact = get_contact(client_id)
             if contact is None:
                 raise HTTPException(status_code=404, detail="custom contact not found")
@@ -1341,7 +1393,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             "delivery": delivery,
             "telegram": telegram_send_status(),
         }
-        if not client_id.startswith("custom:"):
+        if not _is_contact_id(client_id):
             catalog_row = None
             try:
                 catalog, meta = _get_catalog(force=False)
@@ -1395,7 +1447,7 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
             phone = ""
             deep_link = ""
 
-            if client_id.startswith("custom:"):
+            if _is_contact_id(client_id):
                 contact = get_contact(client_id)
                 if contact is None:
                     results.append(
@@ -1505,12 +1557,64 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/campaigns/telegram-user")
+def get_telegram_user_account(probe: bool = Query(True)) -> dict[str, Any]:
+    """Personal Telegram account status (no secrets) + active send mode."""
+    return {**telegram_user_status(probe=probe), "send_mode": telegram_send_mode()}
+
+
+@router.post("/campaigns/telegram-user/login")
+def post_telegram_user_login(body: TelegramUserLoginBody) -> dict[str, Any]:
+    """Step 1 — store api_id/api_hash if given and request the login code."""
+    out = tg_user.start_login(
+        phone=body.phone,
+        api_id=body.api_id,
+        api_hash=body.api_hash,
+    )
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return out
+
+
+@router.post("/campaigns/telegram-user/code")
+def post_telegram_user_code(body: TelegramUserCodeBody) -> dict[str, Any]:
+    """Step 2 — the code Telegram sent. ``password_required`` when 2FA is on."""
+    out = tg_user.submit_code(body.code)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return out
+
+
+@router.post("/campaigns/telegram-user/password")
+def post_telegram_user_password(body: TelegramUserPasswordBody) -> dict[str, Any]:
+    """Step 3 — cloud (2FA) password."""
+    out = tg_user.submit_password(body.password)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return out
+
+
+@router.post("/campaigns/telegram-user/logout")
+def post_telegram_user_logout() -> dict[str, Any]:
+    return tg_user.logout()
+
+
+@router.post("/campaigns/telegram-user/contacts/refresh")
+def post_telegram_user_contacts_refresh() -> dict[str, Any]:
+    """Pull the personal contact list from Telegram into the local cache."""
+    out = tg_user.fetch_contacts(force=True)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return {"ok": True, "total": out.get("total", 0)}
+
+
 @router.get("/campaigns/telegram-contacts")
 def get_campaign_telegram_contacts(
     q: str = Query(""),
     limit: int = Query(200, ge=1, le=500),
+    refresh: bool = Query(False),
 ) -> dict[str, Any]:
-    """Dropdown contacts: custom + export overlay + catalog with TG."""
+    """Dropdown contacts: personal Telegram + custom + export overlay + catalog."""
     try:
         catalog_clients: list[dict[str, Any]] = []
         try:
@@ -1527,8 +1631,18 @@ def get_campaign_telegram_contacts(
                 catalog_clients = enrich_clients(list(page.get("clients") or []))
         except Exception:
             log.debug("telegram-contacts catalog preview skipped", exc_info=True)
+        # Stale personal-account cache refreshes itself once the session is live.
+        want_refresh = bool(refresh)
+        if not want_refresh:
+            try:
+                want_refresh = tg_user.contacts_stale() and tg_user.is_authorized()
+            except Exception:
+                want_refresh = False
         contacts = list_outreach_contacts(
-            catalog_clients=catalog_clients, q=q, limit=limit
+            catalog_clients=catalog_clients,
+            q=q,
+            limit=limit,
+            refresh=want_refresh,
         )
         return {"ok": True, "contacts": contacts, "total": len(contacts)}
     except Exception as exc:  # pragma: no cover
@@ -1614,7 +1728,7 @@ def post_client_ai(
             include_archived=include_archived,
             force=False,
         )
-        row = find_row_in_catalog(catalog, client_id)
+        row = _row_or_contact(catalog, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         detail = build_client_detail(row)
@@ -2072,7 +2186,12 @@ def get_campaign_telegram_account() -> dict[str, Any]:
     snap = telegram_account_snapshot(
         settings.get("telegram_business_connection_id") or None
     )
-    return {"ok": True, **snap}
+    return {
+        "ok": True,
+        **snap,
+        "send_mode": telegram_send_mode(),
+        "telegram_user": telegram_user_status(probe=False),
+    }
 
 
 @router.get("/campaigns/draft-cache")
@@ -2144,7 +2263,7 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
             include_archived=body.include_archived,
             force=False,
         )
-        row = find_row_in_catalog(catalog, client_id)
+        row = _row_or_contact(catalog, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
@@ -2257,7 +2376,7 @@ def post_campaign_generate_stream(body: OutreachGenerateBody) -> Any:
                 include_archived=body.include_archived,
                 force=False,
             )
-            row = find_row_in_catalog(catalog, client_id)
+            row = _row_or_contact(catalog, client_id)
             if row is None:
                 yield {"type": "error", "error": "client not found in catalog"}
                 return
@@ -2394,7 +2513,7 @@ def post_campaign_suggest_bouquet(body: OutreachGenerateBody) -> dict[str, Any]:
             include_archived=body.include_archived,
             force=False,
         )
-        row = find_row_in_catalog(catalog, client_id)
+        row = _row_or_contact(catalog, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         seller_name, seller_facts = _resolve_seller(body.seller_name, body.seller_facts)
@@ -2440,7 +2559,7 @@ def post_campaign_suggest_bouquet_stream(body: OutreachGenerateBody) -> Any:
                 include_archived=body.include_archived,
                 force=False,
             )
-            row = find_row_in_catalog(catalog, client_id)
+            row = _row_or_contact(catalog, client_id)
             if row is None:
                 yield {"type": "error", "error": "client not found in catalog"}
                 return
@@ -2713,7 +2832,7 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
         sales_filter = body.sales_filter or "all"
 
         if client_id:
-            row = find_row_in_catalog(catalog, client_id)
+            row = _row_or_contact(catalog, client_id)
             if row is None:
                 raise HTTPException(
                     status_code=404, detail="client not found in catalog"

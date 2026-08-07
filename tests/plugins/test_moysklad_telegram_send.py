@@ -20,6 +20,9 @@ def _clear_biz_env(monkeypatch):
         "TELEGRAM_BOT_USERNAME",
     ):
         monkeypatch.delenv(key, raising=False)
+    # These cases exercise the Business bot path — pin it so a connected
+    # personal account on the dev machine can't take over the send.
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
 
 
 def test_resolve_chat_id_from_nick():
@@ -280,3 +283,93 @@ def test_office_platform_override_lists_telegram_business():
     assert _PLATFORM_OVERRIDES["telegram_business"]["name"] == "Telegram Business"
     assert "telegram_business" in _PLATFORM_ORDER
     assert _PLATFORM_ORDER.index("telegram_business") == _PLATFORM_ORDER.index("telegram") + 1
+
+
+# ── personal account (MTProto) routing ────────────────────────────────────
+
+
+def _fake_user_account(monkeypatch, *, authorized=True, result=None):
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: authorized)
+    monkeypatch.setattr(
+        tg.tg_user,
+        "send_message",
+        lambda **kwargs: result
+        or {"ok": True, "message_id": 11, "chat_id": "415321451", "via": "user_account"},
+    )
+    monkeypatch.setattr(tg.tg_user, "load_config", lambda: {"user": {"username": "pawel"}})
+
+
+def test_auto_prefers_personal_account(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    monkeypatch.delenv("MOYSKLAD_TELEGRAM_SEND_VIA", raising=False)
+    _fake_user_account(monkeypatch)
+    sent: list[dict] = []
+    monkeypatch.setattr(tg, "telegram_api", lambda *a, **k: sent.append(k) or {"ok": True})
+
+    out = tg.send_telegram_message(text="привет", chat_id="@papa2139")
+    assert out["ok"] is True
+    assert out["via"] == "user_account"
+    assert out["user_username"] == "pawel"
+    assert sent == []  # Bot API untouched
+
+
+def test_auto_falls_back_to_business_bot(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    monkeypatch.delenv("MOYSKLAD_TELEGRAM_SEND_VIA", raising=False)
+    monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:BIZ")
+    _fake_user_account(
+        monkeypatch,
+        result={"ok": False, "error": "FloodWaitError", "detail": "wait"},
+    )
+    monkeypatch.setattr(
+        tg,
+        "telegram_api",
+        lambda *a, **k: {"ok": True, "result": {"message_id": 5, "chat": {"id": 42}}},
+    )
+    out = tg.send_telegram_message(text="привет", chat_id="415321451")
+    assert out["ok"] is True
+    assert out["via"] == "business_bot"
+
+
+def test_via_user_does_not_fall_back(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:BIZ")
+    _fake_user_account(monkeypatch, authorized=False)
+    out = tg.send_telegram_message(text="hi", chat_id="@x", via="user")
+    assert out["ok"] is False
+    assert out["error"] == "telegram_user_unavailable"
+
+
+def test_bot_mode_skips_personal_account(monkeypatch):
+    _clear_biz_env(monkeypatch)  # pins MOYSKLAD_TELEGRAM_SEND_VIA=bot
+    calls: list[str] = []
+    monkeypatch.setattr(
+        tg.tg_user, "is_authorized", lambda **k: calls.append("probe") or True
+    )
+    monkeypatch.setattr(tg, "telegram_api", lambda *a, **k: {"ok": False, "error": "x"})
+    tg.send_telegram_message(text="hi", chat_id="@x")
+    assert calls == []
+
+
+def test_send_mode_env(monkeypatch):
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "user")
+    assert tg.telegram_send_mode() == "user"
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "nonsense")
+    assert tg.telegram_send_mode() == "auto"
+    monkeypatch.delenv("MOYSKLAD_TELEGRAM_SEND_VIA", raising=False)
+    assert tg.telegram_send_mode() == "auto"
+
+
+def test_resolve_peer_identity_uses_cached_telegram_contact(tmp_path, monkeypatch):
+    _clear_biz_env(monkeypatch)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        tg.tg_user,
+        "find_cached_contact",
+        lambda **k: {"tg_nick": "papa2139", "tg_chat_id": "415321451", "name": "Ася"},
+    )
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: False)
+    monkeypatch.setattr(tg, "fetch_chat", lambda *a, **k: {"ok": False, "detail": "no"})
+    out = tg.resolve_peer_identity(query="@papa2139")
+    assert out["ok"] is True
+    assert out["tg_chat_id"] == "415321451"

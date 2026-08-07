@@ -2541,6 +2541,26 @@ function CampaignsPage() {
     } | null
   } | null>(null)
   const [bizSaving, setBizSaving] = useState(false)
+  const [tgUser, setTgUser] = useState<{
+    available?: boolean
+    api_configured?: boolean
+    session_saved?: boolean
+    authorized?: boolean
+    phone?: string | null
+    user?: { id?: number; username?: string | null; name?: string | null } | null
+    contacts_cached?: number
+    detail?: string
+    error?: string
+    send_mode?: string
+  } | null>(null)
+  const [tgOpen, setTgOpen] = useState(false)
+  const [tgStep, setTgStep] = useState<'phone' | 'code' | 'password'>('phone')
+  const [tgBusy, setTgBusy] = useState(false)
+  const [tgPhone, setTgPhone] = useState('')
+  const [tgApiId, setTgApiId] = useState('')
+  const [tgApiHash, setTgApiHash] = useState('')
+  const [tgCode, setTgCode] = useState('')
+  const [tgPassword, setTgPassword] = useState('')
   const [outreachContacts, setOutreachContacts] = useState<
     Array<{
       id: string
@@ -2763,6 +2783,140 @@ function CampaignsPage() {
   useEffect(() => {
     void loadOutreachContacts()
   }, [loadOutreachContacts])
+
+  const refreshTgUser = useCallback(
+    async (probe = true) => {
+      try {
+        const data = await call<typeof tgUser>(
+          `/campaigns/telegram-user?probe=${probe ? 'true' : 'false'}`
+        )
+        setTgUser(data)
+        if (data?.phone && !tgPhone) {
+          setTgPhone(data.phone)
+        }
+        if (data?.authorized) {
+          setTgStep('phone')
+        }
+        return data
+      } catch {
+        return null
+      }
+    },
+    [call, tgPhone]
+  )
+
+  useEffect(() => {
+    void refreshTgUser(false)
+    // Probe once on mount; the panel's buttons re-probe on demand.
+  }, [])
+
+  const tgLogin = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
+        '/campaigns/telegram-user/login',
+        {
+          method: 'POST',
+          body: {
+            phone: tgPhone.trim(),
+            api_id: tgApiId.trim(),
+            api_hash: tgApiHash.trim()
+          }
+        }
+      )
+      if (data.authorized) {
+        setActionStatus('✓ Личный Telegram уже подключён')
+        await refreshTgUser()
+      } else {
+        setTgStep('code')
+        setActionStatus('Код отправлен в Telegram — введите его ниже')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
+
+  const tgSubmitCode = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      const data = await call<{ authorized?: boolean; password_required?: boolean }>(
+        '/campaigns/telegram-user/code',
+        { method: 'POST', body: { code: tgCode.trim() } }
+      )
+      setTgCode('')
+      if (data.password_required) {
+        setTgStep('password')
+        setActionStatus('Нужен облачный пароль (2FA)')
+        return
+      }
+      setTgStep('phone')
+      setActionStatus('✓ Личный Telegram подключён — контакты синхронизируются')
+      await refreshTgUser()
+      await loadOutreachContacts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
+
+  const tgSubmitPassword = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      await call('/campaigns/telegram-user/password', {
+        method: 'POST',
+        body: { password: tgPassword }
+      })
+      setTgPassword('')
+      setTgStep('phone')
+      setActionStatus('✓ Личный Telegram подключён — контакты синхронизируются')
+      await refreshTgUser()
+      await loadOutreachContacts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
+
+  const tgSyncContacts = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      const data = await call<{ total?: number }>(
+        '/campaigns/telegram-user/contacts/refresh',
+        { method: 'POST' }
+      )
+      await loadOutreachContacts()
+      await refreshTgUser(false)
+      setActionStatus(`✓ Контакты из Telegram: ${data.total ?? 0}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
+
+  const tgLogout = async () => {
+    setTgBusy(true)
+    setError('')
+    try {
+      await call('/campaigns/telegram-user/logout', { method: 'POST' })
+      setTgStep('phone')
+      setActionStatus('Личный Telegram отключён')
+      await refreshTgUser(false)
+      await loadOutreachContacts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+    }
+  }
 
   const persistSellerSettings = useCallback(
     (name: string, factsText: string, bizId?: string | null) => {
@@ -4351,6 +4505,155 @@ function CampaignsPage() {
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
           <div className="ms-tg-account">
             <div className="ms-tg-account-head">
+              <strong>Личный Telegram (мои контакты)</strong>
+              <button
+                className="ms-link-btn"
+                disabled={tgBusy}
+                onClick={() => void refreshTgUser()}
+                type="button"
+              >
+                Проверить
+              </button>
+            </div>
+            <p className="ms-muted ms-tg-account-status">
+              {tgUser?.authorized ? (
+                <>
+                  ✓ Подключён{' '}
+                  <strong>
+                    {tgUser.user?.username
+                      ? `@${tgUser.user.username}`
+                      : tgUser.user?.name || tgUser.phone || 'аккаунт'}
+                  </strong>{' '}
+                  · контактов: {tgUser.contacts_cached ?? 0} · рассылка уходит
+                  от вашего имени
+                </>
+              ) : tgUser?.session_saved ? (
+                'Сессия сохранена, но не авторизована — войдите заново'
+              ) : (
+                'Не подключён — Bot API не видит ваш список контактов и не пишет первым'
+              )}
+              {tgUser?.detail ? ` · ${tgUser.detail}` : ''}
+            </p>
+            <div className="ms-compose-actions">
+              <button
+                className="ms-btn"
+                onClick={() => setTgOpen(open => !open)}
+                type="button"
+              >
+                {tgOpen ? 'Скрыть' : tgUser?.authorized ? 'Настройки входа' : 'Подключить аккаунт'}
+              </button>
+              {tgUser?.authorized ? (
+                <>
+                  <button
+                    className="ms-link-btn"
+                    disabled={tgBusy}
+                    onClick={() => void tgSyncContacts()}
+                    type="button"
+                  >
+                    {tgBusy ? 'Синхронизируем…' : 'Синхронизировать контакты'}
+                  </button>
+                  <button
+                    className="ms-link-btn"
+                    disabled={tgBusy}
+                    onClick={() => void tgLogout()}
+                    type="button"
+                  >
+                    Выйти
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {tgOpen ? (
+              <div className="ms-add-contact">
+                {tgStep === 'phone' ? (
+                  <>
+                    <label>
+                      Телефон аккаунта
+                      <input
+                        onChange={e => setTgPhone(e.target.value)}
+                        placeholder="+79991234567"
+                        value={tgPhone}
+                      />
+                    </label>
+                    <label>
+                      api_id (my.telegram.org)
+                      <input
+                        onChange={e => setTgApiId(e.target.value)}
+                        placeholder={tgUser?.api_configured ? 'сохранён' : '1234567'}
+                        value={tgApiId}
+                      />
+                    </label>
+                    <label>
+                      api_hash
+                      <input
+                        onChange={e => setTgApiHash(e.target.value)}
+                        placeholder={tgUser?.api_configured ? 'сохранён' : 'abc123…'}
+                        type="password"
+                        value={tgApiHash}
+                      />
+                    </label>
+                    <button
+                      className="ms-btn ms-btn-primary"
+                      disabled={tgBusy}
+                      onClick={() => void tgLogin()}
+                      type="button"
+                    >
+                      {tgBusy ? 'Отправляем код…' : 'Получить код'}
+                    </button>
+                  </>
+                ) : null}
+                {tgStep === 'code' ? (
+                  <>
+                    <label>
+                      Код из Telegram
+                      <input
+                        onChange={e => setTgCode(e.target.value)}
+                        placeholder="12345"
+                        value={tgCode}
+                      />
+                    </label>
+                    <button
+                      className="ms-btn ms-btn-primary"
+                      disabled={tgBusy}
+                      onClick={() => void tgSubmitCode()}
+                      type="button"
+                    >
+                      {tgBusy ? 'Проверяем…' : 'Войти'}
+                    </button>
+                  </>
+                ) : null}
+                {tgStep === 'password' ? (
+                  <>
+                    <label>
+                      Облачный пароль (2FA)
+                      <input
+                        onChange={e => setTgPassword(e.target.value)}
+                        type="password"
+                        value={tgPassword}
+                      />
+                    </label>
+                    <button
+                      className="ms-btn ms-btn-primary"
+                      disabled={tgBusy}
+                      onClick={() => void tgSubmitPassword()}
+                      type="button"
+                    >
+                      {tgBusy ? 'Проверяем…' : 'Подтвердить'}
+                    </button>
+                  </>
+                ) : null}
+                <p className="ms-muted">
+                  api_id / api_hash — my.telegram.org → API development tools.
+                  Сессия хранится локально; код и пароль никуда не сохраняются.
+                  После входа контакты Telegram появятся в списке «Кому
+                  отправить», и рассылка уйдёт с вашего аккаунта.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ms-tg-account">
+            <div className="ms-tg-account-head">
               <strong>Telegram Business аккаунт</strong>
               <button
                 className="ms-link-btn"
@@ -4432,6 +4735,7 @@ function CampaignsPage() {
                   <option key={c.id} value={c.id}>
                     {c.label || c.name || c.tg_nick || c.id}
                     {c.source === 'custom' ? ' · свой' : ''}
+                    {c.source === 'telegram' ? ' · мои контакты' : ''}
                   </option>
                 ))}
               </select>

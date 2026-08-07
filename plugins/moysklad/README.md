@@ -136,6 +136,28 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
    from Hermes gateway Telegram sessions is a follow-up: match
    `session_key` / peer phone or `@nick` to the same index keys and merge.
 
+### Личный Telegram (MTProto) — «мои контакты»
+
+The Bot API cannot list your contacts and cannot write to someone who never
+messaged the bot, so Рассылки can also drive the operator's **own** account
+over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
+
+* Connect in Рассылки → **Личный Telegram**: `api_id` / `api_hash` from
+  my.telegram.org → phone → code → 2FA password.
+  Endpoints: `POST /campaigns/telegram-user/{login,code,password,logout}`,
+  `GET /campaigns/telegram-user`.
+* Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).
+  Env overrides: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
+  `TELEGRAM_USER_SESSION`.
+* Contacts sync into `$HERMES_HOME/telegram_user/contacts.json` and show up
+  in the «Кому отправить» picker as `tg:<user id>` (`source: telegram`),
+  deduped against catalog / overlay peers. Refresh:
+  `POST /campaigns/telegram-user/contacts/refresh`.
+* Send routing — `MOYSKLAD_TELEGRAM_SEND_VIA`: `auto` (default; personal
+  account first, Business bot as fallback), `user`, `bot`.
+* Peers with no MoySklad card (`custom:…` / `tg:…`) get a contact-only row,
+  so card / AI draft / send run instead of 404-ing.
+
 ### Clients catalog cache
 
 MoySklad counterparties + orders are expensive. The Clients tab uses

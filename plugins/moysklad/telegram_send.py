@@ -1,15 +1,21 @@
-"""Outbound Telegram send for MoySklad Рассылки (Business bot).
+"""Outbound Telegram send for MoySklad Рассылки.
 
-Uses Bot API ``sendMessage`` via the native Hermes Telegram Business
-integration (Office → Telegram Business). Credential precedence lives in
-``plugins.platforms.telegram_business.client``.
+Two channels, picked by ``MOYSKLAD_TELEGRAM_SEND_VIA`` (auto | user | bot):
 
-Does not touch the bot webhook (Railway / gateway may own updates).
+* **user** — the operator's own Telegram account over MTProto
+  (``plugins.platforms.telegram_user``). Only this one can message a contact
+  who never wrote first, and only this one sees the personal contact list.
+* **bot** — Bot API ``sendMessage`` through the Telegram Business connection
+  (Office → Telegram Business), see ``plugins.platforms.telegram_business``.
+
+``auto`` (default) prefers the connected personal account and falls back to
+the Business bot. Does not touch the bot webhook (gateway may own updates).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Optional
 
@@ -24,6 +30,7 @@ from plugins.platforms.telegram_business.client import (
     telegram_api,
     telegram_send_status,
 )
+from plugins.platforms.telegram_user import client as tg_user
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +150,16 @@ def _lookup_peer_in_local_stores(
     """Best-effort resolve from export overlay / custom contacts / conversations."""
     nick = normalize_tg_nick(nick)
     chat_id = str(chat_id or "").strip()
+
+    cached = tg_user.find_cached_contact(tg_nick=nick, tg_chat_id=chat_id)
+    if cached:
+        return {
+            "tg_nick": cached.get("tg_nick") or nick,
+            "tg_chat_id": str(cached.get("tg_chat_id") or ""),
+            "name": cached.get("name") or "",
+            "resolved_via": "telegram_contacts",
+        }
+
     try:
         from plugins.moysklad.outreach_contacts import load_custom_contacts
         from plugins.moysklad.telegram_export import load_overlay
@@ -237,6 +254,18 @@ def resolve_peer_identity(
         name_hint = ""
         via = ""
 
+    # Personal account resolves cold @nicks the bot has never seen.
+    if not chat_id and tg_user.is_authorized():
+        mt = tg_user.resolve_peer(chat_id or f"@{nick}")
+        if mt.get("ok") and mt.get("tg_chat_id"):
+            return {
+                "ok": True,
+                "tg_nick": normalize_tg_nick(mt.get("tg_nick") or nick),
+                "tg_chat_id": str(mt["tg_chat_id"]),
+                "name": str(mt.get("name") or name_hint or ""),
+                "resolved_via": "mtproto",
+            }
+
     # Bot API getChat — works for known peers / public usernames the bot can see.
     lookup = f"@{nick}" if nick and not chat_id else (chat_id or f"@{nick}")
     chat = fetch_chat(lookup, token=token)
@@ -289,6 +318,45 @@ def resolve_peer_identity(
     }
 
 
+def _send_via_user_account(*, text: str, chat_id: str) -> dict[str, Any] | None:
+    """Send from the operator's own account. ``None`` when it isn't connected."""
+    peer = str(chat_id or "").strip()
+    if not peer:
+        return None
+    try:
+        if not tg_user.is_authorized():
+            return None
+        result = tg_user.send_message(peer=peer, text=text)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("telegram user send crashed: %s", exc)
+        return {"ok": False, "error": "telegram_user_error", "detail": str(exc)}
+    if result.get("ok"):
+        user = tg_user.load_config().get("user") or {}
+        return {
+            "ok": True,
+            "message_id": result.get("message_id"),
+            "chat_id": result.get("chat_id") or peer,
+            "via": "user_account",
+            "user_username": user.get("username"),
+        }
+    return result
+
+
+def telegram_send_mode() -> str:
+    """``auto`` | ``user`` | ``bot`` — which channel outreach sends through."""
+    mode = (os.getenv("MOYSKLAD_TELEGRAM_SEND_VIA") or "auto").strip().lower()
+    return mode if mode in {"auto", "user", "bot"} else "auto"
+
+
+def telegram_user_status(*, probe: bool = True) -> dict[str, Any]:
+    """Personal-account block for the UI (no secrets)."""
+    try:
+        return tg_user.user_status(probe=probe)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("telegram_user status failed", exc_info=True)
+        return {"ok": False, "available": False, "detail": str(exc)}
+
+
 def send_telegram_message(
     *,
     text: str,
@@ -296,8 +364,32 @@ def send_telegram_message(
     business_connection_id: Optional[str] = None,
     token: str | None = None,
     timeout: float = 30.0,
+    via: str = "",
 ) -> dict[str, Any]:
-    """POST sendMessage. Returns ``{ok, ...}``; never raises for API errors."""
+    """Send outreach. Returns ``{ok, ...}``; never raises for API errors.
+
+    ``via`` overrides ``MOYSKLAD_TELEGRAM_SEND_VIA`` for one call.
+    """
+    mode = (via or telegram_send_mode()).strip().lower()
+    if mode not in {"auto", "user", "bot"}:
+        mode = "auto"
+
+    if mode in {"auto", "user"}:
+        user_result = _send_via_user_account(text=text, chat_id=chat_id)
+        if user_result is not None and user_result.get("ok"):
+            return user_result
+        if mode == "user":
+            return user_result or {
+                "ok": False,
+                "error": "telegram_user_unavailable",
+                "detail": "Личный Telegram не подключён (Рассылки → Личный Telegram)",
+            }
+        if user_result is not None:
+            log.info(
+                "telegram user send failed (%s), falling back to Business bot",
+                user_result.get("error"),
+            )
+
     token = (token or outreach_bot_token()).strip()
     chat_id = str(chat_id or "").strip()
     text = (text or "").strip()
@@ -350,6 +442,7 @@ def send_telegram_message(
         "chat_id": (result.get("chat") or {}).get("id") or chat_id,
         "business_connection_id": biz or None,
         "bot_username": outreach_bot_username() or None,
+        "via": "business_bot",
     }
 
 
@@ -359,6 +452,7 @@ def send_outreach_to_client(
     tg_nick: str = "",
     tg_conversation: str = "",
     tg_chat_id: str = "",
+    via: str = "",
 ) -> dict[str, Any]:
     """Resolve client TG target and send. Returns send_telegram_message result."""
     chat_id = resolve_telegram_chat_id(
@@ -366,4 +460,4 @@ def send_outreach_to_client(
         tg_conversation=tg_conversation,
         tg_chat_id=tg_chat_id,
     )
-    return send_telegram_message(text=text, chat_id=chat_id)
+    return send_telegram_message(text=text, chat_id=chat_id, via=via)

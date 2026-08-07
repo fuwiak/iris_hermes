@@ -213,3 +213,54 @@ def test_resolve_numeric_passthrough_when_getchat_fails(monkeypatch):
     assert out["ok"] is True
     assert out["tg_chat_id"] == "415321451"
     assert out["resolved_via"] == "numeric"
+
+
+def _seed_telegram_contacts(monkeypatch, rows):
+    monkeypatch.setattr(oc, "telegram_account_contacts", lambda **k: rows)
+
+
+def test_personal_telegram_contacts_appear_in_picker(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _seed_telegram_contacts(
+        monkeypatch,
+        [
+            {"tg_chat_id": "415321451", "tg_nick": "papa2139", "name": "Ася"},
+            {"tg_chat_id": "777", "tg_nick": "", "name": "Иван"},
+        ],
+    )
+    listed = oc.list_outreach_contacts()
+    ids = {c["id"] for c in listed}
+    assert ids == {"tg:415321451", "tg:777"}
+    assert all(c["source"] == "telegram" for c in listed)
+
+
+def test_personal_contact_deduped_against_catalog(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _seed_telegram_contacts(
+        monkeypatch, [{"tg_chat_id": "415321451", "tg_nick": "papa2139", "name": "Ася"}]
+    )
+    listed = oc.list_outreach_contacts(
+        catalog_clients=[
+            {"id": "ms-1", "name": "Ася Иванова", "tg_nick": "papa2139"},
+        ]
+    )
+    assert [c["id"] for c in listed] == ["ms-1"]
+
+
+def test_get_contact_resolves_tg_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _seed_telegram_contacts(
+        monkeypatch, [{"tg_chat_id": "415321451", "tg_nick": "papa2139", "name": "Ася"}]
+    )
+    got = oc.get_contact("tg:415321451")
+    assert got is not None
+    assert got["tg_nick"] == "papa2139"
+    assert got["name"] == "Ася"
+
+
+def test_get_contact_tg_id_survives_cache_miss(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _seed_telegram_contacts(monkeypatch, [])
+    got = oc.get_contact("tg:415321451")
+    assert got is not None
+    assert got["tg_chat_id"] == "415321451"

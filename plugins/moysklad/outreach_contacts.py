@@ -4,10 +4,12 @@ Merges:
 * custom contacts (user-added @nick / chat id) — ``outreach_contacts.json``
 * Telegram Desktop export overlay peers (matched clients)
 * catalog clients that already have ТГ ник / chat id
+* the operator's own Telegram contact list (personal MTProto session)
 
 Ids:
 * catalog / overlay → MoySklad client id
 * custom → ``custom:<uuid>``
+* personal Telegram contacts → ``tg:<telegram user id>``
 """
 
 from __future__ import annotations
@@ -74,6 +76,20 @@ def save_custom_contacts(contacts: list[dict[str, Any]]) -> None:
             encoding="utf-8",
         )
         tmp.replace(path)
+
+
+def telegram_account_contacts(*, refresh: bool = False) -> list[dict[str, Any]]:
+    """Contacts from the operator's personal Telegram session (cache-backed)."""
+    try:
+        from plugins.platforms.telegram_user import client as tg_user
+
+        if refresh:
+            res = tg_user.fetch_contacts(force=True)
+            if res.get("ok"):
+                return list(res.get("contacts") or [])
+        return tg_user.cached_contacts()
+    except Exception:
+        return []
 
 
 def _normalize_contact(raw: dict[str, Any], *, source: str) -> Optional[dict[str, Any]]:
@@ -179,6 +195,29 @@ def get_contact(contact_id: str) -> Optional[dict[str, Any]]:
             if c.get("id") == cid:
                 return c
         return None
+    if cid.startswith("tg:"):
+        key = cid.split(":", 1)[1].strip()
+        for row in telegram_account_contacts():
+            if str(row.get("tg_chat_id") or "") == key or row.get("tg_nick") == key:
+                return _normalize_contact(
+                    {
+                        "id": cid,
+                        "name": row.get("name") or "",
+                        "tg_nick": row.get("tg_nick") or "",
+                        "tg_chat_id": row.get("tg_chat_id") or "",
+                    },
+                    source="telegram",
+                )
+        # Cache miss (contact added after last sync) — the id still carries the peer.
+        return _normalize_contact(
+            {
+                "id": cid,
+                "name": "",
+                "tg_nick": "" if key.isdigit() else key,
+                "tg_chat_id": key if key.isdigit() else "",
+            },
+            source="telegram",
+        )
     # overlay / will be resolved by caller with catalog
     try:
         from plugins.moysklad.telegram_export import overlay_for_client
@@ -204,6 +243,7 @@ def list_outreach_contacts(
     catalog_clients: list[dict[str, Any]] | None = None,
     q: str = "",
     limit: int = 200,
+    refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """Merged contact list for the campaigns dropdown."""
     by_id: dict[str, dict[str, Any]] = {}
@@ -255,6 +295,30 @@ def list_outreach_contacts(
         )
         if norm:
             by_id[cid] = norm
+
+    # Personal Telegram contacts last — only peers the CRM doesn't already know.
+    seen_chat = {str(c.get("tg_chat_id") or "") for c in by_id.values() if c.get("tg_chat_id")}
+    seen_nick = {str(c.get("tg_nick") or "") for c in by_id.values() if c.get("tg_nick")}
+    for row in telegram_account_contacts(refresh=refresh):
+        chat_id = str(row.get("tg_chat_id") or "").strip()
+        nick = normalize_tg_nick(row.get("tg_nick") or "")
+        if (chat_id and chat_id in seen_chat) or (nick and nick in seen_nick):
+            continue
+        norm = _normalize_contact(
+            {
+                "id": f"tg:{chat_id or nick}",
+                "name": row.get("name") or "",
+                "tg_nick": nick,
+                "tg_chat_id": chat_id,
+            },
+            source="telegram",
+        )
+        if norm and norm["id"] not in by_id:
+            by_id[norm["id"]] = norm
+            if chat_id:
+                seen_chat.add(chat_id)
+            if nick:
+                seen_nick.add(nick)
 
     items = list(by_id.values())
     needle = (q or "").strip().lower().lstrip("@")
