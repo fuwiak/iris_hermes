@@ -1457,7 +1457,7 @@ function ClientsPage() {
           <button
             className="ms-btn"
             onClick={() => host.navigate('/clients/playground')}
-            title="Playground: входные факты → Саммари / Повод / Рекомендация / Факты"
+            title="AI тест: монитор качества Саммари / Повод / Рекомендация"
             type="button"
           >
             AI тест
@@ -3331,15 +3331,34 @@ type PlaygroundOutputKey =
   | 'llm'
   | 'full'
 
-const PLAYGROUND_OUTPUT_TABS: Array<{ id: PlaygroundOutputKey; label: string }> = [
-  { id: 'history_profile', label: 'Саммари AI' },
-  { id: 'occasion_intent', label: 'Повод и intent' },
-  { id: 'recommendation', label: 'Рекомендация AI' },
-  { id: 'fact_blocks', label: 'Факты клиента' },
+const PLAYGROUND_DEBUG_TABS: Array<{ id: PlaygroundOutputKey; label: string }> = [
+  { id: 'fact_blocks', label: 'Факты' },
+  { id: 'heuristic', label: 'Heuristic' },
+  { id: 'llm', label: 'LLM raw' },
   { id: 'system_prompt', label: 'System prompt' },
-  { id: 'heuristic', label: 'Heuristic JSON' },
-  { id: 'llm', label: 'LLM JSON' },
   { id: 'full', label: 'Все этапы' }
+]
+
+const PLAYGROUND_QUALITY_FIELDS: Array<{
+  id: 'history_profile' | 'occasion_intent' | 'recommendation'
+  label: string
+  hint: string
+}> = [
+  {
+    id: 'history_profile',
+    label: 'Саммари',
+    hint: 'История и профиль — есть ли конкретика по заказам?'
+  },
+  {
+    id: 'occasion_intent',
+    label: 'Повод / intent',
+    hint: 'Повод, сезонность, окно касания — не выдумка?'
+  },
+  {
+    id: 'recommendation',
+    label: 'Рекомендация',
+    hint: 'Что предложить продавцу — действие + якорь на фактах'
+  }
 ]
 
 interface GoldenClientSummary {
@@ -3368,8 +3387,33 @@ interface PlaygroundTrace {
       recommendation?: string
       source?: string
     }
+    heuristic?: {
+      history_profile?: string
+      occasion_intent?: string
+      recommendation?: string
+      source?: string
+    }
+    llm?: {
+      history_profile?: string
+      occasion_intent?: string
+      recommendation?: string
+      source?: string
+    } | null
   }
   panels?: PlaygroundPanels
+}
+
+function playgroundStats(text: string): { chars: number; words: number; lines: number } {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return { chars: 0, words: 0, lines: 0 }
+  }
+
+  return {
+    chars: trimmed.length,
+    words: trimmed.split(/\s+/).filter(Boolean).length,
+    lines: trimmed.split(/\n/).length
+  }
 }
 
 function AiPlaygroundPage() {
@@ -3378,19 +3422,36 @@ function AiPlaygroundPage() {
   const [selectedId, setSelectedId] = useState('')
   const [inputText, setInputText] = useState('')
   const [outputs, setOutputs] = useState<Partial<Record<PlaygroundOutputKey, string>>>({})
-  const [outputKey, setOutputKey] = useState<PlaygroundOutputKey>('history_profile')
+  const [historyText, setHistoryText] = useState('')
+  const [occasionText, setOccasionText] = useState('')
+  const [recoText, setRecoText] = useState('')
+  const [aiSource, setAiSource] = useState('')
+  const [debugKey, setDebugKey] = useState<PlaygroundOutputKey>('fact_blocks')
   const [meta, setMeta] = useState('')
   const [error, setError] = useState('')
   const [loadingList, setLoadingList] = useState(false)
   const [running, setRunning] = useState(false)
+  const [inputOpen, setInputOpen] = useState(true)
+  const [compareOpen, setCompareOpen] = useState(false)
+
+  const qualityMap = {
+    history_profile: { value: historyText, set: setHistoryText },
+    occasion_intent: { value: occasionText, set: setOccasionText },
+    recommendation: { value: recoText, set: setRecoText }
+  } as const
 
   const applyTrace = useCallback((trace: PlaygroundTrace) => {
     const panels = trace.panels || {}
     if (typeof panels.input_text === 'string') {
       setInputText(panels.input_text)
     }
-    setOutputs(panels.outputs || {})
+    const nextOutputs = panels.outputs || {}
+    setOutputs(nextOutputs)
+    setHistoryText(String(nextOutputs.history_profile || trace.stages?.active?.history_profile || ''))
+    setOccasionText(String(nextOutputs.occasion_intent || trace.stages?.active?.occasion_intent || ''))
+    setRecoText(String(nextOutputs.recommendation || trace.stages?.active?.recommendation || ''))
     const src = trace.stages?.active?.source || '—'
+    setAiSource(src)
     setMeta(
       [
         trace.client_name || 'клиент',
@@ -3470,7 +3531,8 @@ function AiPlaygroundPage() {
       })
       applyTrace(trace)
       if (runLlm) {
-        setOutputKey('history_profile')
+        setCompareOpen(true)
+        setDebugKey('llm')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -3479,7 +3541,9 @@ function AiPlaygroundPage() {
     }
   }
 
-  const outputText = outputs[outputKey] || ''
+  const debugText = outputs[debugKey] || ''
+  const heuristicPretty = outputs.heuristic || ''
+  const llmPretty = outputs.llm || ''
 
   return (
     <div className="ms-page ms-playground" data-selectable-text="true">
@@ -3487,7 +3551,7 @@ function AiPlaygroundPage() {
         <div>
           <h1>AI тест · клиенты</h1>
           <p className="ms-muted">
-            Golden dataset (~20) · входные факты → Саммари / Повод / Рекомендация / Факты
+            Контроль качества: правьте входной JSON → Смотрите Саммари / Повод / Рекомендацию
           </p>
           {meta ? <p className="ms-muted ms-sync-meta">{meta}</p> : null}
         </div>
@@ -3499,6 +3563,7 @@ function AiPlaygroundPage() {
             className="ms-btn"
             disabled={running || !inputText.trim()}
             onClick={() => void runPlayground(false)}
+            title="Heuristic по текущему JSON (без LLM)"
             type="button"
           >
             {running ? 'Считаю…' : 'Пересчитать'}
@@ -3507,7 +3572,7 @@ function AiPlaygroundPage() {
             className="ms-btn ms-btn-primary"
             disabled={running || !inputText.trim()}
             onClick={() => void runPlayground(true)}
-            title="Вызов auxiliary LLM (как «Обновить AI» на карточке)"
+            title="Вызов auxiliary LLM — сравните с heuristic"
             type="button"
           >
             Запустить LLM
@@ -3515,61 +3580,151 @@ function AiPlaygroundPage() {
         </div>
       </div>
 
-      <label className="ms-playground-pick">
-        Клиент из golden dataset
-        <select
-          disabled={loadingList || running}
-          onChange={e => setSelectedId(e.target.value)}
-          value={selectedId}
-        >
-          {clients.length === 0 ? <option value="">Нет клиентов</option> : null}
-          {clients.map(c => (
-            <option key={c.id || c.name} value={c.id || ''}>
-              {(c.name || '—') +
-                ` · заказов ${c.order_count ?? 0}` +
-                (c.avg_check ? ` · ≈ ${Math.round(c.avg_check)} ₽` : '')}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className="ms-filter-tabs" role="tablist">
-        {PLAYGROUND_OUTPUT_TABS.map(tab => (
-          <button
-            className={`ms-filter-tab${outputKey === tab.id ? ' is-active' : ''}`}
-            key={tab.id}
-            onClick={() => setOutputKey(tab.id)}
-            role="tab"
-            type="button"
+      <div className="ms-playground-toolbar">
+        <label className="ms-playground-pick">
+          Клиент из golden dataset
+          <select
+            disabled={loadingList || running}
+            onChange={e => setSelectedId(e.target.value)}
+            value={selectedId}
           >
-            {tab.label}
-          </button>
-        ))}
+            {clients.length === 0 ? <option value="">Нет клиентов</option> : null}
+            {clients.map(c => (
+              <option key={c.id || c.name} value={c.id || ''}>
+                {(c.name || '—') +
+                  ` · заказов ${c.order_count ?? 0}` +
+                  (c.avg_check ? ` · ≈ ${Math.round(c.avg_check)} ₽` : '')}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="ms-playground-badges">
+          <span className={`ms-playground-badge${aiSource === 'llm' ? ' is-llm' : ' is-heur'}`}>
+            {aiSource === 'llm' ? 'LLM' : 'Heuristic'}
+          </span>
+          {running ? <span className="ms-playground-badge is-run">идёт генерация…</span> : null}
+        </div>
       </div>
 
       {error ? <div className="ms-error">{error}</div> : null}
 
-      <div className="ms-playground-split">
-        <label className="ms-playground-pane">
-          <span className="ms-ai-label">Входные данные (JSON фактов для AI)</span>
-          <textarea
-            onChange={e => setInputText(e.target.value)}
-            placeholder="JSON клиента + заказов / risks…"
-            spellCheck={false}
-            value={inputText}
-          />
-        </label>
-        <label className="ms-playground-pane">
-          <span className="ms-ai-label">
-            Выход · {PLAYGROUND_OUTPUT_TABS.find(t => t.id === outputKey)?.label || outputKey}
-          </span>
-          <textarea
-            readOnly
-            spellCheck={false}
-            value={outputText || (running ? 'Загрузка…' : '— выберите клиента или пересчитайте —')}
-          />
-        </label>
-      </div>
+      <section className="ms-playground-quality" aria-label="Качество генерации">
+        <div className="ms-playground-quality-head">
+          <h2 className="ms-section-title">Выход AI — монитор качества</h2>
+          <p className="ms-muted">
+            Три поля ниже — результат. Читайте как продавец: конкретика, без выдумок, ясный next step.
+            Текст можно править вручную для заметок (на генерацию влияет только входной JSON).
+          </p>
+        </div>
+        <div className="ms-playground-quality-grid">
+          {PLAYGROUND_QUALITY_FIELDS.map(field => {
+            const box = qualityMap[field.id]
+            const stats = playgroundStats(box.value)
+            const empty = stats.chars === 0
+
+            return (
+              <label className={`ms-playground-qcard${empty ? ' is-empty' : ''}`} key={field.id}>
+                <span className="ms-playground-qcard-top">
+                  <span className="ms-ai-label">{field.label}</span>
+                  <span className="ms-playground-qmeta">
+                    {stats.words} сл. · {stats.chars} зн.
+                    {empty ? ' · пусто' : ''}
+                  </span>
+                </span>
+                <span className="ms-muted ms-playground-qhint">{field.hint}</span>
+                <textarea
+                  className="ms-playground-prose"
+                  onChange={e => box.set(e.target.value)}
+                  placeholder={running ? 'Генерация…' : 'Нет текста — пересчитайте или запустите LLM'}
+                  spellCheck
+                  value={box.value}
+                />
+              </label>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="ms-playground-control" aria-label="Управление входом">
+        <button
+          className="ms-playground-fold"
+          onClick={() => setInputOpen(v => !v)}
+          type="button"
+        >
+          {inputOpen ? '▾' : '▸'} Входные факты (JSON) — правьте → Пересчитать / LLM
+        </button>
+        {inputOpen ? (
+          <label className="ms-playground-pane ms-playground-input">
+            <span className="ms-muted">
+              Единственный рычаг генерации. Меняйте client/orders/risks и жмите кнопки сверху.
+            </span>
+            <textarea
+              onChange={e => setInputText(e.target.value)}
+              placeholder="JSON клиента + заказов / risks…"
+              spellCheck={false}
+              value={inputText}
+            />
+          </label>
+        ) : null}
+      </section>
+
+      <section className="ms-playground-debug" aria-label="Сравнение и отладка">
+        <button
+          className="ms-playground-fold"
+          onClick={() => setCompareOpen(v => !v)}
+          type="button"
+        >
+          {compareOpen ? '▾' : '▸'} Сравнение Heuristic ↔ LLM · отладка
+        </button>
+        {compareOpen ? (
+          <div className="ms-playground-debug-body">
+            <div className="ms-playground-compare">
+              <label className="ms-playground-pane">
+                <span className="ms-ai-label">Heuristic JSON</span>
+                <textarea
+                  className="ms-playground-mono"
+                  readOnly
+                  spellCheck={false}
+                  value={heuristicPretty || '— сначала Пересчитать —'}
+                />
+              </label>
+              <label className="ms-playground-pane">
+                <span className="ms-ai-label">LLM JSON</span>
+                <textarea
+                  className="ms-playground-mono"
+                  readOnly
+                  spellCheck={false}
+                  value={llmPretty || '— Запустите LLM —'}
+                />
+              </label>
+            </div>
+            <div className="ms-filter-tabs" role="tablist">
+              {PLAYGROUND_DEBUG_TABS.map(tab => (
+                <button
+                  className={`ms-filter-tab${debugKey === tab.id ? ' is-active' : ''}`}
+                  key={tab.id}
+                  onClick={() => setDebugKey(tab.id)}
+                  role="tab"
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <label className="ms-playground-pane">
+              <span className="ms-ai-label">
+                Debug · {PLAYGROUND_DEBUG_TABS.find(t => t.id === debugKey)?.label || debugKey}
+              </span>
+              <textarea
+                className="ms-playground-mono"
+                readOnly
+                spellCheck={false}
+                value={debugText || (running ? 'Загрузка…' : '—')}
+              />
+            </label>
+          </div>
+        ) : null}
+      </section>
     </div>
   )
 }

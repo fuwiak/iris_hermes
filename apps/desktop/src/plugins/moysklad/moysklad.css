@@ -641,10 +641,22 @@
   width: auto;
 }
 
-/* AI playground — dual pane input / output */
+/* AI playground — quality monitor (3 prose fields + controllable JSON input) */
+.ms-playground {
+  gap: 1rem;
+}
+
+.ms-playground-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.85rem 1.2rem;
+}
+
 .ms-playground-pick {
   display: grid;
   gap: 0.35rem;
+  flex: 1 1 18rem;
   max-width: 36rem;
   font-size: 0.85rem;
   font-weight: 600;
@@ -661,18 +673,139 @@
   color: #f4ede4;
 }
 
-.ms-playground-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.85rem;
-  min-height: 28rem;
-  flex: 1;
+.ms-playground-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
 }
 
-@media (max-width: 960px) {
-  .ms-playground-split {
+.ms-playground-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid #6a3a74;
+  color: #f4ede4;
+  background: #3a1840;
+}
+
+.ms-playground-badge.is-llm {
+  border-color: #5db872;
+  color: #c8f5d4;
+  background: color-mix(in srgb, #5db872 18%, #2a1430);
+}
+
+.ms-playground-badge.is-heur {
+  border-color: #c4a35a;
+  color: #f5e6c8;
+}
+
+.ms-playground-badge.is-run {
+  border-color: #7aa2ff;
+  color: #d6e4ff;
+  animation: ms-playground-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ms-playground-pulse {
+  50% { opacity: 0.55; }
+}
+
+.ms-playground-quality {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ms-playground-quality-head .ms-section-title {
+  margin-bottom: 0.2rem;
+}
+
+.ms-playground-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 1100px) {
+  .ms-playground-quality-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.ms-playground-qcard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 14rem;
+  padding: 0.65rem 0.7rem 0.7rem;
+  border: 1px solid #592466;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, #481a54 88%, #1a0c20);
+}
+
+.ms-playground-qcard.is-empty {
+  border-color: #8a4a3a;
+  background: color-mix(in srgb, #5a2418 25%, #2a1430);
+}
+
+.ms-playground-qcard-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.ms-playground-qmeta {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #cbb8d4;
+  white-space: nowrap;
+}
+
+.ms-playground-qhint {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.ms-playground-prose {
+  flex: 1;
+  min-height: 11rem;
+  font: 0.92rem/1.55 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-weight: 400;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #6a3a74;
+  border-radius: 0.55rem;
+  background: #2f1238;
+  color: #f7f1ea;
+  resize: vertical;
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+.ms-playground-control,
+.ms-playground-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ms-playground-fold {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #592466;
+  border-radius: 0.45rem;
+  background: #3a1840;
+  color: #f4ede4;
+  cursor: pointer;
+}
+
+.ms-playground-fold:hover {
+  border-color: #7a4a86;
 }
 
 .ms-playground-pane {
@@ -682,9 +815,9 @@
   min-height: 0;
 }
 
-.ms-playground-pane textarea {
-  flex: 1;
-  min-height: 22rem;
+.ms-playground-input textarea,
+.ms-playground-mono {
+  min-height: 14rem;
   font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 400;
   padding: 0.7rem 0.8rem;
@@ -697,9 +830,36 @@
   overflow: auto;
 }
 
-.ms-playground-pane textarea[readonly] {
+.ms-playground-mono[readonly],
+.ms-playground-input textarea[readonly] {
   background: #3a1840;
   color: #e8dccf;
+}
+
+.ms-playground-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 960px) {
+  .ms-playground-compare {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ms-playground-debug-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* legacy split (unused) kept harmless */
+.ms-playground-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  min-height: 28rem;
 }
 
 
