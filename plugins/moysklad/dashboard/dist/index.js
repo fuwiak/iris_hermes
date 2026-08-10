@@ -1689,19 +1689,22 @@
     const [tgPassword, setTgPassword] = useState("");
     const [tgSession, setTgSession] = useState("");
 
-    function runTgBusy(title, detail, work) {
+    function runTgBusy(title, detail, work, timeoutMs) {
       setTgBusy(true);
       setTgProgress({ title: title, detail: detail });
       setError("");
+      var waitMs = typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 60000;
       var timedOut = false;
       var timer = setTimeout(function () {
         timedOut = true;
         setError(
-          "Telegram не ответил за 30с. С Selectel IP MTProto часто недоступен — TELEGRAM_PROXY или StringSession.",
+          "Telegram не ответил за " +
+            Math.round(waitMs / 1000) +
+            "с. С Selectel нужен TELEGRAM_USER_GATEWAY_URL (Railway) или StringSession.",
         );
         setTgBusy(false);
         setTgProgress(null);
-      }, 30000);
+      }, waitMs);
       return Promise.resolve()
         .then(work)
         .catch(function (err) {
@@ -1721,6 +1724,8 @@
         .then(function (data) {
           setTgUser(data || null);
           if (data && data.phone && !tgPhone) setTgPhone(data.phone);
+          // Only snap back to the phone form after a successful auth —
+          // never wipe an in-progress code/password step on a failed probe.
           if (data && data.authorized) setTgStep("phone");
           return data;
         })
@@ -1795,64 +1800,126 @@
         setError("Укажите номер телефона в формате +79991234567");
         return;
       }
-      runTgBusy("Telethon: вход", "Отправляем код на " + String(tgPhone).trim() + "…", function () {
-        var body = { phone: String(tgPhone || "").trim() };
-        return api("/campaigns/telegram-user/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }).then(function (data) {
-          if (data && data.authorized) {
-            setActionStatus("✓ Личный Telegram уже подключён");
-            return tgSyncAfterAuth();
-          }
-          setTgStep("code");
-          setActionStatus("Код отправлен в Telegram — введите его ниже");
-        });
-      });
+      runTgBusy(
+        "Telethon: вход",
+        "Отправляем код на " + String(tgPhone).trim() + "…",
+        function () {
+          var body = { phone: String(tgPhone || "").trim() };
+          return api("/campaigns/telegram-user/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }).then(function (data) {
+            if (data && data.authorized) {
+              setActionStatus("✓ Личный Telegram уже подключён");
+              return tgSyncAfterAuth();
+            }
+            setTgCode("");
+            setTgPassword("");
+            setTgStep("code");
+            setActionStatus("Код отправлен в Telegram — введите его ниже");
+          });
+        },
+        90000,
+      );
     }
 
     function tgSubmitCode() {
-      runTgBusy("Telethon: код", "Проверяем код из Telegram…", function () {
-        return api("/campaigns/telegram-user/code", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: String(tgCode || "").trim() }),
-        }).then(function (data) {
-          setTgCode("");
-          if (data && data.password_required) {
-            setTgStep("password");
-            setActionStatus("Нужен облачный пароль (2FA)");
-            return;
-          }
-          setTgStep("phone");
-          setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
-          return tgSyncAfterAuth();
-        });
-      });
+      runTgBusy(
+        "Telethon: код",
+        "Проверяем код из Telegram…",
+        function () {
+          return api("/campaigns/telegram-user/code", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: String(tgCode || "").trim() }),
+          }).then(function (data) {
+            setTgCode("");
+            if (data && data.password_required) {
+              setTgStep("password");
+              setActionStatus("Нужен облачный пароль (2FA)");
+              return;
+            }
+            setTgStep("phone");
+            setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
+            return tgSyncAfterAuth();
+          });
+        },
+        90000,
+      );
     }
 
     function tgSubmitPassword() {
-      runTgBusy("Telethon: 2FA", "Проверяем облачный пароль…", function () {
-        return api("/campaigns/telegram-user/password", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: String(tgPassword || "") }),
-        }).then(function () {
-          setTgPassword("");
-          setTgStep("phone");
-          setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
-          return tgSyncAfterAuth();
+      runTgBusy(
+        "Telethon: 2FA",
+        "Проверяем облачный пароль…",
+        function () {
+          return api("/campaigns/telegram-user/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: String(tgPassword || "") }),
+          }).then(function () {
+            setTgPassword("");
+            setTgStep("phone");
+            setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
+            return tgSyncAfterAuth();
+          });
+        },
+        90000,
+      );
+    }
+
+    function tgRestartLogin(opts) {
+      // Soft restart of the login wizard (no logout of an already-authorized
+      // session). Used when stuck on the code/2FA step or to re-enter the flow.
+      var clearPhone = !!(opts && opts.clearPhone);
+      setError("");
+      setTgCode("");
+      setTgPassword("");
+      setTgSession("");
+      if (clearPhone) setTgPhone("");
+      setTgStep("phone");
+      setTgOpen(true);
+      setActionStatus(
+        clearPhone
+          ? "Введите новый номер и нажмите «Получить код»"
+          : "Можно сменить номер или снова нажать «Получить код»",
+      );
+    }
+
+    function tgBeginLogin() {
+      // Explicit «Войти» entry: open the phone form even if a stale code step
+      // was left open, or after a dead session_saved probe.
+      if (tgUser && tgUser.authorized) {
+        // Switch account: logout first, then show phone form.
+        runTgBusy("Смена аккаунта", "Выходим из текущего Telegram…", function () {
+          return api("/campaigns/telegram-user/logout", { method: "POST" }).then(
+            function () {
+              setTgCode("");
+              setTgPassword("");
+              setTgSession("");
+              setTgStep("phone");
+              setTgOpen(true);
+              setActionStatus("Введите номер и получите код для нового входа");
+              return refreshTgUser(false);
+            },
+          );
         });
-      });
+        return;
+      }
+      tgRestartLogin({ clearPhone: false });
     }
 
     function tgLogout() {
       runTgBusy("Выход", "Отключаем личный Telegram…", function () {
         return api("/campaigns/telegram-user/logout", { method: "POST" }).then(
           function () {
+            setTgCode("");
+            setTgPassword("");
+            setTgSession("");
             setTgStep("phone");
-            setActionStatus("Личный Telegram отключён");
+            setTgOpen(true);
+            setActionStatus("Личный Telegram отключён — можно войти другим номером");
             return refreshTgUser(false);
           },
         );
@@ -2790,6 +2857,18 @@
                     ? "Настройки входа"
                     : "Подключить аккаунт",
               ),
+              !(tgUser && tgUser.authorized)
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn ms-btn-primary",
+                      disabled: tgBusy,
+                      onClick: tgBeginLogin,
+                    },
+                    "Войти",
+                  )
+                : null,
               tgUser && tgUser.authorized
                 ? h(
                     "button",
@@ -2800,6 +2879,18 @@
                       onClick: tgSyncContacts,
                     },
                     tgBusy ? "Синхронизируем…" : "Синхронизировать контакты",
+                  )
+                : null,
+              tgUser && tgUser.authorized
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-link-btn",
+                      disabled: tgBusy,
+                      onClick: tgBeginLogin,
+                    },
+                    "Сменить аккаунт",
                   )
                 : null,
               tgUser && tgUser.authorized
@@ -2836,14 +2927,30 @@
                           }),
                         ),
                         h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "ms-btn ms-btn-primary",
-                            disabled: tgBusy,
-                            onClick: tgLogin,
-                          },
-                          tgBusy ? "Отправляем код…" : "Получить код",
+                          "div",
+                          { className: "ms-compose-actions" },
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-btn ms-btn-primary",
+                              disabled: tgBusy,
+                              onClick: tgLogin,
+                            },
+                            tgBusy ? "Отправляем код…" : "Получить код",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-link-btn",
+                              disabled: tgBusy,
+                              onClick: function () {
+                                tgRestartLogin({ clearPhone: true });
+                              },
+                            },
+                            "Сменить номер",
+                          ),
                         ),
                         h(
                           "p",
@@ -2880,6 +2987,13 @@
                         "div",
                         { className: "ms-add-contact" },
                         h(
+                          "p",
+                          { className: "ms-muted" },
+                          "Код для " +
+                            (String(tgPhone || "").trim() || "текущего номера") +
+                            ". Не тот номер — «Сменить номер».",
+                        ),
+                        h(
                           "label",
                           null,
                           "Код из Telegram",
@@ -2892,14 +3006,52 @@
                           }),
                         ),
                         h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "ms-btn ms-btn-primary",
-                            disabled: tgBusy,
-                            onClick: tgSubmitCode,
-                          },
-                          tgBusy ? "Проверяем…" : "Войти",
+                          "div",
+                          { className: "ms-compose-actions" },
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-btn ms-btn-primary",
+                              disabled: tgBusy,
+                              onClick: tgSubmitCode,
+                            },
+                            tgBusy ? "Проверяем…" : "Войти",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-btn",
+                              disabled: tgBusy || !String(tgPhone || "").trim(),
+                              onClick: tgLogin,
+                            },
+                            "Отправить код ещё раз",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-link-btn",
+                              disabled: tgBusy,
+                              onClick: function () {
+                                tgRestartLogin({ clearPhone: false });
+                              },
+                            },
+                            "Начать вход заново",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-link-btn",
+                              disabled: tgBusy,
+                              onClick: function () {
+                                tgRestartLogin({ clearPhone: true });
+                              },
+                            },
+                            "Сменить номер",
+                          ),
                         ),
                       )
                     : null,
@@ -2920,21 +3072,49 @@
                           }),
                         ),
                         h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "ms-btn ms-btn-primary",
-                            disabled: tgBusy,
-                            onClick: tgSubmitPassword,
-                          },
-                          tgBusy ? "Проверяем…" : "Подтвердить",
+                          "div",
+                          { className: "ms-compose-actions" },
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-btn ms-btn-primary",
+                              disabled: tgBusy,
+                              onClick: tgSubmitPassword,
+                            },
+                            tgBusy ? "Проверяем…" : "Подтвердить",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-link-btn",
+                              disabled: tgBusy,
+                              onClick: function () {
+                                tgRestartLogin({ clearPhone: false });
+                              },
+                            },
+                            "Начать вход заново",
+                          ),
+                          h(
+                            "button",
+                            {
+                              type: "button",
+                              className: "ms-link-btn",
+                              disabled: tgBusy,
+                              onClick: function () {
+                                tgRestartLogin({ clearPhone: true });
+                              },
+                            },
+                            "Сменить номер",
+                          ),
                         ),
                       )
                     : null,
                   h(
                     "p",
                     { className: "ms-muted" },
-                    "Как в обычном Telegram: телефон → код → облачный пароль (если включён). Сессия на сервере; код и пароль не сохраняются.",
+                    "Как в обычном Telegram: телефон → код → облачный пароль (если включён). «Начать вход заново» / «Сменить номер» сбрасывают шаг. Сессия на сервере; код и пароль не сохраняются.",
                   ),
                 )
               : null,
