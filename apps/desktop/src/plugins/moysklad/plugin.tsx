@@ -1909,6 +1909,31 @@ function writeClientsLocalCache(key: string, payload: ClientsLocalCachePayload):
   }
 }
 
+/** A repaint must not blank «TG conversation»: keep the previous non-empty
+ *  preview when the incoming copy of the same row arrives without one
+ *  (stale server snapshot / local cache racing the enriched page). */
+function preserveConversationPreviews(prev: ClientRow[], next: ClientRow[]): ClientRow[] {
+  if (!prev.length) {return next}
+
+  const byId = new Map(prev.map(r => [String(r.id || ''), r]))
+
+  return next.map(row => {
+    const old = byId.get(String(row.id || ''))
+
+    if (!old) {return row}
+    const incoming = row.tg_conversation_preview || row.tg_conversation || ''
+    const previous = old.tg_conversation_preview || old.tg_conversation || ''
+
+    if (incoming || !previous) {return row}
+
+    return {
+      ...row,
+      tg_conversation_preview: old.tg_conversation_preview,
+      tg_conversation: row.tg_conversation || old.tg_conversation
+    }
+  })
+}
+
 function mergeClientPages(prev: ClientRow[], incoming: ClientRow[]): ClientRow[] {
   const seen = new Set<string>()
   const out: ClientRow[] = []
@@ -2170,7 +2195,9 @@ function ClientsPage() {
 
         if (gen !== loadGen.current) {return}
         const page = data.clients || []
-        setClients(prev => (append ? mergeClientPages(prev, page) : page))
+        setClients(prev =>
+          append ? mergeClientPages(prev, page) : preserveConversationPreviews(prev, page)
+        )
         setCounts(data.counts || null)
         setMatched(data.matched_total || 0)
         if (data.stage_counts) {setStageCounts(data.stage_counts)}

@@ -1003,6 +1003,17 @@ def get_clients(
             if snap_env is not None:
                 sliced = slice_page_snapshot(snap_env, limit=limit, offset=0)
                 if sliced is not None:
+                    # Snapshots may predate the TG export import / thread
+                    # seeding, so their «TG conversation» previews go blank and
+                    # the column flickers between paints. Re-enrich at serve
+                    # time — overlay + thread stores are memory-cached, this is
+                    # milliseconds for a 100-row snapshot.
+                    try:
+                        sliced["clients"] = enrich_clients(
+                            list(sliced.get("clients") or [])
+                        )
+                    except Exception:
+                        log.debug("snapshot re-enrich failed", exc_info=True)
                     fresh = get_cached(catalog_key)
                     revalidating = False
                     if fresh is None:
