@@ -8,7 +8,16 @@ import {
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution
 } from '@hermes/plugin-sdk'
-import { type FormEvent, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type FormEvent,
+  type UIEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
+import { createPortal } from 'react-dom'
 
 interface GroupChipOption {
   name: string
@@ -26,10 +35,15 @@ function groupChipSrcLabel(source?: string): string {
   return 'МС'
 }
 
-/** Full-screen error dialog — inline `.ms-error` scrolls off long CRM pages. */
+/** Full-screen error dialog — inline `.ms-error` scrolls off long CRM pages.
+ *
+ * Portaled to ``document.body`` so React never reconciles a ``position:fixed``
+ * overlay against the long campaigns tree (that path throws
+ * ``removeChild`` / NotFoundError when siblings churn).
+ */
 function MsErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
-  if (!message) {return null}
-  return (
+  if (!message || typeof document === 'undefined') {return null}
+  return createPortal(
     <div
       className="ms-modal-backdrop ms-error-modal-backdrop"
       onClick={e => {
@@ -52,7 +66,23 @@ function MsErrorModal({ message, onClose }: { message: string; onClose: () => vo
         </div>
         <div className="ms-error ms-error-modal-body">{message}</div>
       </div>
-    </div>
+    </div>,
+    document.body
+  )
+}
+
+function TgProgressModal({ title, detail }: { title: string; detail: string }) {
+  if (typeof document === 'undefined') {return null}
+  return createPortal(
+    <div className="ms-modal-backdrop ms-tg-progress-backdrop" role="status">
+      <div className="ms-modal ms-tg-progress" onClick={e => e.stopPropagation()}>
+        <div aria-hidden="true" className="ms-tg-progress-spinner" />
+        <h3>{title}</h3>
+        <p className="ms-muted">{detail}</p>
+        <p className="ms-muted">Не закрывайте вкладку — ждём ответ Telegram / Telethon.</p>
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -2881,6 +2911,7 @@ function CampaignsPage() {
   const [tgCode, setTgCode] = useState('')
   const [tgPassword, setTgPassword] = useState('')
   const [tgSession, setTgSession] = useState('')
+  const [error, setError] = useState('')
 
   const runTgBusy = async (title: string, detail: string, work: () => Promise<void>) => {
     setTgBusy(true)
@@ -2927,7 +2958,6 @@ function CampaignsPage() {
   const [paraphrasing, setParaphrasing] = useState(false)
   const [checkingSanity, setCheckingSanity] = useState(false)
   const [sanity, setSanity] = useState<SanityResult | null>(null)
-  const [error, setError] = useState('')
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -5106,7 +5136,7 @@ function CampaignsPage() {
                 Проверить
               </button>
             </div>
-            <p className="ms-muted ms-tg-account-status">
+            <div className="ms-muted ms-tg-account-status">
               {tgUser && tgUser.available === false ? (
                 <>
                   ⚠ Нет MTProto-движка (telethon) — вход невозможен.{' '}
@@ -5138,7 +5168,7 @@ function CampaignsPage() {
                 'Не подключён — Bot API не видит ваш список контактов и не пишет первым'
               )}
               {tgUser?.detail ? ` · ${tgUser.detail}` : ''}
-            </p>
+            </div>
             <div className="ms-compose-actions">
               <button
                 className="ms-btn"
@@ -5345,8 +5375,8 @@ function CampaignsPage() {
                 value={contactPickerId || selectedClientId || ''}
               >
                 <option value="">— выберите контакт —</option>
-                {outreachContacts.map(c => (
-                  <option key={c.id} value={c.id}>
+                {outreachContacts.map((c, i) => (
+                  <option key={`${c.id || 'c'}-${i}`} value={c.id}>
                     {c.label || c.name || c.tg_nick || c.id}
                     {c.source === 'custom' ? ' · свой' : ''}
                     {c.source === 'telegram' ? ' · мои контакты' : ''}
@@ -5702,14 +5732,7 @@ function CampaignsPage() {
         </ul>
       )}
       {tgProgress ? (
-        <div className="ms-modal-backdrop ms-tg-progress-backdrop" role="status">
-          <div className="ms-modal ms-tg-progress" onClick={e => e.stopPropagation()}>
-            <div className="ms-tg-progress-spinner" aria-hidden="true" />
-            <h3>{tgProgress.title}</h3>
-            <p className="ms-muted">{tgProgress.detail}</p>
-            <p className="ms-muted">Не закрывайте вкладку — ждём ответ Telegram / Telethon.</p>
-          </div>
-        </div>
+        <TgProgressModal detail={tgProgress.detail} title={tgProgress.title} />
       ) : null}
     </div>
   )
