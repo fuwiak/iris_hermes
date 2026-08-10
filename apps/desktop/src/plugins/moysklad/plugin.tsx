@@ -26,6 +26,36 @@ function groupChipSrcLabel(source?: string): string {
   return 'МС'
 }
 
+/** Full-screen error dialog — inline `.ms-error` scrolls off long CRM pages. */
+function MsErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
+  if (!message) {return null}
+  return (
+    <div
+      className="ms-modal-backdrop ms-error-modal-backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) {onClose()}
+      }}
+      role="presentation"
+    >
+      <div
+        aria-labelledby="ms-error-title"
+        aria-modal="true"
+        className="ms-modal ms-error-modal"
+        onClick={e => e.stopPropagation()}
+        role="alertdialog"
+      >
+        <div className="ms-card-head">
+          <h3 id="ms-error-title">Ошибка</h3>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        <div className="ms-error ms-error-modal-body">{message}</div>
+      </div>
+    </div>
+  )
+}
+
 const DEFAULT_AI_GROUP_CHIPS: GroupChipOption[] = [
   'новый',
   'премиум',
@@ -1546,7 +1576,9 @@ function ClientCardModal({
             Закрыть
           </button>
         </div>
-        {error ? <div className="ms-error">{error}</div> : null}
+        {error ? (
+          <MsErrorModal message={error} onClose={() => setError('')} />
+        ) : null}
         {loading ? (
           <p className="ms-muted">Загрузка карточки…</p>
         ) : (
@@ -2493,7 +2525,7 @@ function ClientsPage() {
         sourceKey="ai"
         title="Группы: ИИ"
       />
-      {error ? <div className="ms-error">{error}</div> : null}
+      {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
       <p className="ms-muted">
         Найдено: {matched}
         {clients.length ? ` · загружено ${clients.length}` : ''}
@@ -5613,7 +5645,7 @@ function CampaignsPage() {
         </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
-      {error ? <div className="ms-error">{error}</div> : null}
+      {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
       <h2 className="ms-section-title">Черновики</h2>
       {!campaigns.length ? (
         <p className="ms-muted">{loading ? 'Загрузка…' : 'Пока нет рассылок.'}</p>
@@ -5946,7 +5978,7 @@ function AiPlaygroundPage() {
         </div>
       </div>
 
-      {error ? <div className="ms-error">{error}</div> : null}
+      {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
 
       <section className="ms-playground-quality" aria-label="Качество генерации">
         <div className="ms-playground-quality-head">
