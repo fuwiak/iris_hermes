@@ -575,6 +575,60 @@ def fetch_contacts(*, force: bool = True) -> dict[str, Any]:
     }
 
 
+_TME_RE = re.compile(
+    r"(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,64})",
+    re.IGNORECASE,
+)
+_PEER_ID_RE = re.compile(r"^-?\d{1,20}$")
+
+
+def _peer_arg(peer: str) -> Any:
+    raw = str(peer or "").strip()
+    m = _TME_RE.search(raw)
+    if m:
+        return f"@{m.group(1)}"
+    if raw.lower().startswith("tg://user?id="):
+        raw = raw.split("id=", 1)[-1].strip()
+    if _PEER_ID_RE.fullmatch(raw):
+        return int(raw)
+    return raw if raw.startswith("@") else f"@{raw.lstrip('@')}"
+
+
+def resolve_peer(*, peer: str) -> dict[str, Any]:
+    """Resolve @nick / t.me / numeric id via Telethon on the egress IP."""
+    raw = str(peer or "").strip()
+    if not raw:
+        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+    target = _peer_arg(raw)
+    if not str(target).strip("@"):
+        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+
+    async def _resolve() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        entity = await client.get_entity(target)
+        norm = _contact_from_user(entity) or {}
+        if not norm:
+            eid = getattr(entity, "id", None)
+            if eid is None:
+                return _err("peer_unresolved", f"Не удалось расшифровать {raw}")
+            norm = {
+                "id": str(eid),
+                "tg_chat_id": str(eid),
+                "tg_nick": "",
+                "name": "",
+            }
+        return {
+            "ok": True,
+            **norm,
+            "resolved_via": "mtproto_gateway",
+            "via": "gateway",
+        }
+
+    return _call(_resolve, timeout=45.0)
+
+
 def send_message(*, peer: str, text: str) -> dict[str, Any]:
     text = (text or "").strip()
     peer = (peer or "").strip()
@@ -582,9 +636,7 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
         return _err("empty_text", "message required")
     if not peer:
         return _err("telegram_chat_missing", "Нужен @ник или chat id")
-    target: Any = peer
-    if peer.lstrip("-").isdigit():
-        target = int(peer)
+    target: Any = _peer_arg(peer)
 
     async def _send() -> dict[str, Any]:
         client = await _RUNNER.client()
@@ -673,6 +725,10 @@ async def gateway(
 
     if request.method == "POST" and route in ("contacts/refresh", "contacts"):
         out = fetch_contacts(force=force)
+        return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+    if request.method == "POST" and route == "resolve":
+        out = resolve_peer(peer=str(body.get("peer") or body.get("query") or ""))
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
     if request.method == "POST" and route == "send":

@@ -27,7 +27,7 @@ In `/root/deploy.env` (or GitHub secret `SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL
 TELEGRAM_USER_GATEWAY_URL=https://<host>/t/<EGRESS_TOKEN>
 ```
 
-Then recreate hermes. Login / contacts / send go through Railway.
+Then recreate hermes. Login / contacts / send / **resolve (@nick)** go through Railway.
 
 ## Auth
 

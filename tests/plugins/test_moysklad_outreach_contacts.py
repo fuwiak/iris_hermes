@@ -115,6 +115,7 @@ def test_resolve_peer_identity_via_get_chat(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TEST")
     monkeypatch.delenv("MOYSKLAD_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: False)
 
     class _Resp:
         content = (
@@ -149,8 +150,57 @@ def test_resolve_peer_identity_via_get_chat(monkeypatch):
     assert "Asya" in (out.get("name") or "")
 
 
+def test_resolve_peer_identity_via_mtproto_gateway(monkeypatch):
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: True)
+
+    def _resolve(query):
+        assert query.lower() == "@annav_dess"
+        return {
+            "ok": True,
+            "tg_chat_id": "777001",
+            "tg_nick": "AnnaV_dess",
+            "name": "Anna",
+            "resolved_via": "mtproto_gateway",
+        }
+
+    monkeypatch.setattr(tg.tg_user, "resolve_peer", _resolve)
+
+    def _boom(*a, **k):
+        raise AssertionError("Bot API getChat must not run after MTProto resolve")
+
+    monkeypatch.setattr(tg, "fetch_chat", _boom)
+    out = tg.resolve_peer_identity(query="@AnnaV_dess")
+    assert out["ok"] is True
+    assert out["tg_chat_id"] == "777001"
+    assert out["resolved_via"] == "mtproto_gateway"
+
+
+def test_resolve_peer_identity_stops_on_network_blocked(monkeypatch):
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: True)
+    monkeypatch.setattr(
+        tg.tg_user,
+        "resolve_peer",
+        lambda query: {
+            "ok": False,
+            "error": "network_unreachable",
+            "detail": "[Errno 101] Network is unreachable. TELEGRAM_USER_GATEWAY_URL…",
+            "network_blocked": True,
+        },
+    )
+
+    def _boom(*a, **k):
+        raise AssertionError("must not fall through to Bot API on network block")
+
+    monkeypatch.setattr(tg, "fetch_chat", _boom)
+    out = tg.resolve_peer_identity(query="@AnnaV_dess")
+    assert out["ok"] is False
+    assert out["error"] == "network_unreachable"
+    assert "101" in (out.get("detail") or "") or "GATEWAY" in (out.get("detail") or "").upper()
+
+
 def test_resolve_peer_identity_tme_link(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TEST")
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **k: False)
 
     class _Resp:
         content = b'{"ok":true,"result":{"id":99,"username":"maria","type":"private"}}'

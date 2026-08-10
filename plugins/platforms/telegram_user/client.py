@@ -573,7 +573,16 @@ def _call(
         log.warning("telegram_user call failed: %s", exc)
         msg = str(exc) or exc.__class__.__name__
         low = msg.lower()
-        if "timed out" in low or "timeout" in low or "connection" in low:
+        # Selectel/RU often surfaces OSError Errno 101 ("Network is unreachable")
+        # when Telegram DCs are blocked — treat like other connect failures.
+        if (
+            "timed out" in low
+            or "timeout" in low
+            or "connection" in low
+            or "unreachable" in low
+            or "errno 101" in low
+            or "network is unreachable" in low
+        ):
             try:
                 _RUNNER.reset()
             except Exception:
@@ -583,6 +592,7 @@ def _call(
                 f"{msg}. {_NETWORK_HINT}",
                 network_blocked=True,
                 proxy_configured=bool(_proxy_url()),
+                gateway_configured=bool(_gateway_base()),
             )
         return _err(exc.__class__.__name__, msg)
 
@@ -1523,8 +1533,44 @@ def _peer_arg(peer: str) -> Any:
 
 
 def resolve_peer(query: str) -> dict[str, Any]:
-    """Resolve @nick / t.me / numeric id through the user session."""
-    target = _peer_arg(query)
+    """Resolve @nick / t.me / numeric id through the user session.
+
+    When ``TELEGRAM_USER_GATEWAY_URL`` is set (Selectel → Railway egress), resolve
+    MUST go through the gateway — local Telethon cannot reach Telegram DCs and
+    returns ``[Errno 101] Network is unreachable``.
+    """
+    raw = str(query or "").strip()
+    if not raw:
+        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+
+    # Cheap path: already in the synced personal contacts cache.
+    target = _peer_arg(raw)
+    if isinstance(target, int):
+        cached = find_cached_contact(tg_chat_id=str(target))
+    else:
+        cached = find_cached_contact(tg_nick=str(target).lstrip("@"))
+    if cached and cached.get("tg_chat_id"):
+        return {
+            "ok": True,
+            "id": str(cached.get("id") or cached.get("tg_chat_id") or ""),
+            "tg_chat_id": str(cached["tg_chat_id"]),
+            "tg_nick": str(cached.get("tg_nick") or "").lstrip("@"),
+            "name": str(cached.get("name") or ""),
+            "resolved_via": "contacts_cache",
+        }
+
+    if _gateway_base():
+        res = _gateway_request(
+            "POST",
+            "resolve",
+            json_body={"peer": raw},
+            timeout=45.0,
+        )
+        if res.get("ok") and res.get("tg_chat_id"):
+            res.setdefault("resolved_via", "mtproto_gateway")
+            return res
+        return res
+
     if not str(target).strip("@"):
         return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
 

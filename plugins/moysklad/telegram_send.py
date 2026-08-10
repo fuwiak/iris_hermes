@@ -277,6 +277,8 @@ def resolve_peer_identity(
         via = ""
 
     # Personal account resolves cold @nicks the bot has never seen.
+    # On Selectel this MUST go through TELEGRAM_USER_GATEWAY_URL (Railway) —
+    # local MTProto hits Errno 101 Network is unreachable.
     if not chat_id and tg_user.is_authorized():
         mt = tg_user.resolve_peer(chat_id or f"@{nick}")
         if mt.get("ok") and mt.get("tg_chat_id"):
@@ -285,7 +287,25 @@ def resolve_peer_identity(
                 "tg_nick": normalize_tg_nick(mt.get("tg_nick") or nick),
                 "tg_chat_id": str(mt["tg_chat_id"]),
                 "name": str(mt.get("name") or name_hint or ""),
-                "resolved_via": "mtproto",
+                "resolved_via": str(mt.get("resolved_via") or "mtproto"),
+            }
+        # Don't fall through to Bot API when MTProto/gateway already told us
+        # the network path is dead — Bot API from RU often fails the same way.
+        if mt.get("network_blocked") or mt.get("error") in {
+            "network_unreachable",
+            "gateway_unreachable",
+            "timeout",
+        }:
+            return {
+                "ok": False,
+                "error": str(mt.get("error") or "network_unreachable"),
+                "detail": str(
+                    mt.get("detail")
+                    or "Telegram недоступен с этого сервера. Нужен TELEGRAM_USER_GATEWAY_URL."
+                ),
+                "tg_nick": nick or None,
+                "tg_chat_id": chat_id or None,
+                "cause": mt,
             }
 
     # Bot API getChat — works for known peers / public usernames the bot can see.

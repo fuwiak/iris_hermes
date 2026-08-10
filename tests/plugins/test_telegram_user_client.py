@@ -353,6 +353,63 @@ def test_gateway_send_message_forwards(tmp_path, monkeypatch):
     assert out["via"] == "gateway"
 
 
+def test_gateway_resolve_peer_forwards(tmp_path, monkeypatch):
+    """Selectel must not open local MTProto when resolving @nick via egress."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    calls: list[tuple] = []
+
+    def _fake(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("json_body")))
+        return {
+            "ok": True,
+            "tg_chat_id": "415321451",
+            "tg_nick": "AnnaV_dess",
+            "name": "Anna",
+            "resolved_via": "mtproto_gateway",
+            "via": "gateway",
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+
+    def _boom(*a, **k):
+        raise AssertionError("local Telethon must not run when gateway is set")
+
+    monkeypatch.setattr(tu, "_call", _boom)
+    out = tu.resolve_peer("@AnnaV_dess")
+    assert out["ok"] is True
+    assert out["tg_chat_id"] == "415321451"
+    assert out["tg_nick"] == "AnnaV_dess"
+    assert calls == [("POST", "resolve", {"peer": "@AnnaV_dess"})]
+
+
+def test_resolve_peer_uses_contacts_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("TELEGRAM_USER_GATEWAY_URL", raising=False)
+    monkeypatch.setattr(
+        tu,
+        "cached_contacts",
+        lambda: [
+            {
+                "id": "99",
+                "tg_chat_id": "99",
+                "tg_nick": "cacheduser",
+                "name": "Cached",
+            }
+        ],
+    )
+
+    def _boom(*a, **k):
+        raise AssertionError("cache hit must skip Telethon/gateway")
+
+    monkeypatch.setattr(tu, "_call", _boom)
+    monkeypatch.setattr(tu, "_gateway_request", _boom)
+    out = tu.resolve_peer("@cacheduser")
+    assert out["ok"] is True
+    assert out["tg_chat_id"] == "99"
+    assert out["resolved_via"] == "contacts_cache"
+
+
 def test_gateway_start_contacts_sync_uses_egress(tmp_path, monkeypatch):
     """Selectel contact sync must not open local MTProto when gateway URL is set."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
