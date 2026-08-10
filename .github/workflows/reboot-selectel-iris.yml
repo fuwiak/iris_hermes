@@ -1,0 +1,187 @@
+name: Hard reboot Selectel Iris VDS
+
+# Hardware-style reboot of the existing VDS. Does NOT recreate the server
+# or rebuild containers — power-cycles the same iris-hermes instance.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "hard = OpenStack HARD reboot (panel); sysrq = in-guest hard reset via SSH"
+        type: choice
+        options:
+          - hard
+          - sysrq
+        default: hard
+
+concurrency:
+  group: reboot-selectel-iris
+  cancel-in-progress: false
+
+jobs:
+  reboot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (for Selectel helper only)
+        if: ${{ inputs.mode == 'hard' }}
+        uses: actions/checkout@v4
+
+      - name: OpenStack HARD reboot (existing server only)
+        if: ${{ inputs.mode == 'hard' }}
+        env:
+          SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
+          SELECTEL_SERVICE_USER: ${{ secrets.SELECTEL_SERVICE_USER }}
+          SELECTEL_SERVICE_PASSWORD: ${{ secrets.SELECTEL_SERVICE_PASSWORD }}
+          SELECTEL_PROJECT_NAME: ${{ secrets.SELECTEL_PROJECT_NAME }}
+          TARGET_IP: "185.161.66.162"
+          TARGET_NAME: "iris-hermes"
+        run: |
+          set -euo pipefail
+          for v in SELECTEL_ACCOUNT_ID SELECTEL_SERVICE_USER SELECTEL_SERVICE_PASSWORD SELECTEL_PROJECT_NAME; do
+            if [ -z "${!v:-}" ]; then
+              echo "Missing secret $v — falling back is not automatic; use mode=sysrq or set IAM secrets." >&2
+              exit 2
+            fi
+          done
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+
+          account = os.environ["SELECTEL_ACCOUNT_ID"]
+          user = os.environ["SELECTEL_SERVICE_USER"]
+          password = os.environ["SELECTEL_SERVICE_PASSWORD"]
+          project = os.environ["SELECTEL_PROJECT_NAME"]
+          target_ip = os.environ["TARGET_IP"]
+          target_name = os.environ["TARGET_NAME"]
+
+          auth_body = {
+              "auth": {
+                  "identity": {
+                      "methods": ["password"],
+                      "password": {
+                          "user": {
+                              "name": user,
+                              "domain": {"name": account},
+                              "password": password,
+                          }
+                      },
+                  },
+                  "scope": {
+                      "project": {
+                          "name": project,
+                          "domain": {"name": account},
+                      }
+                  },
+              }
+          }
+          req = urllib.request.Request(
+              "https://cloud.api.selcloud.ru/identity/v3/auth/tokens",
+              data=json.dumps(auth_body).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              token = resp.headers.get("X-Subject-Token")
+              catalog = json.load(resp)
+          assert token
+
+          endpoints = []
+          for svc in catalog.get("token", {}).get("catalog", []):
+              if svc.get("type") != "compute":
+                  continue
+              for ep in svc.get("endpoints", []):
+                  if ep.get("interface") == "public":
+                      endpoints.append((ep.get("region"), ep.get("url")))
+          print("compute endpoints:", endpoints)
+          compute = None
+          for region, url in endpoints:
+              if region == "ru-7":
+                  compute = url.rstrip("/")
+                  break
+          if not compute:
+              compute = endpoints[0][1].rstrip("/")
+          print("using", compute)
+
+          req = urllib.request.Request(
+              f"{compute}/servers/detail",
+              headers={"X-Auth-Token": token, "Accept": "application/json"},
+          )
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              servers = json.load(resp).get("servers", [])
+
+          target = None
+          for s in servers:
+              addrs = []
+              for _net, items in (s.get("addresses") or {}).items():
+                  for it in items:
+                      addrs.append(it.get("addr"))
+              print(f"server name={s.get('name')!r} id={s.get('id')} status={s.get('status')} addrs={addrs}")
+              if s.get("name") == target_name or target_ip in addrs:
+                  target = s
+          if not target:
+              raise SystemExit(f"target {target_name}/{target_ip} not found — abort (will not create)")
+
+          sid = target["id"]
+          print(f"HARD reboot existing server id={sid} name={target.get('name')} (no rebuild/create)")
+          body = json.dumps({"reboot": {"type": "HARD"}}).encode()
+          req = urllib.request.Request(
+              f"{compute}/servers/{sid}/action",
+              data=body,
+              headers={
+                  "X-Auth-Token": token,
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              print("reboot http", resp.status)
+
+          for i in range(24):
+              time.sleep(5)
+              req = urllib.request.Request(
+                  f"{compute}/servers/{sid}",
+                  headers={"X-Auth-Token": token, "Accept": "application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  st = json.load(resp)["server"]["status"]
+              print(f"poll[{i}] {st}")
+              if st == "ACTIVE" and i >= 1:
+                  break
+          print("DONE")
+          PY
+
+      - name: In-guest hard reset via SSH (sysrq-b)
+        if: ${{ inputs.mode == 'sysrq' }}
+        env:
+          SELECTEL_HOST: ${{ secrets.SELECTEL_IRIS_HOST }}
+          SELECTEL_USER: ${{ secrets.SELECTEL_IRIS_USER }}
+          SELECTEL_SSH_KEY: ${{ secrets.SELECTEL_IRIS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${SELECTEL_HOST:-}"
+          test -n "${SELECTEL_USER:-}"
+          test -n "${SELECTEL_SSH_KEY:-}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SELECTEL_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SELECTEL_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30)
+          echo "Triggering sysrq-b hard reset on ${SELECTEL_USER}@${SELECTEL_HOST} (same VDS, no recreate)"
+          # Connection drops when the kernel resets — treat that as success.
+          set +e
+          "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
+            'sync; echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger'
+          rc=$?
+          set -e
+          echo "ssh exit=$rc (expected non-zero after hard reset)"
+          echo "Waiting for SSH to return..."
+          for i in $(seq 1 36); do
+            if "${SSH[@]}" -o ConnectTimeout=10 "${SELECTEL_USER}@${SELECTEL_HOST}" 'uptime' 2>/dev/null; then
+              echo "VDS back after hard reset"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "VDS not reachable yet after 3m — reboot likely in progress" >&2
+          exit 0
