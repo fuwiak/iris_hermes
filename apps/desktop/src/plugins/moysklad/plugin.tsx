@@ -5407,26 +5407,8 @@ function CampaignsPage() {
                     value={addContactName}
                   />
                 </label>
-                <label>
-                  @ник (после расшифровки)
-                  <input
-                    onChange={e => setAddContactNick(e.target.value)}
-                    placeholder="papa2139"
-                    value={addContactNick}
-                  />
-                </label>
-                <label>
-                  Chat id (numeric)
-                  <input
-                    onChange={e => setAddContactChatId(e.target.value)}
-                    placeholder="415321451"
-                    value={addContactChatId}
-                  />
-                </label>
-                <p className="ms-muted">
-                  Расшифровка: Bot API getChat + Telegram export overlay. Cold @ник
-                  без истории с Business может не резолвиться — тогда нужен numeric id.
-                </p>
+                {/* @ник / chat id после Bot API resolve — скрыты: личные
+                    контакты Telethon покрывают выбор; cold resolve живёт в state. */}
                 <button
                   className="ms-btn ms-btn-primary"
                   disabled={addContactSaving || addContactResolving}
