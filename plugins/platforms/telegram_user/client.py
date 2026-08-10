@@ -1174,14 +1174,7 @@ def fetch_contacts(
             timeout=180.0,
         )
         if res.get("ok") and isinstance(res.get("contacts"), list):
-            payload = {
-                "fetched_at": time.time(),
-                "contacts": res["contacts"],
-                "from_address_book": res.get("from_address_book"),
-                "from_dialogs": res.get("from_dialogs"),
-            }
-            _write_json(_contacts_path(), payload)
-            _mirror_contacts_to_redis(payload)
+            return _apply_gateway_contacts(res)
         return res
 
     async def _fetch() -> dict[str, Any]:
@@ -1272,6 +1265,83 @@ def contacts_sync_status() -> dict[str, Any]:
     return out
 
 
+def _normalize_gateway_contact(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Map egress contact rows onto the local cache schema."""
+    if not isinstance(raw, dict):
+        return None
+    uid = str(raw.get("id") or raw.get("tg_chat_id") or "").strip()
+    if not uid:
+        return None
+    nick = str(raw.get("tg_nick") or "").strip().lstrip("@")
+    peer_source = str(raw.get("peer_source") or raw.get("source") or "contact").strip()
+    if peer_source not in {"contact", "dialog"}:
+        peer_source = "contact"
+    return {
+        "id": uid,
+        "tg_chat_id": str(raw.get("tg_chat_id") or uid).strip() or uid,
+        "tg_nick": nick,
+        "name": str(raw.get("name") or "").strip() or (f"@{nick}" if nick else uid),
+        "phone": str(raw.get("phone") or "").strip(),
+        "peer_source": peer_source,
+    }
+
+
+def _apply_gateway_contacts(res: dict[str, Any]) -> dict[str, Any]:
+    """Persist a gateway contacts/refresh payload into the local cache."""
+    raw_items = res.get("contacts") if isinstance(res.get("contacts"), list) else []
+    contacts = [c for c in (_normalize_gateway_contact(x) for x in raw_items) if c]
+    payload = {
+        "fetched_at": time.time(),
+        "contacts": contacts,
+        "from_address_book": res.get("from_address_book"),
+        "from_dialogs": res.get("from_dialogs"),
+    }
+    _write_json(_contacts_path(), payload)
+    _mirror_contacts_to_redis(payload)
+    return {
+        **res,
+        "ok": True,
+        "contacts": contacts,
+        "total": len(contacts),
+        "via": res.get("via") or "gateway",
+    }
+
+
+def _gateway_sync_worker() -> None:
+    """Background contact sync when Selectel cannot open MTProto locally."""
+    _set_sync(phase="gateway")
+    try:
+        res = _gateway_request(
+            "POST",
+            "contacts/refresh",
+            json_body={},
+            params={"force": "true"},
+            timeout=180.0,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        res = _err("sync_failed", str(exc))
+    if res.get("ok") and isinstance(res.get("contacts"), list):
+        applied = _apply_gateway_contacts(res)
+        _set_sync(
+            running=False,
+            finished_at=time.time(),
+            phase="done",
+            error="",
+            total=applied["total"],
+            scanned=applied["total"],
+            from_address_book=int(res.get("from_address_book") or 0),
+            from_dialogs=int(res.get("from_dialogs") or 0),
+        )
+        return
+    detail = str(res.get("detail") or res.get("error") or "gateway sync failed")
+    _set_sync(
+        running=False,
+        finished_at=time.time(),
+        phase="error",
+        error=detail,
+    )
+
+
 def _sync_worker(dialogs_limit: int) -> None:
     async def _run() -> dict[str, Any]:
         from telethon import functions  # noqa: PLC0415
@@ -1351,6 +1421,9 @@ def start_contacts_sync(
     The HTTP layer never blocks on Telegram: callers poll
     ``contacts_sync_status()`` while the daemon thread merges batches into
     the cache (file + Redis mirror).
+
+    When ``TELEGRAM_USER_GATEWAY_URL`` is set (Railway egress for Selectel/RU),
+    the worker proxies ``contacts/refresh`` instead of opening MTProto locally.
     """
     if not force and not contacts_stale(ttl):
         return {**contacts_sync_status(), "started": False, "cached": True}
@@ -1367,12 +1440,19 @@ def start_contacts_sync(
             finished_at=0.0,
             error="",
         )
-        thread = threading.Thread(
-            target=_sync_worker,
-            args=(dialogs_limit,),
-            name="tg-user-contacts-sync",
-            daemon=True,
-        )
+        if _gateway_base():
+            thread = threading.Thread(
+                target=_gateway_sync_worker,
+                name="tg-user-contacts-sync-gw",
+                daemon=True,
+            )
+        else:
+            thread = threading.Thread(
+                target=_sync_worker,
+                args=(dialogs_limit,),
+                name="tg-user-contacts-sync",
+                daemon=True,
+            )
         thread.start()
     return {**contacts_sync_status(), "started": True, "running": True}
 

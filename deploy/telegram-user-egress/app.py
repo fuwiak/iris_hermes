@@ -492,18 +492,23 @@ def logout() -> dict[str, Any]:
 def _contact_from_user(user: Any, *, source: str = "contact") -> dict[str, Any] | None:
     if user is None or getattr(user, "bot", False) or getattr(user, "deleted", False):
         return None
+    if getattr(user, "is_self", False):
+        return None
     uid = getattr(user, "id", None)
     if uid is None:
         return None
     first = str(getattr(user, "first_name", "") or "").strip()
     last = str(getattr(user, "last_name", "") or "").strip()
-    username = str(getattr(user, "username", "") or "").strip()
+    username = str(getattr(user, "username", "") or "").strip().lstrip("@")
+    name = " ".join(p for p in (first, last) if p)
     return {
         "id": str(uid),
         "tg_chat_id": str(uid),
-        "tg_nick": f"@{username}" if username else "",
-        "name": " ".join(p for p in (first, last) if p) or (f"@{username}" if username else str(uid)),
-        "phone": str(getattr(user, "phone", "") or ""),
+        "tg_nick": username,
+        "name": name or (f"@{username}" if username else str(uid)),
+        "phone": str(getattr(user, "phone", "") or "").strip(),
+        # Match hermes telegram_user cache schema (peer_source, nick without @).
+        "peer_source": source,
         "source": source,
     }
 

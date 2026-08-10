@@ -7,6 +7,7 @@ No Telethon and no network: everything that touches Telegram goes through
 from __future__ import annotations
 
 import json
+import time
 
 import plugins.platforms.telegram_user.client as tu
 
@@ -350,3 +351,73 @@ def test_gateway_send_message_forwards(tmp_path, monkeypatch):
     out = tu.send_message(peer="@x", text="hi")
     assert out["ok"] is True
     assert out["via"] == "gateway"
+
+
+def test_gateway_start_contacts_sync_uses_egress(tmp_path, monkeypatch):
+    """Selectel contact sync must not open local MTProto when gateway URL is set."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    with tu._LOCK:
+        tu._SYNC_STATE.update(
+            running=False,
+            phase="",
+            scanned=0,
+            total=0,
+            from_address_book=0,
+            from_dialogs=0,
+            started_at=0.0,
+            finished_at=0.0,
+            error="",
+        )
+    calls: list[tuple] = []
+
+    def _fake(method, path, **kwargs):
+        calls.append((method, path))
+        return {
+            "ok": True,
+            "contacts": [
+                {
+                    "id": "9",
+                    "tg_chat_id": "9",
+                    "tg_nick": "@alice",
+                    "name": "Alice",
+                    "source": "contact",
+                }
+            ],
+            "from_address_book": 1,
+            "from_dialogs": 0,
+            "via": "gateway",
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    out = tu.start_contacts_sync(force=True)
+    assert out["started"] is True
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        st = tu.contacts_sync_status()
+        if not st.get("running") and st.get("phase") in {"done", "error"}:
+            break
+        time.sleep(0.02)
+    st = tu.contacts_sync_status()
+    assert st["phase"] == "done"
+    assert st["error"] == ""
+    assert st["total"] == 1
+    assert calls == [("POST", "contacts/refresh")]
+    cached = tu.cached_contacts()
+    assert cached[0]["tg_nick"] == "alice"
+    assert cached[0]["peer_source"] == "contact"
+
+
+def test_normalize_gateway_contact_strips_at():
+    row = tu._normalize_gateway_contact(
+        {"id": "1", "tg_chat_id": "1", "tg_nick": "@bob", "name": "Bob", "source": "dialog"}
+    )
+    assert row == {
+        "id": "1",
+        "tg_chat_id": "1",
+        "tg_nick": "bob",
+        "name": "Bob",
+        "phone": "",
+        "peer_source": "dialog",
+    }
