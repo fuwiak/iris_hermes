@@ -149,10 +149,14 @@ over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
   `TELEGRAM_BUILTIN_API=0`).
   Endpoints: `POST /campaigns/telegram-user/{credentials,login,code,password,session,logout}`,
   `GET /campaigns/telegram-user` (`/credentials` stays for API-only setups).
-* **Selectel / RU IP:** Telegram MTProto DCs are often unreachable. Set
-  `TELEGRAM_PROXY=socks5://user:pass@host:1080` (same var as Bot API), or paste
-  a Telethon **StringSession** in the Connect form / `POST .../session`.
-  Login fails in ~20s with a clear error instead of hanging.
+* **Selectel / RU IP:** Telegram MTProto DCs are often unreachable. Preferred
+  fix: deploy `deploy/telegram-user-egress/` on Railway and set
+  `TELEGRAM_USER_GATEWAY_URL=https://<host>/t/<EGRESS_TOKEN>` so login /
+  contacts / send run on a non-RU IP. Alternatives:
+  `TELEGRAM_PROXY=socks5://user:pass@host:1080`, or paste a Telethon
+  **StringSession** in the Connect form / `POST .../session` (session on
+  Selectel still needs MTProto for later ops unless gateway is used).
+  Without egress, login fails in ~20s with a clear error instead of hanging.
 * Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).
   Env overrides: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
   `TELEGRAM_USER_SESSION`.

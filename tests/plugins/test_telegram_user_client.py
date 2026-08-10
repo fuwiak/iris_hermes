@@ -311,3 +311,42 @@ def test_telethon_missing_maps_to_friendly_error():
     assert out["error"] == "telethon_missing"
     out = tu._runtime_error(RuntimeError("api_credentials_missing"))
     assert out["error"] == "api_credentials_missing"
+
+
+def test_gateway_start_login_forwards(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    calls: list[tuple] = []
+
+    def _fake(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("json_body")))
+        return {"ok": True, "code_sent": True, "via": "gateway"}
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    out = tu.start_login(phone="+79950998170")
+    assert out["ok"] is True
+    assert out["code_sent"] is True
+    assert calls == [("POST", "login", {"phone": "+79950998170", "api_id": "", "api_hash": ""})]
+    assert tu.load_config().get("phone") == "+79950998170"
+
+
+def test_gateway_ensure_runtime_skips_telethon(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    out = tu.ensure_runtime()
+    assert out == {"ok": True, "available": True, "via": "gateway"}
+
+
+def test_gateway_send_message_forwards(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+
+    def _fake(method, path, **kwargs):
+        assert method == "POST" and path == "send"
+        assert kwargs["json_body"] == {"peer": "@x", "text": "hi"}
+        return {"ok": True, "message_id": 1, "via": "gateway"}
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    out = tu.send_message(peer="@x", text="hi")
+    assert out["ok"] is True
+    assert out["via"] == "gateway"

@@ -2848,7 +2848,7 @@
                         h(
                           "p",
                           { className: "ms-muted" },
-                          "Если код не приходит (~20с): Selectel IP часто не достучится до Telegram. TELEGRAM_PROXY=socks5://… или StringSession ниже.",
+                          "Если код не приходит: Selectel IP часто не достучится до Telegram. Нужен TELEGRAM_USER_GATEWAY_URL (Railway), TELEGRAM_PROXY или StringSession ниже.",
                         ),
                         h(
                           "label",

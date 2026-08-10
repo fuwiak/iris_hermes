@@ -5183,9 +5183,9 @@ function CampaignsPage() {
                       </button>
                     </div>
                     <p className="ms-muted">
-                      Если код не приходит (~20с): с Selectel IP Telegram часто
-                      недоступен. Задайте TELEGRAM_PROXY=socks5://… в .env или
-                      вставьте StringSession ниже.
+                      Если код не приходит: с Selectel IP Telegram часто
+                      недоступен. Нужен TELEGRAM_USER_GATEWAY_URL (Railway
+                      egress), TELEGRAM_PROXY=socks5://… или StringSession ниже.
                     </p>
                     <label>
                       StringSession (обход блокировки)

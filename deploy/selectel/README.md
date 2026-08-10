@@ -67,6 +67,10 @@ only LLM traffic leaves via Railway’s non-RU IP):
 3. Push to `main` (deploy patches `/root/deploy.env`; entrypoint syncs volume
    `.env` **and** rewrites `config.yaml` `model.base_url` to the egress URL).
 
+For **personal Telegram (Telethon)** — same problem, MTProto DCs blocked from
+Selectel — deploy `deploy/telegram-user-egress/` and set
+`SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL=https://<host>/t/<EGRESS_TOKEN>`.
+
 `OPENROUTER_BASE_URL` always wins over a stale `model.base_url:
 https://openrouter.ai/api/v1` on the volume.
 
@@ -97,6 +101,7 @@ Secrets:
 - `SELECTEL_IRIS_DEPLOY_ENV` (full `/root/deploy.env` body)
 - `SELECTEL_IRIS_OPENROUTER_API_KEY` (optional; patches OpenRouter key on each deploy)
 - `SELECTEL_IRIS_OPENROUTER_BASE_URL` (optional; Railway egress proxy — see `deploy/openrouter-egress/`)
+- `SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL` (optional; Railway Telethon egress — see `deploy/telegram-user-egress/`)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN` (optional; Business bot for Рассылки)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME` (optional)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (optional)

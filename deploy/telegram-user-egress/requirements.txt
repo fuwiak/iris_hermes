@@ -1,0 +1,5 @@
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.32.0,<1
+telethon==1.44.0
+python-socks[asyncio]==2.8.1
+httpx>=0.28.1,<1

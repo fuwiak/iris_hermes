@@ -57,9 +57,80 @@ _PHONE_DIGITS_RE = re.compile(r"\D+")
 
 _NETWORK_HINT = (
     "Сервер не достучался до Telegram MTProto (типично для Selectel/RU IP). "
-    "Задайте TELEGRAM_PROXY=socks5://user:pass@host:1080 в .env "
-    "или вставьте StringSession (логин с машины, где Telegram открывается)."
+    "Задайте TELEGRAM_USER_GATEWAY_URL (Railway egress) или TELEGRAM_PROXY=socks5://…"
 )
+
+
+def _gateway_base() -> str:
+    """HTTPS base for Railway Telethon egress, e.g. ``https://host/t/<token>``."""
+    return (os.getenv("TELEGRAM_USER_GATEWAY_URL") or "").strip().rstrip("/")
+
+
+def _gateway_request(
+    method: str,
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    base = _gateway_base()
+    if not base:
+        return _err("gateway_missing", "TELEGRAM_USER_GATEWAY_URL не задан")
+    url = f"{base}/{path.lstrip('/')}"
+    if params:
+        from urllib.parse import urlencode  # noqa: PLC0415
+
+        url = f"{url}?{urlencode({k: str(v) for k, v in params.items()})}"
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    token = (os.getenv("TELEGRAM_USER_GATEWAY_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    body_bytes = None
+    if json_body is not None:
+        body_bytes = json.dumps(json_body).encode("utf-8")
+
+    # Prefer httpx when present; fall back to stdlib (Selectel image may omit httpx).
+    try:
+        import httpx  # noqa: PLC0415
+
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.request(method.upper(), url, content=body_bytes, headers=headers)
+        status = resp.status_code
+        text = resp.text
+    except ImportError:
+        import urllib.error  # noqa: PLC0415
+        import urllib.request  # noqa: PLC0415
+
+        req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method.upper())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                status = getattr(resp, "status", 200) or 200
+                text = resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code)
+            text = exc.read().decode("utf-8", errors="replace")
+        except Exception as exc:
+            return _err("gateway_unreachable", f"Telegram gateway недоступен: {exc}")
+    except Exception as exc:
+        return _err("gateway_unreachable", f"Telegram gateway недоступен: {exc}")
+
+    try:
+        data = json.loads(text) if text else {}
+    except Exception:
+        data = {"ok": False, "error": "bad_gateway_response", "detail": text[:300]}
+    if not isinstance(data, dict):
+        return _err("bad_gateway_response", "gateway returned non-object JSON")
+    if status >= 400 and data.get("ok") is not False:
+        detail = data.get("detail") or data.get("error") or text[:300]
+        return _err("gateway_http_error", str(detail), status_code=status)
+    data.setdefault("via", "gateway")
+    return data
+
+
+def gateway_configured() -> bool:
+    return bool(_gateway_base())
+
 
 
 # ── storage ───────────────────────────────────────────────────────────────
@@ -303,6 +374,8 @@ def telethon_available() -> bool:
 
 def ensure_runtime() -> dict[str, Any]:
     """Install Telethon on demand so the UI can fix a cold environment."""
+    if _gateway_base():
+        return {"ok": True, "available": True, "via": "gateway"}
     mod, err = _import_telethon(install=True)
     if mod is None:
         return _err(
@@ -546,6 +619,24 @@ def mask_secret(value: str, *, keep: int = 2) -> str:
 
 def user_status(*, probe: bool = True) -> dict[str, Any]:
     """UI-facing account block. No secrets — only presence flags + masked ids."""
+    if _gateway_base():
+        out = _gateway_request(
+            "GET",
+            "status",
+            params={"probe": "true" if probe else "false"},
+            timeout=45.0,
+        )
+        out["gateway_configured"] = True
+        out["available"] = True
+        if out.get("ok") and out.get("phone"):
+            with _LOCK:
+                cfg = load_config()
+                cfg["phone"] = out["phone"]
+                if out.get("user"):
+                    cfg["user"] = out["user"]
+                _save_config(cfg)
+        return out
+
     api_id, api_hash = api_credentials()
     cfg = load_config()
     env_api = bool(
@@ -563,7 +654,7 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         api_source = ""
     out: dict[str, Any] = {
         "ok": True,
-        "available": telethon_available(),
+        "available": telethon_available() or bool(_gateway_base()),
         "api_configured": bool(api_id and api_hash),
         "api_source": api_source,
         # Masked previews for the Connect form — never the raw api_hash.
@@ -577,6 +668,7 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         "contacts_cached": len(cached_contacts()),
         "contacts_fetched_at": _read_json(_contacts_path()).get("fetched_at"),
         "proxy_configured": bool(_proxy_url()),
+        "gateway_configured": False,
     }
     if not probe or not out["api_configured"] or not out["session_saved"]:
         return out
@@ -609,13 +701,27 @@ _AUTH_TTL = 60.0
 
 def is_authorized(*, ttl: float = _AUTH_TTL) -> bool:
     """Is the personal account usable? Cached so batch sends don't re-probe."""
-    api_id, api_hash = api_credentials()
-    if not api_id or not api_hash or not session_string():
-        return False
     now = time.time()
     with _LOCK:
         if now - _AUTH_CACHE["checked_at"] < ttl:
             return bool(_AUTH_CACHE["authorized"])
+
+    if _gateway_base():
+        status = _gateway_request(
+            "GET",
+            "status",
+            params={"probe": "true"},
+            timeout=30.0,
+        )
+        authorized = bool(status.get("ok") and status.get("authorized"))
+        with _LOCK:
+            _AUTH_CACHE["checked_at"] = time.time()
+            _AUTH_CACHE["authorized"] = 1.0 if authorized else 0.0
+        return authorized
+
+    api_id, api_hash = api_credentials()
+    if not api_id or not api_hash or not session_string():
+        return False
 
     async def _check() -> dict[str, Any]:
         client = await _RUNNER.client()
@@ -643,6 +749,19 @@ def start_login(
 ) -> dict[str, Any]:
     """Send the Telegram login code to ``phone`` (Telethon MTProto)."""
     phone = normalize_login_phone(phone)
+    if _gateway_base():
+        res = _gateway_request(
+            "POST",
+            "login",
+            json_body={"phone": phone, "api_id": api_id, "api_hash": api_hash},
+            timeout=_LOGIN_TIMEOUT + 30.0,
+        )
+        if res.get("ok") and phone:
+            with _LOCK:
+                cfg = load_config()
+                cfg["phone"] = phone
+                _save_config(cfg)
+        return res
     # Login is non-strict: ignore masked / leftover UI junk; use server .env.
     cleaned_id = sanitize_api_id(api_id)
     cleaned_hash = sanitize_api_hash(api_hash)
@@ -724,6 +843,13 @@ def save_session(
     phone: str = "",
 ) -> dict[str, Any]:
     """Persist a Telethon StringSession (bypass phone code when MTProto is blocked)."""
+    if _gateway_base():
+        return _gateway_request(
+            "POST",
+            "session",
+            json_body={"session": session, "phone": phone},
+            timeout=_LOGIN_TIMEOUT + 30.0,
+        )
     raw = str(session or "").strip()
     if len(raw) < 30:
         return _err(
@@ -767,6 +893,13 @@ def _finish_login(client_result: Any) -> dict[str, Any]:
 
 def submit_code(code: str) -> dict[str, Any]:
     """Second login step. Returns ``password_required`` when 2FA is on."""
+    if _gateway_base():
+        res = _gateway_request(
+            "POST", "code", json_body={"code": code}, timeout=_LOGIN_TIMEOUT + 30.0
+        )
+        if res.get("authorized"):
+            _persist_after_login(res)
+        return res
     code = str(code or "").strip()
     if not code:
         return _err("code_missing", "Введите код из Telegram")
@@ -796,6 +929,16 @@ def submit_code(code: str) -> dict[str, Any]:
 
 def submit_password(password: str) -> dict[str, Any]:
     """Third login step — cloud (2FA) password."""
+    if _gateway_base():
+        res = _gateway_request(
+            "POST",
+            "password",
+            json_body={"password": password},
+            timeout=_LOGIN_TIMEOUT + 30.0,
+        )
+        if res.get("authorized"):
+            _persist_after_login(res)
+        return res
     if not password:
         return _err("password_missing", "Введите облачный пароль (2FA)")
 
@@ -833,6 +976,17 @@ def _persist_after_login(res: dict[str, Any]) -> None:
 
 def logout(*, forget_credentials: bool = False) -> dict[str, Any]:
     """Log the session out on Telegram's side and drop local state."""
+    if _gateway_base():
+        res = _gateway_request("POST", "logout", json_body={}, timeout=30.0)
+        with _LOCK:
+            cfg = load_config()
+            cfg.pop("session", None)
+            cfg.pop("user", None)
+            if forget_credentials:
+                cfg.pop("api_id", None)
+                cfg.pop("api_hash", None)
+            _save_config(cfg)
+        return {"ok": True, "logged_out": bool(res.get("ok")), "via": "gateway"}
 
     async def _logout() -> dict[str, Any]:
         client = await _RUNNER.client()
@@ -1010,6 +1164,25 @@ def fetch_contacts(
     if not force and not contacts_stale(ttl):
         items = cached_contacts()
         return {"ok": True, "contacts": items, "total": len(items), "cached": True}
+
+    if _gateway_base():
+        res = _gateway_request(
+            "POST",
+            "contacts/refresh",
+            json_body={},
+            params={"force": "true" if force else "false"},
+            timeout=180.0,
+        )
+        if res.get("ok") and isinstance(res.get("contacts"), list):
+            payload = {
+                "fetched_at": time.time(),
+                "contacts": res["contacts"],
+                "from_address_book": res.get("from_address_book"),
+                "from_dialogs": res.get("from_dialogs"),
+            }
+            _write_json(_contacts_path(), payload)
+            _mirror_contacts_to_redis(payload)
+        return res
 
     async def _fetch() -> dict[str, Any]:
         from telethon import functions  # noqa: PLC0415
@@ -1259,6 +1432,13 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     text = (text or "").strip()
     if not text:
         return _err("empty_text", "message required")
+    if _gateway_base():
+        return _gateway_request(
+            "POST",
+            "send",
+            json_body={"peer": peer, "text": text},
+            timeout=60.0,
+        )
     target = _peer_arg(peer)
     if not str(target).strip("@"):
         return _err("telegram_chat_missing", "Нужен @ник или chat id")
