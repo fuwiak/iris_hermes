@@ -19,6 +19,7 @@ from plugins.moysklad.groups import (
     row_groups,
     row_has_group,
 )
+from plugins.moysklad.order_status import STAGE_FILTER_KEYS, client_stage
 from plugins.moysklad.sales_channels import unique_sales_channels
 
 # Keep VIP regex local — avoid classify ↔ client_card import cycles.
@@ -265,6 +266,52 @@ def normalize_group_source(value: str) -> str:
     return "any"
 
 
+def normalize_stage_filter(value: Any) -> str:
+    """``all`` | ``failed`` | ``customer`` | ``no_orders`` | ``unknown``."""
+    key = str(value or "").strip().lower().replace("ё", "е")
+    if not key or key in ("all", "any", "все"):
+        return "all"
+    if key in ("failed", "не состоялся", "не состоялись", "несостоявшиеся"):
+        return "failed"
+    if key in ("customer", "покупатель", "покупатели"):
+        return "customer"
+    if key in ("no_orders", "нет заказов", "без заказов"):
+        return "no_orders"
+    if key in ("unknown", "нет данных"):
+        return "unknown"
+    return "all"
+
+
+def row_client_stage(row: dict[str, Any]) -> str:
+    """Stage label for a catalog row, recomputed when the cache predates it."""
+    stage = str(row.get("client_stage") or row.get("Тип клиента") or "").strip()
+    if stage:
+        return stage
+    return client_stage(row.get("customer_outcome") or "none")
+
+
+def row_matches_stage(row: dict[str, Any], stage_filter: Any) -> bool:
+    key = normalize_stage_filter(stage_filter)
+    if key == "all":
+        return True
+    return row_client_stage(row) == STAGE_FILTER_KEYS.get(key, "")
+
+
+def stage_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """How many rows sit in each stage — drives the filter chip labels."""
+    counts = {key: 0 for key in STAGE_FILTER_KEYS}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        stage = row_client_stage(row)
+        for key, label in STAGE_FILTER_KEYS.items():
+            if stage == label:
+                counts[key] += 1
+                break
+    counts["all"] = len([r for r in rows if isinstance(r, dict)])
+    return counts
+
+
 def row_matches_audience_extras(
     row: dict[str, Any],
     *,
@@ -276,6 +323,7 @@ def row_matches_audience_extras(
     group: str = "",
     group_source: str = "any",
     days_before_event: int = 0,
+    stage: str = "all",
 ) -> bool:
     source = normalize_group_source(group_source)
     if group and not row_has_group(row, group, source=source):
@@ -293,6 +341,8 @@ def row_matches_audience_extras(
     if require_telegram and not row_has_telegram(row):
         return False
     if vip_only and not row_is_vip(row):
+        return False
+    if not row_matches_stage(row, stage):
         return False
     try:
         window = int(days_before_event or 0)

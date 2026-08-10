@@ -332,6 +332,7 @@ def page_snapshot_key(
     vip_only: bool = False,
     birthday_soon: bool = False,
     days_before_event: int = 0,
+    stage: str = "all",
 ) -> str:
     """Stable key for the first-page clients snapshot (filter dims only)."""
     parts = (
@@ -347,6 +348,7 @@ def page_snapshot_key(
         f"vip={1 if vip_only else 0}",
         f"bd={1 if birthday_soon else 0}",
         f"dbe={int(days_before_event or 0)}",
+        f"st={(stage or 'all').strip().lower()}",
     )
     return ":".join(parts)
 

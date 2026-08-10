@@ -197,6 +197,22 @@ def get_contact(contact_id: str) -> Optional[dict[str, Any]]:
         return None
     if cid.startswith("tg:"):
         key = cid.split(":", 1)[1].strip()
+        try:
+            from plugins.moysklad.telegram_archive import find_peer
+
+            hit = find_peer(tg_chat_id=key if key.isdigit() else "", tg_nick="" if key.isdigit() else key)
+            if hit:
+                return _normalize_contact(
+                    {
+                        "id": cid,
+                        "name": hit.get("name") or "",
+                        "tg_nick": hit.get("tg_nick") or "",
+                        "tg_chat_id": hit.get("tg_chat_id") or "",
+                    },
+                    source="tg_archive",
+                )
+        except Exception:
+            pass
         for row in telegram_account_contacts():
             if str(row.get("tg_chat_id") or "") == key or row.get("tg_nick") == key:
                 return _normalize_contact(
@@ -296,9 +312,29 @@ def list_outreach_contacts(
         if norm:
             by_id[cid] = norm
 
-    # Personal Telegram contacts last — only peers the CRM doesn't already know.
+    # Telegram export archive — peers with real history but no MoySklad card.
+    # They carry a numeric chat id, so Business send can reach them.
     seen_chat = {str(c.get("tg_chat_id") or "") for c in by_id.values() if c.get("tg_chat_id")}
     seen_nick = {str(c.get("tg_nick") or "") for c in by_id.values() if c.get("tg_nick")}
+    try:
+        from plugins.moysklad.telegram_archive import archive_contacts
+
+        for row in archive_contacts(unmatched_only=True):
+            chat_id = str(row.get("tg_chat_id") or "").strip()
+            nick = normalize_tg_nick(row.get("tg_nick") or "")
+            if (chat_id and chat_id in seen_chat) or (nick and nick in seen_nick):
+                continue
+            if row["id"] in by_id:
+                continue
+            by_id[row["id"]] = row
+            if chat_id:
+                seen_chat.add(chat_id)
+            if nick:
+                seen_nick.add(nick)
+    except Exception:
+        pass
+
+    # Personal Telegram contacts last — only peers the CRM doesn't already know.
     for row in telegram_account_contacts(refresh=refresh):
         chat_id = str(row.get("tg_chat_id") or "").strip()
         nick = normalize_tg_nick(row.get("tg_nick") or "")

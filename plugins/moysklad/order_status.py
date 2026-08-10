@@ -175,5 +175,67 @@ def summarize_order_context(
     }
 
 
+# ---------------------------------------------------------------------------
+# Тип клиента — «состоялся» or not, straight off the payment outcome.
+# ---------------------------------------------------------------------------
+
+STAGE_CUSTOMER = "покупатель"
+STAGE_FAILED = "не состоялся"
+STAGE_NO_ORDERS = "нет заказов"
+STAGE_UNKNOWN = "нет данных"
+
+#: Written to MoySklad tags on demand (Клиенты → «Пометить не состоявшихся»).
+FAILED_STAGE_TAG = STAGE_FAILED
+
+#: Filter keys the UI/API speak, mapped to the stage label they select.
+STAGE_FILTER_KEYS = {
+    "failed": STAGE_FAILED,
+    "customer": STAGE_CUSTOMER,
+    "no_orders": STAGE_NO_ORDERS,
+    "unknown": STAGE_UNKNOWN,
+}
+
+
+def client_stage(outcome: Any) -> str:
+    """Map ``customer_outcome`` onto the CRM label.
+
+    «Не состоялся» covers both a client whose orders never got paid and one
+    with a fresh unpaid order — neither has ever completed a purchase. Use
+    :func:`client_stage_reason` to tell them apart.
+    """
+    key = str(outcome or "none").strip().lower()
+    if key == "customer":
+        return STAGE_CUSTOMER
+    if key in ("failed", "pending_payment"):
+        return STAGE_FAILED
+    if key == "none":
+        return STAGE_NO_ORDERS
+    return STAGE_UNKNOWN
+
+
+def client_stage_reason(payment: dict[str, Any] | None) -> str:
+    """Short human reason behind the stage — shown as the column tooltip."""
+    payment = payment if isinstance(payment, dict) else {}
+    outcome = str(payment.get("customer_outcome") or "none").strip().lower()
+    total = int(payment.get("order_count") or 0)
+    paid = int(payment.get("paid_order_count") or payment.get("fulfilled_order_count") or 0)
+    unpaid = int(payment.get("unpaid_order_count") or 0)
+    cancelled = int(payment.get("cancelled_order_count") or 0)
+    if outcome == "customer":
+        return f"оплаченных заказов: {paid}"
+    if outcome == "failed":
+        bits = []
+        if unpaid:
+            bits.append(f"не оплачено {unpaid}")
+        if cancelled:
+            bits.append(f"отменено {cancelled}")
+        return "оплат нет: " + (", ".join(bits) or f"заказов {total}")
+    if outcome == "pending_payment":
+        return f"ждёт оплаты: свежих неоплаченных {payment.get('recent_unpaid_count') or unpaid}"
+    if outcome == "none":
+        return "заказов нет"
+    return f"заказов {total}, статус оплаты неизвестен"
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -1193,3 +1193,228 @@ td.ms-ai-added {
   opacity: 0.75;
   font-size: 0.75rem;
 }
+
+/* ТГ архив — chat list + thread reader */
+.ms-tg-archive-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0.6rem 0 0.8rem;
+}
+
+.ms-tg-archive-toolbar .ms-input {
+  width: min(100%, 30rem);
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #592466;
+  border-radius: 0.4rem;
+  background: #3a1840;
+  color: #f4ede4;
+  font: inherit;
+}
+
+.ms-tg-archive-body {
+  display: grid;
+  grid-template-columns: minmax(18rem, 26rem) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 60rem) {
+  .ms-tg-archive-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ms-tg-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.ms-tg-archive-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #592466;
+  border-left: 3px solid #5db872;
+  border-radius: 0.4rem;
+  background: #3a1840;
+  color: #f4ede4;
+  font: inherit;
+}
+
+/* No MoySklad card behind this chat — the half that used to be invisible. */
+.ms-tg-archive-row.is-orphan {
+  border-left-color: #c084fc;
+}
+
+.ms-tg-archive-row.is-active {
+  border-color: #c084fc;
+  background: #481a54;
+}
+
+.ms-tg-archive-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ms-tg-archive-row-meta,
+.ms-tg-archive-preview {
+  font-size: 0.78rem;
+}
+
+.ms-tg-archive-preview {
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-tg-archive-thread {
+  border: 1px solid #592466;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: #3a1840;
+  min-height: 12rem;
+}
+
+.ms-tg-archive-thread-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.ms-tg-archive-thread-head .ms-btn {
+  align-self: flex-start;
+}
+
+/* Тип клиента filter row (Все типы / Не состоялся / Покупатель / Нет заказов) */
+.ms-stage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0.2rem;
+}
+
+/* Проверка таблицы — issue list */
+.ms-audit-modal {
+  max-width: 46rem;
+}
+
+.ms-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.ms-audit-issue {
+  border: 1px solid #592466;
+  border-left: 3px solid #5db872;
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.ms-audit-issue.is-error {
+  border-left-color: #ef6f6f;
+}
+
+.ms-audit-issue.is-warn {
+  border-left-color: #e3b341;
+}
+
+.ms-audit-issue.is-info {
+  border-left-color: #5b8def;
+}
+
+.ms-audit-issue-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ms-audit-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.ms-audit-sample {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+
+.ms-preflight-note {
+  width: 100%;
+}
+
+/* Сохранённые списки (Рассылки) */
+.ms-segments-block {
+  gap: 0.4rem;
+}
+
+.ms-segments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ms-segments-row .ms-input {
+  flex: 1;
+  min-width: 16rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #592466;
+  border-radius: 0.4rem;
+  background: #3a1840;
+  color: #f4ede4;
+  font: inherit;
+}
+
+.ms-segment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding-right: 0.35rem;
+}
+
+.ms-segment-chip button:first-child {
+  appearance: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ms-segment-chip-remove {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+
+.ms-segment-chip-remove:hover {
+  opacity: 1;
+}

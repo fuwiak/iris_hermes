@@ -348,9 +348,64 @@ interface ClientRow {
   sex?: string
   tg_nick?: string
   tg_conversation?: string
+  client_stage?: string
+  client_stage_reason?: string
   ai_fields?: string[]
   ai_fill_source?: string
 }
+
+interface AuditIssue {
+  code: string
+  label: string
+  severity: 'error' | 'warn' | 'info'
+  count: number
+  hint?: string
+  sample?: { id?: string; name?: string; detail?: string }[]
+}
+
+interface AuditReport {
+  rows_total?: number
+  issues?: AuditIssue[]
+  issues_total?: number
+  errors_total?: number
+  clean?: boolean
+  checked_at?: string
+  stages?: Record<string, number>
+}
+
+interface SavedSegment {
+  id: string
+  name: string
+  matched_total?: number
+  filters?: {
+    sales_filter?: string
+    group?: string
+    q?: string
+    group_source?: string
+    channel_kind?: string
+    require_phone?: boolean
+    require_telegram?: boolean
+    vip_only?: boolean
+    birthday_soon?: boolean
+    days_before_event?: number
+    stage?: string
+  }
+}
+
+type StageKey = 'all' | 'failed' | 'customer' | 'no_orders' | 'unknown'
+type StageCounts = Partial<Record<StageKey, number>>
+
+/** Тип клиента chips — «не состоялся» = ни одной оплаты (или ждёт оплаты). */
+const STAGE_CHIPS: { id: StageKey; label: string; title: string }[] = [
+  { id: 'all', label: 'Все типы', title: 'Без фильтра по типу клиента' },
+  {
+    id: 'failed',
+    label: 'Не состоялся',
+    title: 'Заказы есть, но ни одной оплаты — включая свежие, что ждут оплаты'
+  },
+  { id: 'customer', label: 'Покупатель', title: 'Есть хотя бы один оплаченный заказ' },
+  { id: 'no_orders', label: 'Нет заказов', title: 'Контрагент есть, заказов ноль' }
+]
 
 /** Public keys stamped by POST /clients/ai-fill for green AI markers. */
 const AI_COLUMN_KEYS: Record<string, string> = {
@@ -570,6 +625,12 @@ const CLIENT_COLUMNS: Array<{
     label: 'Фактический адрес (Комментарий)',
     sortValue: r => r.actual_address_comment || '',
     render: r => r.actual_address_comment || ''
+  },
+  {
+    key: 'client_stage',
+    label: 'Тип клиента',
+    sortValue: r => r.client_stage || '',
+    render: r => r.client_stage || ''
   },
   {
     key: 'company_type',
@@ -1114,6 +1175,287 @@ function ConversationThread({
             <div>{m.text}</div>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+type ArchiveChat = {
+  chat_id: string
+  name: string
+  tg_nick?: string
+  phone?: string
+  message_count?: number
+  inbound_count?: number
+  first_ts?: string
+  last_ts?: string
+  preview?: string
+  client_id?: string
+  client_name?: string
+  matched?: boolean
+}
+
+type ArchiveList = {
+  chats?: ArchiveChat[]
+  matched_total?: number
+  has_more?: boolean
+  next_offset?: number | null
+  counts?: { total?: number; matched?: number; unmatched?: number }
+  stats?: Record<string, unknown>
+}
+
+const ARCHIVE_PAGE = 100
+
+/** ТГ архив — read every chat from the Telegram export, attached to a card or not. */
+function TelegramArchivePage() {
+  const call = useMsRest()
+  const [chats, setChats] = useState<ArchiveChat[]>([])
+  const [counts, setCounts] = useState<{ total: number; matched: number; unmatched: number }>({
+    total: 0,
+    matched: 0,
+    unmatched: 0
+  })
+  const [state, setState] = useState<'all' | 'matched' | 'unmatched'>('all')
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<ArchiveChat | null>(null)
+  const [conversation, setConversation] = useState<ClientConversation | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [threadLoading, setThreadLoading] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [nextOffset, setNextOffset] = useState(0)
+  const [error, setError] = useState('')
+  const [note, setNote] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(query.trim()), 250)
+
+    return () => clearTimeout(timer)
+  }, [query])
+
+  const loadPage = useCallback(
+    async (offset: number) => {
+      const params = new URLSearchParams()
+      params.set('state', state)
+      params.set('limit', String(ARCHIVE_PAGE))
+      params.set('offset', String(offset))
+      if (search) {params.set('q', search)}
+      const data = await call<ArchiveList>(`/telegram/archive?${params.toString()}`)
+      const rows = data.chats || []
+      setChats(prev => (offset === 0 ? rows : [...prev, ...rows]))
+      setCounts({
+        total: Number(data.counts?.total || 0),
+        matched: Number(data.counts?.matched || 0),
+        unmatched: Number(data.counts?.unmatched || 0)
+      })
+      setHasMore(Boolean(data.has_more))
+      setNextOffset(Number(data.next_offset || 0))
+    },
+    [call, search, state]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    void loadPage(0)
+      .catch(err => {
+        if (!cancelled) {setError(err instanceof Error ? err.message : String(err))}
+      })
+      .finally(() => {
+        if (!cancelled) {setLoading(false)}
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadPage])
+
+  const openChat = useCallback(
+    async (chat: ArchiveChat) => {
+      setSelected(chat)
+      setConversation(null)
+      setThreadLoading(true)
+      setError('')
+      try {
+        const data = await call<{ chat?: ArchiveChat; conversation?: ClientConversation }>(
+          `/telegram/archive/${encodeURIComponent(chat.chat_id)}`
+        )
+        setConversation(data.conversation || null)
+        if (data.chat) {setSelected(data.chat)}
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setThreadLoading(false)
+      }
+    },
+    [call]
+  )
+
+  const rebuild = useCallback(async () => {
+    setRebuilding(true)
+    setError('')
+    setNote('')
+    try {
+      const data = await call<{
+        chats_total?: number
+        matched?: number
+        unmatched?: number
+        error?: string
+      }>('/telegram/archive/rebuild', { method: 'POST', timeoutMs: 600_000 })
+      if (data.error) {
+        setError(`Экспорт не прочитан: ${data.error}`)
+      } else {
+        setNote(
+          `Пересобрано: чатов ${data.chats_total ?? 0} · привязано ${data.matched ?? 0} · ` +
+            `без карточки ${data.unmatched ?? 0}`
+        )
+      }
+      await loadPage(0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRebuilding(false)
+    }
+  }, [call, loadPage])
+
+  return (
+    <div className="ms-page ms-tg-archive" data-selectable-text="true">
+      <div className="ms-page-header">
+        <div>
+          <h1>ТГ архив</h1>
+          <p className="ms-muted">
+            Все личные чаты из выгрузки Telegram Desktop. Чат без карточки в МойСклад тоже
+            виден — и ему можно писать: у него есть numeric chat id.
+          </p>
+          {note ? <p className="ms-muted ms-sync-meta">{note}</p> : null}
+        </div>
+        <div className="ms-actions">
+          <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
+            ← Клиенты
+          </button>
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={rebuilding}
+            onClick={() => void rebuild()}
+            title="Перечитать telegram_export.json, заново сопоставить с клиентами"
+            type="button"
+          >
+            {rebuilding ? 'Пересобираю…' : 'Пересобрать архив'}
+          </button>
+        </div>
+      </div>
+
+      <div className="ms-tg-archive-toolbar">
+        <div className="ms-chips">
+          {([
+            { id: 'all', label: `Все · ${counts.total}` },
+            { id: 'matched', label: `С карточкой · ${counts.matched}` },
+            { id: 'unmatched', label: `Без карточки · ${counts.unmatched}` }
+          ] as const).map(chip => (
+            <button
+              className={`ms-chip${state === chip.id ? ' is-active' : ''}`}
+              key={chip.id}
+              onClick={() => setState(chip.id)}
+              type="button"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <input
+          className="ms-input"
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Поиск: имя, @ник, телефон, chat id, текст последнего сообщения"
+          value={query}
+        />
+      </div>
+
+      {error ? <div className="ms-error">{error}</div> : null}
+
+      <div className="ms-tg-archive-body">
+        <div className="ms-tg-archive-list">
+          {loading && chats.length === 0 ? <p className="ms-muted">Загрузка…</p> : null}
+          {!loading && chats.length === 0 ? (
+            <p className="ms-muted">
+              Пусто. Положите выгрузку в <code>data/telegram_export.json</code> и нажмите
+              «Пересобрать архив».
+            </p>
+          ) : null}
+          {chats.map(chat => (
+            <button
+              className={`ms-tg-archive-row${selected?.chat_id === chat.chat_id ? ' is-active' : ''}${
+                chat.matched ? '' : ' is-orphan'
+              }`}
+              key={chat.chat_id}
+              onClick={() => void openChat(chat)}
+              type="button"
+            >
+              <span className="ms-tg-archive-row-top">
+                <strong>{chat.name || `chat ${chat.chat_id}`}</strong>
+                <span className="ms-muted">{chat.message_count ?? 0} сообщ.</span>
+              </span>
+              <span className="ms-muted ms-tg-archive-row-meta">
+                {[
+                  chat.tg_nick ? `@${chat.tg_nick}` : null,
+                  chat.phone || null,
+                  chat.matched ? chat.client_name || 'есть карточка' : 'нет карточки',
+                  chat.last_ts ? String(chat.last_ts).slice(0, 10) : null
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              {chat.preview ? <span className="ms-tg-archive-preview">{chat.preview}</span> : null}
+            </button>
+          ))}
+          {hasMore ? (
+            <button
+              className="ms-btn"
+              disabled={loading}
+              onClick={() => void loadPage(nextOffset)}
+              type="button"
+            >
+              Ещё чаты
+            </button>
+          ) : null}
+        </div>
+
+        <div className="ms-tg-archive-thread">
+          {!selected ? (
+            <p className="ms-muted">Выберите чат слева — переписка откроется здесь.</p>
+          ) : (
+            <>
+              <div className="ms-tg-archive-thread-head">
+                <h2 className="ms-section-title">{selected.name || selected.chat_id}</h2>
+                <p className="ms-muted">
+                  {[
+                    `chat id ${selected.chat_id}`,
+                    selected.tg_nick ? `@${selected.tg_nick}` : null,
+                    selected.phone || null,
+                    selected.matched ? `клиент: ${selected.client_name || selected.client_id}` : 'без карточки МойСклад'
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+                {selected.matched && selected.client_id ? (
+                  <button
+                    className="ms-btn"
+                    onClick={() => host.navigate(`/clients?client=${encodeURIComponent(selected.client_id || '')}`)}
+                    type="button"
+                  >
+                    Открыть карточку клиента
+                  </button>
+                ) : null}
+              </div>
+              {threadLoading ? (
+                <p className="ms-muted">Загружаю переписку…</p>
+              ) : (
+                <ConversationThread conversation={conversation} title="Переписка" />
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1809,6 +2151,11 @@ function ClientsPage() {
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
+  const [stage, setStage] = useState<StageKey>('all')
+  const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
+  const [stageTagStatus, setStageTagStatus] = useState('')
+  const [stageTagBusy, setStageTagBusy] = useState(false)
+  const [stageTagArmed, setStageTagArmed] = useState(false)
   const initialLocal = (() => {
     if (typeof localStorage === 'undefined') {return null}
     return readClientsLocalCache(
@@ -1835,6 +2182,10 @@ function ClientsPage() {
     () => mergeAiGroupOptions(initialLocal?.group_options_ai || [])
   )
   const [integrityNote, setIntegrityNote] = useState('')
+  const [auditOpen, setAuditOpen] = useState(false)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState('')
+  const [audit, setAudit] = useState<AuditReport | null>(null)
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
   const [staleHint, setStaleHint] = useState(false)
@@ -2008,6 +2359,7 @@ function ClientsPage() {
           q,
           group,
           group_source: groupSource,
+          stage,
           limit: String(CLIENTS_PAGE_SIZE),
           offset: String(offset)
         })
@@ -2023,6 +2375,7 @@ function ClientsPage() {
           returned?: number
           group_options?: GroupChipOption[]
           group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
+          stage_counts?: StageCounts
           cached?: boolean
           stale?: boolean
           revalidating?: boolean
@@ -2036,6 +2389,7 @@ function ClientsPage() {
         setClients(prev => (append ? mergeClientPages(prev, page) : page))
         setCounts(data.counts || null)
         setMatched(data.matched_total || 0)
+        if (data.stage_counts) {setStageCounts(data.stage_counts)}
 
         const computedNext =
           data.next_offset != null ? data.next_offset : offset + page.length
@@ -2101,19 +2455,69 @@ function ClientsPage() {
         }
       }
     },
-    [call, group, groupSource, hasMore, nextOffset, q, salesFilter]
+    [call, group, groupSource, hasMore, nextOffset, q, salesFilter, stage]
   )
+
+  /** Two steps on purpose: dry-run first, write only on a second, armed click. */
+  const markFailedStage = useCallback(async () => {
+    setStageTagBusy(true)
+    setError('')
+    try {
+      const write = stageTagArmed
+      const data = await call<{
+        ok?: boolean
+        total?: number
+        changed?: number
+        tag?: string
+        push?: { pushed?: number; errors?: { id?: string; error?: string }[] }
+      }>('/clients/stage/failed-tag', {
+        method: 'POST',
+        body: { sales_filter: salesFilter, q, dry_run: !write },
+        timeoutMs: 600_000
+      })
+
+      if (!write) {
+        const n = data.changed || 0
+        setStageTagArmed(n > 0)
+        setStageTagStatus(
+          n > 0
+            ? `Проставим тег «${data.tag || 'не состоялся'}» ${n} клиентам (из ${data.total || 0}). Нажмите ещё раз — запишу в МойСклад.`
+            : 'Тег уже стоит у всех в этой выборке — писать нечего.'
+        )
+      } else {
+        const pushed = data.push?.pushed || 0
+        const failed = data.push?.errors?.length || 0
+        setStageTagArmed(false)
+        setStageTagStatus(
+          `Записано в МойСклад: ${pushed}${failed ? ` · ошибок ${failed}` : ''}`
+        )
+        await load({ refresh: true })
+      }
+    } catch (err) {
+      setStageTagArmed(false)
+      setStageTagStatus('')
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStageTagBusy(false)
+    }
+  }, [call, load, q, salesFilter, stageTagArmed])
+
+  // Re-arm from scratch whenever the audience changes.
+  useEffect(() => {
+    setStageTagArmed(false)
+    setStageTagStatus('')
+  }, [salesFilter, q, stage])
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, groupSource, q]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, q, stage]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Drop Excel column filters when the main audience filter changes.
   useEffect(() => {
     setColumnFilters({})
     setColumnSort(null)
     setOpenFilterKey(null)
-  }, [salesFilter, group, groupSource, q])
+  }, [salesFilter, group, groupSource, q, stage])
 
   // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
   useEffect(() => {
@@ -2216,6 +2620,23 @@ function ClientsPage() {
           >
             Пересчитать группы
           </button>
+          <button
+            className="ms-btn"
+            disabled={auditLoading}
+            onClick={() => {
+              setAuditOpen(true)
+              setAuditError('')
+              setAuditLoading(true)
+              void call<{ audit?: AuditReport }>('/clients/integrity', { timeoutMs: 600_000 })
+                .then(data => setAudit(data.audit || null))
+                .catch(err => setAuditError(err instanceof Error ? err.message : String(err)))
+                .finally(() => setAuditLoading(false))
+            }}
+            title="Дубли, недостижимые клиенты, битые телефоны и даты, расхождения по деньгам"
+            type="button"
+          >
+            {auditLoading ? 'Проверяю…' : 'Проверить таблицу'}
+          </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
           </button>
@@ -2230,6 +2651,39 @@ function ClientsPage() {
         </div>
       </div>
       <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
+      <div className="ms-stage-bar">
+        <div className="ms-chips">
+          {STAGE_CHIPS.map(chip => {
+            const n = stageCounts?.[chip.id]
+
+            return (
+              <button
+                className={`ms-chip${stage === chip.id ? ' is-active' : ''}`}
+                disabled={loading}
+                key={chip.id}
+                onClick={() => setStage(chip.id)}
+                title={chip.title}
+                type="button"
+              >
+                {chip.label}
+                {n != null ? <span>{n}</span> : null}
+              </button>
+            )
+          })}
+        </div>
+        {stage === 'failed' ? (
+          <button
+            className="ms-btn"
+            disabled={stageTagBusy || loading}
+            onClick={() => void markFailedStage()}
+            title="Сначала покажет, кому проставится тег «не состоялся»; запись — вторым нажатием"
+            type="button"
+          >
+            {stageTagBusy ? 'Считаю…' : stageTagArmed ? 'Записать теги' : 'Пометить в МойСклад'}
+          </button>
+        ) : null}
+        {stageTagStatus ? <span className="ms-muted">{stageTagStatus}</span> : null}
+      </div>
       <div className="ms-search">
         <input
           onChange={e => setQ(e.target.value)}
@@ -2397,6 +2851,66 @@ function ClientsPage() {
           </div>
         </div>
       ) : null}
+      {auditOpen ? (
+        <div className="ms-modal-backdrop" onClick={() => setAuditOpen(false)}>
+          <div className="ms-modal ms-audit-modal" onClick={e => e.stopPropagation()} role="dialog">
+            <div className="ms-card-head">
+              <h2 className="ms-section-title">Проверка таблицы</h2>
+              <button className="ms-btn" onClick={() => setAuditOpen(false)} type="button">
+                Закрыть
+              </button>
+            </div>
+            {auditLoading ? <p className="ms-muted">Считаю по всему каталогу…</p> : null}
+            {auditError ? <div className="ms-error">{auditError}</div> : null}
+            {!auditLoading && audit ? (
+              <>
+                <p className="ms-muted">
+                  Строк проверено: {audit.rows_total ?? 0} · проблемных записей:{' '}
+                  {audit.issues_total ?? 0} · критичных: {audit.errors_total ?? 0}
+                  {audit.checked_at ? ` · ${audit.checked_at.replace('T', ' ')}` : ''}
+                </p>
+                {audit.clean ? (
+                  <p className="ms-muted">Проблем не найдено.</p>
+                ) : (
+                  <div className="ms-audit-list">
+                    {(audit.issues || []).map(issue => (
+                      <div className={`ms-audit-issue is-${issue.severity}`} key={issue.code}>
+                        <div className="ms-audit-issue-head">
+                          <strong>{issue.label}</strong>
+                          <span className="ms-audit-count">{issue.count}</span>
+                        </div>
+                        {issue.hint ? <p className="ms-muted">{issue.hint}</p> : null}
+                        <ul className="ms-audit-sample">
+                          {(issue.sample || []).map(row => (
+                            <li key={`${issue.code}-${row.id}`}>
+                              <button
+                                className="ms-link-btn"
+                                onClick={() => {
+                                  setAuditOpen(false)
+                                  if (row.id) {setCardClientId(row.id)}
+                                }}
+                                type="button"
+                              >
+                                {row.name || row.id}
+                              </button>
+                              {row.detail ? <span className="ms-muted"> — {row.detail}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                        {issue.count > (issue.sample?.length || 0) ? (
+                          <p className="ms-muted">
+                            …и ещё {issue.count - (issue.sample?.length || 0)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {aiFillStatus ? <p className="ms-action-status">{aiFillStatus}</p> : null}
       {loading && !clients.length ? (
         <p className="ms-muted">Загрузка клиентов…</p>
@@ -2497,6 +3011,12 @@ function CampaignsPage() {
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
+  const [segments, setSegments] = useState<SavedSegment[]>([])
+  const [segmentsLoading, setSegmentsLoading] = useState(false)
+  const [segmentName, setSegmentName] = useState('')
+  const [segmentSaving, setSegmentSaving] = useState(false)
+  const [segmentStatus, setSegmentStatus] = useState('')
+  const [activeSegmentId, setActiveSegmentId] = useState('')
   const [personalize, setPersonalize] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
@@ -2545,6 +3065,8 @@ function CampaignsPage() {
     available?: boolean
     api_configured?: boolean
     api_source?: string
+    api_id_masked?: string
+    api_hash_masked?: string
     session_saved?: boolean
     authorized?: boolean
     phone?: string | null
@@ -2554,6 +3076,7 @@ function CampaignsPage() {
     error?: string
     send_mode?: string
   } | null>(null)
+  const [tgCredOverride, setTgCredOverride] = useState(false)
   const [tgOpen, setTgOpen] = useState(false)
   const [tgStep, setTgStep] = useState<'phone' | 'code' | 'password'>('phone')
   const [tgBusy, setTgBusy] = useState(false)
@@ -2841,7 +3364,9 @@ function CampaignsPage() {
         body: { api_id: tgApiId.trim(), api_hash: tgApiHash.trim() }
       })
       setTgUser(data)
+      setTgApiId('')
       setTgApiHash('')
+      setTgCredOverride(false)
       setActionStatus('✓ api_id / api_hash сохранены')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -2851,18 +3376,29 @@ function CampaignsPage() {
   }
 
   const tgLogin = async () => {
+    if (!tgPhone.trim()) {
+      setError('Укажите номер телефона в формате +79991234567')
+      return
+    }
+    if (!tgUser?.api_configured && !tgApiId.trim() && !tgApiHash.trim()) {
+      setError('Нет api_id/api_hash на сервере — заполните поля или задайте TELEGRAM_API_* в .env')
+      return
+    }
     setTgBusy(true)
     setError('')
     try {
+      // When credentials already live in .env / config, omit empty fields so the
+      // backend keeps using the server-side pair (do not send placeholder text).
+      const body: { phone: string; api_id?: string; api_hash?: string } = {
+        phone: tgPhone.trim()
+      }
+      if (tgApiId.trim()) body.api_id = tgApiId.trim()
+      if (tgApiHash.trim()) body.api_hash = tgApiHash.trim()
       const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
         '/campaigns/telegram-user/login',
         {
           method: 'POST',
-          body: {
-            phone: tgPhone.trim(),
-            api_id: tgApiId.trim(),
-            api_hash: tgApiHash.trim()
-          }
+          body
         }
       )
       if (data.authorized) {
@@ -3090,6 +3626,99 @@ function CampaignsPage() {
       salesFilter,
       vipOnly
     ]
+  )
+
+  const loadSegments = useCallback(() => {
+    setSegmentsLoading(true)
+    void call<{ segments?: SavedSegment[] }>('/segments')
+      .then(data => setSegments(data.segments || []))
+      .catch(err => setSegmentStatus(err instanceof Error ? err.message : String(err)))
+      .finally(() => setSegmentsLoading(false))
+  }, [call])
+
+  useEffect(() => {
+    loadSegments()
+  }, [loadSegments])
+
+  const saveCurrentSegment = useCallback(async () => {
+    const name = segmentName.trim()
+
+    if (!name) {
+      setSegmentStatus('Дайте списку имя.')
+
+      return
+    }
+
+    setSegmentSaving(true)
+    setSegmentStatus('')
+    try {
+      const data = await call<{ segment?: SavedSegment }>('/segments', {
+        method: 'POST',
+        body: {
+          id: activeSegmentId,
+          name,
+          sales_filter: salesFilter,
+          group,
+          q: audienceQDebounced,
+          group_source: groupSource,
+          channel_kind: channelKind,
+          require_phone: requirePhone,
+          require_telegram: requireTelegram,
+          vip_only: vipOnly,
+          birthday_soon: birthdaySoon,
+          days_before_event: daysBeforeEvent
+        }
+      })
+      if (data.segment) {
+        setActiveSegmentId(data.segment.id)
+        setSegmentStatus(
+          `✓ Список «${data.segment.name}» сохранён (${data.segment.matched_total ?? 0} клиентов)`
+        )
+      }
+      loadSegments()
+    } catch (err) {
+      setSegmentStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSegmentSaving(false)
+    }
+  }, [
+    activeSegmentId, audienceQDebounced, birthdaySoon, call, channelKind, daysBeforeEvent,
+    group, groupSource, loadSegments, requirePhone, requireTelegram, salesFilter,
+    segmentName, vipOnly
+  ])
+
+  const applySegment = useCallback((segment: SavedSegment) => {
+    const f = segment.filters || {}
+
+    setActiveSegmentId(segment.id)
+    setSegmentName(segment.name)
+    setSalesFilter(f.sales_filter || 'direct')
+    setGroup(f.group || '')
+    setGroupSource((f.group_source as 'any' | 'ms' | 'ai') || 'any')
+    setAudienceQ(f.q || '')
+    setChannelKind(f.channel_kind || '')
+    setRequirePhone(Boolean(f.require_phone))
+    setRequireTelegram(Boolean(f.require_telegram))
+    setVipOnly(Boolean(f.vip_only))
+    setBirthdaySoon(Boolean(f.birthday_soon))
+    setDaysBeforeEvent(f.days_before_event || 0)
+    setSegmentStatus(`Загружен список «${segment.name}» — фильтры выше применены.`)
+  }, [])
+
+  const removeSegment = useCallback(
+    async (segment: SavedSegment) => {
+      try {
+        await call(`/segments/${encodeURIComponent(segment.id)}`, { method: 'DELETE' })
+        if (activeSegmentId === segment.id) {
+          setActiveSegmentId('')
+          setSegmentName('')
+        }
+        loadSegments()
+      } catch (err) {
+        setSegmentStatus(err instanceof Error ? err.message : String(err))
+      }
+    },
+    [activeSegmentId, call, loadSegments]
   )
 
   const loadAudience = useCallback(
@@ -3601,6 +4230,55 @@ function CampaignsPage() {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setAddContactSaving(false)
+    }
+  }
+
+  const [preflight, setPreflight] = useState<{
+    ready?: number
+    blocked?: number
+    account?: { ok?: boolean; detail?: string; error?: string }
+    recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
+  } | null>(null)
+  const [preflightBusy, setPreflightBusy] = useState(false)
+
+  const runPreflight = async () => {
+    const multiIds =
+      pickMode === 'multi'
+        ? selectedClientIds
+        : selectedClientId
+          ? [selectedClientId]
+          : []
+
+    if (!multiIds.length) {
+      setError('Выберите контакт(ы) в аудитории — сначала нужно кого проверять.')
+
+      return
+    }
+
+    setPreflightBusy(true)
+    setError('')
+    try {
+      const data = await call<{
+        ready?: number
+        blocked?: number
+        account?: { ok?: boolean; detail?: string; error?: string }
+        recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
+      }>('/campaigns/telegram/preflight', {
+        method: 'POST',
+        body: { client_ids: multiIds }
+      })
+      setPreflight(data)
+      if (!data.account?.ok) {
+        setError(`Business-бот не готов: ${data.account?.detail || data.account?.error || 'см. настройки'}`)
+      } else if (data.blocked) {
+        setActionStatus(`Готовы к отправке: ${data.ready}/${multiIds.length}. Недостижимых: ${data.blocked}.`)
+      } else {
+        setActionStatus(`Все ${data.ready} получателей достижимы через Business bot.`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPreflightBusy(false)
     }
   }
 
@@ -4358,7 +5036,54 @@ function CampaignsPage() {
             ))}
           </div>
         </div>
-        <GroupCloudSection
+        <div className="ms-filter-block ms-segments-block">
+          <span className="ms-filter-label">Сохранённые списки</span>
+          <div className="ms-segments-row">
+            <input
+              className="ms-input"
+              onChange={e => setSegmentName(e.target.value)}
+              placeholder="Имя списка, напр. «Не состоялся · Прямые»"
+              value={segmentName}
+            />
+            <button
+              className="ms-btn"
+              disabled={segmentSaving || !segmentName.trim()}
+              onClick={() => void saveCurrentSegment()}
+              title="Сохранит текущие фильтры выше как именованный список (не снимок id, а рецепт фильтра)"
+              type="button"
+            >
+              {segmentSaving ? 'Сохраняю…' : activeSegmentId ? 'Обновить список' : 'Сохранить список'}
+            </button>
+          </div>
+          {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
+          <div className="ms-chips">
+            {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
+            {!segmentsLoading && segments.length === 0 ? (
+              <span className="ms-muted">Списков пока нет</span>
+            ) : null}
+            {segments.map(seg => (
+              <span
+                className={`ms-chip ms-segment-chip${activeSegmentId === seg.id ? ' is-active' : ''}`}
+                key={seg.id}
+              >
+                <button onClick={() => applySegment(seg)} type="button">
+                  {seg.name}
+                  {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
+                </button>
+                <button
+                  aria-label={`Удалить список ${seg.name}`}
+                  className="ms-segment-chip-remove"
+                  onClick={() => void removeSegment(seg)}
+                  title="Удалить список"
+                  type="button"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+                <GroupCloudSection
           activeGroup={group}
           activeSource={groupSource}
           emptyHint="Нет тегов МойСклад в текущей выборке"
@@ -4634,44 +5359,83 @@ function CampaignsPage() {
                         value={tgPhone}
                       />
                     </label>
-                    <label>
-                      api_id (my.telegram.org)
-                      <input
-                        onChange={e => setTgApiId(e.target.value)}
-                        placeholder={
-                          tgUser?.api_configured
-                            ? tgUser.api_source === 'env'
-                              ? 'из .env (TELEGRAM_API_ID)'
-                              : 'сохранён'
-                            : '29924508'
-                        }
-                        value={tgApiId}
-                      />
-                    </label>
-                    <label>
-                      api_hash
-                      <input
-                        onChange={e => setTgApiHash(e.target.value)}
-                        placeholder={
-                          tgUser?.api_configured
-                            ? tgUser.api_source === 'env'
-                              ? 'из .env (TELEGRAM_API_HASH)'
-                              : 'сохранён'
-                            : 'abc123…'
-                        }
-                        type="password"
-                        value={tgApiHash}
-                      />
-                    </label>
+                    {tgUser?.api_configured && !tgCredOverride ? (
+                      <>
+                        <label>
+                          api_id
+                          <input
+                            readOnly
+                            value={tgUser.api_id_masked || '••••••••'}
+                          />
+                        </label>
+                        <label>
+                          api_hash
+                          <input
+                            readOnly
+                            type="password"
+                            value={tgUser.api_hash_masked || '••••••••••••••••'}
+                          />
+                        </label>
+                        <p className="ms-muted">
+                          Ключи уже на сервере
+                          {tgUser.api_source === 'env'
+                            ? ' (.env / TELEGRAM_API_*)'
+                            : ' (сохранены ранее)'}
+                          — достаточно телефона и кода.{' '}
+                          <button
+                            className="ms-link-btn"
+                            onClick={() => setTgCredOverride(true)}
+                            type="button"
+                          >
+                            Заменить ключи
+                          </button>
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <label>
+                          api_id (my.telegram.org)
+                          <input
+                            onChange={e => setTgApiId(e.target.value)}
+                            placeholder="29924508"
+                            value={tgApiId}
+                          />
+                        </label>
+                        <label>
+                          api_hash
+                          <input
+                            onChange={e => setTgApiHash(e.target.value)}
+                            placeholder="abc123…"
+                            type="password"
+                            value={tgApiHash}
+                          />
+                        </label>
+                        <div className="ms-compose-actions">
+                          <button
+                            className="ms-btn"
+                            disabled={tgBusy}
+                            onClick={() => void tgSaveCredentials()}
+                            type="button"
+                          >
+                            Сохранить api_id / api_hash
+                          </button>
+                          {tgUser?.api_configured ? (
+                            <button
+                              className="ms-link-btn"
+                              onClick={() => {
+                                setTgCredOverride(false)
+                                setTgApiId('')
+                                setTgApiHash('')
+                              }}
+                              type="button"
+                            >
+                              Отмена
+                            </button>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                     <div className="ms-compose-actions">
-                      <button
-                        className="ms-btn"
-                        disabled={tgBusy}
-                        onClick={() => void tgSaveCredentials()}
-                        type="button"
-                      >
-                        Сохранить api_id / api_hash
-                      </button>
                       <button
                         className="ms-btn ms-btn-primary"
                         disabled={tgBusy}
@@ -4724,10 +5488,9 @@ function CampaignsPage() {
                   </>
                 ) : null}
                 <p className="ms-muted">
-                  api_id / api_hash — my.telegram.org → API development tools.
-                  Сессия хранится локально; код и пароль никуда не сохраняются.
-                  После входа контакты Telegram появятся в списке «Кому
-                  отправить», и рассылка уйдёт с вашего аккаунта.
+                  {tgUser?.api_configured
+                    ? 'Сессия хранится на сервере; код и пароль никуда не сохраняются. После входа контакты появятся в «Кому отправить», рассылка уйдёт с вашего аккаунта.'
+                    : 'api_id / api_hash — my.telegram.org → API development tools (или TELEGRAM_API_* в .env сервера). Сессия хранится локально; код и пароль никуда не сохраняются.'}
                 </p>
               </div>
             ) : null}
@@ -5039,6 +5802,20 @@ function CampaignsPage() {
             >
               {checkingSanity ? 'Проверяем…' : 'Проверить смысл'}
             </button>
+            {(selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0)) &&
+            channel.startsWith('telegram') &&
+            pickMode === 'multi' &&
+            selectedClientIds.length > 1 ? (
+              <button
+                className="ms-btn"
+                disabled={preflightBusy}
+                onClick={() => void runPreflight()}
+                title="Проверить, кого из выбранных Business bot реально может достать (numeric chat id)"
+                type="button"
+              >
+                {preflightBusy ? 'Проверяю…' : 'Проверить получателей'}
+              </button>
+            ) : null}
             {selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0) ? (
               <button
                 className="ms-btn"
@@ -5059,6 +5836,21 @@ function CampaignsPage() {
                     : 'Отправить в Telegram'
                   : 'Отправить → в историю'}
               </button>
+            ) : null}
+            {preflight ? (
+              <p className="ms-muted ms-preflight-note">
+                Готовы: {preflight.ready ?? 0} · недостижимы: {preflight.blocked ?? 0}
+                {preflight.recipients && preflight.blocked ? (
+                  <>
+                    {' — '}
+                    {preflight.recipients
+                      .filter(r => !r.ok)
+                      .slice(0, 5)
+                      .map(r => r.name || r.client_id)
+                      .join(', ')}
+                  </>
+                ) : null}
+              </p>
             ) : null}
             <button
               className="ms-btn ms-btn-primary"
@@ -5571,6 +6363,12 @@ const plugin: HermesPlugin = {
         render: () => <CampaignsPage />
       },
       {
+        id: 'clients-telegram-archive-page',
+        area: ROUTES_AREA,
+        data: { path: '/clients/telegram' } satisfies RouteContribution,
+        render: () => <TelegramArchivePage />
+      },
+      {
         id: 'clients-nav',
         area: SIDEBAR_NAV_AREA,
         order: 40,
@@ -5588,6 +6386,16 @@ const plugin: HermesPlugin = {
           codicon: 'beaker',
           label: 'AI тест',
           path: '/clients/playground'
+        } satisfies SidebarNavContribution
+      },
+      {
+        id: 'clients-telegram-archive-nav',
+        area: SIDEBAR_NAV_AREA,
+        order: 41.5,
+        data: {
+          codicon: 'comment-discussion',
+          label: 'ТГ архив',
+          path: '/clients/telegram'
         } satisfies SidebarNavContribution
       },
       {

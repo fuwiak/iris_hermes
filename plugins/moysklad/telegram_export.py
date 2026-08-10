@@ -61,6 +61,15 @@ _TME_RE = re.compile(
 )
 _FROM_ID_RE = re.compile(r"^user(\d+)$", re.IGNORECASE)
 
+# Telegram display names are typed by the client, MoySklad names by the studio —
+# they routinely disagree only by lookalike letters («Viсtoria» with a Cyrillic
+# «с»). Fold both sides onto one alphabet before comparing.
+_CONFUSABLES = str.maketrans({
+    "а": "a", "с": "c", "е": "e", "о": "o", "р": "p", "х": "x", "у": "y",
+    "к": "k", "м": "m", "н": "h", "т": "t", "в": "b", "і": "i", "ѕ": "s",
+    "ј": "j", "ԁ": "d", "ё": "e",
+})
+
 # Mentions that are never the client peer (studio / bots / suppliers).
 _SKIP_NICKS = frozenset({
     "veresk_flowers_msk",
@@ -69,6 +78,11 @@ _SKIP_NICKS = frozenset({
     "russian_seller",
     "cvetioptomru",
 })
+
+
+def fold_name(value: Any) -> str:
+    """Normalized name with Cyrillic/Latin lookalikes folded onto one alphabet."""
+    return normalize_name(value).translate(_CONFUSABLES)
 
 
 def cache_ttl_seconds() -> int:
@@ -325,6 +339,29 @@ def _message_text(raw: Any) -> str:
     return str(raw).strip()
 
 
+_PHONE_IN_TEXT_RE = re.compile(
+    r"(?:\+?7|8)[\s\-(]*\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}"
+)
+
+
+def _phones_in_messages(
+    messages: list[dict[str, Any]], *, limit: int = 6
+) -> list[str]:
+    """Phone keys the peer typed into the chat — clients state them constantly."""
+    found: list[str] = []
+    for msg in messages:
+        blob = str(msg.get("text") or "")
+        if not blob:
+            continue
+        for raw in _PHONE_IN_TEXT_RE.findall(blob):
+            key = dedupe_phone(raw)
+            if key and key not in found:
+                found.append(key)
+                if len(found) >= limit:
+                    return found
+    return found
+
+
 def _norm_phone_export(value: Any) -> str:
     """Export phones often look like ``0079…`` — fold into dedupe 10-digit key."""
     digits = re.sub(r"\D+", "", str(value or ""))
@@ -334,23 +371,39 @@ def _norm_phone_export(value: Any) -> str:
 
 
 def _contact_phone_by_name(export: dict[str, Any]) -> dict[str, str]:
+    """Folded contact name → phone key. Also indexes the first name alone.
+
+    Chat titles carry whatever the peer set as their display name, so the saved
+    address-book entry «Мария Букет» has to be findable from a chat called just
+    «Мария» — the single-name key is only kept when it is unambiguous.
+    """
     out: dict[str, str] = {}
+    first_only: dict[str, str] = {}
+    ambiguous: set[str] = set()
     contacts = (export.get("contacts") or {}).get("list") or []
     if not isinstance(contacts, list):
         return out
     for c in contacts:
         if not isinstance(c, dict):
             continue
-        name = normalize_name(
-            " ".join(
-                x.strip()
-                for x in (c.get("first_name") or "", c.get("last_name") or "")
-                if str(x or "").strip()
-            )
-        )
+        first = str(c.get("first_name") or "").strip()
+        last = str(c.get("last_name") or "").strip()
+        name = fold_name(" ".join(x for x in (first, last) if x))
         phone = _norm_phone_export(c.get("phone_number"))
-        if name and phone and name not in out:
+        if not phone:
+            continue
+        if name and name not in out:
             out[name] = phone
+        short = fold_name(first)
+        if not short or short == name:
+            continue
+        if short in first_only and first_only[short] != phone:
+            ambiguous.add(short)
+        else:
+            first_only[short] = phone
+    for short, phone in first_only.items():
+        if short not in ambiguous and short not in out:
+            out[short] = phone
     return out
 
 
@@ -485,10 +538,22 @@ def _index_catalog_rows(
         phone = dedupe_phone(row.get("Телефон") or row.get("phone"))
         if phone and phone not in by_phone:
             by_phone[phone] = row
-        name = normalize_name(row.get("Наименование") or row.get("name"))
+        name = fold_name(row.get("Наименование") or row.get("name"))
         if name:
             by_name.setdefault(name, []).append(row)
     return by_phone, by_name
+
+
+def _index_catalog_nicks(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Folded ``ТГ ник`` → row. A nick already on the card is a hard match."""
+    by_nick: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        nick = normalize_tg_nick(row.get("ТГ ник") or row.get("tg_nick") or "")
+        if nick and nick not in by_nick:
+            by_nick[nick] = row
+    return by_nick
 
 
 def _match_row(
@@ -497,18 +562,40 @@ def _match_row(
     phone: str,
     by_phone: dict[str, dict[str, Any]],
     by_name: dict[str, list[dict[str, Any]]],
+    tg_nick: str = "",
+    by_nick: dict[str, dict[str, Any]] | None = None,
+    text_phones: list[str] | None = None,
 ) -> Optional[dict[str, Any]]:
+    """Attach one export chat to a catalog row. Strongest signal wins.
+
+    Order: address-book phone → @nick on the card → phone the peer typed into
+    the chat → exact folded name → unambiguous substring of a folded name.
+    """
     if phone and phone in by_phone:
         return by_phone[phone]
-    name = normalize_name(chat_name)
+
+    nick = normalize_tg_nick(tg_nick)
+    if nick and by_nick:
+        hit = by_nick.get(nick)
+        if hit is not None:
+            return hit
+
+    for candidate in text_phones or []:
+        if candidate in by_phone:
+            return by_phone[candidate]
+
+    name = fold_name(chat_name)
     if not name:
         return None
     hits = by_name.get(name) or []
     if len(hits) == 1:
         return hits[0]
+    if hits:
+        # Same name on several cards — ambiguous, never guess.
+        return None
     soft: list[dict[str, Any]] = []
     for key, rows in by_name.items():
-        if name == key or name in key or key in name:
+        if name in key or key in name:
             soft.extend(rows)
     if len(soft) == 1:
         return soft[0]
@@ -520,6 +607,7 @@ def import_export_into_catalog(
     *,
     export_path: str | Path | None = None,
     force: bool = False,
+    export_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Match export chats → catalog rows; write conversations + cached overlay.
 
@@ -549,14 +637,18 @@ def import_export_into_catalog(
                 **(overlay.get("stats") or {}),
             }
 
-        try:
-            export = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            return {"ok": False, "error": str(exc), "matched": 0}
+        if export_data is not None:
+            export = export_data
+        else:
+            try:
+                export = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                return {"ok": False, "error": str(exc), "matched": 0}
 
         studio_id = _studio_user_id(export)
         phone_by_name = _contact_phone_by_name(export)
         by_phone, by_name = _index_catalog_rows(rows)
+        by_nick = _index_catalog_nicks(rows)
         chats = (export.get("chats") or {}).get("list") or []
         if not isinstance(chats, list):
             chats = []
@@ -575,12 +667,18 @@ def import_export_into_catalog(
                 if str(chat.get("type") or "") != "personal_chat":
                     continue
                 chat_name = str(chat.get("name") or "").strip()
-                phone = phone_by_name.get(normalize_name(chat_name), "")
+                phone = phone_by_name.get(fold_name(chat_name), "")
+                peer_id = _peer_user_id(chat, studio_id)
+                nick = _extract_peer_nick(chat, studio_id=studio_id, peer_id=peer_id)
+                messages = _chat_messages_for_store(chat, studio_id=studio_id)
                 row = _match_row(
                     chat_name=chat_name,
                     phone=phone,
                     by_phone=by_phone,
                     by_name=by_name,
+                    tg_nick=nick,
+                    by_nick=by_nick,
+                    text_phones=_phones_in_messages(messages),
                 )
                 if row is None:
                     continue
@@ -588,8 +686,6 @@ def import_export_into_catalog(
                 if not client_id:
                     continue
                 matched += 1
-                peer_id = _peer_user_id(chat, studio_id)
-                nick = _extract_peer_nick(chat, studio_id=studio_id, peer_id=peer_id)
                 client_phone = dedupe_phone(row.get("Телефон") or row.get("phone")) or phone
                 existing_nick = normalize_tg_nick(
                     row.get("ТГ ник") or row.get("tg_nick") or ""
@@ -605,7 +701,6 @@ def import_export_into_catalog(
                     row["ТГ ник"] = display_nick
                     row["tg_nick"] = display_nick
 
-                messages = _chat_messages_for_store(chat, studio_id=studio_id)
                 thread = _ensure_thread(
                     store,
                     client_id=client_id,

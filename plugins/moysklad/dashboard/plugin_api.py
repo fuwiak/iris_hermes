@@ -74,7 +74,10 @@ from plugins.moysklad.campaigns import (
     save_seller_settings,
 )
 from plugins.moysklad.telegram_send import (
+    business_preflight,
+    preflight_recipient,
     resolve_peer_identity,
+    send_delay_seconds,
     send_outreach_to_client,
     telegram_account_snapshot,
     telegram_send_mode,
@@ -216,6 +219,7 @@ def _schedule_snapshot_refresh(
     vip_only: bool,
     birthday_soon: bool,
     days_before_event: int,
+    stage: str,
     max_orders: int,
     max_counterparties: int,
     include_archived: bool,
@@ -252,6 +256,7 @@ def _schedule_snapshot_refresh(
                 birthday_soon=birthday_soon,
                 group_source=group_source,
                 days_before_event=days_before_event,
+                stage=stage,
                 limit=PAGE_SNAPSHOT_ROWS,
                 offset=0,
                 max_orders=max_orders,
@@ -519,6 +524,19 @@ class PushBody(BaseModel):
     only_changed: bool = True
 
 
+class StageTagBody(BaseModel):
+    """Mark «не состоялся» clients with a MoySklad tag. Dry-run by default."""
+
+    sales_filter: str = "all"
+    q: str = ""
+    ids: list[str] = Field(default_factory=list)
+    dry_run: bool = True
+    tag: str = ""
+    max_orders: int = 5000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
 class RecalculateProposeBody(BaseModel):
     sales_filter: str = "all"
     group: str = ""
@@ -669,6 +687,8 @@ class MarkSentBody(BaseModel):
     open_deep_link: bool = True
     # When true (default for telegram), attempt Bot API send via Business bot.
     deliver: bool = True
+    #: ``bot`` | ``user`` | ``auto`` — overrides MOYSKLAD_TELEGRAM_SEND_VIA.
+    via: str = ""
 
 
 class MarkSentBatchBody(BaseModel):
@@ -679,6 +699,10 @@ class MarkSentBatchBody(BaseModel):
     client_ids: list[str] = Field(default_factory=list)
     open_deep_link: bool = False
     deliver: bool = True
+    #: ``bot`` | ``user`` | ``auto`` — overrides MOYSKLAD_TELEGRAM_SEND_VIA.
+    via: str = ""
+    #: Stop the batch as soon as one send fails (default: keep going).
+    stop_on_error: bool = False
 
 
 class OutreachContactBody(BaseModel):
@@ -929,6 +953,7 @@ def get_clients(
     birthday_soon: bool = Query(False),
     group_source: str = Query("any"),
     days_before_event: int = Query(0, ge=0, le=365),
+    stage: str = Query("all"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(5000, ge=0, le=100_000),
@@ -947,6 +972,7 @@ def get_clients(
         vip_only=vip_only,
         birthday_soon=birthday_soon,
         days_before_event=days_before_event,
+        stage=stage,
     )
     catalog_key = cache_key(
         max_orders=max_orders,
@@ -987,6 +1013,7 @@ def get_clients(
                             vip_only=vip_only,
                             birthday_soon=birthday_soon,
                             days_before_event=days_before_event,
+                            stage=stage,
                             max_orders=max_orders,
                             max_counterparties=max_counterparties,
                             include_archived=include_archived,
@@ -1059,6 +1086,7 @@ def get_clients(
             birthday_soon=birthday_soon,
             group_source=group_source,
             days_before_event=days_before_event,
+            stage=stage,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -1086,6 +1114,7 @@ def get_clients(
                         birthday_soon=birthday_soon,
                         group_source=group_source,
                         days_before_event=days_before_event,
+                        stage=stage,
                         limit=PAGE_SNAPSHOT_ROWS,
                         offset=0,
                         max_orders=max_orders,
@@ -1129,15 +1158,21 @@ def get_clients_integrity(
     include_archived: bool = Query(False),
     refresh: bool = Query(False),
 ) -> dict[str, Any]:
-    """Audit tab counts vs hybrid / no-orders / marker-only breakdown."""
+    """Проверка таблицы: tab arithmetic + concrete data defects with samples."""
     try:
+        from plugins.moysklad.integrity import audit_catalog
+
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
             include_archived=include_archived,
             force=refresh,
+            blocking=True,
         )
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="catalog unavailable")
         report = catalog_integrity(catalog)
+        report["audit"] = audit_catalog(catalog)
         return _attach_cache_meta(report, meta)
     except HTTPException:
         raise
@@ -1367,6 +1402,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 tg_nick=tg_nick,
                 tg_conversation=tg_conversation,
                 tg_chat_id=tg_chat_id,
+                via=body.via,
             )
 
         source = "campaign_send"
@@ -1437,9 +1473,23 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
 
         catalog, meta = _get_catalog(force=False)
         channel = (body.channel or "telegram").strip().lower()
+        deliver_telegram = bool(body.deliver) and channel.startswith("telegram")
+        # One account-level check for the whole batch — a dead connection should
+        # not be discovered 40 messages in.
+        account: dict[str, Any] = {}
+        if deliver_telegram and (body.via or telegram_send_mode()) != "user":
+            account = business_preflight()
+            if not account.get("ok") and telegram_send_mode() == "bot":
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(account.get("detail") or account.get("error")),
+                )
+        delay = send_delay_seconds()
         results: list[dict[str, Any]] = []
         sent_ok = 0
-        for client_id in client_ids:
+        sent_failed = 0
+        stopped_early = False
+        for index, client_id in enumerate(client_ids):
             tg_nick = ""
             tg_conversation = ""
             tg_chat_id = ""
@@ -1503,18 +1553,23 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                         deep_link = str(msg.get("telegram_url") or "")
 
             delivery: dict[str, Any] = {"ok": False, "skipped": True}
-            if body.deliver and channel.startswith("telegram"):
+            if deliver_telegram:
+                if index and delay:
+                    time.sleep(delay)
                 delivery = send_outreach_to_client(
                     text=text,
                     tg_nick=tg_nick,
                     tg_conversation=tg_conversation,
                     tg_chat_id=tg_chat_id,
+                    via=body.via,
                 )
 
             source = "campaign_send_batch"
             if delivery.get("ok"):
                 source = "campaign_telegram_bot"
                 sent_ok += 1
+            elif deliver_telegram:
+                sent_failed += 1
 
             thread = append_message(
                 client_id=client_id,
@@ -1531,19 +1586,30 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
             results.append(
                 {
                     "client_id": client_id,
-                    "ok": True,
+                    # ok = the message actually left, not merely «row processed».
+                    "ok": bool(delivery.get("ok")) if deliver_telegram else True,
                     "client_name": client_name,
+                    "error": None if delivery.get("ok") else delivery.get("error"),
+                    "detail": None if delivery.get("ok") else delivery.get("detail"),
                     "delivery": delivery,
                     "conversation": thread,
                     "deep_link": deep_link if open_link else "",
                 }
             )
+            if deliver_telegram and not delivery.get("ok") and body.stop_on_error:
+                stopped_early = True
+                break
 
         payload = {
-            "ok": True,
+            "ok": sent_failed == 0,
             "channel": channel,
             "total": len(client_ids),
+            "attempted": len(results),
             "sent_ok": sent_ok,
+            "sent_failed": sent_failed,
+            "stopped_early": stopped_early,
+            "send_via": (body.via or telegram_send_mode()),
+            "account": account or None,
             "results": results,
             "telegram": telegram_send_status(),
         }
@@ -1554,6 +1620,87 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent-batch failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class PreflightBody(BaseModel):
+    """Who in this audience can the Business bot actually reach?"""
+
+    client_ids: list[str] = Field(default_factory=list)
+
+
+@router.post("/campaigns/telegram/preflight")
+def post_campaign_preflight(body: PreflightBody) -> dict[str, Any]:
+    """Resolve every recipient before sending — no half-delivered рассылка."""
+    try:
+        account = business_preflight()
+        ids = [str(x or "").strip() for x in (body.client_ids or []) if str(x or "").strip()]
+        seen: set[str] = set()
+        client_ids = [c for c in ids if not (c in seen or seen.add(c))]
+
+        catalog, meta = _get_catalog(force=False)
+        recipients: list[dict[str, Any]] = []
+        ready = 0
+        for client_id in client_ids:
+            tg_nick = ""
+            tg_conversation = ""
+            tg_chat_id = ""
+            name = ""
+            row = None if _is_contact_id(client_id) else find_row_in_catalog(catalog, client_id)
+            if row is not None:
+                detail = build_client_detail(row)
+                client = detail.get("client") or {}
+                name = str(client.get("name") or "")
+                tg_nick = str(client.get("tg_nick") or "")
+                tg_conversation = str(client.get("tg_conversation") or "")
+                tg_chat_id = str(client.get("tg_chat_id") or row.get("tg_chat_id") or "")
+            else:
+                contact = get_contact(client_id)
+                if contact is None:
+                    recipients.append({
+                        "client_id": client_id,
+                        "ok": False,
+                        "error": "client_not_found",
+                        "detail": "Нет ни карточки, ни контакта",
+                    })
+                    continue
+                name = str(contact.get("name") or "")
+                tg_nick = str(contact.get("tg_nick") or "")
+                tg_chat_id = str(contact.get("tg_chat_id") or "")
+
+            check = preflight_recipient(
+                tg_nick=tg_nick,
+                tg_conversation=tg_conversation,
+                tg_chat_id=tg_chat_id,
+            )
+            if check.get("ok"):
+                ready += 1
+            recipients.append({
+                "client_id": client_id,
+                "name": name,
+                "tg_nick": tg_nick,
+                "ok": bool(check.get("ok")),
+                "chat_id": check.get("chat_id") or "",
+                "resolved_via": check.get("resolved_via") or "",
+                "error": None if check.get("ok") else check.get("error"),
+                "detail": None if check.get("ok") else check.get("detail"),
+            })
+
+        payload = {
+            "ok": bool(account.get("ok")) and ready == len(recipients),
+            "account": account,
+            "total": len(recipients),
+            "ready": ready,
+            "blocked": len(recipients) - ready,
+            "send_via": telegram_send_mode(),
+            "delay_seconds": send_delay_seconds(),
+            "recipients": recipients,
+        }
+        return _attach_cache_meta(payload, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("moysklad /campaigns/telegram/preflight failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -1846,6 +1993,167 @@ def post_telegram_export_import(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class SegmentBody(BaseModel):
+    """Named list of clients — a saved audience filter recipe, not a snapshot."""
+
+    id: str = ""
+    name: str = ""
+    sales_filter: str = "all"
+    group: str = ""
+    q: str = ""
+    group_source: str = "any"
+    channel_kind: str = ""
+    require_phone: bool = False
+    require_telegram: bool = False
+    vip_only: bool = False
+    birthday_soon: bool = False
+    days_before_event: int = 0
+    stage: str = "all"
+
+
+@router.get("/segments")
+def get_segments() -> dict[str, Any]:
+    from plugins.moysklad.segments import list_segments
+
+    return {"ok": True, "segments": list_segments()}
+
+
+@router.post("/segments")
+def post_segment(body: SegmentBody) -> dict[str, Any]:
+    """Save the current Рассылки filter combo as a named, reusable list."""
+    from plugins.moysklad.segments import FILTER_FIELDS, save_segment
+
+    try:
+        filters = {k: getattr(body, k) for k in FILTER_FIELDS}
+        catalog, _meta = _get_catalog(force=False)
+        page = clients_page(_client(), catalog=catalog, limit=1, offset=0, **filters)
+        segment = save_segment(
+            segment_id=body.id,
+            name=body.name,
+            filters=filters,
+            matched_total=page.get("matched_total"),
+        )
+        return {"ok": True, "segment": segment}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad POST /segments failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.delete("/segments/{segment_id}")
+def delete_segment_endpoint(segment_id: str) -> dict[str, Any]:
+    from plugins.moysklad.segments import delete_segment
+
+    return {"ok": delete_segment(segment_id)}
+
+
+@router.get("/segments/{segment_id}/clients")
+def get_segment_clients(
+    segment_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Re-run a saved filter against the live catalog — never a stale id list."""
+    from plugins.moysklad.segments import get_segment
+
+    segment = get_segment(segment_id)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="segment not found")
+    try:
+        catalog, meta = _get_catalog(force=False)
+        page = clients_page(
+            _client(),
+            catalog=catalog,
+            limit=limit,
+            offset=offset,
+            **(segment.get("filters") or {}),
+        )
+        page["clients"] = enrich_clients(list(page.get("clients") or []))
+        payload = {"ok": True, "segment": segment, **_strip_internal(page)}
+        return _attach_cache_meta(payload, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad GET /segments/{id}/clients failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/telegram/archive")
+def get_telegram_archive(
+    q: str = Query(""),
+    state: str = Query("all"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """ТГ архив: every personal chat from the export, matched to a client or not."""
+    try:
+        from plugins.moysklad.telegram_archive import list_chats
+
+        return list_chats(q=q, state=state, limit=limit, offset=offset)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("moysklad telegram archive list failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/telegram/archive/{chat_id}")
+def get_telegram_archive_chat(chat_id: str) -> dict[str, Any]:
+    """One archived chat with its full stored thread."""
+    try:
+        from plugins.moysklad.telegram_archive import get_chat
+
+        result = get_chat(chat_id)
+        if not result.get("ok"):
+            raise HTTPException(status_code=404, detail="chat not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("moysklad telegram archive chat failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/telegram/archive/rebuild")
+def post_telegram_archive_rebuild(
+    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+) -> dict[str, Any]:
+    """Re-read the export: re-match clients and re-index every chat."""
+    try:
+        from plugins.moysklad.telegram_archive import rebuild
+
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=False,
+            blocking=True,
+            refresh_counts=False,
+        )
+        rows = list((catalog or {}).get("rows") or [])
+        result = rebuild(rows, force=True)
+        if catalog is not None and rows:
+            # Overlay just changed — stamp the new ТГ fields back onto the cache.
+            _apply_telegram_export_and_recache(
+                catalog,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+                force_import=False,
+            )
+        return _attach_cache_meta(result, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("moysklad telegram archive rebuild failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/clients/ai-fill")
 def post_clients_ai_fill(body: AiFillBody) -> dict[str, Any]:
     """Fill empty CRM fields (Группы, Статус, Пол, …) via AI + heuristics.
@@ -2052,6 +2360,91 @@ def post_groups_push(body: PushBody) -> dict[str, Any]:
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /groups/push failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/stage/failed-tag")
+def post_clients_failed_stage_tag(body: StageTagBody) -> dict[str, Any]:
+    """Tag «не состоялся» clients in MoySklad. ``dry_run=true`` только показывает.
+
+    Never replaces the tag list — the existing tags are merged with the stage
+    tag, same as «Предложить группы».
+    """
+    try:
+        from plugins.moysklad.order_status import FAILED_STAGE_TAG
+
+        tag = (body.tag or FAILED_STAGE_TAG).strip()
+        if not tag:
+            raise HTTPException(status_code=400, detail="tag required")
+
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            blocking=True,
+        )
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="catalog unavailable")
+        page = clients_page(
+            _client(),
+            sales_filter=body.sales_filter,
+            q=body.q,
+            stage="failed",
+            limit=0,
+            offset=0,
+            catalog=catalog,
+        )
+        rows = list(page.get("_rows") or [])
+        wanted = {str(i).strip() for i in (body.ids or []) if str(i).strip()}
+        assignments: list[dict[str, Any]] = []
+        for row in rows:
+            cp_id = str(row.get("_moysklad_id") or "").strip()
+            if not cp_id or (wanted and cp_id not in wanted):
+                continue
+            existing = [
+                str(t).strip()
+                for t in (row.get("_moysklad_tags") or [])
+                if str(t).strip()
+            ]
+            already = any(t.lower() == tag.lower() for t in existing)
+            assignments.append({
+                "id": cp_id,
+                "name": row.get("Наименование") or "",
+                "existing": existing,
+                "merged": existing if already else [*existing, tag],
+                "changed": not already,
+                "stage": row.get("client_stage") or row.get("Тип клиента") or "",
+                "reason": row.get("client_stage_reason") or "",
+                "order_count": int(row.get("order_count") or 0),
+            })
+        changed = [a for a in assignments if a["changed"]]
+        result: dict[str, Any] = {
+            "ok": True,
+            "dry_run": bool(body.dry_run),
+            "tag": tag,
+            "total": len(assignments),
+            "changed": len(changed),
+            "assignments": assignments if wanted else changed,
+        }
+        if not body.dry_run:
+            push = push_merged_tags(_client(), changed, only_changed=True)
+            result["push"] = push
+            result["ok"] = bool(push.get("ok"))
+            if push.get("pushed"):
+                _invalidate_cache(
+                    max_orders=body.max_orders,
+                    max_counterparties=body.max_counterparties,
+                    include_archived=body.include_archived,
+                )
+        return _attach_cache_meta(result, meta)
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/stage/failed-tag failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

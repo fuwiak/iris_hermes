@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from typing import Any, Optional
 
 from plugins.moysklad.conversations import normalize_tg_nick
@@ -120,6 +121,15 @@ def coerce_business_chat_id(
             "detail": "Need numeric chat id for Business send",
         }
 
+    local = _lookup_peer_in_local_stores(nick=nick)
+    if local and str(local.get("tg_chat_id") or "").strip():
+        return {
+            "ok": True,
+            "chat_id": str(local["tg_chat_id"]),
+            "resolved_via": str(local.get("resolved_via") or "local"),
+            "username": local.get("tg_nick") or nick.lstrip("@"),
+        }
+
     chat = fetch_chat(nick, token=token)
     if chat.get("ok") and chat.get("id") is not None:
         return {
@@ -162,7 +172,19 @@ def _lookup_peer_in_local_stores(
 
     try:
         from plugins.moysklad.outreach_contacts import load_custom_contacts
+        from plugins.moysklad.telegram_archive import find_peer as archive_peer
         from plugins.moysklad.telegram_export import load_overlay
+
+        # The Telegram export carries a numeric peer id for every chat — the one
+        # thing Bot API cannot derive from a cold @username.
+        hit = archive_peer(tg_nick=nick, tg_chat_id=chat_id)
+        if hit and hit.get("tg_chat_id"):
+            return {
+                "tg_nick": hit.get("tg_nick") or nick,
+                "tg_chat_id": str(hit.get("tg_chat_id") or ""),
+                "name": hit.get("name") or "",
+                "resolved_via": "tg_archive",
+            }
 
         for c in load_custom_contacts():
             if nick and c.get("tg_nick") == nick:
@@ -342,6 +364,62 @@ def _send_via_user_account(*, text: str, chat_id: str) -> dict[str, Any] | None:
     return result
 
 
+def _retry_after_seconds(data: dict[str, Any]) -> float:
+    """Seconds Telegram asks us to wait on a 429, ``0`` when it is not a flood wait."""
+    if data.get("error_code") != 429:
+        return 0.0
+    raw = data.get("raw")
+    params = (raw or {}).get("parameters") if isinstance(raw, dict) else None
+    try:
+        return float((params or {}).get("retry_after") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def send_flood_wait_max() -> float:
+    """Longest single flood wait we sit through before giving the row back."""
+    raw = (os.getenv("MOYSKLAD_TELEGRAM_FLOOD_WAIT_MAX") or "").strip()
+    try:
+        return max(0.0, float(raw)) if raw else 60.0
+    except ValueError:
+        return 60.0
+
+
+def _send_with_flood_wait(
+    payload: dict[str, Any],
+    *,
+    token: str,
+    timeout: float,
+    attempts: int = 3,
+) -> dict[str, Any]:
+    """``sendMessage`` that honours Telegram's 429 ``retry_after`` instead of dropping."""
+    ceiling = send_flood_wait_max()
+    data: dict[str, Any] = {}
+    for attempt in range(max(1, attempts)):
+        data = telegram_api("sendMessage", token=token, json_body=payload, timeout=timeout)
+        if data.get("ok"):
+            return data
+        wait = _retry_after_seconds(data)
+        if wait <= 0 or wait > ceiling or attempt == attempts - 1:
+            if wait > 0:
+                data = dict(data)
+                data["retry_after"] = wait
+            return data
+        log.info("telegram flood wait %.1fs (attempt %s)", wait, attempt + 1)
+        time.sleep(wait)
+    return data
+
+
+def send_delay_seconds() -> float:
+    """Pause between messages in a batch — keeps bulk sends under Bot API limits."""
+    raw = (os.getenv("MOYSKLAD_TELEGRAM_SEND_DELAY_MS") or "").strip()
+    try:
+        ms = float(raw) if raw else 350.0
+    except ValueError:
+        ms = 350.0
+    return max(0.0, min(ms, 10_000.0)) / 1000.0
+
+
 def telegram_send_mode() -> str:
     """``auto`` | ``user`` | ``bot`` — which channel outreach sends through."""
     mode = (os.getenv("MOYSKLAD_TELEGRAM_SEND_VIA") or "auto").strip().lower()
@@ -427,12 +505,7 @@ def send_telegram_message(
     if biz:
         payload["business_connection_id"] = biz
 
-    data = telegram_api(
-        "sendMessage",
-        token=token,
-        json_body=payload,
-        timeout=timeout,
-    )
+    data = _send_with_flood_wait(payload, token=token, timeout=timeout)
     if not data.get("ok"):
         return data
     result = data.get("result") or {}
@@ -444,6 +517,72 @@ def send_telegram_message(
         "bot_username": outreach_bot_username() or None,
         "via": "business_bot",
     }
+
+
+def preflight_recipient(
+    *,
+    tg_nick: str = "",
+    tg_conversation: str = "",
+    tg_chat_id: str = "",
+    token: str | None = None,
+) -> dict[str, Any]:
+    """Can the Business bot actually deliver to this peer? Answer before sending.
+
+    Business ``sendMessage`` needs an integer chat id; a bare ``@nick`` the bot
+    has never seen is not deliverable. Resolving up front turns a silent
+    half-failed рассылка into a list you can fix.
+    """
+    raw = resolve_telegram_chat_id(
+        tg_nick=tg_nick,
+        tg_conversation=tg_conversation,
+        tg_chat_id=tg_chat_id,
+    )
+    if not raw:
+        return {
+            "ok": False,
+            "error": "telegram_chat_missing",
+            "detail": "Нет ни ТГ ника, ни chat id",
+        }
+    if _TG_PEER_ID_RE.fullmatch(raw):
+        return {"ok": True, "chat_id": raw, "resolved_via": "numeric"}
+    coerced = coerce_business_chat_id(raw, token=token)
+    if coerced.get("ok"):
+        return coerced
+    return {
+        "ok": False,
+        "error": coerced.get("error") or "telegram_chat_unresolved",
+        "detail": coerced.get("detail") or "",
+        "tg_nick": normalize_tg_nick(tg_nick) or None,
+    }
+
+
+def business_preflight(token: str | None = None) -> dict[str, Any]:
+    """Account-level readiness: bot token + business connection with reply rights."""
+    status = telegram_send_status()
+    if not status.get("configured"):
+        return {
+            "ok": False,
+            "error": "telegram_token_missing",
+            "detail": "Нет токена бота (Офис → Telegram Business)",
+            **status,
+        }
+    snapshot = telegram_account_snapshot(token=token, probe=True)
+    account = snapshot.get("account") or {}
+    if not account.get("ok"):
+        return {
+            "ok": False,
+            "error": account.get("error") or "business_connection_missing",
+            "detail": account.get("detail") or "Business connection не подключён",
+            **snapshot,
+        }
+    if not account.get("can_reply"):
+        return {
+            "ok": False,
+            "error": "business_cannot_reply",
+            "detail": "У бота нет права Reply в Telegram Business — включите его в настройках Telegram",
+            **snapshot,
+        }
+    return {"ok": True, **snapshot}
 
 
 def send_outreach_to_client(

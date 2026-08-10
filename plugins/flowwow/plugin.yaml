@@ -1,0 +1,32 @@
+name: flowwow
+version: 0.1.0
+description: "Flowwow marketplace API — orders + clients read tools. Opt-in, off by default. Token: FLOWWOW_API_TOKEN."
+author: Hermes Agent
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows
+provides_tools:
+  - flowwow_health
+  - flowwow_orders
+  - flowwow_clients
+requires_env:
+  - name: FLOWWOW_API_TOKEN
+    description: "Flowwow seller-cabinet API token"
+    prompt: "Flowwow API token"
+    url: "https://flowwow.com/"
+    password: true
+optional_env:
+  - name: FLOWWOW_API_URL
+    description: "Flowwow API base URL override (default https://api.flowwow.com/v1) — set this if flowwow_health 404s against the default."
+    prompt: "Flowwow API URL"
+    password: false
+  - name: FLOWWOW_REQUEST_DELAY_MS
+    description: "Delay between paginated requests in ms (default 250)"
+    prompt: "Flowwow request delay ms"
+    password: false
+  - name: FLOWWOW_API_RETRY_MAX
+    description: "Max retries on 429/5xx (default 4)"
+    prompt: "Flowwow API retry max"
+    password: false

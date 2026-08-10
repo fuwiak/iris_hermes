@@ -142,8 +142,9 @@ The Bot API cannot list your contacts and cannot write to someone who never
 messaged the bot, so Рассылки can also drive the operator's **own** account
 over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
 
-* Connect in Рассылки → **Личный Telegram**: `api_id` / `api_hash` from
-  my.telegram.org → phone → code → 2FA password.
+* Connect in Рассылки → **Личный Telegram**: phone → code → 2FA.
+  `api_id` / `api_hash` come from server `.env` (`TELEGRAM_API_ID` /
+  `TELEGRAM_API_HASH`) and show masked in the UI; no need to type them.
   Endpoints: `POST /campaigns/telegram-user/{credentials,login,code,password,logout}`,
   `GET /campaigns/telegram-user`.
 * Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).

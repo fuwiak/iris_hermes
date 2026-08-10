@@ -358,8 +358,18 @@ def _me_dict(me: Any) -> dict[str, Any]:
 # ── status / login ────────────────────────────────────────────────────────
 
 
+def mask_secret(value: str, *, keep: int = 2) -> str:
+    """UI-safe mask — keep a tiny prefix, rest as bullets. Never return raw secret."""
+    raw = str(value or "")
+    if not raw:
+        return ""
+    keep_n = max(0, min(int(keep), len(raw)))
+    bullets = "•" * min(16, max(4, len(raw) - keep_n))
+    return raw[:keep_n] + bullets
+
+
 def user_status(*, probe: bool = True) -> dict[str, Any]:
-    """UI-facing account block. No secrets — only presence flags."""
+    """UI-facing account block. No secrets — only presence flags + masked ids."""
     api_id, api_hash = api_credentials()
     cfg = load_config()
     env_api = bool(
@@ -371,6 +381,9 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         "available": telethon_available(),
         "api_configured": bool(api_id and api_hash),
         "api_source": "env" if env_api else ("config" if api_id and api_hash else ""),
+        # Masked previews for the Connect form — never the raw api_hash.
+        "api_id_masked": mask_secret(api_id, keep=2) if api_id else "",
+        "api_hash_masked": mask_secret(api_hash, keep=0) if api_hash else "",
         "session_saved": bool(session_string()),
         "phone": str(cfg.get("phone") or "") or None,
         "authorized": False,

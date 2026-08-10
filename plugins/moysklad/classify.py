@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from plugins.moysklad.audience import normalize_group_source, row_matches_audience_extras
+from plugins.moysklad.audience import (
+    normalize_group_source,
+    normalize_stage_filter,
+    row_matches_audience_extras,
+    stage_counts,
+)
 from plugins.moysklad.catalog_cache import refresh_audience_counts
 from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.dedupe import (
@@ -18,7 +23,12 @@ from plugins.moysklad.groups import (
     ensure_group_options_by_source,
     split_group_options_by_source,
 )
-from plugins.moysklad.order_status import classify_order_payment, summarize_order_context
+from plugins.moysklad.order_status import (
+    classify_order_payment,
+    client_stage,
+    client_stage_reason,
+    summarize_order_context,
+)
 from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_HYBRID,
     channel_name_from_order,
@@ -205,6 +215,9 @@ def build_enriched_catalog(
         row["cancelled_order_count"] = int(payment.get("cancelled_order_count") or 0)
         row["failed_only"] = bool(payment.get("failed_only"))
         row["customer_outcome"] = payment.get("customer_outcome") or "none"
+        row["Тип клиента"] = client_stage(row["customer_outcome"])
+        row["client_stage"] = row["Тип клиента"]
+        row["client_stage_reason"] = client_stage_reason(payment)
         row["avg_check"] = avg_check
         row["last_order_at"] = last_order or None
         refresh_row_channel_fields(row)
@@ -334,6 +347,13 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         ),
         "avg_check": avg_check,
         "last_order_at": last_order_at,
+        # Recomputed here too: catalogs cached before «Тип клиента» existed.
+        "client_stage": row.get("client_stage")
+        or client_stage(
+            row.get("customer_outcome") or payment.get("customer_outcome") or "none"
+        ),
+        "client_stage_reason": row.get("client_stage_reason")
+        or client_stage_reason(payment or row),
         "birthdate": row.get("Дата рождения") or row.get("birthdate") or "",
         "bonus_points": row.get("Баллы начисленные") or "",
         "role": row.get("Заказчик или получатель") or "",
@@ -378,6 +398,7 @@ def clients_page(
     birthday_soon: bool = False,
     group_source: str = "any",
     days_before_event: int = 0,
+    stage: str = "all",
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
 
@@ -410,6 +431,7 @@ def clients_page(
         days_window = int(days_before_event or 0)
     except (TypeError, ValueError):
         days_window = 0
+    stage_key = normalize_stage_filter(stage)
     matched = [
         r
         for r in base_rows
@@ -423,6 +445,7 @@ def clients_page(
             group=group,
             group_source=src,
             days_before_event=days_window,
+            stage=stage_key,
         )
     ]
 
@@ -446,6 +469,8 @@ def clients_page(
         "vip_only": bool(vip_only),
         "birthday_soon": bool(birthday_soon),
         "days_before_event": days_window,
+        "stage": stage_key,
+        "stage_counts": stage_counts(base_rows),
         "counts": counts,
         "groups_total": len(base_rows),
         "matched_total": matched_total,

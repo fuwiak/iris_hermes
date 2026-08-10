@@ -46,6 +46,13 @@ LLM_KEYS = (
     "DEEPSEEK_API_KEY",
 )
 
+# Personal Telegram (MTProto / Telethon) — api_id/api_hash live server-side so
+# Рассылки Connect UI only asks for phone + code (+ 2FA).
+TELEGRAM_USER_KEYS = (
+    "TELEGRAM_API_ID",
+    "TELEGRAM_API_HASH",
+)
+
 # Back-compat alias for importers / older call sites.
 KEYS = MOYSKLAD_KEYS
 
@@ -97,9 +104,10 @@ def _fetch_keys_from_process_env(keys: tuple[str, ...]) -> dict[str, str]:
 
 
 def _fetch_from_process_env() -> dict[str, str]:
-    """MoySklad + LLM keys present in the process environment."""
+    """MoySklad + LLM + personal Telegram keys present in the process environment."""
     out = _fetch_keys_from_process_env(MOYSKLAD_KEYS)
     out.update(_fetch_keys_from_process_env(LLM_KEYS))
+    out.update(_fetch_keys_from_process_env(TELEGRAM_USER_KEYS))
     return out
 
 
@@ -171,7 +179,13 @@ def main(argv: list[str] | None = None) -> int:
     updated, added = upsert_env_file(target, mapping)
     # Lengths only — never print secret values.
     bits = [f"updated={updated}", f"added={added}"]
-    for key in ("MOYSKLAD_API_TOKEN", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY"):
+    for key in (
+        "MOYSKLAD_API_TOKEN",
+        "OPENROUTER_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "TELEGRAM_API_ID",
+        "TELEGRAM_API_HASH",
+    ):
         if key in mapping:
             bits.append(f"{key}_len={len(mapping[key])}")
     print(f"✓ {target}: " + " ".join(bits))
