@@ -1145,8 +1145,9 @@ function ConversationThread({
       <div className="ms-conversation">
         <p className="ms-ai-label">{title || 'TG conversation'}</p>
         <p className="ms-muted">
-          История пуста. После отправки текста сюда попадёт исходящее; полный sync с
-          gateway Telegram — позже.
+          Нет истории. Нажмите «Импорт Telegram» на Клиентах (нужен файл
+          telegram_export.json на сервере) — подтянутся старые личные чаты по
+          телефону / Наименованию.
         </p>
       </div>
     )

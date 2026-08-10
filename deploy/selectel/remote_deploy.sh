@@ -56,6 +56,16 @@ docker compose build hermes
 docker compose up -d --force-recreate hermes
 docker compose up -d
 
+# Persist Telegram Desktop export into the hermes volume when present on host.
+# Place the file at /var/lib/iris/telegram_export.json (outside rsync --delete).
+EXPORT_SRC="${TELEGRAM_EXPORT_SRC:-/var/lib/iris/telegram_export.json}"
+if [ -f "$EXPORT_SRC" ]; then
+  echo "Installing Telegram export into hermes volume from $EXPORT_SRC"
+  docker cp "$EXPORT_SRC" selectel-hermes-1:/opt/data/moysklad/telegram_export.json
+  docker exec -u root selectel-hermes-1 \
+    chown hermes:hermes /opt/data/moysklad/telegram_export.json || true
+fi
+
 # Basic health
 sleep 5
 docker compose ps

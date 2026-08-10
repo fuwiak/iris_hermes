@@ -887,6 +887,8 @@
     const [fromCache, setFromCache] = useState(false);
     const [aiFillLoading, setAiFillLoading] = useState(false);
     const [aiFillStatus, setAiFillStatus] = useState("");
+    const [tgImportBusy, setTgImportBusy] = useState(false);
+    const [tgImportNote, setTgImportNote] = useState("");
     const loadGen = useRef(0);
     const loadingMoreRef = useRef(false);
 
@@ -1123,6 +1125,45 @@
             {
               type: "button",
               className: "ms-btn",
+              disabled: loading || tgImportBusy,
+              title:
+                "Сопоставить telegram_export.json с клиентами → колонка TG conversation",
+              onClick: function () {
+                setTgImportBusy(true);
+                setTgImportNote("Импорт Telegram…");
+                setError(null);
+                api("/clients/telegram-export/import?force=true", {
+                  method: "POST",
+                })
+                  .then(function (data) {
+                    setTgImportNote(
+                      "TG → клиенты: чатов " +
+                        (data.chats_total || 0) +
+                        " · привязано " +
+                        (data.matched || 0) +
+                        " · сообщений " +
+                        (data.imported_messages || 0) +
+                        (data.error ? " · " + data.error : ""),
+                    );
+                    return load({ offset: 0 });
+                  })
+                  .catch(function (err) {
+                    setTgImportNote(
+                      "TG импорт: " + ((err && err.message) || String(err)),
+                    );
+                  })
+                  .finally(function () {
+                    setTgImportBusy(false);
+                  });
+              },
+            },
+            tgImportBusy ? "Импорт TG…" : "Импорт Telegram",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-btn",
               disabled: loading,
               onClick: openAssign,
             },
@@ -1250,6 +1291,9 @@
       error ? h("div", { className: "ms-error" }, error) : null,
       aiFillStatus
         ? h("p", { className: "ms-action-status" }, aiFillStatus)
+        : null,
+      tgImportNote
+        ? h("p", { className: "ms-action-status" }, tgImportNote)
         : null,
       h(
         "p",
@@ -1432,7 +1476,7 @@
         h(
           "p",
           { className: "ms-muted" },
-          "История пуста. После отправки текст попадёт сюда; sync с gateway — позже.",
+          "Нет истории. Нажмите «Импорт Telegram» на Клиентах (нужен telegram_export.json на сервере) — подтянутся старые личные чаты.",
         ),
       );
     }

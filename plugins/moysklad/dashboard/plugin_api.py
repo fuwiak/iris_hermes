@@ -183,6 +183,14 @@ def _apply_telegram_export_and_recache(
     )
 
     rows = list(catalog.get("rows") or [])
+    if not rows:
+        return {
+            "ok": False,
+            "error": "catalog_empty",
+            "matched": 0,
+            "stamped_rows": 0,
+            "cache_backend": tg_cache_backend_name(),
+        }
     if force_import:
         result = import_export_into_catalog(rows, force=True)
     else:

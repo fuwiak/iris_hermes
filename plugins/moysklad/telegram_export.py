@@ -526,9 +526,14 @@ def _chat_messages_for_store(
 
 def _index_catalog_rows(
     rows: list[dict[str, Any]],
-) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, dict[str, Any]],
+]:
     by_phone: dict[str, dict[str, Any]] = {}
     by_name: dict[str, list[dict[str, Any]]] = {}
+    by_first: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -541,7 +546,14 @@ def _index_catalog_rows(
         name = fold_name(row.get("Наименование") or row.get("name"))
         if name:
             by_name.setdefault(name, []).append(row)
-    return by_phone, by_name
+            first = name.split(" ", 1)[0]
+            if first and len(first) >= 3:
+                by_first.setdefault(first, []).append(row)
+    # Keep only unambiguous first-name keys (one catalog card).
+    by_first_unique = {
+        key: rows[0] for key, rows in by_first.items() if len(rows) == 1
+    }
+    return by_phone, by_name, by_first_unique
 
 
 def _index_catalog_nicks(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -556,6 +568,18 @@ def _index_catalog_nicks(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]
     return by_nick
 
 
+def _index_catalog_chat_ids(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """``tg_chat_id`` already stamped on a card → hard rematch on re-import."""
+    by_chat: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        chat_id = str(row.get("tg_chat_id") or "").strip()
+        if chat_id and chat_id not in by_chat:
+            by_chat[chat_id] = row
+    return by_chat
+
+
 def _match_row(
     *,
     chat_name: str,
@@ -565,12 +589,20 @@ def _match_row(
     tg_nick: str = "",
     by_nick: dict[str, dict[str, Any]] | None = None,
     text_phones: list[str] | None = None,
+    peer_id: str = "",
+    by_chat_id: dict[str, dict[str, Any]] | None = None,
+    by_first: dict[str, dict[str, Any]] | None = None,
 ) -> Optional[dict[str, Any]]:
     """Attach one export chat to a catalog row. Strongest signal wins.
 
-    Order: address-book phone → @nick on the card → phone the peer typed into
-    the chat → exact folded name → unambiguous substring of a folded name.
+    Order: existing tg_chat_id → address-book phone → @nick on the card →
+    phone the peer typed into the chat → exact folded name → unique first
+    name → unambiguous substring of a folded name.
     """
+    peer = str(peer_id or "").strip()
+    if peer and by_chat_id and peer in by_chat_id:
+        return by_chat_id[peer]
+
     if phone and phone in by_phone:
         return by_phone[phone]
 
@@ -593,6 +625,11 @@ def _match_row(
     if hits:
         # Same name on several cards — ambiguous, never guess.
         return None
+
+    first = name.split(" ", 1)[0]
+    if by_first and first and first in by_first:
+        return by_first[first]
+
     soft: list[dict[str, Any]] = []
     for key, rows in by_name.items():
         if name in key or key in name:
@@ -647,8 +684,9 @@ def import_export_into_catalog(
 
         studio_id = _studio_user_id(export)
         phone_by_name = _contact_phone_by_name(export)
-        by_phone, by_name = _index_catalog_rows(rows)
+        by_phone, by_name, by_first = _index_catalog_rows(rows)
         by_nick = _index_catalog_nicks(rows)
+        by_chat_id = _index_catalog_chat_ids(rows)
         chats = (export.get("chats") or {}).get("list") or []
         if not isinstance(chats, list):
             chats = []
@@ -658,6 +696,7 @@ def import_export_into_catalog(
         matched = 0
         imported_messages = 0
         nick_filled = 0
+        unmatched = 0
 
         with _CONV_LOCK:
             store = _conv_load()
@@ -679,11 +718,16 @@ def import_export_into_catalog(
                     tg_nick=nick,
                     by_nick=by_nick,
                     text_phones=_phones_in_messages(messages),
+                    peer_id=peer_id,
+                    by_chat_id=by_chat_id,
+                    by_first=by_first,
                 )
                 if row is None:
+                    unmatched += 1
                     continue
                 client_id = str(row.get("_moysklad_id") or row.get("id") or "").strip()
                 if not client_id:
+                    unmatched += 1
                     continue
                 matched += 1
                 client_phone = dedupe_phone(row.get("Телефон") or row.get("phone")) or phone
@@ -709,16 +753,41 @@ def import_export_into_catalog(
                     client_name=str(row.get("Наименование") or chat_name),
                 )
                 existing = list(thread.get("messages") or [])
-                kept = [m for m in existing if str(m.get("source") or "") != "telegram_export"]
-                merged = kept + messages
+                kept = [
+                    m for m in existing if str(m.get("source") or "") != "telegram_export"
+                ]
+                # Merge export messages by id so several chats for one client
+                # accumulate instead of the last chat wiping earlier history.
+                export_by_id: dict[str, dict[str, Any]] = {}
+                for m in existing:
+                    if not isinstance(m, dict):
+                        continue
+                    if str(m.get("source") or "") != "telegram_export":
+                        continue
+                    mid = str(m.get("id") or "")
+                    if mid:
+                        export_by_id[mid] = m
+                for m in messages:
+                    mid = str(m.get("id") or "")
+                    if mid:
+                        export_by_id[mid] = m
+                    else:
+                        export_by_id[f"anon-{len(export_by_id)}"] = m
+                merged = kept + list(export_by_id.values())
                 if len(merged) > _MAX_MESSAGES:
                     merged = merged[-_MAX_MESSAGES:]
                 merged.sort(key=lambda m: str(m.get("ts") or ""))
                 thread["messages"] = merged
-                thread["tg_chat_id"] = str(peer_id or "")
+                if peer_id:
+                    thread["tg_chat_id"] = str(peer_id)
                 thread["updated_at"] = _now()
                 imported_messages += len(messages)
                 preview = preview_text(thread)
+                export_count = sum(
+                    1
+                    for m in merged
+                    if str(m.get("source") or "") == "telegram_export"
+                )
 
                 if preview:
                     # Always refresh the column from matched chat history so
@@ -727,15 +796,17 @@ def import_export_into_catalog(
                     row["tg_conversation"] = preview
                 if peer_id:
                     row["tg_chat_id"] = str(peer_id)
+                    by_chat_id[str(peer_id)] = row
 
+                prev = by_client.get(client_id) if isinstance(by_client.get(client_id), dict) else {}
                 by_client[client_id] = {
-                    "tg_chat_id": str(peer_id or ""),
-                    "tg_nick": display_nick,
+                    "tg_chat_id": str(peer_id or prev.get("tg_chat_id") or ""),
+                    "tg_nick": display_nick or str(prev.get("tg_nick") or ""),
                     "phone": client_phone,
-                    "chat_name": chat_name,
-                    "message_count": len(messages),
-                    "preview": preview,
-                    "export_chat_id": str(chat.get("id") or ""),
+                    "chat_name": chat_name or str(prev.get("chat_name") or ""),
+                    "message_count": export_count or len(messages),
+                    "preview": preview or str(prev.get("preview") or ""),
+                    "export_chat_id": str(chat.get("id") or prev.get("export_chat_id") or ""),
                 }
 
             _conv_save(store)
@@ -744,6 +815,7 @@ def import_export_into_catalog(
             "ok": True,
             "path": str(path),
             "matched": matched,
+            "unmatched": unmatched,
             "imported_messages": imported_messages,
             "nick_filled": nick_filled,
             "chats_total": sum(
