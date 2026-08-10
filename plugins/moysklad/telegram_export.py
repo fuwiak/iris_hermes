@@ -312,7 +312,7 @@ def stamp_catalog_rows_from_overlay(rows: list[dict[str, Any]]) -> int:
             row["tg_chat_id"] = chat_id
             changed = True
         preview = str(entry.get("preview") or "").strip()
-        if preview and not str(row.get("TG conversation") or row.get("tg_conversation") or "").strip():
+        if preview:
             row["TG conversation"] = preview
             row["tg_conversation"] = preview
             changed = True
@@ -720,9 +720,9 @@ def import_export_into_catalog(
                 imported_messages += len(messages)
                 preview = preview_text(thread)
 
-                if preview and not str(
-                    row.get("TG conversation") or row.get("tg_conversation") or ""
-                ).strip():
+                if preview:
+                    # Always refresh the column from matched chat history so
+                    # Clients «TG conversation» and AI context stay in sync.
                     row["TG conversation"] = preview
                     row["tg_conversation"] = preview
                 if peer_id:

@@ -1962,15 +1962,17 @@ def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
 
 @router.post("/clients/telegram-export/import")
 def post_telegram_export_import(
-    force: bool = Query(False),
+    force: bool = Query(True),
     max_orders: int = Query(5000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
 ) -> dict[str, Any]:
-    """Map ``data/telegram_export.json`` chats → TG conversation + ТГ ник."""
-    try:
-        from plugins.moysklad.telegram_export import import_export_into_catalog
+    """Map ``telegram_export.json`` chats onto clients by Наименование / phone.
 
+    Fills the **TG conversation** column + conversation store used as AI
+    context on the client card. Not a separate menu — lives on Клиенты.
+    """
+    try:
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
@@ -1981,9 +1983,12 @@ def post_telegram_export_import(
         )
         if catalog is None:
             raise HTTPException(status_code=503, detail="catalog unavailable")
-        result = import_export_into_catalog(
-            list(catalog.get("rows") or []),
-            force=force,
+        result = _apply_telegram_export_and_recache(
+            catalog,
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force_import=force,
         )
         return _attach_cache_meta(result, meta)
     except HTTPException:

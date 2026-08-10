@@ -100,6 +100,8 @@ def test_import_export_maps_phone_and_nick(tmp_path, monkeypatch):
     assert result["imported_messages"] >= 2
     assert result["nick_filled"] == 1
     assert rows[0]["ТГ ник"].lower().endswith("maria_flowers_msk")
+    conv = str(rows[0].get("TG conversation") or "").lower()
+    assert "maria_flowers_msk" in conv or "пишите" in conv or "букет" in conv
     assert result.get("cache_backend") in {"file", "redis+file"}
 
     # Overlay + conversations land on durable file cache under HERMES_HOME.
@@ -160,6 +162,15 @@ def test_stamp_from_cached_overlay_without_export(tmp_path, monkeypatch):
     assert str(rows[0].get("tg_chat_id") or "") == "999001"
     preview = str(rows[0].get("TG conversation") or "").lower()
     assert "maria_flowers_msk" in preview or "пишите" in preview
+
+    # Stamp must refresh a stale TG conversation column, not only empty ones.
+    rows[0]["TG conversation"] = "устаревший preview"
+    rows[0]["tg_conversation"] = "устаревший preview"
+    stamped2 = stamp_catalog_rows_from_overlay(rows)
+    assert stamped2 >= 1
+    refreshed = str(rows[0].get("TG conversation") or "").lower()
+    assert "устаревший" not in refreshed
+    assert "maria_flowers_msk" in refreshed or "пишите" in refreshed or "букет" in refreshed
 
     result = ensure_export_imported(rows)
     assert result["stamped_rows"] >= 0

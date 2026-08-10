@@ -1180,287 +1180,6 @@ function ConversationThread({
   )
 }
 
-type ArchiveChat = {
-  chat_id: string
-  name: string
-  tg_nick?: string
-  phone?: string
-  message_count?: number
-  inbound_count?: number
-  first_ts?: string
-  last_ts?: string
-  preview?: string
-  client_id?: string
-  client_name?: string
-  matched?: boolean
-}
-
-type ArchiveList = {
-  chats?: ArchiveChat[]
-  matched_total?: number
-  has_more?: boolean
-  next_offset?: number | null
-  counts?: { total?: number; matched?: number; unmatched?: number }
-  stats?: Record<string, unknown>
-}
-
-const ARCHIVE_PAGE = 100
-
-/** ТГ архив — read every chat from the Telegram export, attached to a card or not. */
-function TelegramArchivePage() {
-  const call = useMsRest()
-  const [chats, setChats] = useState<ArchiveChat[]>([])
-  const [counts, setCounts] = useState<{ total: number; matched: number; unmatched: number }>({
-    total: 0,
-    matched: 0,
-    unmatched: 0
-  })
-  const [state, setState] = useState<'all' | 'matched' | 'unmatched'>('all')
-  const [query, setQuery] = useState('')
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<ArchiveChat | null>(null)
-  const [conversation, setConversation] = useState<ClientConversation | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [threadLoading, setThreadLoading] = useState(false)
-  const [rebuilding, setRebuilding] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [nextOffset, setNextOffset] = useState(0)
-  const [error, setError] = useState('')
-  const [note, setNote] = useState('')
-
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(query.trim()), 250)
-
-    return () => clearTimeout(timer)
-  }, [query])
-
-  const loadPage = useCallback(
-    async (offset: number) => {
-      const params = new URLSearchParams()
-      params.set('state', state)
-      params.set('limit', String(ARCHIVE_PAGE))
-      params.set('offset', String(offset))
-      if (search) {params.set('q', search)}
-      const data = await call<ArchiveList>(`/telegram/archive?${params.toString()}`)
-      const rows = data.chats || []
-      setChats(prev => (offset === 0 ? rows : [...prev, ...rows]))
-      setCounts({
-        total: Number(data.counts?.total || 0),
-        matched: Number(data.counts?.matched || 0),
-        unmatched: Number(data.counts?.unmatched || 0)
-      })
-      setHasMore(Boolean(data.has_more))
-      setNextOffset(Number(data.next_offset || 0))
-    },
-    [call, search, state]
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError('')
-    void loadPage(0)
-      .catch(err => {
-        if (!cancelled) {setError(err instanceof Error ? err.message : String(err))}
-      })
-      .finally(() => {
-        if (!cancelled) {setLoading(false)}
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [loadPage])
-
-  const openChat = useCallback(
-    async (chat: ArchiveChat) => {
-      setSelected(chat)
-      setConversation(null)
-      setThreadLoading(true)
-      setError('')
-      try {
-        const data = await call<{ chat?: ArchiveChat; conversation?: ClientConversation }>(
-          `/telegram/archive/${encodeURIComponent(chat.chat_id)}`
-        )
-        setConversation(data.conversation || null)
-        if (data.chat) {setSelected(data.chat)}
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        setThreadLoading(false)
-      }
-    },
-    [call]
-  )
-
-  const rebuild = useCallback(async () => {
-    setRebuilding(true)
-    setError('')
-    setNote('')
-    try {
-      const data = await call<{
-        chats_total?: number
-        matched?: number
-        unmatched?: number
-        error?: string
-      }>('/telegram/archive/rebuild', { method: 'POST', timeoutMs: 600_000 })
-      if (data.error) {
-        setError(`Экспорт не прочитан: ${data.error}`)
-      } else {
-        setNote(
-          `Пересобрано: чатов ${data.chats_total ?? 0} · привязано ${data.matched ?? 0} · ` +
-            `без карточки ${data.unmatched ?? 0}`
-        )
-      }
-      await loadPage(0)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setRebuilding(false)
-    }
-  }, [call, loadPage])
-
-  return (
-    <div className="ms-page ms-tg-archive" data-selectable-text="true">
-      <div className="ms-page-header">
-        <div>
-          <h1>ТГ архив</h1>
-          <p className="ms-muted">
-            Все личные чаты из выгрузки Telegram Desktop. Чат без карточки в МойСклад тоже
-            виден — и ему можно писать: у него есть numeric chat id.
-          </p>
-          {note ? <p className="ms-muted ms-sync-meta">{note}</p> : null}
-        </div>
-        <div className="ms-actions">
-          <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
-            ← Клиенты
-          </button>
-          <button
-            className="ms-btn ms-btn-primary"
-            disabled={rebuilding}
-            onClick={() => void rebuild()}
-            title="Перечитать telegram_export.json, заново сопоставить с клиентами"
-            type="button"
-          >
-            {rebuilding ? 'Пересобираю…' : 'Пересобрать архив'}
-          </button>
-        </div>
-      </div>
-
-      <div className="ms-tg-archive-toolbar">
-        <div className="ms-chips">
-          {([
-            { id: 'all', label: `Все · ${counts.total}` },
-            { id: 'matched', label: `С карточкой · ${counts.matched}` },
-            { id: 'unmatched', label: `Без карточки · ${counts.unmatched}` }
-          ] as const).map(chip => (
-            <button
-              className={`ms-chip${state === chip.id ? ' is-active' : ''}`}
-              key={chip.id}
-              onClick={() => setState(chip.id)}
-              type="button"
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-        <input
-          className="ms-input"
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Поиск: имя, @ник, телефон, chat id, текст последнего сообщения"
-          value={query}
-        />
-      </div>
-
-      {error ? <div className="ms-error">{error}</div> : null}
-
-      <div className="ms-tg-archive-body">
-        <div className="ms-tg-archive-list">
-          {loading && chats.length === 0 ? <p className="ms-muted">Загрузка…</p> : null}
-          {!loading && chats.length === 0 ? (
-            <p className="ms-muted">
-              Пусто. Положите выгрузку в <code>data/telegram_export.json</code> и нажмите
-              «Пересобрать архив».
-            </p>
-          ) : null}
-          {chats.map(chat => (
-            <button
-              className={`ms-tg-archive-row${selected?.chat_id === chat.chat_id ? ' is-active' : ''}${
-                chat.matched ? '' : ' is-orphan'
-              }`}
-              key={chat.chat_id}
-              onClick={() => void openChat(chat)}
-              type="button"
-            >
-              <span className="ms-tg-archive-row-top">
-                <strong>{chat.name || `chat ${chat.chat_id}`}</strong>
-                <span className="ms-muted">{chat.message_count ?? 0} сообщ.</span>
-              </span>
-              <span className="ms-muted ms-tg-archive-row-meta">
-                {[
-                  chat.tg_nick ? `@${chat.tg_nick}` : null,
-                  chat.phone || null,
-                  chat.matched ? chat.client_name || 'есть карточка' : 'нет карточки',
-                  chat.last_ts ? String(chat.last_ts).slice(0, 10) : null
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-              {chat.preview ? <span className="ms-tg-archive-preview">{chat.preview}</span> : null}
-            </button>
-          ))}
-          {hasMore ? (
-            <button
-              className="ms-btn"
-              disabled={loading}
-              onClick={() => void loadPage(nextOffset)}
-              type="button"
-            >
-              Ещё чаты
-            </button>
-          ) : null}
-        </div>
-
-        <div className="ms-tg-archive-thread">
-          {!selected ? (
-            <p className="ms-muted">Выберите чат слева — переписка откроется здесь.</p>
-          ) : (
-            <>
-              <div className="ms-tg-archive-thread-head">
-                <h2 className="ms-section-title">{selected.name || selected.chat_id}</h2>
-                <p className="ms-muted">
-                  {[
-                    `chat id ${selected.chat_id}`,
-                    selected.tg_nick ? `@${selected.tg_nick}` : null,
-                    selected.phone || null,
-                    selected.matched ? `клиент: ${selected.client_name || selected.client_id}` : 'без карточки МойСклад'
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-                {selected.matched && selected.client_id ? (
-                  <button
-                    className="ms-btn"
-                    onClick={() => host.navigate(`/clients?client=${encodeURIComponent(selected.client_id || '')}`)}
-                    type="button"
-                  >
-                    Открыть карточку клиента
-                  </button>
-                ) : null}
-              </div>
-              {threadLoading ? (
-                <p className="ms-muted">Загружаю переписку…</p>
-              ) : (
-                <ConversationThread conversation={conversation} title="Переписка" />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function FactBlockView({ block }: { block?: FactBlock | null }) {
   if (!block) {return null}
   const riskClass = block.do_not_upsell ? ' ms-fact-block-risk' : ''
@@ -2186,6 +1905,8 @@ function ClientsPage() {
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState('')
   const [audit, setAudit] = useState<AuditReport | null>(null)
+  const [tgImportBusy, setTgImportBusy] = useState(false)
+  const [tgImportNote, setTgImportNote] = useState('')
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
   const [staleHint, setStaleHint] = useState(false)
@@ -2582,6 +2303,7 @@ function ClientsPage() {
           <h1>Клиенты</h1>
           <p className="ms-muted">МойСклад · Маркетплейс / Прямые</p>
           {cacheHint ? <p className="ms-muted ms-sync-meta">{cacheHint}</p> : null}
+          {tgImportNote ? <p className="ms-muted ms-sync-meta">{tgImportNote}</p> : null}
         </div>
         <div className="ms-actions">
           <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
@@ -2636,6 +2358,48 @@ function ClientsPage() {
             type="button"
           >
             {auditLoading ? 'Проверяю…' : 'Проверить таблицу'}
+          </button>
+          <button
+            className="ms-btn"
+            disabled={loading || tgImportBusy}
+            onClick={() => {
+              setTgImportBusy(true)
+              setTgImportNote('')
+              void call<{
+                ok?: boolean
+                matched?: number
+                imported_messages?: number
+                chats_total?: number
+                stamped_rows?: number
+                error?: string
+                path?: string
+              }>('/clients/telegram-export/import?force=true', {
+                method: 'POST',
+                timeoutMs: 600_000
+              })
+                .then(data => {
+                  if (data.error) {
+                    setTgImportNote(`TG импорт: ${data.error}`)
+                    return
+                  }
+                  setTgImportNote(
+                    `TG → клиенты: чатов ${data.chats_total ?? 0} · ` +
+                      `привязано ${data.matched ?? 0} · сообщений ${data.imported_messages ?? 0}` +
+                      (data.path ? ` · ${data.path}` : '')
+                  )
+                  return load({ refresh: false })
+                })
+                .catch(err =>
+                  setTgImportNote(
+                    `TG импорт: ${err instanceof Error ? err.message : String(err)}`
+                  )
+                )
+                .finally(() => setTgImportBusy(false))
+            }}
+            title="Сопоставить data/telegram_export.json с Наименование → колонка TG conversation (контекст для AI)"
+            type="button"
+          >
+            {tgImportBusy ? 'Импорт TG…' : 'Импорт Telegram'}
           </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка
@@ -6363,12 +6127,6 @@ const plugin: HermesPlugin = {
         render: () => <CampaignsPage />
       },
       {
-        id: 'clients-telegram-archive-page',
-        area: ROUTES_AREA,
-        data: { path: '/clients/telegram' } satisfies RouteContribution,
-        render: () => <TelegramArchivePage />
-      },
-      {
         id: 'clients-nav',
         area: SIDEBAR_NAV_AREA,
         order: 40,
@@ -6386,16 +6144,6 @@ const plugin: HermesPlugin = {
           codicon: 'beaker',
           label: 'AI тест',
           path: '/clients/playground'
-        } satisfies SidebarNavContribution
-      },
-      {
-        id: 'clients-telegram-archive-nav',
-        area: SIDEBAR_NAV_AREA,
-        order: 41.5,
-        data: {
-          codicon: 'comment-discussion',
-          label: 'ТГ архив',
-          path: '/clients/telegram'
         } satisfies SidebarNavContribution
       },
       {

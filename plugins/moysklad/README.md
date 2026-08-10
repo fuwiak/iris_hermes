@@ -69,14 +69,14 @@ Example prompts:
 6. First-page **снимок** (100 rows) is served instantly when present; full catalog
    rebuilds in the background (`revalidating` only while MoySklad fetch runs).
 7. **Telegram Desktop export** — place `data/telegram_export.json` (or
-   `$HERMES_HOME/moysklad/telegram_export.json`); chats map onto clients by
-   phone/name, fill **TG conversation** history + empty **ТГ ник** when an
-   `@username` is found. Matched overlay + threads persist in the same ladder
-   as catalog: **Redis** (`REDIS_URL` / `MOYSKLAD_REDIS_URL`) →
-   `$HERMES_HOME/moysklad/telegram_export_overlay.json` +
-   `conversations.json` → memory. Catalog rows are re-stamped and re-cached
-   after import so Clients list shows TG fields without the export file.
-   Hook runs on catalog load; manual: `POST /clients/telegram-export/import`.
+   `$HERMES_HOME/moysklad/telegram_export.json`). Chats map onto **Клиенты**
+   by phone / **Наименование** and fill the **TG conversation** column +
+   client-card history (AI context). Empty **ТГ ник** is filled when an
+   `@username` is found. There is **no separate «ТГ архив» menu** — use
+   **Импорт Telegram** on the Clients page (or
+   `POST /clients/telegram-export/import?force=true`). Overlay + threads
+   persist: **Redis** → `$HERMES_HOME/moysklad/telegram_export_overlay.json`
+   + `conversations.json` → memory. Catalog auto-stamps on load.
 8. **Предложить группы** → dry-run → **Записать в МойСклад** (heuristic merge, does not wipe unrelated tags)
 9. **AI fill (lazy)** — Clients table **auto-fills** empty **Группы / Статус / Пол /
    роль / ТГ ник / Тип контрагента** for every **currently shown** row (batched
