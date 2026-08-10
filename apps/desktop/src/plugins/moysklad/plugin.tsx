@@ -5329,76 +5329,8 @@ function CampaignsPage() {
             ) : null}
           </div>
 
-          <div className="ms-tg-account">
-            <div className="ms-tg-account-head">
-              <strong>Telegram Business аккаунт</strong>
-              <button
-                className="ms-link-btn"
-                disabled={!sellerLoaded || bizSaving}
-                onClick={() => void refreshTelegramAccount()}
-                type="button"
-              >
-                Проверить
-              </button>
-            </div>
-            <p className="ms-muted ms-tg-account-status">
-              {telegramAccount?.bot_username || bizBotUsername
-                ? `Бот @${telegramAccount?.bot_username || bizBotUsername}`
-                : 'Бот не настроен (Офис → Telegram Business)'}
-              {telegramAccount?.account?.ok ? (
-                <>
-                  {' '}
-                  · аккаунт{' '}
-                  <strong>
-                    @{telegramAccount.account.username || '—'}
-                  </strong>
-                  {telegramAccount.account.can_reply ? ' · reply ✓' : ' · reply ✗'}
-                  {telegramAccount.account.can_read_messages ? ' · read ✓' : ' · read ✗'}
-                </>
-              ) : telegramAccount?.account && telegramAccount.account.ok === false ? (
-                <>
-                  {' '}
-                  ·{' '}
-                  {telegramAccount.account.detail ||
-                    telegramAccount.account.error ||
-                    'connection error'}
-                </>
-              ) : telegramAccount?.business_connection_configured || bizConnectionId ? (
-                ' · connection id есть, нажмите «Проверить»'
-              ) : (
-                ' · добавьте connection id ниже'
-              )}
-            </p>
-            <label>
-              Bot username
-              <input
-                disabled
-                placeholder="@BoberSystemsAssistant_bot"
-                value={bizBotUsername ? `@${bizBotUsername.replace(/^@/, '')}` : ''}
-              />
-            </label>
-            <label>
-              Business connection ID
-              <input
-                disabled={!sellerLoaded || bizSaving}
-                onChange={e => setBizConnectionId(e.target.value)}
-                placeholder="из Офис → Telegram Business / env"
-                value={bizConnectionId}
-              />
-            </label>
-            <button
-              className="ms-btn"
-              disabled={!sellerLoaded || bizSaving}
-              onClick={() => void saveBusinessConnection()}
-              type="button"
-            >
-              {bizSaving ? 'Сохраняем…' : 'Сохранить аккаунт'}
-            </button>
-            <p className="ms-muted">
-              Токен и connection id — Офис → Telegram Business. Здесь поля
-              подставляются автоматически из env / seller_settings.
-            </p>
-          </div>
+          {/* Telegram Business bot block hidden: личный MTProto-аккаунт
+              покрывает login + send. Bot/connection id живут в env / Офис. */}
 
           <div className="ms-contact-picker">
             <label>
