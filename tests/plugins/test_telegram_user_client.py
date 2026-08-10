@@ -97,6 +97,24 @@ def test_mask_secret_helpers():
     assert set(tu.mask_secret("secret", keep=0)) == {"•"}
 
 
+def test_normalize_login_phone():
+    assert tu.normalize_login_phone("+7 (995) 099-81-70") == "+79950998170"
+    assert tu.normalize_login_phone("89950998170") == "+79950998170"
+    assert tu.normalize_login_phone("0079950998170") == "+79950998170"
+    assert tu.normalize_login_phone("") == ""
+
+
+def test_telethon_proxy_arg_socks5():
+    proxy = tu.telethon_proxy_arg("socks5://user:pass@127.0.0.1:1080")
+    assert proxy[0] == "socks5"
+    assert proxy[1] == "127.0.0.1"
+    assert proxy[2] == 1080
+    assert proxy[4] == "user"
+    assert proxy[5] == "pass"
+    assert tu.telethon_proxy_arg("") is None
+    assert tu.telethon_proxy_arg("not-a-url") is None
+
+
 def test_login_without_phone(tmp_path, monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

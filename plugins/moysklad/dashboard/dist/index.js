@@ -1690,6 +1690,7 @@
     const [tgCredOverride, setTgCredOverride] = useState(false);
     const [tgApiId, setTgApiId] = useState("");
     const [tgApiHash, setTgApiHash] = useState("");
+    const [tgSession, setTgSession] = useState("");
 
     function cleanTgApiId(raw) {
       var v = String(raw || "").trim();
@@ -1708,14 +1709,26 @@
       setTgBusy(true);
       setTgProgress({ title: title, detail: detail });
       setError("");
+      var timedOut = false;
+      var timer = setTimeout(function () {
+        timedOut = true;
+        setError(
+          "Telegram не ответил за 30с. С Selectel IP MTProto часто недоступен — TELEGRAM_PROXY или StringSession.",
+        );
+        setTgBusy(false);
+        setTgProgress(null);
+      }, 30000);
       return Promise.resolve()
         .then(work)
         .catch(function (err) {
-          setError((err && err.message) || String(err));
+          if (!timedOut) setError((err && err.message) || String(err));
         })
         .finally(function () {
-          setTgBusy(false);
-          setTgProgress(null);
+          clearTimeout(timer);
+          if (!timedOut) {
+            setTgBusy(false);
+            setTgProgress(null);
+          }
         });
     }
 
@@ -1885,6 +1898,27 @@
           setTgApiHash("");
           setTgCredOverride(false);
           setActionStatus("✓ api_id / api_hash сохранены");
+        });
+      });
+    }
+
+    function tgSaveSession() {
+      if (!String(tgSession || "").trim()) {
+        setError("Вставьте StringSession");
+        return;
+      }
+      runTgBusy("Telethon: сессия", "Сохраняем StringSession…", function () {
+        return api("/campaigns/telegram-user/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: String(tgSession || "").trim(),
+            phone: String(tgPhone || "").trim(),
+          }),
+        }).then(function () {
+          setTgSession("");
+          setActionStatus("✓ Сессия Telegram сохранена");
+          return tgSyncAfterAuth();
         });
       });
     }
@@ -2903,6 +2937,34 @@
                             onClick: tgLogin,
                           },
                           tgBusy ? "Отправляем код…" : "Получить код",
+                        ),
+                        h(
+                          "p",
+                          { className: "ms-muted" },
+                          "Если код не приходит (~20с): Selectel IP часто не достучится до Telegram. TELEGRAM_PROXY=socks5://… или StringSession ниже.",
+                        ),
+                        h(
+                          "label",
+                          null,
+                          "StringSession (обход блокировки)",
+                          h("input", {
+                            type: "password",
+                            value: tgSession,
+                            placeholder: "1BVtsOHwBu…",
+                            onChange: function (e) {
+                              setTgSession(e.target.value);
+                            },
+                          }),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "ms-btn",
+                            disabled: tgBusy || !String(tgSession || "").trim(),
+                            onClick: tgSaveSession,
+                          },
+                          "Сохранить сессию",
                         ),
                       )
                     : null,

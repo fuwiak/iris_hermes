@@ -744,6 +744,13 @@ class TelegramUserPasswordBody(BaseModel):
     password: str = ""
 
 
+class TelegramUserSessionBody(BaseModel):
+    """Paste a Telethon StringSession when the VDS cannot reach Telegram DCs."""
+
+    session: str = ""
+    phone: str = ""
+
+
 class SellerSettingsBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
@@ -1765,6 +1772,15 @@ def post_telegram_user_password(body: TelegramUserPasswordBody) -> dict[str, Any
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
     return out
+
+
+@router.post("/campaigns/telegram-user/session")
+def post_telegram_user_session(body: TelegramUserSessionBody) -> dict[str, Any]:
+    """Import a Telethon StringSession (workaround when MTProto is blocked on VDS)."""
+    out = tg_user.save_session(session=body.session, phone=body.phone)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
+    return {**out, **telegram_user_status(probe=False)}
 
 
 @router.post("/campaigns/telegram-user/logout")

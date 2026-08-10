@@ -145,8 +145,12 @@ over MTProto (Telethon, lazy-installed as `platform.telegram_user`).
 * Connect in Рассылки → **Личный Telegram**: phone → code → 2FA.
   `api_id` / `api_hash` come from server `.env` (`TELEGRAM_API_ID` /
   `TELEGRAM_API_HASH`) and show masked in the UI; no need to type them.
-  Endpoints: `POST /campaigns/telegram-user/{credentials,login,code,password,logout}`,
+  Endpoints: `POST /campaigns/telegram-user/{credentials,login,code,password,session,logout}`,
   `GET /campaigns/telegram-user`.
+* **Selectel / RU IP:** Telegram MTProto DCs are often unreachable. Set
+  `TELEGRAM_PROXY=socks5://user:pass@host:1080` (same var as Bot API), or paste
+  a Telethon **StringSession** in the Connect form / `POST .../session`.
+  Login fails in ~20s with a clear error instead of hanging.
 * Session + credentials: `$HERMES_HOME/telegram_user/config.json` (0600).
   Env overrides: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
   `TELEGRAM_USER_SESSION`.

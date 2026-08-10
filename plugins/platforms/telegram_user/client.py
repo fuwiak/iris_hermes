@@ -39,11 +39,23 @@ _LOCK = threading.RLock()
 _CONTACTS_TTL = 900.0  # seconds — refresh window for the cached contact list
 _DIALOGS_LIMIT = 500  # private chats scanned on top of the saved address book
 _DEFAULT_TIMEOUT = 60.0
+# Login must fail fast: Selectel RU DCs often cannot open MTProto at all, and
+# Telethon's default 5× retries make the UI look hung for a full minute.
+_LOGIN_TIMEOUT = 22.0
+_CONNECT_TIMEOUT = 8.0
+_CONNECT_RETRIES = 2
 
 _PEER_ID_RE = re.compile(r"^-?\d{1,20}$")
 _TME_RE = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,64})",
     re.IGNORECASE,
+)
+_PHONE_DIGITS_RE = re.compile(r"\D+")
+
+_NETWORK_HINT = (
+    "Сервер не достучался до Telegram MTProto (типично для Selectel/RU IP). "
+    "Задайте TELEGRAM_PROXY=socks5://user:pass@host:1080 в .env "
+    "или вставьте StringSession (логин с машины, где Telegram открывается)."
 )
 
 
@@ -113,6 +125,63 @@ def session_string() -> str:
     return (os.getenv("TELEGRAM_USER_SESSION") or "").strip() or str(
         load_config().get("session") or ""
     ).strip()
+
+
+def normalize_login_phone(value: str) -> str:
+    """Normalize to ``+<digits>`` for Telethon ``send_code_request``."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("00"):
+        raw = "+" + raw[2:]
+    digits = _PHONE_DIGITS_RE.sub("", raw)
+    if not digits:
+        return ""
+    # RU national trunk ``8XXXXXXXXXX`` → ``7XXXXXXXXXX``.
+    if len(digits) == 11 and digits.startswith("8"):
+        digits = "7" + digits[1:]
+    return "+" + digits
+
+
+def _proxy_url() -> str:
+    try:
+        from gateway.platforms.base import resolve_proxy_url  # noqa: PLC0415
+    except Exception:
+        return (os.getenv("TELEGRAM_PROXY") or "").strip()
+    return (
+        resolve_proxy_url(
+            "TELEGRAM_PROXY",
+            target_hosts=["149.154.167.50", "149.154.167.91", "10.0.0.1"],
+        )
+        or ""
+    ).strip()
+
+
+def telethon_proxy_arg(url: str | None = None) -> Any | None:
+    """Build Telethon ``proxy=`` value from a URL, or None."""
+    raw = (url if url is not None else _proxy_url()).strip()
+    if not raw:
+        return None
+    from urllib.parse import unquote, urlparse  # noqa: PLC0415
+
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "").lower()
+    host = parsed.hostname or ""
+    port = parsed.port
+    if not host or not port:
+        return None
+    user = unquote(parsed.username) if parsed.username else None
+    password = unquote(parsed.password) if parsed.password else None
+    if scheme in ("socks5", "socks5h", "socks"):
+        ptype = "socks5"
+    elif scheme in ("socks4", "socks4a"):
+        ptype = "socks4"
+    elif scheme in ("http", "https"):
+        ptype = "http"
+    else:
+        return None
+    # (type, addr, port, rdns, username, password) — Telethon / python_socks.
+    return (ptype, host, int(port), True, user, password)
 
 
 def sanitize_api_id(value: str) -> str:
@@ -267,7 +336,11 @@ class _Runner:
     ) -> Any:
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(factory(), loop)
-        return future.result(timeout)
+        try:
+            return future.result(timeout)
+        except TimeoutError:
+            future.cancel()
+            raise
 
     def reset(self) -> None:
         """Drop the cached client (credentials or session changed)."""
@@ -279,7 +352,7 @@ class _Runner:
         if client is None:
             return
         try:
-            self.submit(lambda: _disconnect(client), timeout=15.0)
+            self.submit(lambda: _disconnect(client), timeout=8.0)
         except Exception:
             log.debug("telegram_user disconnect failed", exc_info=True)
 
@@ -304,12 +377,25 @@ class _Runner:
         if not api_id or not api_hash:
             raise RuntimeError("api_credentials_missing")
 
+        proxy = telethon_proxy_arg()
+        if proxy is not None:
+            # Ensure python-socks is present for SOCKS proxies.
+            try:
+                import python_socks  # noqa: F401,PLC0415
+            except ImportError:
+                _import_telethon(install=True)
+
         client = TelegramClient(
             StringSession(session_string() or None),
             int(api_id),
             api_hash,
             device_model="Hermes CRM",
             app_version="1.0",
+            proxy=proxy,
+            connection_retries=_CONNECT_RETRIES,
+            retry_delay=1,
+            timeout=_CONNECT_TIMEOUT,
+            auto_reconnect=False,
         )
         await client.connect()
         with self._lock:
@@ -370,11 +456,33 @@ def _call(
         return _RUNNER.submit(factory, timeout=timeout)
     except RuntimeError as exc:
         return _runtime_error(exc)
-    except asyncio.TimeoutError:
-        return _err("timeout", f"Telegram не ответил за {timeout:.0f}s")
+    except TimeoutError:
+        try:
+            _RUNNER.reset()
+        except Exception:
+            log.debug("telegram_user reset after timeout failed", exc_info=True)
+        return _err(
+            "timeout",
+            f"Telegram не ответил за {timeout:.0f}s. {_NETWORK_HINT}",
+            network_blocked=True,
+            proxy_configured=bool(_proxy_url()),
+        )
     except Exception as exc:  # pragma: no cover - network / telethon errors
         log.warning("telegram_user call failed: %s", exc)
-        return _err(exc.__class__.__name__, str(exc) or exc.__class__.__name__)
+        msg = str(exc) or exc.__class__.__name__
+        low = msg.lower()
+        if "timed out" in low or "timeout" in low or "connection" in low:
+            try:
+                _RUNNER.reset()
+            except Exception:
+                pass
+            return _err(
+                "network_unreachable",
+                f"{msg}. {_NETWORK_HINT}",
+                network_blocked=True,
+                proxy_configured=bool(_proxy_url()),
+            )
+        return _err(exc.__class__.__name__, msg)
 
 
 def _me_dict(me: Any) -> dict[str, Any]:
@@ -429,6 +537,7 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         "user": cfg.get("user") or None,
         "contacts_cached": len(cached_contacts()),
         "contacts_fetched_at": _read_json(_contacts_path()).get("fetched_at"),
+        "proxy_configured": bool(_proxy_url()),
     }
     if not probe or not out["api_configured"] or not out["session_saved"]:
         return out
@@ -494,7 +603,7 @@ def start_login(
     api_hash: str = "",
 ) -> dict[str, Any]:
     """Send the Telegram login code to ``phone`` (Telethon MTProto)."""
-    phone = str(phone or "").strip()
+    phone = normalize_login_phone(phone)
     # Login is non-strict: ignore masked / leftover UI junk; use server .env.
     cleaned_id = sanitize_api_id(api_id)
     cleaned_hash = sanitize_api_hash(api_hash)
@@ -512,26 +621,103 @@ def start_login(
             "или введите их один раз в форме",
         )
 
+    # Drop a half-open client left by a previous timed-out attempt.
+    _RUNNER.reset()
+
     async def _start() -> dict[str, Any]:
+        from telethon.errors import (  # noqa: PLC0415
+            ApiIdInvalidError,
+            FloodWaitError,
+            PhoneNumberBannedError,
+            PhoneNumberFloodError,
+            PhoneNumberInvalidError,
+        )
+
         client = await _RUNNER.client()
         if await client.is_user_authorized():
             me = await client.get_me()
             return {"ok": True, "authorized": True, "user": _me_dict(me)}
-        sent = await client.send_code_request(phone)
+        try:
+            sent = await client.send_code_request(phone)
+        except FloodWaitError as exc:
+            wait = int(getattr(exc, "seconds", 0) or 0)
+            return _err(
+                "flood_wait",
+                f"Telegram просит подождать {wait}s перед новым кодом",
+                wait_seconds=wait,
+            )
+        except PhoneNumberInvalidError:
+            return _err("phone_invalid", "Неверный номер — формат +79991234567")
+        except PhoneNumberBannedError:
+            return _err("phone_banned", "Этот номер заблокирован в Telegram")
+        except PhoneNumberFloodError:
+            return _err(
+                "phone_flood",
+                "Слишком много попыток входа для этого номера — подождите",
+            )
+        except ApiIdInvalidError:
+            return _err(
+                "api_id_invalid",
+                "Неверный api_id/api_hash — проверьте TELEGRAM_API_* / my.telegram.org",
+            )
         return {
             "ok": True,
             "authorized": False,
             "code_sent": True,
             "phone_code_hash": getattr(sent, "phone_code_hash", ""),
+            "proxy_configured": bool(_proxy_url()),
         }
 
-    res = _call(_start, timeout=60.0)
+    res = _call(_start, timeout=_LOGIN_TIMEOUT)
     if res.get("ok") and not res.get("authorized"):
         _RUNNER.phone = phone
         _RUNNER.phone_code_hash = str(res.pop("phone_code_hash", "") or "")
         with _LOCK:
             cfg = load_config()
             cfg["phone"] = phone
+            _save_config(cfg)
+    return res
+
+
+def save_session(
+    *,
+    session: str,
+    phone: str = "",
+) -> dict[str, Any]:
+    """Persist a Telethon StringSession (bypass phone code when MTProto is blocked)."""
+    raw = str(session or "").strip()
+    if len(raw) < 30:
+        return _err(
+            "session_missing",
+            "Вставьте StringSession (строка от Telethon, обычно >30 символов)",
+        )
+    phone_norm = normalize_login_phone(phone) if phone else ""
+    with _LOCK:
+        cfg = load_config()
+        cfg["session"] = raw
+        if phone_norm:
+            cfg["phone"] = phone_norm
+        _save_config(cfg)
+    _RUNNER.reset()
+    _invalidate_auth_cache()
+
+    async def _probe() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err(
+                "session_unauthorized",
+                "Сессия сохранена, но Telegram не авторизовал её — "
+                "получите новый StringSession",
+            )
+        me = await client.get_me()
+        _RUNNER.persist_session(client)
+        return {"ok": True, "authorized": True, "user": _me_dict(me)}
+
+    res = _call(_probe, timeout=_LOGIN_TIMEOUT)
+    if res.get("authorized"):
+        with _LOCK:
+            cfg = load_config()
+            cfg["user"] = res.get("user") or {}
             _save_config(cfg)
     return res
 

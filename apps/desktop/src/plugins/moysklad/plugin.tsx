@@ -2851,6 +2851,7 @@ function CampaignsPage() {
   const [tgApiHash, setTgApiHash] = useState('')
   const [tgCode, setTgCode] = useState('')
   const [tgPassword, setTgPassword] = useState('')
+  const [tgSession, setTgSession] = useState('')
 
   const runTgBusy = async (title: string, detail: string, work: () => Promise<void>) => {
     setTgBusy(true)
@@ -3182,7 +3183,7 @@ function CampaignsPage() {
         if (hash) {body.api_hash = hash}
         const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
           '/campaigns/telegram-user/login',
-          { method: 'POST', body }
+          { method: 'POST', body, timeoutMs: 35_000 }
         )
         if (data.authorized) {
           setActionStatus('✓ Личный Telegram уже подключён')
@@ -3202,7 +3203,7 @@ function CampaignsPage() {
     await runTgBusy('Telethon: код', 'Проверяем код из Telegram…', async () => {
       const data = await call<{ authorized?: boolean; password_required?: boolean }>(
         '/campaigns/telegram-user/code',
-        { method: 'POST', body: { code: tgCode.trim() } }
+        { method: 'POST', body: { code: tgCode.trim() }, timeoutMs: 35_000 }
       )
       setTgCode('')
       if (data.password_required) {
@@ -3223,13 +3224,34 @@ function CampaignsPage() {
     await runTgBusy('Telethon: 2FA', 'Проверяем облачный пароль…', async () => {
       await call('/campaigns/telegram-user/password', {
         method: 'POST',
-        body: { password: tgPassword }
+        body: { password: tgPassword },
+        timeoutMs: 35_000
       })
       setTgPassword('')
       setTgStep('phone')
       setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
       await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
       setActionStatus('✓ Личный Telegram подключён — контакты синхронизированы')
+      await refreshTgUser()
+      await loadOutreachContacts()
+    })
+  }
+
+  const tgSaveSession = async () => {
+    if (!tgSession.trim()) {
+      setError('Вставьте StringSession (логин Telethon с машины, где открывается Telegram)')
+      return
+    }
+    await runTgBusy('Telethon: сессия', 'Сохраняем StringSession на сервер…', async () => {
+      await call('/campaigns/telegram-user/session', {
+        method: 'POST',
+        body: { session: tgSession.trim(), phone: tgPhone.trim() },
+        timeoutMs: 35_000
+      })
+      setTgSession('')
+      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
+      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
+      setActionStatus('✓ Сессия Telegram сохранена — контакты синхронизированы')
       await refreshTgUser()
       await loadOutreachContacts()
     })
@@ -5206,6 +5228,30 @@ function CampaignsPage() {
                         type="button"
                       >
                         {tgBusy ? 'Отправляем код…' : 'Получить код'}
+                      </button>
+                    </div>
+                    <p className="ms-muted">
+                      Если код не приходит (~20с): с Selectel IP Telegram часто
+                      недоступен. Задайте TELEGRAM_PROXY=socks5://… в .env или
+                      вставьте StringSession ниже.
+                    </p>
+                    <label>
+                      StringSession (обход блокировки)
+                      <input
+                        onChange={e => setTgSession(e.target.value)}
+                        placeholder="1BVtsOHwBu…"
+                        type="password"
+                        value={tgSession}
+                      />
+                    </label>
+                    <div className="ms-compose-actions">
+                      <button
+                        className="ms-btn"
+                        disabled={tgBusy || !tgSession.trim()}
+                        onClick={() => void tgSaveSession()}
+                        type="button"
+                      >
+                        Сохранить сессию
                       </button>
                     </div>
                   </>

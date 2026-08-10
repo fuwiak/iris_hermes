@@ -207,7 +207,12 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # Personal-account (MTProto) Telegram session — contacts + send-as-me for
     # CRM outreach. Bot API can neither list contacts nor message someone who
     # never wrote the bot, so Рассылки needs a user session for that path.
-    "platform.telegram_user": ("telethon==1.44.0",),
+    "platform.telegram_user": (
+        "telethon==1.44.0",
+        # SOCKS/HTTP proxy for MTProto when the host IP cannot reach Telegram DCs
+        # (Selectel RU). Telethon imports python_socks only when proxy= is set.
+        "python-socks[asyncio]==2.8.1",
+    ),
     # brotlicffi gives aiohttp a working 2-arg Decompressor.process() for
     # Discord CDN's Brotli-encoded attachments. Without it, aiohttp falls
     # back to google's `Brotli` package (1-arg API), and any .txt/.md/.doc
