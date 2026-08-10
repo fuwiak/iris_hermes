@@ -52,6 +52,29 @@ def test_env_credentials_beat_stored(tmp_path, monkeypatch):
     assert tu.api_credentials() == ("999", "env")
 
 
+def test_status_masks_env_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_API_ID", "29924508")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "abcdef0123456789abcdef0123456789")
+    status = tu.user_status(probe=False)
+    assert status["api_configured"] is True
+    assert status["api_source"] == "env"
+    assert status["api_id_masked"].startswith("29")
+    assert "9" not in status["api_id_masked"][2:]  # digits after prefix masked
+    assert "•" in status["api_id_masked"]
+    assert status["api_hash_masked"]
+    assert "abcdef" not in status["api_hash_masked"]
+    assert set(status["api_hash_masked"]) <= {"•"}
+
+
+def test_mask_secret_helpers():
+    assert tu.mask_secret("") == ""
+    assert tu.mask_secret("ab", keep=2) == "••"
+    assert tu.mask_secret("abcd", keep=2).startswith("ab")
+    assert "c" not in tu.mask_secret("abcd", keep=2)[2:]
+    assert set(tu.mask_secret("secret", keep=0)) == {"•"}
+
+
 def test_login_without_phone(tmp_path, monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

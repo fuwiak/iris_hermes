@@ -364,7 +364,11 @@ def mask_secret(value: str, *, keep: int = 2) -> str:
     if not raw:
         return ""
     keep_n = max(0, min(int(keep), len(raw)))
-    bullets = "•" * min(16, max(4, len(raw) - keep_n))
+    rest = len(raw) - keep_n
+    if rest <= 0:
+        # Entire value fits in the keep window — still obscure it.
+        return "•" * len(raw)
+    bullets = "•" * min(16, max(4, rest))
     return raw[:keep_n] + bullets
 
 

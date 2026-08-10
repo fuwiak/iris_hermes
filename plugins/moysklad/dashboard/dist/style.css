@@ -909,3 +909,28 @@ td.ms-ai-added {
   color: #e9d5ff;
   background: color-mix(in srgb, #c084fc 28%, transparent);
 }
+
+.ms-tg-account {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid color-mix(in srgb, #6b2d7a 70%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, #2f1236 80%, transparent);
+}
+.ms-tg-account-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+.ms-tg-account-status {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.ms-add-contact {
+  display: grid;
+  gap: 0.45rem;
+}

@@ -100,6 +100,8 @@ Secrets:
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN` (optional; Business bot for Рассылки)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME` (optional)
 - `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (optional)
+- `SELECTEL_IRIS_TELEGRAM_API_ID` (optional; personal MTProto — UI masks these)
+- `SELECTEL_IRIS_TELEGRAM_API_HASH` (optional; from my.telegram.org)
 
 Manual on VDS:
 

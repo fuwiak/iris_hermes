@@ -1635,6 +1635,199 @@
     const [sellerLoaded, setSellerLoaded] = useState(false);
     const [contactsOpen, setContactsOpen] = useState(true);
     const [prefillReady, setPrefillReady] = useState(false);
+    const [tgUser, setTgUser] = useState(null);
+    const [tgOpen, setTgOpen] = useState(false);
+    const [tgStep, setTgStep] = useState("phone");
+    const [tgBusy, setTgBusy] = useState(false);
+    const [tgPhone, setTgPhone] = useState("");
+    const [tgCode, setTgCode] = useState("");
+    const [tgPassword, setTgPassword] = useState("");
+    const [tgCredOverride, setTgCredOverride] = useState(false);
+    const [tgApiId, setTgApiId] = useState("");
+    const [tgApiHash, setTgApiHash] = useState("");
+
+    function refreshTgUser(probe) {
+      return api("/campaigns/telegram-user?probe=" + (probe ? "true" : "false"))
+        .then(function (data) {
+          setTgUser(data || null);
+          if (data && data.phone && !tgPhone) setTgPhone(data.phone);
+          if (data && data.authorized) setTgStep("phone");
+          return data;
+        })
+        .catch(function () {
+          return null;
+        });
+    }
+
+    useEffect(function () {
+      refreshTgUser(false);
+    }, []);
+
+    function tgLogin() {
+      if (!String(tgPhone || "").trim()) {
+        setError("Укажите номер телефона в формате +79991234567");
+        return;
+      }
+      if (
+        !(tgUser && tgUser.api_configured) &&
+        !String(tgApiId || "").trim() &&
+        !String(tgApiHash || "").trim()
+      ) {
+        setError(
+          "Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env",
+        );
+        return;
+      }
+      setTgBusy(true);
+      setError("");
+      var body = { phone: String(tgPhone || "").trim() };
+      if (String(tgApiId || "").trim()) body.api_id = String(tgApiId).trim();
+      if (String(tgApiHash || "").trim()) body.api_hash = String(tgApiHash).trim();
+      api("/campaigns/telegram-user/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then(function (data) {
+          if (data && data.authorized) {
+            setActionStatus("✓ Личный Telegram уже подключён");
+            return refreshTgUser(true);
+          }
+          setTgStep("code");
+          setActionStatus("Код отправлен в Telegram — введите его ниже");
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgSubmitCode() {
+      setTgBusy(true);
+      setError("");
+      api("/campaigns/telegram-user/code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: String(tgCode || "").trim() }),
+      })
+        .then(function (data) {
+          setTgCode("");
+          if (data && data.password_required) {
+            setTgStep("password");
+            setActionStatus("Нужен облачный пароль (2FA)");
+            return;
+          }
+          setTgStep("phone");
+          setActionStatus("✓ Личный Telegram подключён");
+          return refreshTgUser(true);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgSubmitPassword() {
+      setTgBusy(true);
+      setError("");
+      api("/campaigns/telegram-user/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: String(tgPassword || "") }),
+      })
+        .then(function () {
+          setTgPassword("");
+          setTgStep("phone");
+          setActionStatus("✓ Личный Telegram подключён");
+          return refreshTgUser(true);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgLogout() {
+      setTgBusy(true);
+      api("/campaigns/telegram-user/logout", { method: "POST" })
+        .then(function () {
+          setActionStatus("Личный Telegram отключён");
+          return refreshTgUser(false);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgSyncContacts() {
+      setTgBusy(true);
+      api("/campaigns/telegram-user/contacts/refresh", { method: "POST" })
+        .then(function (data) {
+          setActionStatus(
+            "✓ Контакты: " + ((data && (data.total || data.contacts_cached)) || 0),
+          );
+          return refreshTgUser(false);
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgInstallRuntime() {
+      setTgBusy(true);
+      api("/campaigns/telegram-user/install", { method: "POST" })
+        .then(function (data) {
+          setTgUser(data || null);
+          setActionStatus("✓ telethon установлен");
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
+
+    function tgSaveCredentials() {
+      if (!String(tgApiId || "").trim() && !String(tgApiHash || "").trim()) {
+        setError("Заполните api_id и api_hash с my.telegram.org");
+        return;
+      }
+      setTgBusy(true);
+      api("/campaigns/telegram-user/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_id: String(tgApiId || "").trim(),
+          api_hash: String(tgApiHash || "").trim(),
+        }),
+      })
+        .then(function (data) {
+          setTgUser(data || null);
+          setTgApiId("");
+          setTgApiHash("");
+          setTgCredOverride(false);
+          setActionStatus("✓ api_id / api_hash сохранены");
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+        });
+    }
 
     useEffect(function () {
       var cid = null;
@@ -2445,6 +2638,280 @@
         h(
           "form",
           { className: "ms-campaign-form", onSubmit: createDraft },
+          h(
+            "div",
+            { className: "ms-tg-account" },
+            h(
+              "div",
+              { className: "ms-tg-account-head" },
+              h("strong", null, "Личный Telegram (мои контакты)"),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "ms-link-btn",
+                  disabled: tgBusy,
+                  onClick: function () {
+                    refreshTgUser(true);
+                  },
+                },
+                "Проверить",
+              ),
+            ),
+            h(
+              "p",
+              { className: "ms-muted ms-tg-account-status" },
+              tgUser && tgUser.available === false
+                ? h(
+                    "span",
+                    null,
+                    "⚠ Нет MTProto-движка (telethon). ",
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "ms-link-btn",
+                        disabled: tgBusy,
+                        onClick: tgInstallRuntime,
+                      },
+                      tgBusy ? "Ставим…" : "Установить telethon",
+                    ),
+                  )
+                : null,
+              tgUser && tgUser.authorized
+                ? "✓ Подключён " +
+                    ((tgUser.user && (tgUser.user.username
+                      ? "@" + tgUser.user.username
+                      : tgUser.user.name)) ||
+                      tgUser.phone ||
+                      "аккаунт") +
+                    " · контактов: " +
+                    (tgUser.contacts_cached || 0)
+                : tgUser && tgUser.session_saved
+                  ? "Сессия сохранена, но не авторизована — войдите заново"
+                  : "Не подключён — Bot API не видит ваш список контактов и не пишет первым",
+              tgUser && tgUser.api_source === "env" ? " · api_id/api_hash из .env" : "",
+            ),
+            h(
+              "div",
+              { className: "ms-compose-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "ms-btn",
+                  onClick: function () {
+                    setTgOpen(!tgOpen);
+                  },
+                },
+                tgOpen
+                  ? "Скрыть"
+                  : tgUser && tgUser.authorized
+                    ? "Настройки входа"
+                    : "Подключить аккаунт",
+              ),
+              tgUser && tgUser.authorized
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-link-btn",
+                      disabled: tgBusy,
+                      onClick: tgSyncContacts,
+                    },
+                    tgBusy ? "Синхронизируем…" : "Синхронизировать контакты",
+                  )
+                : null,
+              tgUser && tgUser.authorized
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-link-btn",
+                      disabled: tgBusy,
+                      onClick: tgLogout,
+                    },
+                    "Выйти",
+                  )
+                : null,
+            ),
+            tgOpen
+              ? h(
+                  "div",
+                  { className: "ms-add-contact" },
+                  tgStep === "phone"
+                    ? h(
+                        "div",
+                        { className: "ms-add-contact" },
+                        h(
+                          "label",
+                          null,
+                          "Телефон аккаунта",
+                          h("input", {
+                            value: tgPhone,
+                            placeholder: "+79991234567",
+                            onChange: function (e) {
+                              setTgPhone(e.target.value);
+                            },
+                          }),
+                        ),
+                        tgUser && tgUser.api_configured && !tgCredOverride
+                          ? h(
+                              "div",
+                              { className: "ms-add-contact" },
+                              h(
+                                "label",
+                                null,
+                                "api_id",
+                                h("input", {
+                                  readOnly: true,
+                                  value: tgUser.api_id_masked || "••••••••",
+                                }),
+                              ),
+                              h(
+                                "label",
+                                null,
+                                "api_hash",
+                                h("input", {
+                                  readOnly: true,
+                                  type: "password",
+                                  value: tgUser.api_hash_masked || "••••••••••••••••",
+                                }),
+                              ),
+                              h(
+                                "p",
+                                { className: "ms-muted" },
+                                "Ключи уже на сервере — достаточно телефона и кода. ",
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "ms-link-btn",
+                                    onClick: function () {
+                                      setTgCredOverride(true);
+                                    },
+                                  },
+                                  "Заменить ключи",
+                                ),
+                              ),
+                            )
+                          : h(
+                              "div",
+                              { className: "ms-add-contact" },
+                              h(
+                                "label",
+                                null,
+                                "api_id (my.telegram.org)",
+                                h("input", {
+                                  value: tgApiId,
+                                  placeholder: "29924508",
+                                  onChange: function (e) {
+                                    setTgApiId(e.target.value);
+                                  },
+                                }),
+                              ),
+                              h(
+                                "label",
+                                null,
+                                "api_hash",
+                                h("input", {
+                                  type: "password",
+                                  value: tgApiHash,
+                                  placeholder: "abc123…",
+                                  onChange: function (e) {
+                                    setTgApiHash(e.target.value);
+                                  },
+                                }),
+                              ),
+                              h(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "ms-btn",
+                                  disabled: tgBusy,
+                                  onClick: tgSaveCredentials,
+                                },
+                                "Сохранить api_id / api_hash",
+                              ),
+                            ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "ms-btn ms-btn-primary",
+                            disabled: tgBusy,
+                            onClick: tgLogin,
+                          },
+                          tgBusy ? "Отправляем код…" : "Получить код",
+                        ),
+                      )
+                    : null,
+                  tgStep === "code"
+                    ? h(
+                        "div",
+                        { className: "ms-add-contact" },
+                        h(
+                          "label",
+                          null,
+                          "Код из Telegram",
+                          h("input", {
+                            value: tgCode,
+                            placeholder: "12345",
+                            onChange: function (e) {
+                              setTgCode(e.target.value);
+                            },
+                          }),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "ms-btn ms-btn-primary",
+                            disabled: tgBusy,
+                            onClick: tgSubmitCode,
+                          },
+                          tgBusy ? "Проверяем…" : "Войти",
+                        ),
+                      )
+                    : null,
+                  tgStep === "password"
+                    ? h(
+                        "div",
+                        { className: "ms-add-contact" },
+                        h(
+                          "label",
+                          null,
+                          "Облачный пароль (2FA)",
+                          h("input", {
+                            type: "password",
+                            value: tgPassword,
+                            onChange: function (e) {
+                              setTgPassword(e.target.value);
+                            },
+                          }),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "ms-btn ms-btn-primary",
+                            disabled: tgBusy,
+                            onClick: tgSubmitPassword,
+                          },
+                          tgBusy ? "Проверяем…" : "Подтвердить",
+                        ),
+                      )
+                    : null,
+                  h(
+                    "p",
+                    { className: "ms-muted" },
+                    tgUser && tgUser.api_configured
+                      ? "Сессия на сервере; код и пароль не сохраняются."
+                      : "Задайте TELEGRAM_API_ID / TELEGRAM_API_HASH в .env сервера.",
+                  ),
+                )
+              : null,
+          ),
           h(
             "label",
             null,
