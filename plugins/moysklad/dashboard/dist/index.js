@@ -1733,16 +1733,59 @@
       refreshTgUser(false);
     }, []);
 
+    // Contact sync runs server-side in the background; the UI only polls
+    // progress — no blocking modal, tab can be closed at any point.
+    function tgPollSync() {
+      var tries = 0;
+      function tick() {
+        api("/campaigns/telegram-user/contacts/sync")
+          .then(function (st) {
+            if (st && st.running) {
+              var phase =
+                st.phase === "address_book"
+                  ? "адресная книга"
+                  : st.phase === "dialogs"
+                    ? "чаты, просмотрено " + (st.scanned || 0)
+                    : "запуск";
+              setActionStatus(
+                "Синхронизация в фоне: контактов " +
+                  (st.total || 0) +
+                  " · " +
+                  phase +
+                  "…",
+              );
+              if (++tries < 300) setTimeout(tick, 2000);
+              return;
+            }
+            if (st && st.phase === "error" && st.error) {
+              setError("Синхронизация контактов: " + st.error);
+            } else if (st) {
+              setActionStatus(
+                "✓ Контакты из Telegram: " +
+                  (st.total || 0) +
+                  " (адресная книга " +
+                  (st.from_address_book || 0) +
+                  ", чаты " +
+                  (st.from_dialogs || 0) +
+                  ")",
+              );
+            }
+            refreshTgUser(false);
+          })
+          .catch(function () {
+            if (++tries < 300) setTimeout(tick, 3000);
+          });
+      }
+      tick();
+    }
+
     function tgSyncAfterAuth() {
-      setTgProgress({
-        title: "Синхронизация контактов",
-        detail: "Тянем адресную книгу и диалоги…",
-      });
       return api("/campaigns/telegram-user/contacts/refresh", { method: "POST" })
         .catch(function () {
           return null;
         })
         .then(function () {
+          tgPollSync();
           return refreshTgUser(true);
         });
     }
@@ -1817,26 +1860,19 @@
     }
 
     function tgSyncContacts() {
-      runTgBusy(
-        "Синхронизация контактов",
-        "Telethon тянет адресную книгу и личные чаты…",
-        function () {
-          return api("/campaigns/telegram-user/contacts/refresh", {
-            method: "POST",
-          }).then(function (data) {
-            setActionStatus(
-              "✓ Контакты из Telegram: " +
-                ((data && data.total) || 0) +
-                " (адресная книга " +
-                ((data && data.from_address_book) || 0) +
-                ", чаты " +
-                ((data && data.from_dialogs) || 0) +
-                ")",
-            );
-            return refreshTgUser(false);
-          });
-        },
-      );
+      setError("");
+      api("/campaigns/telegram-user/contacts/refresh", { method: "POST" })
+        .then(function (st) {
+          setActionStatus(
+            st && st.started
+              ? "Синхронизация запущена в фоне — контакты подтягиваются…"
+              : "Синхронизация уже идёт в фоне…",
+          );
+          tgPollSync();
+        })
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        });
     }
 
     function tgInstallRuntime() {

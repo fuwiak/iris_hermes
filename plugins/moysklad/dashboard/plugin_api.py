@@ -1790,16 +1790,14 @@ def post_telegram_user_logout() -> dict[str, Any]:
 
 @router.post("/campaigns/telegram-user/contacts/refresh")
 def post_telegram_user_contacts_refresh() -> dict[str, Any]:
-    """Pull the personal contact list from Telegram into the local cache."""
-    out = tg_user.fetch_contacts(force=True)
-    if not out.get("ok"):
-        raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
-    return {
-        "ok": True,
-        "total": out.get("total", 0),
-        "from_address_book": out.get("from_address_book", 0),
-        "from_dialogs": out.get("from_dialogs", 0),
-    }
+    """Start a background contact sync; returns at once. Poll .../contacts/sync."""
+    return tg_user.start_contacts_sync(force=True)
+
+
+@router.get("/campaigns/telegram-user/contacts/sync")
+def get_telegram_user_contacts_sync() -> dict[str, Any]:
+    """Progress of the background contact sync (running/phase/total/error)."""
+    return tg_user.contacts_sync_status()
 
 
 @router.get("/campaigns/telegram-contacts")

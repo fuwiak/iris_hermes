@@ -158,6 +158,42 @@ def test_login_without_api_credentials(tmp_path, monkeypatch):
     assert out["error"] == "api_credentials_missing"
 
 
+def test_merge_contacts_incremental(tmp_path, monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    total = tu._merge_contacts(
+        [{"id": "1", "tg_chat_id": "1", "name": "Anna", "peer_source": "contact"}]
+    )
+    assert total == 1
+    total = tu._merge_contacts(
+        [
+            # A dialog row must not overwrite the saved contact's name.
+            {"id": "1", "tg_chat_id": "1", "name": "@anna", "peer_source": "dialog"},
+            {"id": "2", "tg_chat_id": "2", "name": "Boris", "peer_source": "dialog"},
+        ]
+    )
+    assert total == 2
+    by_id = {c["id"]: c for c in tu.cached_contacts()}
+    assert by_id["1"]["name"] == "Anna"
+    assert by_id["2"]["peer_source"] == "dialog"
+
+
+def test_start_contacts_sync_fresh_cache_short_circuits(tmp_path, monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    tu._merge_contacts(
+        [{"id": "1", "tg_chat_id": "1", "name": "Anna", "peer_source": "contact"}]
+    )
+    out = tu.start_contacts_sync(force=False)
+    assert out["ok"] is True
+    assert out["started"] is False
+    assert out["cached"] is True
+    assert out["total"] == 1
+    assert tu.contacts_sync_status()["running"] is False
+
+
 def test_is_authorized_false_without_session(tmp_path, monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

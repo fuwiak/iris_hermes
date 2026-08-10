@@ -3113,6 +3113,54 @@ function CampaignsPage() {
     // Probe once on mount; the panel's buttons re-probe on demand.
   }, [])
 
+  // Contact sync runs server-side in the background; the UI only polls
+  // progress — no blocking modal, the tab can be closed at any point.
+  const tgPollSync = useCallback(() => {
+    let tries = 0
+    const tick = async () => {
+      try {
+        const st = await call<{
+          running?: boolean
+          phase?: string
+          scanned?: number
+          total?: number
+          from_address_book?: number
+          from_dialogs?: number
+          error?: string
+        }>('/campaigns/telegram-user/contacts/sync')
+        if (st?.running) {
+          const phase =
+            st.phase === 'address_book'
+              ? 'адресная книга'
+              : st.phase === 'dialogs'
+                ? `чаты, просмотрено ${st.scanned ?? 0}`
+                : 'запуск'
+          setActionStatus(`Синхронизация в фоне: контактов ${st.total ?? 0} · ${phase}…`)
+          if (++tries < 300) {setTimeout(() => void tick(), 2000)}
+          return
+        }
+        if (st?.phase === 'error' && st.error) {
+          setError(`Синхронизация контактов: ${st.error}`)
+        } else if (st) {
+          setActionStatus(
+            `✓ Контакты из Telegram: ${st.total ?? 0}` +
+              ` (адресная книга ${st.from_address_book ?? 0}, чаты ${st.from_dialogs ?? 0})`
+          )
+        }
+        await refreshTgUser(false)
+        await loadOutreachContacts()
+      } catch {
+        if (++tries < 300) {setTimeout(() => void tick(), 3000)}
+      }
+    }
+    void tick()
+  }, [call, loadOutreachContacts, refreshTgUser])
+
+  const tgStartContactsSync = useCallback(async () => {
+    await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
+    tgPollSync()
+  }, [call, tgPollSync])
+
   const tgInstallRuntime = async () => {
     await runTgBusy('Установка Telethon', 'Ставим MTProto-движок в venv…', async () => {
       const data = await call<typeof tgUser & { version?: string }>(
@@ -3142,10 +3190,8 @@ function CampaignsPage() {
         )
         if (data.authorized) {
           setActionStatus('✓ Личный Telegram уже подключён')
-          setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
-          await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
           await refreshTgUser()
-          await loadOutreachContacts()
+          await tgStartContactsSync()
         } else {
           setTgStep('code')
           setActionStatus('Код отправлен в Telegram — введите его ниже')
@@ -3167,11 +3213,9 @@ function CampaignsPage() {
         return
       }
       setTgStep('phone')
-      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
-      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
-      setActionStatus('✓ Личный Telegram подключён — контакты синхронизированы')
+      setActionStatus('✓ Личный Telegram подключён — контакты тянутся в фоне')
       await refreshTgUser()
-      await loadOutreachContacts()
+      await tgStartContactsSync()
     })
   }
 
@@ -3184,11 +3228,9 @@ function CampaignsPage() {
       })
       setTgPassword('')
       setTgStep('phone')
-      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
-      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
-      setActionStatus('✓ Личный Telegram подключён — контакты синхронизированы')
+      setActionStatus('✓ Личный Telegram подключён — контакты тянутся в фоне')
       await refreshTgUser()
-      await loadOutreachContacts()
+      await tgStartContactsSync()
     })
   }
 
@@ -3204,28 +3246,28 @@ function CampaignsPage() {
         timeoutMs: 35_000
       })
       setTgSession('')
-      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
-      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
-      setActionStatus('✓ Сессия Telegram сохранена — контакты синхронизированы')
+      setActionStatus('✓ Сессия Telegram сохранена — контакты тянутся в фоне')
       await refreshTgUser()
-      await loadOutreachContacts()
+      await tgStartContactsSync()
     })
   }
 
   const tgSyncContacts = async () => {
-    await runTgBusy('Синхронизация контактов', 'Telethon тянет адресную книгу и личные чаты…', async () => {
-      const data = await call<{
-        total?: number
-        from_address_book?: number
-        from_dialogs?: number
-      }>('/campaigns/telegram-user/contacts/refresh', { method: 'POST' })
-      await loadOutreachContacts()
-      await refreshTgUser(false)
-      setActionStatus(
-        `✓ Контакты из Telegram: ${data.total ?? 0}` +
-          ` (адресная книга ${data.from_address_book ?? 0}, чаты ${data.from_dialogs ?? 0})`
+    setError('')
+    try {
+      const st = await call<{ started?: boolean }>(
+        '/campaigns/telegram-user/contacts/refresh',
+        { method: 'POST' }
       )
-    })
+      setActionStatus(
+        st?.started
+          ? 'Синхронизация запущена в фоне — контакты подтягиваются…'
+          : 'Синхронизация уже идёт в фоне…'
+      )
+      tgPollSync()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const tgLogout = async () => {

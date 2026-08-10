@@ -84,9 +84,9 @@ def telegram_account_contacts(*, refresh: bool = False) -> list[dict[str, Any]]:
         from plugins.platforms.telegram_user import client as tg_user
 
         if refresh:
-            res = tg_user.fetch_contacts(force=True)
-            if res.get("ok"):
-                return list(res.get("contacts") or [])
+            # Non-blocking: kick a background sync, serve whatever is cached —
+            # the picker updates on the next poll instead of hanging the request.
+            tg_user.start_contacts_sync(force=True)
         return tg_user.cached_contacts()
     except Exception:
         return []

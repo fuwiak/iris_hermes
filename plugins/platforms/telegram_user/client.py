@@ -823,9 +823,10 @@ def _persist_after_login(res: dict[str, Any]) -> None:
         _save_config(cfg)
     _RUNNER.phone_code_hash = ""
     _invalidate_auth_cache()
-    # First contact sync right after login so the picker is populated.
+    # First contact sync right after login — in the background, so the
+    # login response returns as soon as the session is saved.
     try:
-        fetch_contacts(force=True)
+        start_contacts_sync(force=True)
     except Exception:  # pragma: no cover - best effort
         log.debug("initial contact sync failed", exc_info=True)
 
@@ -856,6 +857,12 @@ def logout(*, forget_credentials: bool = False) -> dict[str, Any]:
             _contacts_path().unlink(missing_ok=True)
         except OSError:  # pragma: no cover
             log.debug("contacts cache unlink failed", exc_info=True)
+    redis_cli = _redis_client()
+    if redis_cli is not None:
+        try:
+            redis_cli.delete(_CONTACTS_REDIS_KEY)
+        except Exception:  # pragma: no cover - network
+            log.debug("contacts redis cleanup failed", exc_info=True)
     return {"ok": True, "logged_out": bool(res.get("ok"))}
 
 
@@ -880,12 +887,103 @@ def _contact_from_user(user: Any, *, source: str = "contact") -> Optional[dict[s
     }
 
 
+# Redis mirror: survives container redeploys where $HERMES_HOME is ephemeral,
+# so contacts are not re-downloaded from Telegram after every restart.
+_CONTACTS_REDIS_KEY = "hermes:telegram_user:contacts"
+_REDIS_TRIED = False
+
+
+def _redis_client() -> Any:
+    url = (os.getenv("REDIS_URL") or "").strip()
+    if not url:
+        return None
+    try:
+        import redis  # type: ignore[import-not-found]  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=2.0)
+        client.ping()
+        return client
+    except Exception as exc:
+        log.debug("telegram_user redis unavailable (%s); file cache only", exc)
+        return None
+
+
+def _mirror_contacts_to_redis(payload: dict[str, Any]) -> None:
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        client.set(_CONTACTS_REDIS_KEY, json.dumps(payload, ensure_ascii=False))
+    except Exception:  # pragma: no cover - network
+        log.debug("telegram_user redis mirror failed", exc_info=True)
+
+
+def _hydrate_contacts_from_redis() -> None:
+    """One-shot: empty file cache + Redis has a copy → restore the file."""
+    global _REDIS_TRIED
+    with _LOCK:
+        if _REDIS_TRIED:
+            return
+        _REDIS_TRIED = True
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        raw = client.get(_CONTACTS_REDIS_KEY)
+    except Exception:  # pragma: no cover - network
+        return
+    if not raw:
+        return
+    try:
+        payload = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return
+    if isinstance(payload, dict) and isinstance(payload.get("contacts"), list):
+        _write_json(_contacts_path(), payload)
+        log.info(
+            "telegram_user contacts restored from redis (%d)",
+            len(payload["contacts"]),
+        )
+
+
 def cached_contacts() -> list[dict[str, Any]]:
+    if not _contacts_path().is_file():
+        _hydrate_contacts_from_redis()
     raw = _read_json(_contacts_path())
     items = raw.get("contacts")
     if not isinstance(items, list):
         return []
     return [c for c in items if isinstance(c, dict) and c.get("tg_chat_id")]
+
+
+def _merge_contacts(new_items: list[dict[str, Any]]) -> int:
+    """Merge a batch into the cache and persist. Returns the new total.
+
+    Incremental writes keep the picker usable while a sync is still running
+    and never drop what a previous (possibly interrupted) sync fetched.
+    """
+    with _LOCK:
+        by_id = {c["id"]: c for c in cached_contacts()}
+        for c in new_items:
+            if not c:
+                continue
+            prev = by_id.get(c["id"])
+            # A saved contact carries the address-book name — don't let a
+            # bare dialog row overwrite it.
+            if (
+                prev
+                and prev.get("peer_source") == "contact"
+                and c.get("peer_source") == "dialog"
+            ):
+                continue
+            by_id[c["id"]] = c
+        contacts = sorted(by_id.values(), key=lambda c: (c.get("name") or "").lower())
+        payload = {"fetched_at": time.time(), "contacts": contacts}
+        _write_json(_contacts_path(), payload)
+    _mirror_contacts_to_redis(payload)
+    return len(contacts)
 
 
 def contacts_stale(ttl: float = _CONTACTS_TTL) -> bool:
@@ -959,10 +1057,9 @@ def fetch_contacts(
             dialog_only += 1
 
     contacts = sorted(by_id.values(), key=lambda c: (c.get("name") or "").lower())
-    _write_json(
-        _contacts_path(),
-        {"fetched_at": time.time(), "contacts": contacts},
-    )
+    payload = {"fetched_at": time.time(), "contacts": contacts}
+    _write_json(_contacts_path(), payload)
+    _mirror_contacts_to_redis(payload)
     return {
         "ok": True,
         "contacts": contacts,
@@ -971,6 +1068,140 @@ def fetch_contacts(
         "from_dialogs": dialog_only,
         "cached": False,
     }
+
+
+# ── background incremental sync ───────────────────────────────────────────
+
+_SYNC_BATCH = 25  # dialogs merged & persisted per chunk — picker fills live
+_SYNC_STATE: dict[str, Any] = {
+    "running": False,
+    "phase": "",  # starting | address_book | dialogs | done | error
+    "scanned": 0,
+    "total": 0,
+    "from_address_book": 0,
+    "from_dialogs": 0,
+    "started_at": 0.0,
+    "finished_at": 0.0,
+    "error": "",
+}
+
+
+def _set_sync(**fields: Any) -> None:
+    with _LOCK:
+        _SYNC_STATE.update(fields)
+
+
+def contacts_sync_status() -> dict[str, Any]:
+    with _LOCK:
+        out = dict(_SYNC_STATE)
+    out["ok"] = True
+    out["total"] = len(cached_contacts())
+    return out
+
+
+def _sync_worker(dialogs_limit: int) -> None:
+    async def _run() -> dict[str, Any]:
+        from telethon import functions  # noqa: PLC0415
+        from telethon.tl.types import User  # noqa: PLC0415
+
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+
+        # Address book first: one fast request, picker becomes useful at once.
+        _set_sync(phase="address_book")
+        try:
+            result = await client(functions.contacts.GetContactsRequest(hash=0))
+            book = [
+                norm
+                for norm in (
+                    _contact_from_user(u, source="contact")
+                    for u in getattr(result, "users", []) or []
+                )
+                if norm
+            ]
+            total = _merge_contacts(book)
+            _set_sync(total=total, from_address_book=len(book))
+        except Exception as exc:  # pragma: no cover - network
+            log.warning("GetContacts failed: %s", exc)
+
+        # Private dialogs stream in batches; each batch lands in the cache.
+        _set_sync(phase="dialogs")
+        batch: list[dict[str, Any]] = []
+        scanned = 0
+        dialog_rows = 0
+        try:
+            async for dialog in client.iter_dialogs(limit=dialogs_limit):
+                scanned += 1
+                entity = getattr(dialog, "entity", None)
+                if isinstance(entity, User):
+                    norm = _contact_from_user(entity, source="dialog")
+                    if norm:
+                        batch.append(norm)
+                if len(batch) >= _SYNC_BATCH:
+                    total = _merge_contacts(batch)
+                    dialog_rows += len(batch)
+                    batch = []
+                    _set_sync(total=total, scanned=scanned, from_dialogs=dialog_rows)
+                elif scanned % 50 == 0:
+                    _set_sync(scanned=scanned)
+        except Exception as exc:  # pragma: no cover - network
+            log.warning("iter_dialogs failed: %s", exc)
+        if batch:
+            total = _merge_contacts(batch)
+            dialog_rows += len(batch)
+            _set_sync(total=total, from_dialogs=dialog_rows)
+        _set_sync(scanned=scanned)
+        _RUNNER.persist_session(client)
+        return {"ok": True}
+
+    try:
+        res = _call(_run, timeout=600.0)
+    except Exception as exc:  # pragma: no cover - defensive
+        res = _err("sync_failed", str(exc))
+    _set_sync(
+        running=False,
+        finished_at=time.time(),
+        phase="done" if res.get("ok") else "error",
+        error="" if res.get("ok") else str(res.get("detail") or res.get("error") or ""),
+    )
+
+
+def start_contacts_sync(
+    *,
+    force: bool = False,
+    ttl: float = _CONTACTS_TTL,
+    dialogs_limit: int = _DIALOGS_LIMIT,
+) -> dict[str, Any]:
+    """Kick off a background contact sync and return immediately.
+
+    The HTTP layer never blocks on Telegram: callers poll
+    ``contacts_sync_status()`` while the daemon thread merges batches into
+    the cache (file + Redis mirror).
+    """
+    if not force and not contacts_stale(ttl):
+        return {**contacts_sync_status(), "started": False, "cached": True}
+    with _LOCK:
+        if _SYNC_STATE["running"]:
+            return {**contacts_sync_status(), "started": False, "running": True}
+        _SYNC_STATE.update(
+            running=True,
+            phase="starting",
+            scanned=0,
+            from_address_book=0,
+            from_dialogs=0,
+            started_at=time.time(),
+            finished_at=0.0,
+            error="",
+        )
+        thread = threading.Thread(
+            target=_sync_worker,
+            args=(dialogs_limit,),
+            name="tg-user-contacts-sync",
+            daemon=True,
+        )
+        thread.start()
+    return {**contacts_sync_status(), "started": True, "running": True}
 
 
 def find_cached_contact(
