@@ -11,9 +11,13 @@ import json
 import plugins.platforms.telegram_user.client as tu
 
 
-def _clear_env(monkeypatch):
+def _clear_env(monkeypatch, *, builtin: bool = False):
     for key in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_USER_SESSION"):
         monkeypatch.delenv(key, raising=False)
+    if builtin:
+        monkeypatch.delenv("TELEGRAM_BUILTIN_API", raising=False)
+    else:
+        monkeypatch.setenv("TELEGRAM_BUILTIN_API", "0")
 
 
 def test_status_without_credentials(tmp_path, monkeypatch):
@@ -24,6 +28,29 @@ def test_status_without_credentials(tmp_path, monkeypatch):
     assert status["api_configured"] is False
     assert status["session_saved"] is False
     assert status["authorized"] is False
+
+
+def test_builtin_credentials_fallback(tmp_path, monkeypatch):
+    """No env, no config → built-in app keys so login needs only the phone."""
+    _clear_env(monkeypatch, builtin=True)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    api_id, api_hash = tu.api_credentials()
+    assert api_id.isdigit() and api_hash
+    assert tu.own_api_credentials() == ("", "")
+    status = tu.user_status(probe=False)
+    assert status["api_configured"] is True
+    assert status["api_source"] == "builtin"
+    # Builtin keys are not the operator's — nothing to preview in the form.
+    assert status["api_id_masked"] == ""
+    assert status["api_hash_masked"] == ""
+
+
+def test_own_credentials_beat_builtin(tmp_path, monkeypatch):
+    _clear_env(monkeypatch, builtin=True)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    tu.save_credentials(api_id="123456", api_hash="deadbeefcafebabe")
+    assert tu.api_credentials() == ("123456", "deadbeefcafebabe")
+    assert tu.user_status(probe=False)["api_source"] == "config"
 
 
 def test_save_credentials_rejects_non_numeric_api_id(tmp_path, monkeypatch):

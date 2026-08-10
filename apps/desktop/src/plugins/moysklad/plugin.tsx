@@ -2841,14 +2841,11 @@ function CampaignsPage() {
     error?: string
     send_mode?: string
   } | null>(null)
-  const [tgCredOverride, setTgCredOverride] = useState(false)
   const [tgOpen, setTgOpen] = useState(false)
   const [tgStep, setTgStep] = useState<'phone' | 'code' | 'password'>('phone')
   const [tgBusy, setTgBusy] = useState(false)
   const [tgProgress, setTgProgress] = useState<{ title: string; detail: string } | null>(null)
   const [tgPhone, setTgPhone] = useState('')
-  const [tgApiId, setTgApiId] = useState('')
-  const [tgApiHash, setTgApiHash] = useState('')
   const [tgCode, setTgCode] = useState('')
   const [tgPassword, setTgPassword] = useState('')
   const [tgSession, setTgSession] = useState('')
@@ -2867,17 +2864,6 @@ function CampaignsPage() {
     }
   }
 
-  const cleanTgApiId = (raw: string) => {
-    const v = raw.trim()
-    if (!v || /[•*…]/.test(v) || !/^\d+$/.test(v)) {return ''}
-    return v
-  }
-  const cleanTgApiHash = (raw: string) => {
-    const v = raw.trim()
-    if (!v || /[•*…]/.test(v)) {return ''}
-    if (['admin', 'password', 'hash', 'api_hash'].includes(v.toLowerCase())) {return ''}
-    return v
-  }
   const [outreachContacts, setOutreachContacts] = useState<
     Array<{
       id: string
@@ -3138,49 +3124,18 @@ function CampaignsPage() {
     })
   }
 
-  const tgSaveCredentials = async () => {
-    const id = cleanTgApiId(tgApiId)
-    const hash = cleanTgApiHash(tgApiHash)
-    if (!id && !hash) {
-      setError('Заполните api_id (число) и api_hash с my.telegram.org')
-      return
-    }
-    await runTgBusy('Сохраняю ключи', 'Пишем api_id / api_hash на сервер…', async () => {
-      const data = await call<typeof tgUser>('/campaigns/telegram-user/credentials', {
-        method: 'POST',
-        body: { api_id: id, api_hash: hash }
-      })
-      setTgUser(data)
-      setTgApiId('')
-      setTgApiHash('')
-      setTgCredOverride(false)
-      setActionStatus('✓ api_id / api_hash сохранены')
-    })
-  }
-
   const tgLogin = async () => {
     if (!tgPhone.trim()) {
       setError('Укажите номер телефона в формате +79991234567')
-      return
-    }
-    // Only send credentials when the user is explicitly editing them — never
-    // residual state like "admin" left over from before the masked UI.
-    const allowCreds = tgCredOverride || !tgUser?.api_configured
-    const id = allowCreds ? cleanTgApiId(tgApiId) : ''
-    const hash = allowCreds ? cleanTgApiHash(tgApiHash) : ''
-    if (!tgUser?.api_configured && !id && !hash) {
-      setError('Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env или введите числовой api_id')
       return
     }
     await runTgBusy(
       'Telethon: вход',
       `Отправляем код на ${tgPhone.trim()}…`,
       async () => {
-        const body: { phone: string; api_id?: string; api_hash?: string } = {
+        const body: { phone: string } = {
           phone: tgPhone.trim()
         }
-        if (id) {body.api_id = id}
-        if (hash) {body.api_hash = hash}
         const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
           '/campaigns/telegram-user/login',
           { method: 'POST', body, timeoutMs: 35_000 }
@@ -5100,7 +5055,6 @@ function CampaignsPage() {
               ) : (
                 'Не подключён — Bot API не видит ваш список контактов и не пишет первым'
               )}
-              {tgUser?.api_source === 'env' ? ' · api_id/api_hash из .env' : ''}
               {tgUser?.detail ? ` · ${tgUser.detail}` : ''}
             </p>
             <div className="ms-compose-actions">
@@ -5144,82 +5098,6 @@ function CampaignsPage() {
                         value={tgPhone}
                       />
                     </label>
-                    {tgUser?.api_configured && !tgCredOverride ? (
-                      <>
-                        <label>
-                          api_id
-                          <input
-                            readOnly
-                            value={tgUser.api_id_masked || '••••••••'}
-                          />
-                        </label>
-                        <label>
-                          api_hash
-                          <input
-                            readOnly
-                            type="password"
-                            value={tgUser.api_hash_masked || '••••••••••••••••'}
-                          />
-                        </label>
-                        <p className="ms-muted">
-                          Ключи уже на сервере
-                          {tgUser.api_source === 'env'
-                            ? ' (.env / TELEGRAM_API_*)'
-                            : ' (сохранены ранее)'}
-                          — достаточно телефона и кода.{' '}
-                          <button
-                            className="ms-link-btn"
-                            onClick={() => setTgCredOverride(true)}
-                            type="button"
-                          >
-                            Заменить ключи
-                          </button>
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <label>
-                          api_id (my.telegram.org)
-                          <input
-                            onChange={e => setTgApiId(e.target.value)}
-                            placeholder="29924508"
-                            value={tgApiId}
-                          />
-                        </label>
-                        <label>
-                          api_hash
-                          <input
-                            onChange={e => setTgApiHash(e.target.value)}
-                            placeholder="abc123…"
-                            type="password"
-                            value={tgApiHash}
-                          />
-                        </label>
-                        <div className="ms-compose-actions">
-                          <button
-                            className="ms-btn"
-                            disabled={tgBusy}
-                            onClick={() => void tgSaveCredentials()}
-                            type="button"
-                          >
-                            Сохранить api_id / api_hash
-                          </button>
-                          {tgUser?.api_configured ? (
-                            <button
-                              className="ms-link-btn"
-                              onClick={() => {
-                                setTgCredOverride(false)
-                                setTgApiId('')
-                                setTgApiHash('')
-                              }}
-                              type="button"
-                            >
-                              Отмена
-                            </button>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
                     <div className="ms-compose-actions">
                       <button
                         className="ms-btn ms-btn-primary"
@@ -5297,9 +5175,10 @@ function CampaignsPage() {
                   </>
                 ) : null}
                 <p className="ms-muted">
-                  {tgUser?.api_configured
-                    ? 'Сессия хранится на сервере; код и пароль никуда не сохраняются. После входа контакты появятся в «Кому отправить», рассылка уйдёт с вашего аккаунта.'
-                    : 'api_id / api_hash — my.telegram.org → API development tools (или TELEGRAM_API_* в .env сервера). Сессия хранится локально; код и пароль никуда не сохраняются.'}
+                  Как в обычном Telegram: телефон → код → облачный пароль (если
+                  включён). Сессия хранится на сервере; код и пароль никуда не
+                  сохраняются. После входа контакты появятся в «Кому
+                  отправить», рассылка уйдёт с вашего аккаунта.
                 </p>
               </div>
             ) : null}

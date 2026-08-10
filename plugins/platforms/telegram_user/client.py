@@ -12,6 +12,9 @@ State lives in ``<hermes home>/telegram_user/``:
 
 Env overrides (first non-empty wins over the stored config):
 ``TELEGRAM_API_ID``, ``TELEGRAM_API_HASH``, ``TELEGRAM_USER_SESSION``.
+When neither env nor config has app credentials, built-in public keys are
+used so the operator only ever types phone → code → 2FA (opt out with
+``TELEGRAM_BUILTIN_API=0``).
 
 Telethon is lazy-installed on first use via ``tools.lazy_deps`` feature
 ``platform.telegram_user``. Every public helper returns ``{"ok": bool, ...}``
@@ -109,8 +112,22 @@ def _save_config(cfg: dict[str, Any]) -> None:
     _write_json(_config_path(), cfg, secret=True)
 
 
-def api_credentials() -> tuple[str, str]:
-    """Return ``(api_id, api_hash)`` from env, falling back to stored config."""
+# Telegram Desktop's public open-source app credentials (shipped in the
+# tdesktop repo). They identify the *client application*, not the account —
+# authorization is still the user's own phone → code → 2FA. With this
+# fallback nobody has to visit my.telegram.org; own keys via
+# TELEGRAM_API_* / config always win. Disable with TELEGRAM_BUILTIN_API=0.
+_BUILTIN_API_ID = "2040"
+_BUILTIN_API_HASH = "b18441a1ff607e10a989891a5462e627"
+
+
+def builtin_api_enabled() -> bool:
+    flag = (os.getenv("TELEGRAM_BUILTIN_API") or "").strip().lower()
+    return flag not in {"0", "false", "no", "off"}
+
+
+def own_api_credentials() -> tuple[str, str]:
+    """``(api_id, api_hash)`` from env / stored config only — no builtin."""
     cfg = load_config()
     api_id = (os.getenv("TELEGRAM_API_ID") or "").strip() or str(
         cfg.get("api_id") or ""
@@ -118,6 +135,17 @@ def api_credentials() -> tuple[str, str]:
     api_hash = (os.getenv("TELEGRAM_API_HASH") or "").strip() or str(
         cfg.get("api_hash") or ""
     ).strip()
+    return api_id, api_hash
+
+
+def api_credentials() -> tuple[str, str]:
+    """Effective ``(api_id, api_hash)``: env → config → built-in fallback."""
+    api_id, api_hash = own_api_credentials()
+    if api_id and api_hash:
+        return api_id, api_hash
+    # A half-filled pair is useless to Telethon — fall back as a whole.
+    if builtin_api_enabled():
+        return _BUILTIN_API_ID, _BUILTIN_API_HASH
     return api_id, api_hash
 
 
@@ -442,7 +470,8 @@ def _runtime_error(exc: Exception) -> dict[str, Any]:
     if msg == "api_credentials_missing":
         return _err(
             "api_credentials_missing",
-            "Нужны api_id / api_hash с my.telegram.org → API development tools",
+            "Нужны api_id / api_hash с my.telegram.org → API development tools "
+            "(встроенные ключи выключены через TELEGRAM_BUILTIN_API=0)",
         )
     return _err("telegram_user_error", msg or exc.__class__.__name__)
 
@@ -523,14 +552,24 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         (os.getenv("TELEGRAM_API_ID") or "").strip()
         and (os.getenv("TELEGRAM_API_HASH") or "").strip()
     )
+    own_id, own_hash = own_api_credentials()
+    if env_api:
+        api_source = "env"
+    elif own_id and own_hash:
+        api_source = "config"
+    elif api_id and api_hash:
+        api_source = "builtin"
+    else:
+        api_source = ""
     out: dict[str, Any] = {
         "ok": True,
         "available": telethon_available(),
         "api_configured": bool(api_id and api_hash),
-        "api_source": "env" if env_api else ("config" if api_id and api_hash else ""),
+        "api_source": api_source,
         # Masked previews for the Connect form — never the raw api_hash.
-        "api_id_masked": mask_secret(api_id, keep=2) if api_id else "",
-        "api_hash_masked": mask_secret(api_hash, keep=0) if api_hash else "",
+        # Builtin fallback keys are not the operator's, so nothing to preview.
+        "api_id_masked": mask_secret(own_id, keep=2) if own_id else "",
+        "api_hash_masked": mask_secret(own_hash, keep=0) if own_hash else "",
         "session_saved": bool(session_string()),
         "phone": str(cfg.get("phone") or "") or None,
         "authorized": False,
@@ -618,7 +657,7 @@ def start_login(
         return _err(
             "api_credentials_missing",
             "Нужны api_id / api_hash на сервере (TELEGRAM_API_ID / TELEGRAM_API_HASH) "
-            "или введите их один раз в форме",
+            "— встроенные ключи выключены через TELEGRAM_BUILTIN_API=0",
         )
 
     # Drop a half-open client left by a previous timed-out attempt.

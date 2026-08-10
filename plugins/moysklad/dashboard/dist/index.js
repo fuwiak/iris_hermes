@@ -1687,23 +1687,7 @@
     const [tgPhone, setTgPhone] = useState("");
     const [tgCode, setTgCode] = useState("");
     const [tgPassword, setTgPassword] = useState("");
-    const [tgCredOverride, setTgCredOverride] = useState(false);
-    const [tgApiId, setTgApiId] = useState("");
-    const [tgApiHash, setTgApiHash] = useState("");
     const [tgSession, setTgSession] = useState("");
-
-    function cleanTgApiId(raw) {
-      var v = String(raw || "").trim();
-      if (!v || /[•*…]/.test(v) || !/^\d+$/.test(v)) return "";
-      return v;
-    }
-    function cleanTgApiHash(raw) {
-      var v = String(raw || "").trim();
-      if (!v || /[•*…]/.test(v)) return "";
-      if (["admin", "password", "hash", "api_hash"].indexOf(v.toLowerCase()) >= 0)
-        return "";
-      return v;
-    }
 
     function runTgBusy(title, detail, work) {
       setTgBusy(true);
@@ -1768,19 +1752,8 @@
         setError("Укажите номер телефона в формате +79991234567");
         return;
       }
-      var allowCreds = tgCredOverride || !(tgUser && tgUser.api_configured);
-      var id = allowCreds ? cleanTgApiId(tgApiId) : "";
-      var hash = allowCreds ? cleanTgApiHash(tgApiHash) : "";
-      if (!(tgUser && tgUser.api_configured) && !id && !hash) {
-        setError(
-          "Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env или введите числовой api_id",
-        );
-        return;
-      }
       runTgBusy("Telethon: вход", "Отправляем код на " + String(tgPhone).trim() + "…", function () {
         var body = { phone: String(tgPhone || "").trim() };
-        if (id) body.api_id = id;
-        if (hash) body.api_hash = hash;
         return api("/campaigns/telegram-user/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1877,28 +1850,6 @@
             );
           },
         );
-      });
-    }
-
-    function tgSaveCredentials() {
-      var id = cleanTgApiId(tgApiId);
-      var hash = cleanTgApiHash(tgApiHash);
-      if (!id && !hash) {
-        setError("Заполните api_id (число) и api_hash с my.telegram.org");
-        return;
-      }
-      runTgBusy("Сохраняю ключи", "Пишем api_id / api_hash на сервер…", function () {
-        return api("/campaigns/telegram-user/credentials", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_id: id, api_hash: hash }),
-        }).then(function (data) {
-          setTgUser(data || null);
-          setTgApiId("");
-          setTgApiHash("");
-          setTgCredOverride(false);
-          setActionStatus("✓ api_id / api_hash сохранены");
-        });
       });
     }
 
@@ -2784,7 +2735,6 @@
                 : tgUser && tgUser.session_saved
                   ? "Сессия сохранена, но не авторизована — войдите заново"
                   : "Не подключён — Bot API не видит ваш список контактов и не пишет первым",
-              tgUser && tgUser.api_source === "env" ? " · api_id/api_hash из .env" : "",
             ),
             h(
               "div",
@@ -2849,85 +2799,6 @@
                             },
                           }),
                         ),
-                        tgUser && tgUser.api_configured && !tgCredOverride
-                          ? h(
-                              "div",
-                              { className: "ms-add-contact" },
-                              h(
-                                "label",
-                                null,
-                                "api_id",
-                                h("input", {
-                                  readOnly: true,
-                                  value: tgUser.api_id_masked || "••••••••",
-                                }),
-                              ),
-                              h(
-                                "label",
-                                null,
-                                "api_hash",
-                                h("input", {
-                                  readOnly: true,
-                                  type: "password",
-                                  value: tgUser.api_hash_masked || "••••••••••••••••",
-                                }),
-                              ),
-                              h(
-                                "p",
-                                { className: "ms-muted" },
-                                "Ключи уже на сервере — достаточно телефона и кода. ",
-                                h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "ms-link-btn",
-                                    onClick: function () {
-                                      setTgCredOverride(true);
-                                    },
-                                  },
-                                  "Заменить ключи",
-                                ),
-                              ),
-                            )
-                          : h(
-                              "div",
-                              { className: "ms-add-contact" },
-                              h(
-                                "label",
-                                null,
-                                "api_id (my.telegram.org)",
-                                h("input", {
-                                  value: tgApiId,
-                                  placeholder: "29924508",
-                                  onChange: function (e) {
-                                    setTgApiId(e.target.value);
-                                  },
-                                }),
-                              ),
-                              h(
-                                "label",
-                                null,
-                                "api_hash",
-                                h("input", {
-                                  type: "password",
-                                  value: tgApiHash,
-                                  placeholder: "abc123…",
-                                  onChange: function (e) {
-                                    setTgApiHash(e.target.value);
-                                  },
-                                }),
-                              ),
-                              h(
-                                "button",
-                                {
-                                  type: "button",
-                                  className: "ms-btn",
-                                  disabled: tgBusy,
-                                  onClick: tgSaveCredentials,
-                                },
-                                "Сохранить api_id / api_hash",
-                              ),
-                            ),
                         h(
                           "button",
                           {
@@ -3027,9 +2898,7 @@
                   h(
                     "p",
                     { className: "ms-muted" },
-                    tgUser && tgUser.api_configured
-                      ? "Сессия на сервере; код и пароль не сохраняются."
-                      : "Задайте TELEGRAM_API_ID / TELEGRAM_API_HASH в .env сервера.",
+                    "Как в обычном Telegram: телефон → код → облачный пароль (если включён). Сессия на сервере; код и пароль не сохраняются.",
                   ),
                 )
               : null,
