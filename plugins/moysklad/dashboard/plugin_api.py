@@ -1722,7 +1722,7 @@ def post_telegram_user_install() -> dict[str, Any]:
 @router.post("/campaigns/telegram-user/credentials")
 def post_telegram_user_credentials(body: TelegramUserLoginBody) -> dict[str, Any]:
     """Store my.telegram.org api_id / api_hash without starting a login."""
-    out = tg_user.save_credentials(api_id=body.api_id, api_hash=body.api_hash)
+    out = tg_user.save_credentials(api_id=body.api_id, api_hash=body.api_hash, strict=True)
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))
     return {**out, **telegram_user_status(probe=False)}

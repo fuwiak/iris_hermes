@@ -115,11 +115,46 @@ def session_string() -> str:
     ).strip()
 
 
-def save_credentials(*, api_id: str = "", api_hash: str = "") -> dict[str, Any]:
-    """Persist my.telegram.org app credentials. Empty values keep the old ones."""
-    api_id = str(api_id or "").strip()
-    api_hash = str(api_hash or "").strip()
-    if api_id and not api_id.isdigit():
+def sanitize_api_id(value: str) -> str:
+    """Keep only a real my.telegram.org api_id. Masks / typos → empty."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    # UI may echo masked previews (••••) or leftover junk like "admin".
+    if any(ch in raw for ch in ("•", "*", "…")):
+        return ""
+    return raw if raw.isdigit() else ""
+
+
+def sanitize_api_hash(value: str) -> str:
+    """Keep a plausible api_hash; drop masks / empty / placeholders."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if any(ch in raw for ch in ("•", "*", "…")):
+        return ""
+    if raw.lower() in {"admin", "password", "hash", "api_hash"}:
+        return ""
+    return raw
+
+
+def save_credentials(
+    *,
+    api_id: str = "",
+    api_hash: str = "",
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Persist my.telegram.org app credentials. Empty values keep the old ones.
+
+    ``strict=True`` (credentials endpoint): reject non-numeric api_id.
+    ``strict=False`` (login): silently ignore junk so leftover UI state like
+    ``admin`` / masked ``29••••`` does not block Telethon auth when .env
+    already has real keys.
+    """
+    raw_id = str(api_id or "").strip()
+    cleaned_id = sanitize_api_id(raw_id)
+    cleaned_hash = sanitize_api_hash(api_hash)
+    if strict and raw_id and not cleaned_id:
         return {
             "ok": False,
             "error": "api_id_invalid",
@@ -127,10 +162,10 @@ def save_credentials(*, api_id: str = "", api_hash: str = "") -> dict[str, Any]:
         }
     with _LOCK:
         cfg = load_config()
-        if api_id:
-            cfg["api_id"] = api_id
-        if api_hash:
-            cfg["api_hash"] = api_hash
+        if cleaned_id:
+            cfg["api_id"] = cleaned_id
+        if cleaned_hash:
+            cfg["api_hash"] = cleaned_hash
         _save_config(cfg)
     _RUNNER.reset()
     return {"ok": True, "configured": bool(all(api_credentials()))}
@@ -458,10 +493,13 @@ def start_login(
     api_id: str = "",
     api_hash: str = "",
 ) -> dict[str, Any]:
-    """Send the Telegram login code to ``phone``."""
+    """Send the Telegram login code to ``phone`` (Telethon MTProto)."""
     phone = str(phone or "").strip()
-    if api_id or api_hash:
-        saved = save_credentials(api_id=api_id, api_hash=api_hash)
+    # Login is non-strict: ignore masked / leftover UI junk; use server .env.
+    cleaned_id = sanitize_api_id(api_id)
+    cleaned_hash = sanitize_api_hash(api_hash)
+    if cleaned_id or cleaned_hash:
+        saved = save_credentials(api_id=cleaned_id, api_hash=cleaned_hash, strict=False)
         if not saved.get("ok"):
             return saved
     if not phone:
@@ -470,7 +508,8 @@ def start_login(
     if not cur_id or not cur_hash:
         return _err(
             "api_credentials_missing",
-            "Нужны api_id / api_hash с my.telegram.org → API development tools",
+            "Нужны api_id / api_hash на сервере (TELEGRAM_API_ID / TELEGRAM_API_HASH) "
+            "или введите их один раз в форме",
         )
 
     async def _start() -> dict[str, Any]:

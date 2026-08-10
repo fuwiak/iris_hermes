@@ -308,6 +308,38 @@
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
 }
 
+.ms-tg-progress-backdrop {
+  z-index: 120;
+}
+
+.ms-tg-progress {
+  width: min(420px, 100%);
+  text-align: center;
+  display: grid;
+  gap: 0.65rem;
+  justify-items: center;
+}
+
+.ms-tg-progress h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ms-tg-progress-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 3px solid color-mix(in srgb, #c084fc 35%, transparent);
+  border-top-color: #e9d5ff;
+  animation: ms-tg-spin 0.8s linear infinite;
+}
+
+@keyframes ms-tg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ms-modal h3 {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;

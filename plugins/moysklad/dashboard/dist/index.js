@@ -1639,12 +1639,41 @@
     const [tgOpen, setTgOpen] = useState(false);
     const [tgStep, setTgStep] = useState("phone");
     const [tgBusy, setTgBusy] = useState(false);
+    const [tgProgress, setTgProgress] = useState(null);
     const [tgPhone, setTgPhone] = useState("");
     const [tgCode, setTgCode] = useState("");
     const [tgPassword, setTgPassword] = useState("");
     const [tgCredOverride, setTgCredOverride] = useState(false);
     const [tgApiId, setTgApiId] = useState("");
     const [tgApiHash, setTgApiHash] = useState("");
+
+    function cleanTgApiId(raw) {
+      var v = String(raw || "").trim();
+      if (!v || /[•*…]/.test(v) || !/^\d+$/.test(v)) return "";
+      return v;
+    }
+    function cleanTgApiHash(raw) {
+      var v = String(raw || "").trim();
+      if (!v || /[•*…]/.test(v)) return "";
+      if (["admin", "password", "hash", "api_hash"].indexOf(v.toLowerCase()) >= 0)
+        return "";
+      return v;
+    }
+
+    function runTgBusy(title, detail, work) {
+      setTgBusy(true);
+      setTgProgress({ title: title, detail: detail });
+      setError("");
+      return Promise.resolve()
+        .then(work)
+        .catch(function (err) {
+          setError((err && err.message) || String(err));
+        })
+        .finally(function () {
+          setTgBusy(false);
+          setTgProgress(null);
+        });
+    }
 
     function refreshTgUser(probe) {
       return api("/campaigns/telegram-user?probe=" + (probe ? "true" : "false"))
@@ -1663,56 +1692,60 @@
       refreshTgUser(false);
     }, []);
 
+    function tgSyncAfterAuth() {
+      setTgProgress({
+        title: "Синхронизация контактов",
+        detail: "Тянем адресную книгу и диалоги…",
+      });
+      return api("/campaigns/telegram-user/contacts/refresh", { method: "POST" })
+        .catch(function () {
+          return null;
+        })
+        .then(function () {
+          return refreshTgUser(true);
+        });
+    }
+
     function tgLogin() {
       if (!String(tgPhone || "").trim()) {
         setError("Укажите номер телефона в формате +79991234567");
         return;
       }
-      if (
-        !(tgUser && tgUser.api_configured) &&
-        !String(tgApiId || "").trim() &&
-        !String(tgApiHash || "").trim()
-      ) {
+      var allowCreds = tgCredOverride || !(tgUser && tgUser.api_configured);
+      var id = allowCreds ? cleanTgApiId(tgApiId) : "";
+      var hash = allowCreds ? cleanTgApiHash(tgApiHash) : "";
+      if (!(tgUser && tgUser.api_configured) && !id && !hash) {
         setError(
-          "Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env",
+          "Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env или введите числовой api_id",
         );
         return;
       }
-      setTgBusy(true);
-      setError("");
-      var body = { phone: String(tgPhone || "").trim() };
-      if (String(tgApiId || "").trim()) body.api_id = String(tgApiId).trim();
-      if (String(tgApiHash || "").trim()) body.api_hash = String(tgApiHash).trim();
-      api("/campaigns/telegram-user/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-        .then(function (data) {
+      runTgBusy("Telethon: вход", "Отправляем код на " + String(tgPhone).trim() + "…", function () {
+        var body = { phone: String(tgPhone || "").trim() };
+        if (id) body.api_id = id;
+        if (hash) body.api_hash = hash;
+        return api("/campaigns/telegram-user/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(function (data) {
           if (data && data.authorized) {
             setActionStatus("✓ Личный Telegram уже подключён");
-            return refreshTgUser(true);
+            return tgSyncAfterAuth();
           }
           setTgStep("code");
           setActionStatus("Код отправлен в Telegram — введите его ниже");
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
         });
+      });
     }
 
     function tgSubmitCode() {
-      setTgBusy(true);
-      setError("");
-      api("/campaigns/telegram-user/code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: String(tgCode || "").trim() }),
-      })
-        .then(function (data) {
+      runTgBusy("Telethon: код", "Проверяем код из Telegram…", function () {
+        return api("/campaigns/telegram-user/code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: String(tgCode || "").trim() }),
+        }).then(function (data) {
           setTgCode("");
           if (data && data.password_required) {
             setTgStep("password");
@@ -1720,113 +1753,96 @@
             return;
           }
           setTgStep("phone");
-          setActionStatus("✓ Личный Telegram подключён");
-          return refreshTgUser(true);
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
+          setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
+          return tgSyncAfterAuth();
         });
+      });
     }
 
     function tgSubmitPassword() {
-      setTgBusy(true);
-      setError("");
-      api("/campaigns/telegram-user/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: String(tgPassword || "") }),
-      })
-        .then(function () {
+      runTgBusy("Telethon: 2FA", "Проверяем облачный пароль…", function () {
+        return api("/campaigns/telegram-user/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: String(tgPassword || "") }),
+        }).then(function () {
           setTgPassword("");
           setTgStep("phone");
-          setActionStatus("✓ Личный Telegram подключён");
-          return refreshTgUser(true);
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
+          setActionStatus("✓ Личный Telegram подключён — контакты синхронизированы");
+          return tgSyncAfterAuth();
         });
+      });
     }
 
     function tgLogout() {
-      setTgBusy(true);
-      api("/campaigns/telegram-user/logout", { method: "POST" })
-        .then(function () {
-          setActionStatus("Личный Telegram отключён");
-          return refreshTgUser(false);
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
-        });
+      runTgBusy("Выход", "Отключаем личный Telegram…", function () {
+        return api("/campaigns/telegram-user/logout", { method: "POST" }).then(
+          function () {
+            setTgStep("phone");
+            setActionStatus("Личный Telegram отключён");
+            return refreshTgUser(false);
+          },
+        );
+      });
     }
 
     function tgSyncContacts() {
-      setTgBusy(true);
-      api("/campaigns/telegram-user/contacts/refresh", { method: "POST" })
-        .then(function (data) {
-          setActionStatus(
-            "✓ Контакты: " + ((data && (data.total || data.contacts_cached)) || 0),
-          );
-          return refreshTgUser(false);
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
-        });
+      runTgBusy(
+        "Синхронизация контактов",
+        "Telethon тянет адресную книгу и личные чаты…",
+        function () {
+          return api("/campaigns/telegram-user/contacts/refresh", {
+            method: "POST",
+          }).then(function (data) {
+            setActionStatus(
+              "✓ Контакты из Telegram: " +
+                ((data && data.total) || 0) +
+                " (адресная книга " +
+                ((data && data.from_address_book) || 0) +
+                ", чаты " +
+                ((data && data.from_dialogs) || 0) +
+                ")",
+            );
+            return refreshTgUser(false);
+          });
+        },
+      );
     }
 
     function tgInstallRuntime() {
-      setTgBusy(true);
-      api("/campaigns/telegram-user/install", { method: "POST" })
-        .then(function (data) {
-          setTgUser(data || null);
-          setActionStatus("✓ telethon установлен");
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
-        });
+      runTgBusy("Установка Telethon", "Ставим MTProto-движок в venv…", function () {
+        return api("/campaigns/telegram-user/install", { method: "POST" }).then(
+          function (data) {
+            setTgUser(data || null);
+            setActionStatus(
+              "✓ telethon установлен" +
+                (data && data.version ? " " + data.version : ""),
+            );
+          },
+        );
+      });
     }
 
     function tgSaveCredentials() {
-      if (!String(tgApiId || "").trim() && !String(tgApiHash || "").trim()) {
-        setError("Заполните api_id и api_hash с my.telegram.org");
+      var id = cleanTgApiId(tgApiId);
+      var hash = cleanTgApiHash(tgApiHash);
+      if (!id && !hash) {
+        setError("Заполните api_id (число) и api_hash с my.telegram.org");
         return;
       }
-      setTgBusy(true);
-      api("/campaigns/telegram-user/credentials", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_id: String(tgApiId || "").trim(),
-          api_hash: String(tgApiHash || "").trim(),
-        }),
-      })
-        .then(function (data) {
+      runTgBusy("Сохраняю ключи", "Пишем api_id / api_hash на сервер…", function () {
+        return api("/campaigns/telegram-user/credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_id: id, api_hash: hash }),
+        }).then(function (data) {
           setTgUser(data || null);
           setTgApiId("");
           setTgApiHash("");
           setTgCredOverride(false);
           setActionStatus("✓ api_id / api_hash сохранены");
-        })
-        .catch(function (err) {
-          setError((err && err.message) || String(err));
-        })
-        .finally(function () {
-          setTgBusy(false);
         });
+      });
     }
 
     useEffect(function () {
@@ -3144,6 +3160,35 @@
               );
             }),
           ),
+      tgProgress
+        ? h(
+            "div",
+            {
+              className: "ms-modal-backdrop ms-tg-progress-backdrop",
+              role: "status",
+            },
+            h(
+              "div",
+              {
+                className: "ms-modal ms-tg-progress",
+                onClick: function (e) {
+                  e.stopPropagation();
+                },
+              },
+              h("div", {
+                className: "ms-tg-progress-spinner",
+                "aria-hidden": "true",
+              }),
+              h("h3", null, tgProgress.title),
+              h("p", { className: "ms-muted" }, tgProgress.detail),
+              h(
+                "p",
+                { className: "ms-muted" },
+                "Не закрывайте вкладку — ждём ответ Telegram / Telethon.",
+              ),
+            ),
+          )
+        : null,
     );
   }
 

@@ -29,16 +29,38 @@ def test_status_without_credentials(tmp_path, monkeypatch):
 def test_save_credentials_rejects_non_numeric_api_id(tmp_path, monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    out = tu.save_credentials(api_id="abc", api_hash="deadbeef")
+    out = tu.save_credentials(api_id="abc", api_hash="deadbeef", strict=True)
     assert out["ok"] is False
     assert out["error"] == "api_id_invalid"
+
+
+def test_save_credentials_login_ignores_junk_api_id(tmp_path, monkeypatch):
+    """Leftover UI junk must not wipe / block env credentials on login path."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_API_ID", "29924508")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "abcdef0123456789abcdef0123456789")
+    out = tu.save_credentials(api_id="admin", api_hash="••••", strict=False)
+    assert out["ok"] is True
+    assert tu.api_credentials() == (
+        "29924508",
+        "abcdef0123456789abcdef0123456789",
+    )
+
+
+def test_sanitize_api_helpers():
+    assert tu.sanitize_api_id("29924508") == "29924508"
+    assert tu.sanitize_api_id("admin") == ""
+    assert tu.sanitize_api_id("29••••") == ""
+    assert tu.sanitize_api_hash("deadbeefcafebabe") == "deadbeefcafebabe"
+    assert tu.sanitize_api_hash("admin") == ""
+    assert tu.sanitize_api_hash("••••••••") == ""
 
 
 def test_save_credentials_persists_0600(tmp_path, monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    assert tu.save_credentials(api_id="123456", api_hash="hash")["ok"] is True
-    assert tu.api_credentials() == ("123456", "hash")
+    assert tu.save_credentials(api_id="123456", api_hash="deadbeefcafebabe")["ok"] is True
+    assert tu.api_credentials() == ("123456", "deadbeefcafebabe")
     cfg = tmp_path / "telegram_user" / "config.json"
     assert json.loads(cfg.read_text())["api_id"] == "123456"
     assert oct(cfg.stat().st_mode)[-3:] == "600"

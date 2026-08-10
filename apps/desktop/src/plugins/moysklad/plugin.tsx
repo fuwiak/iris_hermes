@@ -2844,11 +2844,38 @@ function CampaignsPage() {
   const [tgOpen, setTgOpen] = useState(false)
   const [tgStep, setTgStep] = useState<'phone' | 'code' | 'password'>('phone')
   const [tgBusy, setTgBusy] = useState(false)
+  const [tgProgress, setTgProgress] = useState<{ title: string; detail: string } | null>(null)
   const [tgPhone, setTgPhone] = useState('')
   const [tgApiId, setTgApiId] = useState('')
   const [tgApiHash, setTgApiHash] = useState('')
   const [tgCode, setTgCode] = useState('')
   const [tgPassword, setTgPassword] = useState('')
+
+  const runTgBusy = async (title: string, detail: string, work: () => Promise<void>) => {
+    setTgBusy(true)
+    setTgProgress({ title, detail })
+    setError('')
+    try {
+      await work()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTgBusy(false)
+      setTgProgress(null)
+    }
+  }
+
+  const cleanTgApiId = (raw: string) => {
+    const v = raw.trim()
+    if (!v || /[•*…]/.test(v) || !/^\d+$/.test(v)) {return ''}
+    return v
+  }
+  const cleanTgApiHash = (raw: string) => {
+    const v = raw.trim()
+    if (!v || /[•*…]/.test(v)) {return ''}
+    if (['admin', 'password', 'hash', 'api_hash'].includes(v.toLowerCase())) {return ''}
+    return v
+  }
   const [outreachContacts, setOutreachContacts] = useState<
     Array<{
       id: string
@@ -3099,44 +3126,34 @@ function CampaignsPage() {
   }, [])
 
   const tgInstallRuntime = async () => {
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Установка Telethon', 'Ставим MTProto-движок в venv…', async () => {
       const data = await call<typeof tgUser & { version?: string }>(
         '/campaigns/telegram-user/install',
         { method: 'POST' }
       )
       setTgUser(data)
       setActionStatus(`✓ telethon установлен${data?.version ? ` ${data.version}` : ''}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const tgSaveCredentials = async () => {
-    if (!tgApiId.trim() && !tgApiHash.trim()) {
-      setError('Заполните api_id и api_hash с my.telegram.org')
+    const id = cleanTgApiId(tgApiId)
+    const hash = cleanTgApiHash(tgApiHash)
+    if (!id && !hash) {
+      setError('Заполните api_id (число) и api_hash с my.telegram.org')
       return
     }
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Сохраняю ключи', 'Пишем api_id / api_hash на сервер…', async () => {
       const data = await call<typeof tgUser>('/campaigns/telegram-user/credentials', {
         method: 'POST',
-        body: { api_id: tgApiId.trim(), api_hash: tgApiHash.trim() }
+        body: { api_id: id, api_hash: hash }
       })
       setTgUser(data)
       setTgApiId('')
       setTgApiHash('')
       setTgCredOverride(false)
       setActionStatus('✓ api_id / api_hash сохранены')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const tgLogin = async () => {
@@ -3144,45 +3161,44 @@ function CampaignsPage() {
       setError('Укажите номер телефона в формате +79991234567')
       return
     }
-    if (!tgUser?.api_configured && !tgApiId.trim() && !tgApiHash.trim()) {
-      setError('Нет api_id/api_hash на сервере — заполните поля или задайте TELEGRAM_API_* в .env')
+    // Only send credentials when the user is explicitly editing them — never
+    // residual state like "admin" left over from before the masked UI.
+    const allowCreds = tgCredOverride || !tgUser?.api_configured
+    const id = allowCreds ? cleanTgApiId(tgApiId) : ''
+    const hash = allowCreds ? cleanTgApiHash(tgApiHash) : ''
+    if (!tgUser?.api_configured && !id && !hash) {
+      setError('Нет api_id/api_hash на сервере — задайте TELEGRAM_API_* в .env или введите числовой api_id')
       return
     }
-    setTgBusy(true)
-    setError('')
-    try {
-      // When credentials already live in .env / config, omit empty fields so the
-      // backend keeps using the server-side pair (do not send placeholder text).
-      const body: { phone: string; api_id?: string; api_hash?: string } = {
-        phone: tgPhone.trim()
-      }
-      if (tgApiId.trim()) body.api_id = tgApiId.trim()
-      if (tgApiHash.trim()) body.api_hash = tgApiHash.trim()
-      const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
-        '/campaigns/telegram-user/login',
-        {
-          method: 'POST',
-          body
+    await runTgBusy(
+      'Telethon: вход',
+      `Отправляем код на ${tgPhone.trim()}…`,
+      async () => {
+        const body: { phone: string; api_id?: string; api_hash?: string } = {
+          phone: tgPhone.trim()
         }
-      )
-      if (data.authorized) {
-        setActionStatus('✓ Личный Telegram уже подключён')
-        await refreshTgUser()
-      } else {
-        setTgStep('code')
-        setActionStatus('Код отправлен в Telegram — введите его ниже')
+        if (id) {body.api_id = id}
+        if (hash) {body.api_hash = hash}
+        const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
+          '/campaigns/telegram-user/login',
+          { method: 'POST', body }
+        )
+        if (data.authorized) {
+          setActionStatus('✓ Личный Telegram уже подключён')
+          setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
+          await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
+          await refreshTgUser()
+          await loadOutreachContacts()
+        } else {
+          setTgStep('code')
+          setActionStatus('Код отправлен в Telegram — введите его ниже')
+        }
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    )
   }
 
   const tgSubmitCode = async () => {
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Telethon: код', 'Проверяем код из Telegram…', async () => {
       const data = await call<{ authorized?: boolean; password_required?: boolean }>(
         '/campaigns/telegram-user/code',
         { method: 'POST', body: { code: tgCode.trim() } }
@@ -3194,40 +3210,32 @@ function CampaignsPage() {
         return
       }
       setTgStep('phone')
-      setActionStatus('✓ Личный Telegram подключён — контакты синхронизируются')
+      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
+      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
+      setActionStatus('✓ Личный Telegram подключён — контакты синхронизированы')
       await refreshTgUser()
       await loadOutreachContacts()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const tgSubmitPassword = async () => {
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Telethon: 2FA', 'Проверяем облачный пароль…', async () => {
       await call('/campaigns/telegram-user/password', {
         method: 'POST',
         body: { password: tgPassword }
       })
       setTgPassword('')
       setTgStep('phone')
-      setActionStatus('✓ Личный Telegram подключён — контакты синхронизируются')
+      setTgProgress({ title: 'Синхронизация контактов', detail: 'Тянем адресную книгу и диалоги…' })
+      await call('/campaigns/telegram-user/contacts/refresh', { method: 'POST' }).catch(() => null)
+      setActionStatus('✓ Личный Telegram подключён — контакты синхронизированы')
       await refreshTgUser()
       await loadOutreachContacts()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const tgSyncContacts = async () => {
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Синхронизация контактов', 'Telethon тянет адресную книгу и личные чаты…', async () => {
       const data = await call<{
         total?: number
         from_address_book?: number
@@ -3239,27 +3247,17 @@ function CampaignsPage() {
         `✓ Контакты из Telegram: ${data.total ?? 0}` +
           ` (адресная книга ${data.from_address_book ?? 0}, чаты ${data.from_dialogs ?? 0})`
       )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const tgLogout = async () => {
-    setTgBusy(true)
-    setError('')
-    try {
+    await runTgBusy('Выход', 'Отключаем личный Telegram…', async () => {
       await call('/campaigns/telegram-user/logout', { method: 'POST' })
       setTgStep('phone')
       setActionStatus('Личный Telegram отключён')
       await refreshTgUser(false)
       await loadOutreachContacts()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTgBusy(false)
-    }
+    })
   }
 
   const persistSellerSettings = useCallback(
@@ -5681,6 +5679,16 @@ function CampaignsPage() {
           ))}
         </ul>
       )}
+      {tgProgress ? (
+        <div className="ms-modal-backdrop ms-tg-progress-backdrop" role="status">
+          <div className="ms-modal ms-tg-progress" onClick={e => e.stopPropagation()}>
+            <div className="ms-tg-progress-spinner" aria-hidden="true" />
+            <h3>{tgProgress.title}</h3>
+            <p className="ms-muted">{tgProgress.detail}</p>
+            <p className="ms-muted">Не закрывайте вкладку — ждём ответ Telegram / Telethon.</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
