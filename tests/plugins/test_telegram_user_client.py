@@ -421,3 +421,57 @@ def test_normalize_gateway_contact_strips_at():
         "phone": "",
         "peer_source": "dialog",
     }
+
+
+def test_gateway_cheap_poll_keeps_cached_identity(tmp_path, monkeypatch):
+    """probe=false never carries authorized=True from the egress — the status
+    must fall back to the last real probe instead of flashing «не авторизована»."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+
+    def _fake(method, path, **kwargs):
+        probing = kwargs["params"]["probe"] == "true"
+        return {
+            "ok": True,
+            "session_saved": True,
+            "authorized": probing,
+            "phone": "+79991234567",
+            "user": {"id": 1, "username": "pstasinski"} if probing else None,
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    real = tu.user_status(probe=True)
+    assert real["authorized"] is True
+
+    cheap = tu.user_status(probe=False)
+    assert cheap["authorized"] is True
+    assert cheap["authorized_cached"] is True
+    assert cheap["user"]["username"] == "pstasinski"
+
+
+def test_gateway_real_probe_logout_clears_cached_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    responses = [
+        {"ok": True, "session_saved": True, "authorized": True,
+         "user": {"id": 1, "username": "pstasinski"}},
+        {"ok": True, "session_saved": True, "authorized": False, "user": None},
+        {"ok": True, "session_saved": True, "authorized": False, "user": None},
+    ]
+
+    monkeypatch.setattr(tu, "_gateway_request", lambda *a, **k: responses.pop(0))
+    assert tu.user_status(probe=True)["authorized"] is True
+    # Session revoked: the real probe reports it and must drop the cache…
+    assert tu.user_status(probe=True)["authorized"] is False
+    # …so the next cheap poll agrees instead of serving the stale ✓.
+    assert tu.user_status(probe=False)["authorized"] is False
+
+
+def test_local_cheap_poll_uses_cached_user(tmp_path, monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    tu._save_config({"session": "s" * 40, "user": {"id": 1, "username": "px"}})
+    st = tu.user_status(probe=False)
+    assert st["session_saved"] is True
+    assert st["authorized"] is True
+    assert st["authorized_cached"] is True

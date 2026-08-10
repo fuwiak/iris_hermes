@@ -628,13 +628,34 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         )
         out["gateway_configured"] = True
         out["available"] = True
-        if out.get("ok") and out.get("phone"):
+        if out.get("ok"):
             with _LOCK:
                 cfg = load_config()
-                cfg["phone"] = out["phone"]
-                if out.get("user"):
-                    cfg["user"] = out["user"]
-                _save_config(cfg)
+                changed = False
+                if out.get("phone") and cfg.get("phone") != out["phone"]:
+                    cfg["phone"] = out["phone"]
+                    changed = True
+                if out.get("authorized") and out.get("user"):
+                    if cfg.get("user") != out["user"]:
+                        cfg["user"] = out["user"]
+                        changed = True
+                elif probe and not out.get("authorized"):
+                    # A real probe says logged out — forget the cached identity
+                    # so cheap polls stop reporting a stale ✓.
+                    if cfg.pop("user", None) is not None:
+                        changed = True
+                if changed:
+                    _save_config(cfg)
+            if not probe and not out.get("authorized") and out.get("session_saved"):
+                cached_user = load_config().get("user")
+                if cached_user:
+                    # probe=false skips the MTProto check, so the egress can
+                    # never answer authorized=True here. Serve the verdict of
+                    # the last real probe instead of flashing «не авторизована»
+                    # on every cheap status poll.
+                    out["authorized"] = True
+                    out["authorized_cached"] = True
+                    out["user"] = out.get("user") or cached_user
         return out
 
     api_id, api_hash = api_credentials()
@@ -671,6 +692,12 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
         "gateway_configured": False,
     }
     if not probe or not out["api_configured"] or not out["session_saved"]:
+        if out["session_saved"] and out.get("user"):
+            # Cheap poll (no MTProto probe): report the last verified identity
+            # instead of downgrading the UI to «не авторизована». A real probe
+            # clears cfg["user"] when the session is actually dead.
+            out["authorized"] = True
+            out["authorized_cached"] = True
         return out
 
     async def _probe() -> dict[str, Any]:
@@ -692,6 +719,14 @@ def user_status(*, probe: bool = True) -> dict[str, Any]:
             cfg = load_config()
             cfg["user"] = res["user"]
             _save_config(cfg)
+    elif not out["authorized"]:
+        # Real probe: session is dead — drop the cached identity so cheap
+        # polls (probe=false) stop reporting it as authorized.
+        out["user"] = None
+        with _LOCK:
+            cfg = load_config()
+            if cfg.pop("user", None) is not None:
+                _save_config(cfg)
     return out
 
 
