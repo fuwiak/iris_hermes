@@ -2907,6 +2907,8 @@ function CampaignsPage() {
     }>
   >([])
   const [contactPickerId, setContactPickerId] = useState('')
+  const [contactsError, setContactsError] = useState('')
+  const [contactsLoading, setContactsLoading] = useState(false)
   const [addContactOpen, setAddContactOpen] = useState(false)
   const [addContactName, setAddContactName] = useState('')
   const [addContactNick, setAddContactNick] = useState('')
@@ -3098,6 +3100,7 @@ function CampaignsPage() {
   }, [call])
 
   const loadOutreachContacts = useCallback(async () => {
+    setContactsLoading(true)
     try {
       const data = await call<{
         contacts?: Array<{
@@ -3108,10 +3111,15 @@ function CampaignsPage() {
           label?: string
           source?: string
         }>
-      }>('/campaigns/telegram-contacts?limit=300')
+      }>('/campaigns/telegram-contacts?limit=300', { timeoutMs: 45_000 })
       setOutreachContacts(data.contacts || [])
-    } catch {
-      /* keep previous */
+      setContactsError('')
+    } catch (err) {
+      // Keep the previous list, but SHOW the failure — a silently empty
+      // picker after "✓ контакты синхронизированы" is undebuggable from UI.
+      setContactsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setContactsLoading(false)
     }
   }, [call])
 
@@ -5346,6 +5354,20 @@ function CampaignsPage() {
                 ))}
               </select>
             </label>
+            {contactsError ? (
+              <p className="ms-error">
+                Список контактов не загрузился: {contactsError} — нажмите
+                «Обновить список».
+              </p>
+            ) : (
+              <p className="ms-muted">
+                {contactsLoading
+                  ? 'Загружаем список контактов…'
+                  : outreachContacts.length
+                    ? `В списке ${outreachContacts.length} контактов`
+                    : 'Список пуст — подключите личный Telegram и синхронизируйте контакты, затем «Обновить список»'}
+              </p>
+            )}
             <div className="ms-compose-actions">
               <button
                 className="ms-btn"

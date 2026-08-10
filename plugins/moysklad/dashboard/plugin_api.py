@@ -1823,11 +1823,14 @@ def get_campaign_telegram_contacts(
                 catalog_clients = enrich_clients(list(page.get("clients") or []))
         except Exception:
             log.debug("telegram-contacts catalog preview skipped", exc_info=True)
-        # Stale personal-account cache refreshes itself once the session is live.
+        # Stale personal-account cache refreshes itself in the background.
+        # No is_authorized() here: in gateway mode that probes the egress over
+        # HTTPS (up to 30s) and the dropdown request must stay local-only —
+        # the sync worker checks authorization itself and no-ops if logged out.
         want_refresh = bool(refresh)
         if not want_refresh:
             try:
-                want_refresh = tg_user.contacts_stale() and tg_user.is_authorized()
+                want_refresh = tg_user.contacts_stale()
             except Exception:
                 want_refresh = False
         contacts = list_outreach_contacts(
@@ -1836,7 +1839,18 @@ def get_campaign_telegram_contacts(
             limit=limit,
             refresh=want_refresh,
         )
-        return {"ok": True, "contacts": contacts, "total": len(contacts)}
+        sources: dict[str, int] = {}
+        for c in contacts:
+            src = str(c.get("source") or "?")
+            sources[src] = sources.get(src, 0) + 1
+        log.info(
+            "telegram-contacts: %d rows %s (tg cache=%d, refresh=%s)",
+            len(contacts),
+            sources,
+            len(tg_user.cached_contacts()),
+            want_refresh,
+        )
+        return {"ok": True, "contacts": contacts, "total": len(contacts), "sources": sources}
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad GET /campaigns/telegram-contacts failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
