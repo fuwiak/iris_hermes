@@ -3147,7 +3147,13 @@ function CampaignsPage() {
     } catch (err) {
       // Keep the previous list, but SHOW the failure — a silently empty
       // picker after "✓ контакты синхронизированы" is undebuggable from UI.
-      setContactsError(err instanceof Error ? err.message : String(err))
+      const raw = err instanceof Error ? err.message : String(err)
+      console.warn('[moysklad] telegram-contacts load failed:', err)
+      setContactsError(
+        /abort/i.test(raw)
+          ? 'сервер не ответил за 45 сек (таймаут) — смотрите серверный лог telegram-contacts'
+          : raw
+      )
     } finally {
       setContactsLoading(false)
     }

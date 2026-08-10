@@ -1808,6 +1808,7 @@ def get_campaign_telegram_contacts(
 ) -> dict[str, Any]:
     """Dropdown contacts: personal Telegram + custom + export overlay + catalog."""
     try:
+        t0 = time.monotonic()
         catalog_clients: list[dict[str, Any]] = []
         try:
             catalog, _meta = _get_catalog(force=False, blocking=False, refresh_counts=False)
@@ -1820,9 +1821,15 @@ def get_campaign_telegram_contacts(
                     offset=0,
                     catalog=catalog,
                 )
-                catalog_clients = enrich_clients(list(page.get("clients") or []))
+                # NO enrich_clients here: it rebuilds the TG conversation
+                # preview per client (history scans) — tens of seconds for a
+                # 200-row page, which blew past the UI timeout and left the
+                # picker empty. Labels only need name/nick/chat id, which the
+                # raw catalog rows already carry.
+                catalog_clients = list(page.get("clients") or [])
         except Exception:
             log.debug("telegram-contacts catalog preview skipped", exc_info=True)
+        t_catalog = time.monotonic() - t0
         # Stale personal-account cache refreshes itself in the background.
         # No is_authorized() here: in gateway mode that probes the egress over
         # HTTPS (up to 30s) and the dropdown request must stay local-only —
@@ -1833,24 +1840,42 @@ def get_campaign_telegram_contacts(
                 want_refresh = tg_user.contacts_stale()
             except Exception:
                 want_refresh = False
+        t1 = time.monotonic()
         contacts = list_outreach_contacts(
             catalog_clients=catalog_clients,
             q=q,
             limit=limit,
             refresh=want_refresh,
         )
+        t_merge = time.monotonic() - t1
         sources: dict[str, int] = {}
         for c in contacts:
             src = str(c.get("source") or "?")
             sources[src] = sources.get(src, 0) + 1
-        log.info(
-            "telegram-contacts: %d rows %s (tg cache=%d, refresh=%s)",
+        total_s = time.monotonic() - t0
+        log_fn = log.warning if total_s > 2.0 else log.info
+        log_fn(
+            "telegram-contacts: %d rows %s (tg cache=%d, refresh=%s, "
+            "catalog=%.2fs, merge=%.2fs, total=%.2fs)",
             len(contacts),
             sources,
             len(tg_user.cached_contacts()),
             want_refresh,
+            t_catalog,
+            t_merge,
+            total_s,
         )
-        return {"ok": True, "contacts": contacts, "total": len(contacts), "sources": sources}
+        return {
+            "ok": True,
+            "contacts": contacts,
+            "total": len(contacts),
+            "sources": sources,
+            "timings_ms": {
+                "catalog": int(t_catalog * 1000),
+                "merge": int(t_merge * 1000),
+                "total": int(total_s * 1000),
+            },
+        }
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad GET /campaigns/telegram-contacts failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
