@@ -16757,6 +16757,26 @@ def _discover_dashboard_plugins() -> list:
                 name = data.get("name", child.name)
                 if name in seen_names:
                     continue
+                # A manifest without its built JS bundle (half-installed or
+                # never-built plugin) must not reach the frontend — the
+                # browser would 404 on the <script> and log a load error on
+                # every page view. Skip it WITHOUT claiming the name, so a
+                # complete copy from a lower-priority source can still load.
+                entry_rel = str(data.get("entry", "dist/index.js"))
+                entry_parts = entry_rel.replace("\\", "/").split("/")
+                dashboard_dir = child / "dashboard"
+                if (
+                    not entry_rel
+                    or entry_rel.startswith(("/", "\\"))
+                    or ".." in entry_parts
+                    or not (dashboard_dir / entry_rel).is_file()
+                ):
+                    _log.warning(
+                        "Plugin %s: entry bundle %r missing under %s — plugin "
+                        "skipped (build it or remove the manifest)",
+                        name, entry_rel, dashboard_dir,
+                    )
+                    continue
                 seen_names.add(name)
                 # Tab options: ``path`` + ``position`` for a new tab, optional
                 # ``override`` to replace a built-in route, and ``hidden`` to
@@ -16786,7 +16806,6 @@ def _discover_dashboard_plugins() -> list:
                 # web server then imports that file as a Python module
                 # (RCE, GHSA-5qr3-c538-wm9j).
                 raw_api = data.get("api")
-                dashboard_dir = child / "dashboard"
                 safe_api = _safe_plugin_api_relpath(raw_api, dashboard_dir=dashboard_dir)
                 if raw_api and safe_api is None:
                     _log.warning(

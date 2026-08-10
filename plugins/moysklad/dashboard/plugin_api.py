@@ -1800,6 +1800,58 @@ def get_telegram_user_contacts_sync() -> dict[str, Any]:
     return tg_user.contacts_sync_status()
 
 
+# Catalog rows for the contact picker. clients_page over the full catalog
+# recomputes audience counts on every call (CPU-bound, tens of seconds on a
+# big base with orders context) — that must NEVER run inside the dropdown
+# request. The request serves this cache; a daemon thread rebuilds it.
+_PICKER_CATALOG: dict[str, Any] = {"rows": [], "built_at": 0.0, "attempt_at": 0.0}
+_PICKER_CATALOG_LOCK = threading.Lock()
+_PICKER_CATALOG_TTL = 300.0
+_PICKER_CATALOG_RETRY = 60.0
+
+
+def _picker_catalog_rows(limit: int) -> list[dict[str, Any]]:
+    """Cached catalog clients (with TG handles) for the picker — non-blocking."""
+    now = time.monotonic()
+    with _PICKER_CATALOG_LOCK:
+        rows = list(_PICKER_CATALOG["rows"])
+        stale = (now - _PICKER_CATALOG["built_at"]) > _PICKER_CATALOG_TTL
+        may_attempt = (now - _PICKER_CATALOG["attempt_at"]) > _PICKER_CATALOG_RETRY
+        if stale and may_attempt:
+            _PICKER_CATALOG["attempt_at"] = now
+        else:
+            return rows[:limit]
+
+    def _rebuild() -> None:
+        try:
+            t0 = time.monotonic()
+            catalog, _meta = _get_catalog(force=False, blocking=False, refresh_counts=False)
+            if catalog is None:
+                return  # background catalog sync started; next attempt picks it up
+            page = clients_page(
+                _client(),
+                sales_filter="all",
+                require_telegram=True,
+                limit=200,
+                offset=0,
+                catalog=catalog,
+            )
+            new_rows = list(page.get("clients") or [])
+            with _PICKER_CATALOG_LOCK:
+                _PICKER_CATALOG["rows"] = new_rows
+                _PICKER_CATALOG["built_at"] = time.monotonic()
+            log.info(
+                "picker catalog rebuilt: %d rows in %.2fs",
+                len(new_rows),
+                time.monotonic() - t0,
+            )
+        except Exception:
+            log.warning("picker catalog rebuild failed", exc_info=True)
+
+    threading.Thread(target=_rebuild, name="ms-picker-catalog", daemon=True).start()
+    return rows[:limit]
+
+
 @router.get("/campaigns/telegram-contacts")
 def get_campaign_telegram_contacts(
     q: str = Query(""),
@@ -1809,26 +1861,7 @@ def get_campaign_telegram_contacts(
     """Dropdown contacts: personal Telegram + custom + export overlay + catalog."""
     try:
         t0 = time.monotonic()
-        catalog_clients: list[dict[str, Any]] = []
-        try:
-            catalog, _meta = _get_catalog(force=False, blocking=False, refresh_counts=False)
-            if catalog is not None:
-                page = clients_page(
-                    _client(),
-                    sales_filter="all",
-                    require_telegram=True,
-                    limit=min(limit, 200),
-                    offset=0,
-                    catalog=catalog,
-                )
-                # NO enrich_clients here: it rebuilds the TG conversation
-                # preview per client (history scans) — tens of seconds for a
-                # 200-row page, which blew past the UI timeout and left the
-                # picker empty. Labels only need name/nick/chat id, which the
-                # raw catalog rows already carry.
-                catalog_clients = list(page.get("clients") or [])
-        except Exception:
-            log.debug("telegram-contacts catalog preview skipped", exc_info=True)
+        catalog_clients = _picker_catalog_rows(min(limit, 200))
         t_catalog = time.monotonic() - t0
         # Stale personal-account cache refreshes itself in the background.
         # No is_authorized() here: in gateway mode that probes the egress over
