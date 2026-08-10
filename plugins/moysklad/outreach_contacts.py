@@ -367,5 +367,20 @@ def list_outreach_contacts(
             or needle in (c.get("tg_nick") or "").lower()
             or needle in (c.get("tg_chat_id") or "").lower()
         ]
-    items.sort(key=lambda c: (c.get("name") or c.get("label") or "").lower())
-    return items[: max(1, min(int(limit or 200), 500))]
+
+    def _sort_key(c: dict[str, Any]) -> str:
+        return (c.get("name") or c.get("label") or "").lower()
+
+    # Custom contacts always survive the limit and sit at the top — the
+    # operator just typed them and must not hunt among 300 Telegram peers.
+    customs = sorted(
+        (c for c in items if c.get("source") == "custom"),
+        key=_sort_key,
+    )
+    others = sorted(
+        (c for c in items if c.get("source") != "custom"),
+        key=_sort_key,
+    )
+    cap = max(1, min(int(limit or 200), 500))
+    room = max(0, cap - len(customs))
+    return customs + others[:room]

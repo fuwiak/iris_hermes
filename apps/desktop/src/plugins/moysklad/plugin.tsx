@@ -4085,6 +4085,7 @@ function CampaignsPage() {
           tg_nick?: string
           tg_chat_id?: string
           label?: string
+          source?: string
           resolved_via?: string
         }
       }>('/campaigns/telegram-contacts', {
@@ -4097,9 +4098,20 @@ function CampaignsPage() {
           resolve: true
         }
       })
+      const added = data.contact
+      if (added?.id) {
+        // Pin the new row at the top of «Добавленные» immediately — don't wait
+        // for the full refresh or hunt among 300 Telegram peers.
+        setOutreachContacts(prev => {
+          const row = { ...added, source: added.source || 'custom' }
+          const rest = prev.filter(c => c.id !== row.id)
+          return [row, ...rest]
+        })
+        selectContactFromPicker(added.id)
+      }
       await loadOutreachContacts()
-      if (data.contact?.id) {
-        selectContactFromPicker(data.contact.id)
+      if (added?.id) {
+        selectContactFromPicker(added.id)
       }
       setAddContactName('')
       setAddContactNick('')
@@ -4107,9 +4119,8 @@ function CampaignsPage() {
       setAddContactQuery('')
       setAddContactOpen(false)
       setActionStatus(
-        `✓ Контакт добавлен` +
-          (data.contact?.resolved_via ? ` (${data.contact.resolved_via})` : '') +
-          `: ${data.contact?.label || nick || chatId || query}`
+        `✓ В «Добавленные»: ` +
+          (data.contact?.label || nick || chatId || query)
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -5340,13 +5351,29 @@ function CampaignsPage() {
                 value={contactPickerId || selectedClientId || ''}
               >
                 <option value="">— выберите контакт —</option>
-                {outreachContacts.map((c, i) => (
-                  <option key={`${c.id || 'c'}-${i}`} value={c.id}>
-                    {c.label || c.name || c.tg_nick || c.id}
-                    {c.source === 'custom' ? ' · свой' : ''}
-                    {c.source === 'telegram' ? ' · мои контакты' : ''}
-                  </option>
-                ))}
+                {outreachContacts.some(c => c.source === 'custom') ? (
+                  <optgroup label="Добавленные">
+                    {outreachContacts
+                      .filter(c => c.source === 'custom')
+                      .map((c, i) => (
+                        <option key={`custom-${c.id || i}`} value={c.id}>
+                          {c.label || c.name || c.tg_nick || c.id}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {outreachContacts.some(c => c.source !== 'custom') ? (
+                  <optgroup label="Контакты">
+                    {outreachContacts
+                      .filter(c => c.source !== 'custom')
+                      .map((c, i) => (
+                        <option key={`all-${c.id || i}`} value={c.id}>
+                          {c.label || c.name || c.tg_nick || c.id}
+                          {c.source === 'telegram' ? ' · мои контакты' : ''}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
               </select>
             </label>
             {contactsError ? (
@@ -5359,7 +5386,10 @@ function CampaignsPage() {
                 {contactsLoading
                   ? 'Загружаем список контактов…'
                   : outreachContacts.length
-                    ? `В списке ${outreachContacts.length} контактов`
+                    ? `В списке ${outreachContacts.length}` +
+                      (outreachContacts.some(c => c.source === 'custom')
+                        ? ` · добавленных ${outreachContacts.filter(c => c.source === 'custom').length}`
+                        : '')
                     : 'Список пуст — подключите личный Telegram и синхронизируйте контакты, затем «Обновить список»'}
               </p>
             )}

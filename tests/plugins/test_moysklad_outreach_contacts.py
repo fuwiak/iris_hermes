@@ -74,6 +74,33 @@ def test_list_merges_catalog_clients(tmp_path, monkeypatch):
     assert listed[0]["source"] == "catalog"
 
 
+def test_list_keeps_custom_first_within_limit(tmp_path, monkeypatch):
+    """Custom rows must not be truncated away by a full Telegram peer list."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc, "telegram_account_contacts", lambda refresh=False: [])
+    custom = oc.add_custom_contact(
+        name="Яна Добавленная",
+        tg_nick="yana_added",
+        tg_chat_id="999",
+        resolve=False,
+    )
+    catalog = [
+        {
+            "id": f"cp-{i}",
+            "name": f"Клиент {i:03d}",
+            "tg_nick": f"user{i}",
+            "tg_chat_id": str(1000 + i),
+        }
+        for i in range(50)
+    ]
+    listed = oc.list_outreach_contacts(catalog_clients=catalog, limit=20)
+    assert listed[0]["id"] == custom["id"]
+    assert listed[0]["source"] == "custom"
+    assert all(c["source"] == "custom" for c in listed if c["id"] == custom["id"])
+    assert len(listed) == 20
+    assert sum(1 for c in listed if c.get("source") == "custom") == 1
+
+
 def test_seller_settings_seeds_biz_id_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("TELEGRAM_BUSINESS_CONNECTION_ID", "I2EgEdMmiEvLHAAAmN_NBVfktgQ")
