@@ -41,7 +41,7 @@ def test_flowwow_skyloft_marketplace_audience() -> None:
 
 
 def test_channel_name_from_order_archived_lookup() -> None:
-    from plugins.moysklad.sales_channels import channel_name_from_order
+    from plugins.moysklad.sales_channels import channel_name_from_order, resolve_channel_name
 
     order = {
         "salesChannel": {
@@ -49,7 +49,16 @@ def test_channel_name_from_order_archived_lookup() -> None:
         }
     }
     assert channel_name_from_order(order, {"abc-1": "FlowWow Skyloft"}) == "FlowWow Skyloft"
-    assert channel_name_from_order(order, {}) == "saleschannel:abc-1"
+    # Linked id without directory entry → None (not «Без канала»); GET fills it.
+    assert channel_name_from_order(order, {}) is None
+    assert (
+        resolve_channel_name(
+            order,
+            {},
+            fetch_channel=lambda _cid: {"name": "FlowWow Skyloft", "archived": True},
+        )
+        == "FlowWow Skyloft"
+    )
 
 
 def test_sales_channel_type_marketplace_wins() -> None:

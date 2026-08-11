@@ -31,11 +31,12 @@ from plugins.moysklad.order_status import (
 )
 from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_HYBRID,
-    channel_name_from_order,
     counterparty_row_from_api,
     entity_ref_id,
+    format_channels_display,
     is_marketplace_channel,
     refresh_row_channel_fields,
+    resolve_channel_name,
     row_audience_bucket,
     row_matches_sales_filter,
     sales_channel_type_from_channels,
@@ -94,12 +95,18 @@ def build_enriched_catalog(
     include_archived: bool = False,
 ) -> dict[str, Any]:
     """Fetch MoySklad counterparties + orders into CRM-shaped rows."""
-    channels_payload = client.channels(fetch_all=True, limit=0)
+    channels_payload = client.channels(fetch_all=True, limit=0, include_archived=True)
     channels_by_id = sales_channels_by_id(list(channels_payload.get("rows") or []))
 
     orders_payload = client.orders(fetch_all=True, limit=max_orders)
     # Stage-1 safety on raw API pages (overlapping offsets / retries).
     orders = dedupe_entity_pages(orders_payload.get("rows") or [])
+
+    def _fetch_channel(channel_id: str) -> dict[str, Any] | None:
+        try:
+            return client.get_sales_channel(channel_id)
+        except Exception:
+            return None
 
     channels_by_agent: dict[str, list[str]] = defaultdict(list)
     order_ctx_by_agent: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -110,7 +117,10 @@ def build_enriched_catalog(
         agent_id = _agent_id_from_order(order)
         if not agent_id:
             continue
-        ch = channel_name_from_order(order, channels_by_id)
+        # Resolve even when saleschannel is archived (list omit + GET by id).
+        ch = resolve_channel_name(
+            order, channels_by_id, fetch_channel=_fetch_channel
+        )
         if ch:
             channels_by_agent[agent_id].append(ch)
         amount = _minor_to_rub(order.get("sum"))
@@ -285,7 +295,7 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
     channels = unique_sales_channels(row)
     audience = row.get("_audience") or {}
     sales_type = sales_channel_type_from_channels(channels)
-    channel_display = ", ".join(channels)
+    channel_display = format_channels_display(channels)
     # Prefer live aggregates from order context when present.
     ctx = row.get("_orders_context") or []
     raw_avg = row.get("avg_check")

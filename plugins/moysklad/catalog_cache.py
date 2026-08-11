@@ -82,7 +82,7 @@ def cache_key(
     include_archived: bool,
 ) -> str:
     parts = (
-        "moysklad:catalog:v3",
+        "moysklad:catalog:v4",
         _account_fingerprint(),
         f"o{int(max_orders)}",
         f"c{int(max_counterparties)}",

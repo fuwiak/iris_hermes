@@ -48,7 +48,25 @@ DIRECT_AUDIENCE_CHANNELS = (
     "vereskflowers",
 )
 
+MARKETPLACE_CHANNELS = (
+    # Explicit MoySklad sales-channel names (case/space insensitive match).
+    "Flowwow",
+    "FlowWow",
+    "Flowwow Skyloft",
+    "FlowWow Skyloft",
+    "Flowwow Floday",
+    "FlowWow Floday",
+    "Flowwow Сокольники",
+    "FlowWow Сокольники",
+    "Flowwow Университет",
+    "FlowWow Университет",
+    "Ozon",
+    "Wildberries",
+    "WB",
+)
+
 MARKETPLACE_AUDIENCE_CHANNELS = (
+    "flowwow",
     "flowwow floday",
     "flowwowfloday",
     "flowwow сокольники",
@@ -66,6 +84,9 @@ MARKETPLACE_AUDIENCE_CHANNELS = (
     "флау вау скайлофт",
     "флаувай",
     "флаувай скайлофт",
+    "ozon",
+    "wildberries",
+    "wb",
 )
 
 MARKETPLACE_AUDIENCE_STATUSES = (
@@ -98,9 +119,36 @@ SALES_CHANNEL_TYPE_MARKETPLACE = "маркетплейс"
 SALES_CHANNEL_TYPE_DIRECT = "прямые продажи"
 SALES_CHANNEL_TYPE_HYBRID = "маркетплейс/прямые продажи"
 
+NO_CHANNEL_LABEL = "Без канала"
+
 
 def _normalize_channel(channel: str) -> str:
     return channel.strip().lower().replace("ё", "е")
+
+
+def matches_marketplace_channel_name(channel: str | None) -> bool:
+    """True when channel name matches MARKETPLACE_CHANNELS (case/space-insensitive)."""
+    if not channel or not str(channel).strip():
+        return False
+    return _token_matches_any(str(channel), MARKETPLACE_CHANNELS) or _token_matches_any(
+        str(channel), MARKETPLACE_AUDIENCE_CHANNELS
+    )
+
+
+def channel_category(channel: str | None) -> str:
+    """Stable category for a single channel name.
+
+    Returns ``marketplace`` / ``direct`` / ``unknown``. Empty → ``unknown``.
+    Explicit MARKETPLACE_CHANNELS win; direct allowlist next; else unknown
+    (do not force marketplace for arbitrary archived names).
+    """
+    if not channel or not str(channel).strip():
+        return "unknown"
+    if matches_marketplace_channel_name(channel):
+        return "marketplace"
+    if is_direct_sales_channel(channel):
+        return "direct"
+    return "unknown"
 
 
 def is_direct_sales_channel(channel: str | None) -> bool:
@@ -109,15 +157,40 @@ def is_direct_sales_channel(channel: str | None) -> bool:
     text = _normalize_channel(str(channel))
     if text in DIRECT_SALES_CHANNEL_EXACT:
         return True
+    if text in {"website", "web site", "web"}:
+        return True
     if text == "сайт" or text.startswith("сайт "):
         return True
     return any(part in text for part in DIRECT_SALES_CHANNEL_SUBSTRINGS)
 
 
 def is_marketplace_channel(channel: str | None) -> bool:
+    """Tab / type classifier: explicit marketplace OR non-direct order channel.
+
+    Preserves existing behaviour for Ozon/WB/etc. while making Flowwow Skyloft
+    an explicit marketplace match via MARKETPLACE_CHANNELS.
+    """
     if not channel or not str(channel).strip():
         return False
+    if matches_marketplace_channel_name(channel):
+        return True
     return not is_direct_sales_channel(channel)
+
+
+def display_channel_label(channel: str | None) -> str:
+    """UI label: real name, or «Без канала» only when truly absent."""
+    text = str(channel or "").strip()
+    if not text:
+        return NO_CHANNEL_LABEL
+    # Internal unresolved id placeholders are not «Без канала».
+    return text
+
+
+def format_channels_display(channels: list[str] | None) -> str:
+    cleaned = [str(c).strip() for c in (channels or []) if str(c or "").strip()]
+    if not cleaned:
+        return NO_CHANNEL_LABEL
+    return ", ".join(cleaned)
 
 
 def _norm_token(value: str) -> str:
@@ -425,22 +498,72 @@ def entity_ref_id(ref: Any) -> str | None:
 def channel_name_from_order(
     order: dict[str, Any], channels_by_id: dict[str, str] | None = None
 ) -> str | None:
+    """Resolve sales channel name from an order/demand document.
+
+    Archived channels are first-class: never drop a linked channel just because
+    ``archived=true``. Prefer expand.name → directory lookup by id.
+    Returns ``None`` only when the document has no salesChannel link at all.
+    """
     sc = order.get("salesChannel") or order.get("sales_channel")
     if isinstance(sc, str) and sc.strip():
         return sc.strip()
     if isinstance(sc, dict):
         name = sc.get("name")
-        if name:
+        if name and str(name).strip():
             return str(name).strip()
         channel_id = entity_ref_id(sc)
         if channel_id and channels_by_id:
             label = channels_by_id.get(channel_id)
-            if label:
-                return label
-        # Last resort: keep id so UI/filter can still show *something*
-        # (archived channel missing from lookup used to render blank).
+            if label and str(label).strip():
+                return str(label).strip()
+        # Linked but unresolved — caller may GET /entity/saleschannel/{id}.
+        # Do NOT treat as missing («Без канала»).
         if channel_id:
-            return f"saleschannel:{channel_id}"
+            return None
+    return None
+
+
+def sales_channel_ref_id(order: dict[str, Any]) -> str | None:
+    """Return saleschannel entity id linked on a document, if any."""
+    sc = order.get("salesChannel") or order.get("sales_channel")
+    if isinstance(sc, dict):
+        return entity_ref_id(sc)
+    return None
+
+
+def resolve_channel_name(
+    order: dict[str, Any],
+    channels_by_id: dict[str, str],
+    *,
+    fetch_channel=None,
+) -> str | None:
+    """Resolve channel name, optionally fetching archived channel by id.
+
+    ``fetch_channel(id) -> dict | None`` should call MoySklad GET
+    ``/entity/saleschannel/{id}`` (works for archived). Mutates
+    ``channels_by_id`` when a name is discovered.
+    """
+    name = channel_name_from_order(order, channels_by_id)
+    if name:
+        return name
+    channel_id = sales_channel_ref_id(order)
+    if not channel_id:
+        return None
+    cached = channels_by_id.get(channel_id)
+    if cached and str(cached).strip():
+        return str(cached).strip()
+    if fetch_channel is None:
+        return None
+    try:
+        payload = fetch_channel(channel_id)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    label = str(payload.get("name") or "").strip()
+    if label:
+        channels_by_id[channel_id] = label
+        return label
     return None
 
 

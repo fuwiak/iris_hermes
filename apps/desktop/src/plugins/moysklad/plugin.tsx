@@ -628,9 +628,13 @@ const CLIENT_COLUMNS: Array<{
     key: 'channel_display',
     label: 'Канал продаж',
     sortValue: r =>
-      (r.channels || []).length ? (r.channels || []).join(', ') : r.channel || '',
+      (r.channels || []).length
+        ? (r.channels || []).join(', ')
+        : r.channel || 'Без канала',
     render: r =>
-      (r.channels || []).length ? (r.channels || []).join(', ') : r.channel || ''
+      (r.channels || []).length
+        ? (r.channels || []).join(', ')
+        : r.channel || 'Без канала'
   },
   {
     key: 'avg_display',

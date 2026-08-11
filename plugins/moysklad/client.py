@@ -261,6 +261,18 @@ class MoySkladClient:
             "rows": rows,
         }
 
+    def get_sales_channel(self, channel_id: str) -> dict[str, Any]:
+        """Fetch one sales channel by id (works for archived entities).
+
+        MoySklad list endpoints hide ``archived=true`` by default; a document
+        may still reference an archived channel via meta.href / id. GET by id
+        returns the historical name.
+        """
+        cid = str(channel_id or "").strip()
+        if not cid:
+            raise MoySkladError("saleschannel id required")
+        return self._request("GET", f"/entity/saleschannel/{cid}")
+
     def channels(
         self,
         *,
@@ -299,14 +311,12 @@ class MoySkladClient:
                         seen.add(rid)
                         rows.append(row)
             return {"total": len(rows), "count": len(rows), "rows": rows}
-        extra: dict[str, Any] = {}
-        if include_archived:
-            # Single page cannot OR archived; prefer active for paged callers.
-            extra["filter"] = "archived=false"
-        else:
-            extra["filter"] = "archived=false"
+        # Paged callers: active only (full catalog always uses fetch_all).
         rows, total = self.get_page(
-            "/entity/saleschannel", limit=limit, offset=offset, extra=extra
+            "/entity/saleschannel",
+            limit=limit,
+            offset=offset,
+            extra={"filter": "archived=false"},
         )
         return {"total": total, "count": len(rows), "rows": rows}
 

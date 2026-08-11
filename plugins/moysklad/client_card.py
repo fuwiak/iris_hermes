@@ -13,6 +13,7 @@ import re
 from typing import Any, Optional
 
 from plugins.moysklad.classify import _public_client
+from plugins.moysklad.sales_channels import display_channel_label
 
 log = logging.getLogger(__name__)
 
@@ -401,6 +402,7 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         amount_f = 0.0
     channel = str(item.get("channel") or item.get("Канал продаж") or "").strip()
+    channel_label = display_channel_label(channel)
     name = str(item.get("name") or "").strip()
     desc = str(item.get("description") or "").strip()
     snippet = str(item.get("product_snippet") or "").strip()
@@ -433,7 +435,7 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
             item.get("payment_status")
             or classify_order_payment_safe(item, payed_f, unpaid_f)
         ),
-        "channel": channel,
+        "channel": channel_label,
         "product_snippet": snippet,
         "description": desc,
     }
