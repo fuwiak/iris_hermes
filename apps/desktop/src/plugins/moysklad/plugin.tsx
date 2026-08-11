@@ -26,10 +26,8 @@ import {
 } from './audience-pick'
 import {
   filterClientRowsByAudience,
-  filterClientRowsByQuery,
   isBenignRequestAbort,
-  pickLocalClientsSeed,
-  rowMatchesGroupFilter
+  pickLocalClientsSeed
 } from './clients-query'
 
 interface GroupChipOption {
