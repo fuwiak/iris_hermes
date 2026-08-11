@@ -24,6 +24,11 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
+import {
+  filterClientRowsByQuery,
+  isBenignRequestAbort,
+  pickLocalClientsSeed
+} from './clients-query'
 
 interface GroupChipOption {
   name: string
@@ -1930,6 +1935,8 @@ const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v4:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
+/** Catalog filter can exceed default 15s desktop REST timeout → Chromium abort modal. */
+const CLIENTS_FETCH_TIMEOUT_MS = 90_000
 
 interface ClientsLocalCachePayload {
   saved_at: number
@@ -1986,6 +1993,60 @@ function writeClientsLocalCache(key: string, payload: ClientsLocalCachePayload):
   } catch {
     // Quota / private mode — ignore; network path still works.
   }
+}
+
+/** Instant paint: exact key, else filter empty-q / all-tab local snapshot. */
+function seedClientsLocalPayload(parts: {
+  salesFilter: string
+  q: string
+  group: string
+  groupSource: string
+}): ClientsLocalCachePayload | null {
+  return pickLocalClientsSeed({
+    q: parts.q,
+    readExact: () =>
+      readClientsLocalCache(
+        clientsLocalCacheKey({
+          salesFilter: parts.salesFilter,
+          q: parts.q,
+          group: parts.group,
+          groupSource: parts.groupSource
+        })
+      ),
+    readBase: () =>
+      readClientsLocalCache(
+        clientsLocalCacheKey({
+          salesFilter: parts.salesFilter,
+          q: '',
+          group: parts.group,
+          groupSource: parts.groupSource
+        })
+      ),
+    readAllBase: () =>
+      readClientsLocalCache(
+        clientsLocalCacheKey({
+          salesFilter: 'all',
+          q: '',
+          group: parts.group,
+          groupSource: parts.groupSource
+        })
+      ),
+    filterRows: (seed, q) => {
+      const clients = filterClientRowsByQuery(seed.clients, q)
+      if (!clients.length) {
+        return null
+      }
+      return {
+        ...seed,
+        q,
+        clients,
+        matched_total: clients.length,
+        has_more: Boolean(seed.has_more),
+        next_offset: clients.length,
+        from_cache: true
+      }
+    }
+  })
 }
 
 /** A repaint must not blank «TG conversation»: keep the previous non-empty
@@ -2214,8 +2275,14 @@ function ClientsPage() {
         setLoadingMore(true)
       } else {
         // CDN-style: paint local snapshot immediately, then revalidate.
+        // On q miss, filter empty-q / all-tab cache so «Павел» is instant.
         if (!opts?.refresh) {
-          const local = readClientsLocalCache(cacheKey)
+          const local = seedClientsLocalPayload({
+            salesFilter,
+            q: qDebounced,
+            group,
+            groupSource
+          })
           if (local) {
             setClients(local.clients)
             setCounts(local.counts)
@@ -2276,7 +2343,7 @@ function ClientsPage() {
           snapshot?: boolean
           synced_at_label?: string
           synced_at?: number
-        }>(`/clients?${params}`)
+        }>(`/clients?${params}`, { timeoutMs: CLIENTS_FETCH_TIMEOUT_MS })
 
         if (gen !== loadGen.current) {return}
         const page = data.clients || []
@@ -2335,9 +2402,44 @@ function ClientsPage() {
               data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''),
             from_cache: Boolean(data.cached)
           })
+          // Keep empty-q base warm so the next search filters instantly.
+          if (!qDebounced.trim()) {
+            writeClientsLocalCache(
+              clientsLocalCacheKey({
+                salesFilter,
+                q: '',
+                group,
+                groupSource
+              }),
+              {
+                saved_at: Date.now(),
+                sales_filter: salesFilter,
+                q: '',
+                group,
+                group_source: groupSource,
+                clients: page,
+                counts: data.counts || null,
+                matched_total: data.matched_total || 0,
+                has_more:
+                  data.has_more != null
+                    ? Boolean(data.has_more)
+                    : computedNext < (data.matched_total || 0),
+                next_offset: computedNext,
+                group_options_ms: msOpts,
+                group_options_ai: aiOpts,
+                synced_at_label:
+                  data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''),
+                from_cache: Boolean(data.cached)
+              }
+            )
+          }
         }
       } catch (err) {
         if (gen !== loadGen.current) {return}
+        // Superseded search / desktop REST abort must not block filtering.
+        if (isBenignRequestAbort(err)) {
+          return
+        }
         setError(err instanceof Error ? err.message : String(err))
 
         // Keep painted local/stale rows on soft refresh failure.
@@ -3076,6 +3178,10 @@ function CampaignsPage() {
   const [sanity, setSanity] = useState<SanityResult | null>(null)
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
+  /** Bumps on each audience filter change — stale /clients responses ignored. */
+  const audienceLoadGen = useRef(0)
+  const audiencePreviewRef = useRef<ClientRow[]>([])
+  audiencePreviewRef.current = audiencePreview
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Bumps on each client switch / generate — stale stream events are ignored. */
   const outreachGenRef = useRef(0)
@@ -3716,13 +3822,44 @@ function CampaignsPage() {
     async (opts?: { append?: boolean }) => {
       const append = Boolean(opts?.append)
       const offset = append ? audienceNextOffset : 0
+      const gen = append ? audienceLoadGen.current : ++audienceLoadGen.current
 
       if (append) {
         if (audienceLoadMoreRef.current || !audienceHasMore) {return}
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
       } else {
-        setLoading(true)
+        // Instant: filter local clients cache / current chips while API revalidates.
+        const local = seedClientsLocalPayload({
+          salesFilter,
+          q: audienceQDebounced,
+          group,
+          groupSource
+        })
+        if (local?.clients?.length) {
+          setAudiencePreview(local.clients)
+          setAudience(local.matched_total || local.clients.length)
+          if (local.counts) {
+            setCounts(local.counts)
+          }
+          setAudienceNextOffset(local.next_offset || local.clients.length)
+          setAudienceHasMore(Boolean(local.has_more))
+          setLoading(false)
+        } else if (audienceQDebounced.trim() && audiencePreviewRef.current.length) {
+          const filtered = filterClientRowsByQuery(
+            audiencePreviewRef.current,
+            audienceQDebounced
+          )
+          if (filtered.length) {
+            setAudiencePreview(filtered)
+            setAudience(filtered.length)
+            setLoading(false)
+          } else {
+            setLoading(true)
+          }
+        } else {
+          setLoading(true)
+        }
         setError('')
       }
 
@@ -3735,7 +3872,13 @@ function CampaignsPage() {
           group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
           has_more?: boolean
           next_offset?: number
-        }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`)
+        }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`, {
+          timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
+        })
+
+        if (gen !== audienceLoadGen.current) {
+          return
+        }
 
         const rows = page.clients || []
         setAudiencePreview(prev => (append ? mergeClientPages(prev, rows) : rows))
@@ -3746,6 +3889,35 @@ function CampaignsPage() {
           const { ms, ai } = resolveGroupOptionsBySource(page)
           setGroupOptionsMs(ms)
           setGroupOptionsAi(ai)
+          writeClientsLocalCache(
+            clientsLocalCacheKey({
+              salesFilter,
+              q: audienceQDebounced,
+              group,
+              groupSource
+            }),
+            {
+              saved_at: Date.now(),
+              sales_filter: salesFilter,
+              q: audienceQDebounced,
+              group,
+              group_source: groupSource,
+              clients: rows,
+              counts: page.counts || null,
+              matched_total: page.matched_total || 0,
+              has_more:
+                page.has_more != null
+                  ? Boolean(page.has_more)
+                  : (page.next_offset != null ? page.next_offset : offset + rows.length) <
+                    (page.matched_total || 0),
+              next_offset:
+                page.next_offset != null ? page.next_offset : offset + rows.length,
+              group_options_ms: ms,
+              group_options_ai: ai,
+              synced_at_label: '',
+              from_cache: false
+            }
+          )
         }
         const next = page.next_offset != null ? page.next_offset : offset + rows.length
         setAudienceNextOffset(next)
@@ -3753,19 +3925,36 @@ function CampaignsPage() {
           page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0)
         )
       } catch (err) {
+        if (gen !== audienceLoadGen.current) {
+          return
+        }
+        if (isBenignRequestAbort(err)) {
+          return
+        }
         setError(err instanceof Error ? err.message : String(err))
 
-        if (!append) {setAudiencePreview([])}
+        if (!append && !audiencePreviewRef.current.length) {
+          setAudiencePreview([])
+        }
       } finally {
         if (append) {
           audienceLoadMoreRef.current = false
           setAudienceLoadingMore(false)
-        } else {
+        } else if (gen === audienceLoadGen.current) {
           setLoading(false)
         }
       }
     },
-    [audienceFilterParams, audienceHasMore, audienceNextOffset, call]
+    [
+      audienceFilterParams,
+      audienceHasMore,
+      audienceNextOffset,
+      audienceQDebounced,
+      call,
+      group,
+      groupSource,
+      salesFilter
+    ]
   )
 
   const refresh = useCallback(async () => {

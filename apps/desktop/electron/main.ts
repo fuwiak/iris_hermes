@@ -6251,6 +6251,11 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
       }
 
       clearTimeout(timer)
+      const msg = error && typeof error.message === 'string' ? error.message : String(error || '')
+      if (/abort/i.test(msg)) {
+        reject(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
+        return
+      }
       reject(error)
     })
 
