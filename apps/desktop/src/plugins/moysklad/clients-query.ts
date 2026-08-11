@@ -1,5 +1,5 @@
 /**
- * Pure helpers for MoySklad clients / audience search.
+ * Pure helpers for MoySklad clients / audience search + group chips.
  * Instant local filter from painted rows or localStorage cache;
  * network AbortError must not become a blocking error modal.
  */
@@ -32,6 +32,29 @@ export function digitsPhone(raw: string): string {
   return digits
 }
 
+/** Mirrors plugins/moysklad/groups.normalize_group_key (bouquet / spacing). */
+export function normalizeGroupKey(name: string): string {
+  let raw = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  raw = raw.replace(/\s+/g, ' ')
+  if (!raw) {
+    return ''
+  }
+  const compact = raw.replace(/[\s.\-_,]/g, '')
+  if (compact.includes('букет') && compact.includes('10000')) {
+    return 'букет от 10 000'
+  }
+  if (compact === 'watsapp' || compact === 'whatsapp') {
+    return 'whatsapp'
+  }
+  if (compact === 'флаувау' || compact === 'флау вау'.replace(/\s+/g, '')) {
+    return 'флау вау'
+  }
+  return raw
+}
+
 export interface ClientQueryRow {
   id?: string | null
   name?: string | null
@@ -41,12 +64,76 @@ export interface ClientQueryRow {
   tags?: string[] | null
   groups?: string | null
   ms_groups?: string | null
+  ai_groups?: string[] | null
   channel?: string | null
   channels?: string[] | null
   state?: string | null
   tg_conversation?: string | null
   tg_conversation_preview?: string | null
   actual_address?: string | null
+}
+
+function splitGroupTokens(raw: string): string[] {
+  return String(raw || '')
+    .split(/[,;|]/)
+    .map(s => s.trim())
+    .filter(Boolean)
+}
+
+export function rowMsGroupTokens(row: ClientQueryRow): string[] {
+  const fromTags = Array.isArray(row.tags) ? row.tags.map(String) : []
+  const fromMs = splitGroupTokens(String(row.ms_groups || row.groups || ''))
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of [...fromTags, ...fromMs]) {
+    const key = normalizeGroupKey(name)
+    if (!key || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    out.push(key)
+  }
+  return out
+}
+
+export function rowAiGroupTokens(row: ClientQueryRow): string[] {
+  const fromAi = Array.isArray(row.ai_groups) ? row.ai_groups.map(String) : []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of fromAi) {
+    const key = normalizeGroupKey(name)
+    if (!key || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    out.push(key)
+  }
+  return out
+}
+
+/** Mirrors plugins/moysklad/groups.row_has_group for public ClientRow. */
+export function rowMatchesGroupFilter(
+  row: ClientQueryRow,
+  group: string,
+  groupSource: string = 'any'
+): boolean {
+  const target = normalizeGroupKey(group)
+  if (!target) {
+    return true
+  }
+  const src = String(groupSource || 'any')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  let tokens: string[]
+  if (src === 'ms' || src === 'moysklad' || src === 'мойсклад') {
+    tokens = rowMsGroupTokens(row)
+  } else if (src === 'ai' || src === 'ии' || src === 'llm') {
+    tokens = rowAiGroupTokens(row)
+  } else {
+    tokens = [...rowMsGroupTokens(row), ...rowAiGroupTokens(row)]
+  }
+  return tokens.includes(target)
 }
 
 /** Same spirit as classify._row_matches_query — name / phone / @tg / tags. */
@@ -69,6 +156,7 @@ export function rowMatchesClientQuery(row: ClientQueryRow, q: string): boolean {
     row.state,
     row.groups,
     row.ms_groups,
+    ...(Array.isArray(row.ai_groups) ? row.ai_groups : []),
     row.tg_conversation,
     row.tg_conversation_preview,
     row.actual_address,
@@ -106,30 +194,62 @@ export function filterClientRowsByQuery<T extends ClientQueryRow>(rows: T[], q: 
   return rows.filter(row => rowMatchesClientQuery(row, needle))
 }
 
+export function filterClientRowsByAudience<T extends ClientQueryRow>(
+  rows: T[],
+  opts: { q?: string; group?: string; groupSource?: string }
+): T[] {
+  let out = rows
+  const group = String(opts.group || '').trim()
+  if (group) {
+    out = out.filter(row => rowMatchesGroupFilter(row, group, opts.groupSource || 'any'))
+  }
+  const q = String(opts.q || '').trim()
+  if (q) {
+    out = filterClientRowsByQuery(out, q)
+  }
+  return out
+}
+
 /**
- * Prefer exact cache hit; else filter the empty-q snapshot for the same tabs
- * (and fall back to sales_filter=all — backend search also spans all tabs).
+ * Prefer exact cache hit; else filter unfiltered (empty group/q) snapshots
+ * by group + q so chip clicks update contacts instantly.
  */
 export function pickLocalClientsSeed<T>(opts: {
   q: string
+  group?: string
+  groupSource?: string
   readExact: () => T | null
+  /** Same tabs, empty q, same group (exact group page without search). */
   readBase: () => T | null
-  readAllBase: () => T | null
-  filterRows: (seed: T, q: string) => T | null
+  /** Unfiltered bases (group='') to locally apply group+q. */
+  readUnfilteredBases: () => Array<T | null>
+  filterRows: (seed: T, q: string, group: string, groupSource: string) => T | null
 }): T | null {
   const exact = opts.readExact()
   if (exact) {
     return exact
   }
+
   const q = String(opts.q || '').trim()
-  if (!q) {
-    return opts.readBase()
+  const group = String(opts.group || '').trim()
+  const groupSource = String(opts.groupSource || 'any')
+
+  const base = opts.readBase()
+  if (base && !q) {
+    return base
   }
-  for (const seed of [opts.readBase(), opts.readAllBase()]) {
+  if (base && q) {
+    const filtered = opts.filterRows(base, q, group, groupSource)
+    if (filtered) {
+      return filtered
+    }
+  }
+
+  for (const seed of opts.readUnfilteredBases()) {
     if (!seed) {
       continue
     }
-    const filtered = opts.filterRows(seed, q)
+    const filtered = opts.filterRows(seed, q, group, groupSource)
     if (filtered) {
       return filtered
     }

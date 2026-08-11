@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   digitsPhone,
+  filterClientRowsByAudience,
   filterClientRowsByQuery,
   isBenignRequestAbort,
+  normalizeGroupKey,
   pickLocalClientsSeed,
-  rowMatchesClientQuery
+  rowMatchesClientQuery,
+  rowMatchesGroupFilter
 } from './clients-query'
 
 describe('isBenignRequestAbort', () => {
@@ -44,19 +47,72 @@ describe('filterClientRowsByQuery', () => {
   })
 })
 
+describe('rowMatchesGroupFilter', () => {
+  it('narrows MS group chip to matching contacts', () => {
+    const withGroup = {
+      id: '1',
+      name: 'A',
+      ms_groups: 'букет от 10 000',
+      tags: ['букет от 10 000']
+    }
+    const without = { id: '2', name: 'B', ms_groups: 'сайт', tags: ['сайт'] }
+    expect(rowMatchesGroupFilter(withGroup, 'букет от 10 000', 'ms')).toBe(true)
+    expect(rowMatchesGroupFilter(without, 'букет от 10 000', 'ms')).toBe(false)
+    expect(normalizeGroupKey('букет от 10000')).toBe('букет от 10 000')
+  })
+
+  it('scopes AI groups separately from MS', () => {
+    const row = {
+      id: '1',
+      ms_groups: '8 марта',
+      tags: ['8 марта'],
+      ai_groups: ['премиум']
+    }
+    expect(rowMatchesGroupFilter(row, '8 марта', 'ms')).toBe(true)
+    expect(rowMatchesGroupFilter(row, '8 марта', 'ai')).toBe(false)
+    expect(rowMatchesGroupFilter(row, 'премиум', 'ai')).toBe(true)
+  })
+})
+
+describe('filterClientRowsByAudience', () => {
+  it('applies group chip then search', () => {
+    const rows = [
+      { id: '1', name: 'Павел', ms_groups: 'букет от 10 000', tags: ['букет от 10 000'] },
+      { id: '2', name: 'Павел', ms_groups: 'сайт', tags: ['сайт'] },
+      { id: '3', name: 'Оля', ms_groups: 'букет от 10 000', tags: ['букет от 10 000'] }
+    ]
+    expect(
+      filterClientRowsByAudience(rows, {
+        group: 'букет от 10 000',
+        groupSource: 'ms',
+        q: 'Павел'
+      }).map(r => r.id)
+    ).toEqual(['1'])
+  })
+})
+
 describe('pickLocalClientsSeed', () => {
-  it('filters empty-q base cache when exact q miss', () => {
-    const base = { clients: [{ id: '1', name: 'Павел' }, { id: '2', name: 'Оля' }], q: '' }
+  it('filters unfiltered cache when group chip has no exact hit', () => {
+    const unfiltered = {
+      clients: [
+        { id: '1', name: 'A', ms_groups: 'букет от 10 000', tags: ['букет от 10 000'] },
+        { id: '2', name: 'B', ms_groups: 'сайт', tags: ['сайт'] }
+      ],
+      q: '',
+      group: ''
+    }
     const seed = pickLocalClientsSeed({
-      q: 'Павел',
+      q: '',
+      group: 'букет от 10 000',
+      groupSource: 'ms',
       readExact: () => null,
-      readBase: () => base,
-      readAllBase: () => null,
-      filterRows: (s, q) => ({
-        ...s,
-        q,
-        clients: filterClientRowsByQuery(s.clients, q)
-      })
+      readBase: () => null,
+      readUnfilteredBases: () => [unfiltered],
+      filterRows: (s, q, group, groupSource) => {
+        const clients = filterClientRowsByAudience(s.clients, { q, group, groupSource })
+        if (!clients.length) return null
+        return { ...s, group, clients, matched_total: clients.length }
+      }
     })
     expect(seed?.clients.map(c => c.id)).toEqual(['1'])
   })

@@ -25,9 +25,11 @@ import {
   seedFactsFromAudienceRow
 } from './audience-pick'
 import {
+  filterClientRowsByAudience,
   filterClientRowsByQuery,
   isBenignRequestAbort,
-  pickLocalClientsSeed
+  pickLocalClientsSeed,
+  rowMatchesGroupFilter
 } from './clients-query'
 
 interface GroupChipOption {
@@ -1995,7 +1997,7 @@ function writeClientsLocalCache(key: string, payload: ClientsLocalCachePayload):
   }
 }
 
-/** Instant paint: exact key, else filter empty-q / all-tab local snapshot. */
+/** Instant paint: exact key, else filter unfiltered local snapshot by group+q. */
 function seedClientsLocalPayload(parts: {
   salesFilter: string
   q: string
@@ -2004,6 +2006,8 @@ function seedClientsLocalPayload(parts: {
 }): ClientsLocalCachePayload | null {
   return pickLocalClientsSeed({
     q: parts.q,
+    group: parts.group,
+    groupSource: parts.groupSource,
     readExact: () =>
       readClientsLocalCache(
         clientsLocalCacheKey({
@@ -2022,23 +2026,34 @@ function seedClientsLocalPayload(parts: {
           groupSource: parts.groupSource
         })
       ),
-    readAllBase: () =>
+    readUnfilteredBases: () => [
+      readClientsLocalCache(
+        clientsLocalCacheKey({
+          salesFilter: parts.salesFilter,
+          q: '',
+          group: '',
+          groupSource: 'any'
+        })
+      ),
       readClientsLocalCache(
         clientsLocalCacheKey({
           salesFilter: 'all',
           q: '',
-          group: parts.group,
-          groupSource: parts.groupSource
+          group: '',
+          groupSource: 'any'
         })
-      ),
-    filterRows: (seed, q) => {
-      const clients = filterClientRowsByQuery(seed.clients, q)
+      )
+    ],
+    filterRows: (seed, q, group, groupSource) => {
+      const clients = filterClientRowsByAudience(seed.clients, { q, group, groupSource })
       if (!clients.length) {
         return null
       }
       return {
         ...seed,
         q,
+        group,
+        group_source: groupSource,
         clients,
         matched_total: clients.length,
         has_more: Boolean(seed.has_more),
@@ -2047,6 +2062,22 @@ function seedClientsLocalPayload(parts: {
       }
     }
   })
+}
+
+function findGroupChipCount(
+  group: string,
+  groupSource: string,
+  ms: GroupChipOption[],
+  ai: GroupChipOption[]
+): number | null {
+  const name = String(group || '').trim()
+  if (!name) {
+    return null
+  }
+  const src = String(groupSource || 'any').toLowerCase()
+  const pool = src === 'ai' ? ai : src === 'ms' ? ms : [...ms, ...ai]
+  const hit = pool.find(opt => opt.name === name)
+  return hit && typeof hit.count === 'number' ? hit.count : null
 }
 
 /** A repaint must not blank «TG conversation»: keep the previous non-empty
@@ -3182,6 +3213,10 @@ function CampaignsPage() {
   const audienceLoadGen = useRef(0)
   const audiencePreviewRef = useRef<ClientRow[]>([])
   audiencePreviewRef.current = audiencePreview
+  const groupOptionsMsRef = useRef<GroupChipOption[]>([])
+  const groupOptionsAiRef = useRef<GroupChipOption[]>([])
+  groupOptionsMsRef.current = groupOptionsMs
+  groupOptionsAiRef.current = groupOptionsAi
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Bumps on each client switch / generate — stale stream events are ignored. */
   const outreachGenRef = useRef(0)
@@ -3829,35 +3864,49 @@ function CampaignsPage() {
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
       } else {
-        // Instant: filter local clients cache / current chips while API revalidates.
+        // Instant: filter local cache / painted chips by group+q while API revalidates.
         const local = seedClientsLocalPayload({
           salesFilter,
           q: audienceQDebounced,
           group,
           groupSource
         })
+        const chipCount = findGroupChipCount(
+          group,
+          groupSource,
+          groupOptionsMsRef.current,
+          groupOptionsAiRef.current
+        )
         if (local?.clients?.length) {
           setAudiencePreview(local.clients)
-          setAudience(local.matched_total || local.clients.length)
+          setAudience(
+            chipCount != null ? chipCount : local.matched_total || local.clients.length
+          )
           if (local.counts) {
             setCounts(local.counts)
           }
           setAudienceNextOffset(local.next_offset || local.clients.length)
-          setAudienceHasMore(Boolean(local.has_more))
-          setLoading(false)
-        } else if (audienceQDebounced.trim() && audiencePreviewRef.current.length) {
-          const filtered = filterClientRowsByQuery(
-            audiencePreviewRef.current,
-            audienceQDebounced
-          )
-          if (filtered.length) {
-            setAudiencePreview(filtered)
-            setAudience(filtered.length)
-            setLoading(false)
-          } else {
-            setLoading(true)
-          }
+          setAudienceHasMore(Boolean(local.has_more) || (chipCount != null && chipCount > local.clients.length))
+          setLoading(true)
         } else {
+          const painted = audiencePreviewRef.current
+          if ((group || audienceQDebounced.trim()) && painted.length) {
+            const filtered = filterClientRowsByAudience(painted, {
+              q: audienceQDebounced,
+              group,
+              groupSource
+            })
+            setAudiencePreview(filtered)
+            setAudience(chipCount != null ? chipCount : filtered.length)
+            setAudienceNextOffset(filtered.length)
+            setAudienceHasMore(chipCount != null ? chipCount > filtered.length : false)
+          } else if (group || audienceQDebounced.trim()) {
+            // Filter active but nothing paintable — clear stale «все 9504».
+            setAudiencePreview([])
+            setAudience(chipCount != null ? chipCount : 0)
+            setAudienceNextOffset(0)
+            setAudienceHasMore(Boolean(chipCount && chipCount > 0))
+          }
           setLoading(true)
         }
         setError('')
@@ -3973,18 +4022,8 @@ function CampaignsPage() {
   useEffect(() => {
     void loadAudience()
     setContactsOpen(true)
-  }, [
-    salesFilter,
-    group,
-    groupSource,
-    channelKind,
-    requirePhone,
-    requireTelegram,
-    vipOnly,
-    birthdaySoon,
-    daysBeforeEvent,
-    audienceQDebounced
-  ])  
+    // loadAudience identity tracks filter deps — include it so group chip clicks always refetch.
+  }, [loadAudience])
 
   useEffect(() => {
     void call<{ campaigns?: Campaign[] }>('/campaigns')
