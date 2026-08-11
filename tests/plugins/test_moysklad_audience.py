@@ -55,6 +55,114 @@ def test_days_before_event_month_bucket() -> None:
     assert row_matches_days_before_event(row, 2, today=today) is False
 
 
+def test_clients_page_group_filter_narrows_audience() -> None:
+    """Group chip click must change /clients matched set (Саша: фильтры)."""
+    from plugins.moysklad.classify import clients_page
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+    with_group = {
+        "_moysklad_id": "g1",
+        "Наименование": "С группой",
+        "Телефон": "+79001111111",
+        "_moysklad_tags": ["8 марта"],
+        "_moysklad_tags_display": "8 марта",
+        "Группы": "8 марта",
+        "_orders_context": [
+            {"id": "o1", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1000}
+        ],
+        "order_count": 1,
+    }
+    without = {
+        "_moysklad_id": "g2",
+        "Наименование": "Без группы",
+        "Телефон": "+79002222222",
+        "_moysklad_tags": [],
+        "_moysklad_tags_display": "",
+        "Группы": "",
+        "_orders_context": [
+            {"id": "o2", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1000}
+        ],
+        "order_count": 1,
+    }
+    refresh_row_channel_fields(with_group)
+    refresh_row_channel_fields(without)
+    catalog = {
+        "rows": [with_group, without],
+        "counts": {"total": 2, "direct": 2, "marketplace": 0},
+        "orders_scanned": 2,
+        "counterparties_scanned": 2,
+        "counterparties_deduped": 2,
+    }
+
+    class _Dummy:
+        pass
+
+    all_page = clients_page(_Dummy(), sales_filter="all", catalog=catalog)  # type: ignore[arg-type]
+    assert all_page["matched_total"] == 2
+
+    filtered = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        group="8 марта",
+        group_source="ms",
+        catalog=catalog,
+    )
+    ids = {c["id"] for c in filtered["clients"]}
+    assert ids == {"g1"}
+    assert filtered["matched_total"] == 1
+
+
+def test_clients_page_vip_and_phone_filters() -> None:
+    from plugins.moysklad.classify import clients_page
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+    vip = {
+        "_moysklad_id": "v1",
+        "Наименование": "VIP",
+        "Телефон": "+79003333333",
+        "_moysklad_tags": ["VIP"],
+        "_moysklad_tags_display": "VIP",
+        "_orders_context": [],
+        "order_count": 0,
+    }
+    no_phone = {
+        "_moysklad_id": "v2",
+        "Наименование": "NoPhone",
+        "Телефон": "",
+        "_moysklad_tags": [],
+        "_orders_context": [],
+        "order_count": 0,
+    }
+    refresh_row_channel_fields(vip)
+    refresh_row_channel_fields(no_phone)
+    catalog = {
+        "rows": [vip, no_phone],
+        "counts": {"total": 2, "direct": 2, "marketplace": 0},
+        "orders_scanned": 0,
+        "counterparties_scanned": 2,
+        "counterparties_deduped": 2,
+    }
+
+    class _Dummy:
+        pass
+
+    vip_page = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        vip_only=True,
+        catalog=catalog,
+    )
+    assert {c["id"] for c in vip_page["clients"]} == {"v1"}
+
+    phone_page = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        require_phone=True,
+        catalog=catalog,
+    )
+    assert {c["id"] for c in phone_page["clients"]} == {"v1"}
+
+
 def test_audience_extras_group_source_and_window(monkeypatch) -> None:
     from plugins.moysklad import groups as groups_mod
 
@@ -72,7 +180,6 @@ def test_audience_extras_group_source_and_window(monkeypatch) -> None:
     today = date(2026, 3, 4)
     assert row_matches_days_before_event(row, 5, today=today) is True
     assert row_matches_days_before_event(row, 1, today=today) is False
-
 
 
 def test_split_group_options_by_source() -> None:

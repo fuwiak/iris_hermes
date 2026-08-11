@@ -19,6 +19,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
+import { planAudienceChipClick, salesFilterTabsDisabled } from './audience-pick'
+
 interface GroupChipOption {
   name: string
   count: number
@@ -2583,7 +2585,12 @@ function ClientsPage() {
           </button>
         </div>
       </div>
-      <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
+      <FilterTabs
+        counts={counts}
+        disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
+        onChange={setSalesFilter}
+        salesFilter={salesFilter}
+      />
       <div className="ms-stage-bar">
         <div className="ms-chips">
           {STAGE_CHIPS.map(chip => {
@@ -2592,7 +2599,6 @@ function ClientsPage() {
             return (
               <button
                 className={`ms-chip${stage === chip.id ? ' is-active' : ''}`}
-                disabled={loading}
                 key={chip.id}
                 onClick={() => setStage(chip.id)}
                 title={chip.title}
@@ -4066,28 +4072,30 @@ function CampaignsPage() {
   ])
 
   const selectAudienceClient = (row: ClientRow) => {
-    if (!row.id) {
-      return
-    }
+    const plan = planAudienceChipClick({
+      pickMode,
+      rowId: row.id || '',
+      rowName: row.name || '',
+      rowPhone: row.phone || '',
+      rowTgNick: row.tg_nick || '',
+      selectedIds: selectedClientIds
+    })
 
-    if (pickMode === 'multi') {
-      setSelectedClientIds(prev =>
-        prev.includes(row.id!)
-          ? prev.filter(id => id !== row.id)
-          : [...prev, row.id!]
+    if (!plan.ok) {
+      setError(
+        'У клиента нет id МойСклад — нажмите «Обновить» на Клиентах и выберите снова'
       )
-
       return
     }
 
-    const nextChannel = row.phone && !row.tg_nick ? 'whatsapp' : 'telegram'
+    setChannel(plan.channel)
+    setContactPickerId(plan.focusId)
+    setSelectedClientIds(plan.selectedIds)
     setMode('auto')
-    setChannel(nextChannel)
-    setSelectedClientIds([row.id])
-    setContactPickerId(row.id)
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
-    applyClientSelectionUi(row.id, row.name || '')
+    // Always focus compose — multi mode used to return early and felt broken.
+    applyClientSelectionUi(plan.focusId, plan.focusName)
   }
 
   const selectContactFromPicker = (contactId: string) => {
@@ -4098,21 +4106,25 @@ function CampaignsPage() {
 
     const contact = outreachContacts.find(c => c.id === contactId)
     const name = contact?.name || contact?.label || contactId
+    const plan = planAudienceChipClick({
+      pickMode,
+      rowId: contactId,
+      rowName: name,
+      rowPhone: contact?.phone || '',
+      rowTgNick: contact?.tg_nick || '',
+      selectedIds: selectedClientIds
+    })
 
-    if (pickMode === 'multi') {
-      setSelectedClientIds(prev =>
-        prev.includes(contactId) ? prev : [...prev, contactId]
-      )
-      setChannel('telegram')
+    if (!plan.ok) {
       return
     }
 
+    setChannel(plan.channel)
+    setSelectedClientIds(plan.selectedIds)
     setMode('auto')
-    setChannel('telegram')
-    setSelectedClientIds([contactId])
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
-    applyClientSelectionUi(contactId, name)
+    applyClientSelectionUi(plan.focusId, plan.focusName)
   }
 
   const resolveOutreachContactQuery = async () => {
@@ -4913,7 +4925,12 @@ function CampaignsPage() {
           ← Клиенты
         </button>
       </div>
-      <FilterTabs counts={counts} disabled={loading} onChange={setSalesFilter} salesFilter={salesFilter} />
+      <FilterTabs
+        counts={counts}
+        disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
+        onChange={setSalesFilter}
+        salesFilter={salesFilter}
+      />
 
       <section className="ms-audience-builder">
         <h2 className="ms-section-title">Аудитория массовой рассылки</h2>
