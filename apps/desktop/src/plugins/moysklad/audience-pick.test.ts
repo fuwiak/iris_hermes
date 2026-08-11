@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   isSalesFilterId,
   planAudienceChipClick,
-  salesFilterTabsDisabled
+  salesFilterTabsDisabled,
+  seedFactsFromAudienceRow
 } from './audience-pick'
 
 describe('planAudienceChipClick', () => {
@@ -72,6 +73,37 @@ describe('planAudienceChipClick', () => {
     expect(r.ok).toBe(false)
     expect(r.reason).toBe('missing_id')
     expect(r.focusId).toBe('')
+  })
+
+  it('chip click always requests immediate facts load', () => {
+    const r = planAudienceChipClick({
+      pickMode: 'multi',
+      rowId: 'cp-dmitry',
+      rowName: 'Дмитрий',
+      selectedIds: []
+    })
+    expect(r.loadFacts).toBe(true)
+  })
+})
+
+describe('seedFactsFromAudienceRow', () => {
+  it('seeds Facts panel fields from chip row without waiting for AI', () => {
+    const facts = seedFactsFromAudienceRow({
+      id: 'cp-dmitry',
+      name: 'Дмитрий Врублевский основной',
+      phone: '+79299770334',
+      order_count: 6,
+      avg_check: 4500,
+      channels: ['whatsapp'],
+      sales_type: 'direct',
+      last_order_at: '2026-08-01'
+    })
+    expect(facts.client_id).toBe('cp-dmitry')
+    expect(facts.name).toBe('Дмитрий Врублевский основной')
+    expect(facts.order_count).toBe(6)
+    expect(facts.avg_check).toBe(4500)
+    expect(facts.channels).toEqual(['whatsapp'])
+    expect(facts.last_order?.date).toBe('2026-08-01')
   })
 })
 

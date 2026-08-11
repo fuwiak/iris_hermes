@@ -24,11 +24,14 @@ export interface AudiencePickResult {
   focusId: string
   focusName: string
   channel: 'telegram' | 'whatsapp'
+  /** Always true: Facts panel must load immediately on chip click. */
+  loadFacts: true
 }
 
 /**
  * Clicking an audience chip must always focus compose on that client.
  * Multi mode accumulates ids; it must NOT skip applyClientSelectionUi.
+ * Facts panel must open immediately (loadFacts) — not wait for AI generate.
  */
 export function planAudienceChipClick(input: AudiencePickInput): AudiencePickResult {
   const rowId = String(input.rowId || '').trim()
@@ -45,7 +48,8 @@ export function planAudienceChipClick(input: AudiencePickInput): AudiencePickRes
       selectedIds: input.selectedIds,
       focusId: '',
       focusName,
-      channel
+      channel,
+      loadFacts: true
     }
   }
 
@@ -64,7 +68,62 @@ export function planAudienceChipClick(input: AudiencePickInput): AudiencePickRes
     selectedIds,
     focusId: rowId,
     focusName,
-    channel
+    channel,
+    loadFacts: true
+  }
+}
+
+/** Seed Facts panel from the audience chip row before /clients/{id} returns. */
+export function seedFactsFromAudienceRow(row: {
+  id?: string | null
+  name?: string | null
+  phone?: string | null
+  email?: string | null
+  tg_nick?: string | null
+  sales_type?: string | null
+  channels?: string[] | null
+  channel?: string | null
+  order_count?: number | null
+  avg_check?: number | null
+  last_order_at?: string | null
+  tags?: string[] | null
+}): {
+  client_id?: string
+  name?: string
+  phone?: string
+  email?: string
+  tg_nick?: string
+  sales_type?: string
+  channels?: string[]
+  primary_channel?: string
+  order_count?: number
+  avg_check?: number
+  last_order?: { date?: string }
+  tags?: string[]
+} {
+  const channels = Array.isArray(row.channels)
+    ? row.channels.filter(Boolean).map(String)
+    : row.channel
+      ? String(row.channel)
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+      : []
+  return {
+    client_id: String(row.id || '').trim() || undefined,
+    name: String(row.name || '').trim() || undefined,
+    phone: String(row.phone || '').trim() || undefined,
+    email: String(row.email || '').trim() || undefined,
+    tg_nick: String(row.tg_nick || '').trim() || undefined,
+    sales_type: String(row.sales_type || '').trim() || undefined,
+    channels,
+    primary_channel: channels[0],
+    order_count: row.order_count == null ? undefined : Number(row.order_count),
+    avg_check: row.avg_check == null ? undefined : Number(row.avg_check),
+    last_order: row.last_order_at
+      ? { date: String(row.last_order_at) }
+      : undefined,
+    tags: Array.isArray(row.tags) ? row.tags.map(String) : undefined
   }
 }
 

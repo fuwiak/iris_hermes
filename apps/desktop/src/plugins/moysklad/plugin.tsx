@@ -19,7 +19,11 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-import { planAudienceChipClick, salesFilterTabsDisabled } from './audience-pick'
+import {
+  planAudienceChipClick,
+  salesFilterTabsDisabled,
+  seedFactsFromAudienceRow
+} from './audience-pick'
 
 interface GroupChipOption {
   name: string
@@ -3075,6 +3079,8 @@ function CampaignsPage() {
   const sellerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Bumps on each client switch / generate — stale stream events are ignored. */
   const outreachGenRef = useRef(0)
+  /** Separate from outreachGen — draft-cache load must not cancel facts fetch. */
+  const factsGenRef = useRef(0)
   const outreachAbortRef = useRef<AbortController | null>(null)
   const selectedClientNameRef = useRef('')
   const selectedClientIdRef = useRef<string | null>(null)
@@ -3150,7 +3156,10 @@ function CampaignsPage() {
         setTitle(draft.title)
       }
 
-      setFacts(draft.facts || null)
+      // Keep seeded /clients facts when draft cache has message but no facts blob.
+      if (draft.facts) {
+        setFacts(draft.facts)
+      }
       setSanity(draft.sanity || null)
       setGroundingNotes(draft.grounding_notes || '')
       setGenSource(draft.source || 'redis-cache')
@@ -3160,15 +3169,15 @@ function CampaignsPage() {
     [applyOfferText]
   )
 
-  /** Sync title + clear draft fields immediately (no auto LLM). */
+  /** Sync title + seed Facts immediately (no auto LLM). */
   const applyClientSelectionUi = useCallback(
-    (clientId: string, clientName: string) => {
+    (clientId: string, clientName: string, seedFacts?: ClientFacts | null) => {
       const name = (clientName || '').trim()
       setSelectedClientId(clientId)
       setSelectedClientName(name)
       selectedClientNameRef.current = name
       setTitle(name ? `Черновик · ${name}` : 'Черновик · клиент')
-      setFacts(null)
+      setFacts(seedFacts || null)
       setSanity(null)
       setGroundingNotes('')
       setGenSource('')
@@ -3860,6 +3869,28 @@ function CampaignsPage() {
     [applyOfferText, call, channel, restoreServerDraft]
   )
 
+  /** Open Facts panel from /clients/{id} on select — independent of AI generate. */
+  const loadClientFacts = useCallback(
+    async (clientId: string) => {
+      const gen = ++factsGenRef.current
+      try {
+        const detail = await call<ClientDetail>(
+          `/clients/${encodeURIComponent(clientId)}`
+        )
+        if (gen !== factsGenRef.current) {
+          return
+        }
+        setFacts(factsFromDetail(detail))
+      } catch {
+        // Keep optimistic seed from the chip row; do not wipe on soft fail.
+        if (gen !== factsGenRef.current) {
+          return
+        }
+      }
+    },
+    [call]
+  )
+
   /** Force LLM generate (Сгенерировать AI). Result is saved to Redis on the server. */
   const loadOutreach = useCallback(
     async (clientId: string, nextChannel = channel) => {
@@ -4018,7 +4049,9 @@ function CampaignsPage() {
     }
 
     // Default: load durable Redis/file cache — never auto-LLM on select/channel.
+    // Facts panel loads in parallel so chip click shows client data immediately.
     void loadCachedDraft(selectedClientId, channel)
+    void loadClientFacts(selectedClientId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillReady, selectedClientId, channel])
 
@@ -4094,8 +4127,13 @@ function CampaignsPage() {
     setMode('auto')
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
-    // Always focus compose — multi mode used to return early and felt broken.
-    applyClientSelectionUi(plan.focusId, plan.focusName)
+    factsGenRef.current += 1
+    // Always focus compose + seed Facts — multi mode used to no-op / leave empty.
+    applyClientSelectionUi(
+      plan.focusId,
+      plan.focusName,
+      seedFactsFromAudienceRow(row) as ClientFacts
+    )
   }
 
   const selectContactFromPicker = (contactId: string) => {
@@ -4124,7 +4162,17 @@ function CampaignsPage() {
     setMode('auto')
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
-    applyClientSelectionUi(plan.focusId, plan.focusName)
+    factsGenRef.current += 1
+    applyClientSelectionUi(
+      plan.focusId,
+      plan.focusName,
+      seedFactsFromAudienceRow({
+        id: contactId,
+        name,
+        phone: contact?.phone,
+        tg_nick: contact?.tg_nick
+      }) as ClientFacts
+    )
   }
 
   const resolveOutreachContactQuery = async () => {
@@ -4946,6 +4994,7 @@ function CampaignsPage() {
                 onClick={() => {
                   outreachAbortRef.current?.abort()
                   outreachGenRef.current += 1
+                  factsGenRef.current += 1
                   setSelectedClientId(null)
                   setSelectedClientName('')
                   setSelectedClientIds([])
