@@ -234,6 +234,9 @@ interface ClientOrder {
   sum?: number
   channel?: string
   product_snippet?: string
+  state?: string | null
+  payment_status?: string | null
+  applicable?: boolean | null
 }
 
 interface ConversationMessage {
@@ -271,6 +274,10 @@ interface ClientDetail {
   stats?: {
     avg_check?: number
     order_count?: number
+    paid_order_count?: number
+    cancelled_order_count?: number
+    unpaid_order_count?: number
+    fulfilled_order_count?: number
     vip?: boolean
     loyalty_points?: number | null
     last_order?: ClientOrder
@@ -1435,6 +1442,21 @@ function FactsPanel({
   )
 }
 
+function orderPaymentLabel(status?: string | null, state?: string | null): string {
+  const s = (status || '').trim().toLowerCase()
+  const map: Record<string, string> = {
+    paid: 'оплачен',
+    unpaid: 'не оплачен',
+    partial: 'частично',
+    cancelled: 'отменён',
+    failed: 'не состоялся'
+  }
+  const pay = map[s] || ''
+  const st = (state || '').trim()
+  if (pay && st && st.toLowerCase() !== pay) {return `${st} · ${pay}`}
+  return st || pay || ''
+}
+
 function ClientCardModal({
   clientId,
   onClose,
@@ -1448,8 +1470,14 @@ function ClientCardModal({
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
-  const [aiProvider, setAiProvider] = useState('')
-  const [aiModel, setAiModel] = useState('')
+  const [aiProvider, setAiProvider] = useState(() => {
+    if (typeof localStorage === 'undefined') {return ''}
+    return localStorage.getItem('ms.ai.provider') || ''
+  })
+  const [aiModel, setAiModel] = useState(() => {
+    if (typeof localStorage === 'undefined') {return ''}
+    return localStorage.getItem('ms.ai.model') || ''
+  })
   const [error, setError] = useState('')
   const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
@@ -1460,7 +1488,7 @@ function ClientCardModal({
     setLoading(true)
     setError('')
     setDetail(null)
-    setOrdersOpen(false)
+    setOrdersOpen(true)
     setNote('')
     void call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
       .then(payload => {
@@ -1495,6 +1523,14 @@ function ClientCardModal({
     setError('')
 
     try {
+      // Pull TG history first so recommendation can use the thread.
+      try {
+        await call(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
+          method: 'POST'
+        })
+      } catch {
+        /* sync is best-effort — AI still runs on local/export thread */
+      }
       const payload = await call<{ ai?: ClientDetail['ai'] }>(
         `/clients/${encodeURIComponent(clientId)}/ai`,
         {
@@ -1666,7 +1702,15 @@ function ClientCardModal({
                 </div>
                 <div>
                   <div className="ms-stat-val">{String(stats.order_count || 0)}</div>
-                  <div className="ms-muted">Заказов</div>
+                  <div className="ms-muted">
+                    Заказов
+                    {stats.paid_order_count != null || stats.cancelled_order_count != null
+                      ? ` · оплач. ${stats.paid_order_count ?? 0}` +
+                        (stats.cancelled_order_count
+                          ? ` · отм. ${stats.cancelled_order_count}`
+                          : '')
+                      : ''}
+                  </div>
                 </div>
                 <div>
                   <div className="ms-stat-val">{stats.vip ? 'да' : 'нет'}</div>
@@ -1686,6 +1730,9 @@ function ClientCardModal({
                     {(stats.last_order.date || '').slice(0, 16).replace('T', ' ')} ·{' '}
                     {money(stats.last_order.sum)}
                     {stats.last_order.channel ? ` · ${stats.last_order.channel}` : ''}
+                    {orderPaymentLabel(stats.last_order.payment_status, stats.last_order.state)
+                      ? ` · ${orderPaymentLabel(stats.last_order.payment_status, stats.last_order.state)}`
+                      : ''}
                   </div>
                   {stats.last_order.product_snippet ? (
                     <div>{stats.last_order.product_snippet}</div>
@@ -1699,16 +1746,31 @@ function ClientCardModal({
               </button>
               <div className="ms-orders-list">
                 {shownOrders.length ? (
-                  shownOrders.map((o, idx) => (
-                    <div className="ms-order-row" key={`${o.id || ''}-${idx}`}>
+                  shownOrders.map((o, idx) => {
+                    const statusLabel = orderPaymentLabel(o.payment_status, o.state)
+                    const cancelled =
+                      (o.payment_status || '').toLowerCase() === 'cancelled' ||
+                      /отмен/i.test(o.state || '')
+
+                    return (
+                    <div
+                      className={`ms-order-row${cancelled ? ' is-cancelled' : ''}`}
+                      key={`${o.id || ''}-${idx}`}
+                    >
                       <strong>{o.name || o.id || 'Заказ'}</strong>
+                      {statusLabel ? (
+                        <span className={`ms-order-status${cancelled ? ' is-cancelled' : ''}`}>
+                          {statusLabel}
+                        </span>
+                      ) : null}
                       <div className="ms-muted">
                         {(o.date || '').slice(0, 16).replace('T', ' ')} · {money(o.sum)}
                         {o.channel ? ` · ${o.channel}` : ''}
                       </div>
                       {o.product_snippet ? <div>{o.product_snippet}</div> : null}
                     </div>
-                  ))
+                    )
+                  })
                 ) : (
                   <p className="ms-muted">Заказов в кэше нет.</p>
                 )}
@@ -1730,6 +1792,7 @@ function ClientCardModal({
                     { provider: '', model: '', label: 'default' },
                     { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek' },
                     { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o-mini' },
+                    { provider: 'openrouter', model: 'openai/gpt-4o', label: 'GPT-4o' },
                     { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', label: 'Haiku' }
                   ].map(opt => {
                     const active =
@@ -1742,6 +1805,12 @@ function ClientCardModal({
                         onClick={() => {
                           setAiProvider(opt.provider)
                           setAiModel(opt.model)
+                          try {
+                            localStorage.setItem('ms.ai.provider', opt.provider)
+                            localStorage.setItem('ms.ai.model', opt.model)
+                          } catch {
+                            /* ignore quota */
+                          }
                         }}
                         type="button"
                       >
@@ -1954,8 +2023,9 @@ function mergeClientPages(prev: ClientRow[], incoming: ClientRow[]): ClientRow[]
 
 function ClientsPage() {
   const call = useMsRest()
-  const [salesFilter, setSalesFilter] = useState('direct')
+  const [salesFilter, setSalesFilter] = useState('all')
   const [q, setQ] = useState('')
+  const [qDebounced, setQDebounced] = useState('')
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [stage, setStage] = useState<StageKey>('all')
@@ -1967,7 +2037,7 @@ function ClientsPage() {
     if (typeof localStorage === 'undefined') {return null}
     return readClientsLocalCache(
       clientsLocalCacheKey({
-        salesFilter: 'direct',
+        salesFilter: 'all',
         q: '',
         group: '',
         groupSource: 'any'
@@ -2021,6 +2091,11 @@ function ClientsPage() {
   const lazyAiInFlightRef = useRef(false)
   const clientsRef = useRef<ClientRow[]>([])
   clientsRef.current = clients
+
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q.trim()), 280)
+    return () => clearTimeout(t)
+  }, [q])
 
   const displayClients = useMemo(
     () => applyClientColumnFilters(clients, columnFilters, columnSort),
@@ -2121,7 +2196,7 @@ function ClientsPage() {
       const append = Boolean(opts?.append)
       const offset = append ? (opts?.offset ?? nextOffset) : 0
       const gen = append ? loadGen.current : ++loadGen.current
-      const cacheKey = clientsLocalCacheKey({ salesFilter, q, group, groupSource })
+      const cacheKey = clientsLocalCacheKey({ salesFilter, q: qDebounced, group, groupSource })
 
       if (append) {
         if (loadingMoreRef.current || !hasMore) {return}
@@ -2165,7 +2240,7 @@ function ClientsPage() {
       try {
         const params = new URLSearchParams({
           sales_filter: salesFilter,
-          q,
+          q: qDebounced,
           group,
           group_source: groupSource,
           stage,
@@ -2233,7 +2308,7 @@ function ClientsPage() {
           writeClientsLocalCache(cacheKey, {
             saved_at: Date.now(),
             sales_filter: salesFilter,
-            q,
+            q: qDebounced,
             group,
             group_source: groupSource,
             clients: page,
@@ -2266,7 +2341,7 @@ function ClientsPage() {
         }
       }
     },
-    [call, group, groupSource, hasMore, nextOffset, q, salesFilter, stage]
+    [call, group, groupSource, hasMore, nextOffset, qDebounced, salesFilter, stage]
   )
 
   /** Two steps on purpose: dry-run first, write only on a second, armed click. */
@@ -2283,7 +2358,7 @@ function ClientsPage() {
         push?: { pushed?: number; errors?: { id?: string; error?: string }[] }
       }>('/clients/stage/failed-tag', {
         method: 'POST',
-        body: { sales_filter: salesFilter, q, dry_run: !write },
+        body: { sales_filter: salesFilter, q: qDebounced, dry_run: !write },
         timeoutMs: 600_000
       })
 
@@ -2311,24 +2386,24 @@ function ClientsPage() {
     } finally {
       setStageTagBusy(false)
     }
-  }, [call, load, q, salesFilter, stageTagArmed])
+  }, [call, load, qDebounced, salesFilter, stageTagArmed])
 
   // Re-arm from scratch whenever the audience changes.
   useEffect(() => {
     setStageTagArmed(false)
     setStageTagStatus('')
-  }, [salesFilter, q, stage])
+  }, [salesFilter, qDebounced, stage])
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, groupSource, q, stage]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, qDebounced, stage]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Drop Excel column filters when the main audience filter changes.
   useEffect(() => {
     setColumnFilters({})
     setColumnSort(null)
     setOpenFilterKey(null)
-  }, [salesFilter, group, groupSource, q, stage])
+  }, [salesFilter, group, groupSource, qDebounced, stage])
 
   // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
   useEffect(() => {
@@ -2853,7 +2928,7 @@ function ClientsPage() {
 function CampaignsPage() {
   const call = useMsRest()
   const callStream = useMsRestStream()
-  const [salesFilter, setSalesFilter] = useState('direct')
+  const [salesFilter, setSalesFilter] = useState('all')
   const [mode, setMode] = useState<'manual' | 'auto'>('manual')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
@@ -2974,7 +3049,7 @@ function CampaignsPage() {
   const [addContactQuery, setAddContactQuery] = useState('')
   const [addContactSaving, setAddContactSaving] = useState(false)
   const [addContactResolving, setAddContactResolving] = useState(false)
-  const [pickMode, setPickMode] = useState<'single' | 'multi'>('single')
+  const [pickMode, setPickMode] = useState<'single' | 'multi'>('multi')
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -3212,7 +3287,14 @@ function CampaignsPage() {
   )
 
   useEffect(() => {
-    void refreshTgUser(false)
+    void refreshTgUser(false).then(data => {
+      // After logout / cold start: show phone form so the user can reconnect
+      // without hunting for a collapsed panel.
+      if (data && data.authorized === false) {
+        setTgOpen(true)
+        setTgStep('phone')
+      }
+    })
     // Probe once on mount; the panel's buttons re-probe on demand.
   }, [])
 
@@ -3377,7 +3459,12 @@ function CampaignsPage() {
     await runTgBusy('Выход', 'Отключаем личный Telegram…', async () => {
       await call('/campaigns/telegram-user/logout', { method: 'POST' })
       setTgStep('phone')
-      setActionStatus('Личный Telegram отключён')
+      setTgPhone('')
+      setTgCode('')
+      setTgPassword('')
+      setTgSession('')
+      setTgOpen(true)
+      setActionStatus('Личный Telegram отключён — введите номер для нового входа')
       await refreshTgUser(false)
       await loadOutreachContacts()
     })
@@ -5216,7 +5303,15 @@ function CampaignsPage() {
             <div className="ms-compose-actions">
               <button
                 className="ms-btn"
-                onClick={() => setTgOpen(open => !open)}
+                onClick={() => {
+                  setTgOpen(open => {
+                    const next = !open
+                    if (next && !tgUser?.authorized) {
+                      setTgStep('phone')
+                    }
+                    return next
+                  })
+                }}
                 type="button"
               >
                 {tgOpen ? 'Скрыть' : tgUser?.authorized ? 'Настройки входа' : 'Подключить аккаунт'}

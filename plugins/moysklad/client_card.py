@@ -60,19 +60,23 @@ _AI_SYSTEM = """Ты — помощник продавца цветочного 
 вкус, следующий шаг. Без канцелярита и без «робота CRM». Отвечай на русском.
 
 Опора на данные (якорь, не смирительная рубашка):
-1. Имя, заказы, даты, суммы, каналы, теги, VIP, долг — только из JSON.
-   Не выдумывай телефон, email, Telegram, скидки, акции, адреса.
+1. Имя, заказы, даты, суммы, каналы, статусы заказов (доставлен/отменён/оплачен),
+   теги, VIP, долг — только из JSON. Не выдумывай телефон, email, Telegram,
+   скидки, акции, адреса.
 2. Цитируй реальные даты/суммы/букеты из истории, когда они есть.
-3. Если данных мало — скажи прямо «данных мало», всё равно дай аккуратную гипотезу.
-4. Рекомендации: когда связаться, что предложить, ориентир чека — из среднего чека
+3. Если в JSON есть conversation / conversation_preview / tg_conversation —
+   ОБЯЗАТЕЛЬНО учти переписку Telegram: тон, просьбы, жалобы, договорённости.
+   Не пиши «переписки нет», если message_count > 0 или preview непустой.
+4. Если данных мало — скажи прямо «данных мало», всё равно дай аккуратную гипотезу.
+5. Рекомендации: когда связаться, что предложить, ориентир чека — из среднего чека
    и истории; можно креативно упаковать, но без фейковых промо.
-5. Праздники/поводы — если месяцы заказов, теги или описание это поддерживают.
+6. Праздники/поводы — если месяцы заказов, теги, описание или переписка это поддерживают.
    Известные поводы: """ + ", ".join(_RU_OCCASIONS) + """.
-6. Не предлагай каналы связи, которых нет в JSON.
-7. РИСКИ / ДОЛГ (risks): если has_debt / unpaid_order_count / do_not_upsell —
+7. Не предлагай каналы связи, которых нет в JSON.
+8. РИСКИ / ДОЛГ (risks): если has_debt / unpaid_order_count / do_not_upsell —
    в recommendation сначала сверка оплаты / задолженность, не дорогой upsell.
-   Долг не выдумывай.
-8. Ответ — строго JSON без markdown:
+   Долг не выдумывай. Отменённые заказы (payment_status=cancelled) — не считай покупкой.
+9. Ответ — строго JSON без markdown:
 {
   "history_profile": "2-6 предложений: история и профиль",
   "occasion_intent": "2-6 предложений: повод/intent, сезонность, окна касания",
@@ -540,6 +544,10 @@ def build_client_detail(row: dict[str, Any]) -> dict[str, Any]:
         "stats": {
             "avg_check": float(public.get("avg_check") or 0),
             "order_count": int(public.get("order_count") or len(orders)),
+            "paid_order_count": int(public.get("paid_order_count") or 0),
+            "cancelled_order_count": int(public.get("cancelled_order_count") or 0),
+            "unpaid_order_count": int(public.get("unpaid_order_count") or 0),
+            "fulfilled_order_count": int(public.get("fulfilled_order_count") or 0),
             "vip": vip,
             "loyalty_points": loyalty,
             "last_order": last,
@@ -750,6 +758,8 @@ def _facts_payload(detail: dict[str, Any]) -> dict[str, Any]:
                 "sum": o.get("sum"),
                 "payed_sum": o.get("payed_sum"),
                 "unpaid": o.get("unpaid"),
+                "state": o.get("state") or None,
+                "payment_status": o.get("payment_status") or None,
                 "channel": o.get("channel") or None,
                 "product_snippet": o.get("product_snippet") or None,
             }
@@ -771,7 +781,9 @@ def _facts_payload(detail: dict[str, Any]) -> dict[str, Any]:
             "preview": (detail.get("conversation") or {}).get("preview") or "",
             "messages": list(
                 (detail.get("conversation") or {}).get("messages") or []
-            )[-8:],
+            )[-20:],
+            "tg_conversation_attr": client.get("tg_conversation") or "",
+            "tg_nick": client.get("tg_nick") or "",
         },
         "data_thin": bool(detail.get("data_thin")),
     }
@@ -839,17 +851,29 @@ def generate_ai_for_detail(
     facts = _facts_payload(detail)
     # Include conversation preview so summary can use chat history.
     conversation = detail.get("conversation") or {}
-    messages = list(conversation.get("messages") or [])[-12:]
-    if messages:
-        facts["conversation_preview"] = [
-            {
-                "direction": m.get("direction"),
-                "text": str(m.get("text") or "")[:280],
-                "ts": m.get("ts"),
-            }
-            for m in messages
-            if str(m.get("text") or "").strip()
-        ]
+    messages = list(conversation.get("messages") or [])[-40:]
+    preview_msgs = [
+        {
+            "direction": m.get("direction"),
+            "text": str(m.get("text") or "")[:400],
+            "ts": m.get("ts"),
+        }
+        for m in messages
+        if str(m.get("text") or "").strip()
+    ]
+    if preview_msgs:
+        facts["conversation_preview"] = preview_msgs[-24:]
+    # Even without structured messages, surface TG link / attr so the model
+    # does not claim «переписки нет» when the CRM column shows a chat.
+    tg_attr = str(client.get("tg_conversation") or "").strip()
+    tg_nick = str(client.get("tg_nick") or "").strip()
+    if tg_attr or tg_nick or preview_msgs:
+        facts["telegram"] = {
+            "tg_nick": tg_nick or None,
+            "tg_conversation": tg_attr or None,
+            "message_count": int(conversation.get("message_count") or len(preview_msgs)),
+            "has_thread": bool(preview_msgs) or int(conversation.get("message_count") or 0) > 0,
+        }
     user = (
         "JSON фактов клиента и заказов (единственный источник истины):\n"
         + json.dumps(facts, ensure_ascii=False, indent=2)

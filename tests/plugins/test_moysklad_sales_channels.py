@@ -24,9 +24,32 @@ def test_direct_sales_channels() -> None:
 
 def test_marketplace_channels() -> None:
     assert is_marketplace_channel("FlowWow Floday")
+    assert is_marketplace_channel("FlowWow Skyloft")
     assert is_marketplace_channel("Ozon")
     assert is_marketplace_channel("Wildberries")
     assert not is_marketplace_channel("Telegram")
+
+
+def test_flowwow_skyloft_marketplace_audience() -> None:
+    row = {
+        "_orders_context": [{"Канал продаж": "FlowWow Skyloft"}],
+        "_moysklad_tags": [],
+    }
+    assert row_matches_marketplace_audience(row) is True
+    assert row_matches_direct_audience(row) is False
+    assert sales_channel_type_from_channels(["FlowWow Skyloft"]) == "маркетплейс"
+
+
+def test_channel_name_from_order_archived_lookup() -> None:
+    from plugins.moysklad.sales_channels import channel_name_from_order
+
+    order = {
+        "salesChannel": {
+            "meta": {"href": "https://api.moysklad.ru/api/remap/1.2/entity/saleschannel/abc-1"}
+        }
+    }
+    assert channel_name_from_order(order, {"abc-1": "FlowWow Skyloft"}) == "FlowWow Skyloft"
+    assert channel_name_from_order(order, {}) == "saleschannel:abc-1"
 
 
 def test_sales_channel_type_marketplace_wins() -> None:

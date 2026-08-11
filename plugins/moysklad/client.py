@@ -262,13 +262,51 @@ class MoySkladClient:
         }
 
     def channels(
-        self, *, limit: int = 100, offset: int = 0, fetch_all: bool = False
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        fetch_all: bool = False,
+        include_archived: bool = True,
     ) -> dict[str, Any]:
+        """List sales channels.
+
+        MoySklad omits archived channels by default. Archived marketplace
+        channels (e.g. Flowwow Skyloft) still appear on orders — fetch both
+        active and archived so order → name lookup does not go blank.
+        """
         if fetch_all:
-            rows = self.fetch_all("/entity/saleschannel", max_rows=limit or 0)
+            active = self.fetch_all(
+                "/entity/saleschannel",
+                max_rows=limit or 0,
+                extra={"filter": "archived=false"},
+            )
+            rows = list(active)
+            if include_archived:
+                archived = self.fetch_all(
+                    "/entity/saleschannel",
+                    max_rows=limit or 0,
+                    extra={"filter": "archived=true"},
+                )
+                seen = {
+                    str(r.get("id") or "").strip()
+                    for r in rows
+                    if str(r.get("id") or "").strip()
+                }
+                for row in archived:
+                    rid = str(row.get("id") or "").strip()
+                    if rid and rid not in seen:
+                        seen.add(rid)
+                        rows.append(row)
             return {"total": len(rows), "count": len(rows), "rows": rows}
+        extra: dict[str, Any] = {}
+        if include_archived:
+            # Single page cannot OR archived; prefer active for paged callers.
+            extra["filter"] = "archived=false"
+        else:
+            extra["filter"] = "archived=false"
         rows, total = self.get_page(
-            "/entity/saleschannel", limit=limit, offset=offset
+            "/entity/saleschannel", limit=limit, offset=offset, extra=extra
         )
         return {"total": total, "count": len(rows), "rows": rows}
 

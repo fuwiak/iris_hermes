@@ -177,3 +177,57 @@ def test_audience_channel_and_tag_filters() -> None:
     assert row_matches_audience_extras(vip, vip_only=True, group="8 марта")
     assert row_matches_audience_extras(bday, birthday_soon=True)
     assert not row_matches_audience_extras(wa, birthday_soon=True)
+
+
+def test_row_matches_query_phone_normalize() -> None:
+    from plugins.moysklad.classify import _row_matches_query
+
+    row = _row(cid="p1", name="Саша", phone="+7 (919) 787-51-13")
+    assert _row_matches_query(row, "+79197875113")
+    assert _row_matches_query(row, "79197875113")
+    assert _row_matches_query(row, "9197875113")
+    assert _row_matches_query(row, "саша")
+    assert not _row_matches_query(row, "0000000000")
+
+
+def test_clients_page_search_spans_sales_tabs() -> None:
+    """Search must find marketplace clients even when UI tab is «direct»."""
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+    direct = _row(cid="d1", name="Прямой", phone="+79991112233", orders=1)
+    direct["_orders_context"] = [
+        {"id": "o1", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1000}
+    ]
+    refresh_row_channel_fields(direct)
+
+    mp = _row(cid="m1", name="Маркет", phone="+7 (919) 787-51-13", orders=1)
+    mp["_orders_context"] = [
+        {
+            "id": "o2",
+            "Канал продаж": "FlowWow Skyloft",
+            "channel": "FlowWow Skyloft",
+            "sum": 2000,
+        }
+    ]
+    refresh_row_channel_fields(mp)
+
+    catalog = {
+        "rows": [direct, mp],
+        "counts": {"total": 2, "direct": 1, "marketplace": 1},
+        "orders_scanned": 2,
+        "counterparties_scanned": 2,
+        "counterparties_deduped": 2,
+    }
+
+    class _Dummy:
+        pass
+
+    page = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="direct",
+        q="79197875113",
+        catalog=catalog,
+    )
+    ids = {c["id"] for c in page["clients"]}
+    assert "m1" in ids
+    assert page["matched_total"] >= 1

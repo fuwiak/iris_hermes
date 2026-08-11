@@ -351,11 +351,34 @@ def get_thread(
     client_id: str = "",
     phone: str = "",
     tg_nick: str = "",
+    client_name: str = "",
 ) -> dict[str, Any]:
     keys = _index_keys(client_id=client_id, phone=phone, tg_nick=tg_nick)
     with _LOCK:
         store = _load()
         tid = _resolve_thread_id(store, keys)
+        if not tid and (client_name or "").strip():
+            # Soft match by name — Telegram export often indexes by display name
+            # when phone/nick are empty (e.g. client «анатолий»).
+            needle = (
+                str(client_name)
+                .strip()
+                .lower()
+                .replace("ё", "е")
+            )
+            if needle:
+                for candidate_id, thread in (store.get("threads") or {}).items():
+                    if not isinstance(thread, dict):
+                        continue
+                    name = (
+                        str(thread.get("client_name") or "")
+                        .strip()
+                        .lower()
+                        .replace("ё", "е")
+                    )
+                    if name and (name == needle or needle in name or name in needle):
+                        tid = str(candidate_id)
+                        break
         if not tid:
             return public_thread(None)
         return public_thread(store["threads"].get(tid))
@@ -424,7 +447,12 @@ def seed_from_moysklad_attr(
     """If local thread empty and MoySklad attr has non-URL text, import once."""
     raw = (attr_value or "").strip()
     if not raw or _URL_RE.match(raw):
-        return get_thread(client_id=client_id, phone=phone, tg_nick=tg_nick)
+        return get_thread(
+            client_id=client_id,
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
     with _LOCK:
         store = _load()
         keys = _index_keys(client_id=client_id, phone=phone, tg_nick=tg_nick)

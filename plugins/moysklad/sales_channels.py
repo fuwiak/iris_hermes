@@ -55,10 +55,17 @@ MARKETPLACE_AUDIENCE_CHANNELS = (
     "flowwowсокольники",
     "flowwow университет",
     "flowwowуниверситет",
+    "flowwow skyloft",
+    "flowwowskyloft",
+    "flow wow skyloft",
     "flow wow floday",
     "floday",
+    "skyloft",
+    "скайлофт",
     "флау вау",
+    "флау вау скайлофт",
     "флаувай",
+    "флаувай скайлофт",
 )
 
 MARKETPLACE_AUDIENCE_STATUSES = (
@@ -430,6 +437,10 @@ def channel_name_from_order(
             label = channels_by_id.get(channel_id)
             if label:
                 return label
+        # Last resort: keep id so UI/filter can still show *something*
+        # (archived channel missing from lookup used to render blank).
+        if channel_id:
+            return f"saleschannel:{channel_id}"
     return None
 
 

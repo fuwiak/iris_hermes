@@ -373,7 +373,7 @@ def _schedule_catalog_revalidate(
 
 def _get_catalog(
     *,
-    max_orders: int = 5000,
+    max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
     force: bool = False,
@@ -511,7 +511,7 @@ class AiFillBody(BaseModel):
     limit: int = 100
     use_llm: bool = True
     force: bool = False
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -522,7 +522,7 @@ class AssignBody(BaseModel):
     q: str = ""
     ids: list[str] = Field(default_factory=list)
     dry_run: bool = True
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -540,7 +540,7 @@ class StageTagBody(BaseModel):
     ids: list[str] = Field(default_factory=list)
     dry_run: bool = True
     tag: str = ""
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -556,7 +556,7 @@ class RecalculateProposeBody(BaseModel):
     birthday_soon: bool = False
     group_source: str = "any"
     days_before_event: int = 0
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -575,7 +575,7 @@ class RecalculateApplyBody(BaseModel):
     days_before_event: int = 0
     dry_run: bool = True
     push: bool = False
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -601,7 +601,7 @@ class CampaignCreateBody(BaseModel):
     generate_ai: bool = False
     seller_name: str = ""
     seller_facts: str = ""
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -614,7 +614,7 @@ class OutreachGenerateBody(BaseModel):
     seller_facts: str = ""
     provider: str = ""
     model: str = ""
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -627,7 +627,7 @@ class OutreachRewriteBody(BaseModel):
     seller_facts: str = ""
     provider: str = ""
     model: str = ""
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -639,7 +639,7 @@ class OutreachSanityBody(BaseModel):
     seller_name: str = ""
     seller_facts: str = ""
     apply_revision: bool = True
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -664,7 +664,7 @@ class OutreachPersonalizeBody(BaseModel):
     model: str = ""
     limit: int = 20
     max_workers: int = 3
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -683,7 +683,7 @@ class ClientAiBody(BaseModel):
 
     provider: str = ""
     model: str = ""
-    max_orders: int = 5000
+    max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
 
@@ -891,7 +891,7 @@ def _refresh_cached_catalog_counts(
 
 def _invalidate_cache(
     *,
-    max_orders: int = 5000,
+    max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
 ) -> None:
@@ -971,7 +971,7 @@ def get_clients(
     stage: str = Query("all"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
     refresh: bool = Query(False),
@@ -1179,7 +1179,7 @@ def get_clients(
 
 @router.get("/clients/integrity")
 def get_clients_integrity(
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
     refresh: bool = Query(False),
@@ -1214,7 +1214,7 @@ def get_clients_integrity(
 @router.get("/clients/{client_id}")
 def get_client_detail(
     client_id: str,
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
     ai: bool = Query(False),
@@ -1980,7 +1980,7 @@ def delete_campaign_telegram_contact(contact_id: str) -> dict[str, Any]:
 def post_client_ai(
     client_id: str,
     body: ClientAiBody | None = None,
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
     provider: str = Query(""),
@@ -2007,6 +2007,17 @@ def post_client_ai(
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         detail = build_client_detail(row)
+        # Prefer live TG thread (export overlay / local store) before LLM —
+        # otherwise recommendations ignore chats that the Clients table shows.
+        try:
+            from plugins.moysklad.conversations import conversation_for_detail
+            from plugins.moysklad.telegram_export import apply_export_overlay_to_public
+
+            client_pub = detail.get("client") or {}
+            detail["client"] = apply_export_overlay_to_public(dict(client_pub))
+            detail["conversation"] = conversation_for_detail(detail)
+        except Exception:
+            log.debug("moysklad AI conversation enrich failed", exc_info=True)
         ai_block = generate_ai_for_detail(
             detail,
             provider=provider or None,
@@ -2068,7 +2079,7 @@ def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
 @router.post("/clients/telegram-export/import")
 def post_telegram_export_import(
     force: bool = Query(True),
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
 ) -> dict[str, Any]:
@@ -2229,7 +2240,7 @@ def get_telegram_archive_chat(chat_id: str) -> dict[str, Any]:
 
 @router.post("/telegram/archive/rebuild")
 def post_telegram_archive_rebuild(
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
 ) -> dict[str, Any]:
@@ -2369,7 +2380,7 @@ def post_eval_playground_run(body: PlaygroundRunBody) -> dict[str, Any]:
 
 @router.post("/sync")
 def post_sync(
-    max_orders: int = Query(5000, ge=0, le=100_000),
+    max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
 ) -> dict[str, Any]:

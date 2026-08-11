@@ -89,7 +89,7 @@ def _normalize_filter_key(sales_filter: str) -> str:
 def build_enriched_catalog(
     client: MoySkladClient,
     *,
-    max_orders: int = 5000,
+    max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
 ) -> dict[str, Any]:
@@ -257,9 +257,26 @@ def _row_matches_query(row: dict[str, Any], q: str) -> bool:
             row.get("ТГ ник"),
             row.get("TG conversation"),
             row.get("Фактический адрес"),
+            row.get("Канал продаж"),
+            " ".join(str(c) for c in (row.get("_order_channels_all") or [])),
         )
     ).lower()
-    return needle in blob
+    if needle in blob:
+        return True
+    # Phone search: normalize both sides so "+7 (919) …" matches "7919…" / "919…".
+    from plugins.moysklad.dedupe import normalize_phone
+
+    needle_phone = normalize_phone(needle)
+    if needle_phone:
+        row_phone = normalize_phone(row.get("Телефон") or "")
+        if row_phone and (
+            needle_phone in row_phone
+            or row_phone in needle_phone
+            or row_phone.endswith(needle_phone)
+            or needle_phone.endswith(row_phone)
+        ):
+            return True
+    return False
 
 
 def _public_client(row: dict[str, Any]) -> dict[str, Any]:
@@ -387,7 +404,7 @@ def clients_page(
     q: str = "",
     limit: int = 50,
     offset: int = 0,
-    max_orders: int = 5000,
+    max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
     catalog: dict[str, Any] | None = None,
@@ -417,10 +434,14 @@ def clients_page(
     # Always recompute — durable cache may still hold pre-partition counts.
     counts = refresh_audience_counts(catalog)
 
+    # Search spans all sales tabs — otherwise marketplace clients vanish under
+    # default «Прямые» and the UI looks like broken search/filters.
+    q_active = bool((q or "").strip())
+    effective_filter = "all" if q_active else filter_key
     base_rows = [
         r
         for r in all_rows
-        if row_matches_sales_filter(r, filter_key) and _row_matches_query(r, q)
+        if row_matches_sales_filter(r, effective_filter) and _row_matches_query(r, q)
     ]
     group_options = collect_featured_group_counts(
         base_rows, sales_filter=filter_key, selected=group or ""
@@ -553,7 +574,7 @@ def clients_by_sales_type(
     *,
     sales_filter: str = "all",
     limit: int = 50,
-    max_orders: int = 5000,
+    max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
 ) -> dict[str, Any]:
