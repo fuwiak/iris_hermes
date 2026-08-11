@@ -4,6 +4,7 @@ import {
   digitsPhone,
   filterClientRowsByAudience,
   filterClientRowsByQuery,
+  forEachRowProgressive,
   isBenignRequestAbort,
   normalizeGroupKey,
   pickLocalClientsSeed,
@@ -115,6 +116,24 @@ describe('pickLocalClientsSeed', () => {
       }
     })
     expect(seed?.clients.map(c => c.id)).toEqual(['1'])
+  })
+})
+
+describe('forEachRowProgressive', () => {
+  it('paints one row at a time and stops when cancelled', async () => {
+    const seen: string[] = []
+    const n = await forEachRowProgressive(
+      [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      row => {
+        seen.push(String(row.id))
+      },
+      {
+        delayMs: 0,
+        isCancelled: () => seen.length >= 2
+      }
+    )
+    expect(seen).toEqual(['a', 'b'])
+    expect(n).toBe(2)
   })
 })
 

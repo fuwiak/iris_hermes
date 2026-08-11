@@ -26,6 +26,7 @@ import {
 } from './audience-pick'
 import {
   filterClientRowsByAudience,
+  forEachRowProgressive,
   isBenignRequestAbort,
   pickLocalClientsSeed
 } from './clients-query'
@@ -1937,6 +1938,10 @@ const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
 /** Catalog filter can exceed default 15s desktop REST timeout → Chromium abort modal. */
 const CLIENTS_FETCH_TIMEOUT_MS = 90_000
+/** First audience paint — keep modest so chips appear quickly. */
+const AUDIENCE_PAGE_SIZE = 24
+/** Scroll/load-more batches — small so «Подгружаем» shows progress often. */
+const AUDIENCE_APPEND_PAGE_SIZE = 8
 
 interface ClientsLocalCachePayload {
   saved_at: number
@@ -3911,6 +3916,7 @@ function CampaignsPage() {
       }
 
       try {
+        const pageLimit = append ? AUDIENCE_APPEND_PAGE_SIZE : AUDIENCE_PAGE_SIZE
         const page = await call<{
           counts?: Counts
           matched_total?: number
@@ -3919,7 +3925,7 @@ function CampaignsPage() {
           group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
           has_more?: boolean
           next_offset?: number
-        }>(`/clients?${audienceFilterParams({ offset, limit: 40 })}`, {
+        }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
           timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
         })
 
@@ -3928,9 +3934,33 @@ function CampaignsPage() {
         }
 
         const rows = page.clients || []
-        setAudiencePreview(prev => (append ? mergeClientPages(prev, rows) : rows))
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
+
+        // Paint chips one-by-one so load-more never looks frozen on a blank spinner.
+        if (append) {
+          await forEachRowProgressive(
+            rows,
+            row => {
+              setAudiencePreview(prev => mergeClientPages(prev, [row]))
+            },
+            { isCancelled: () => gen !== audienceLoadGen.current }
+          )
+        } else if (!audiencePreviewRef.current.length) {
+          await forEachRowProgressive(
+            rows,
+            row => {
+              setAudiencePreview(prev => mergeClientPages(prev, [row]))
+            },
+            { isCancelled: () => gen !== audienceLoadGen.current }
+          )
+        } else {
+          setAudiencePreview(rows)
+        }
+
+        if (gen !== audienceLoadGen.current) {
+          return
+        }
 
         if (!append) {
           const { ms, ai } = resolveGroupOptionsBySource(page)
@@ -5494,7 +5524,10 @@ function CampaignsPage() {
                     })}
                   </div>
                   {audienceLoadingMore ? (
-                    <p className="ms-muted ms-load-more">Подгружаем клиентов…</p>
+                    <p className="ms-muted ms-load-more">
+                      Подгружаем клиентов… {audiencePreview.length}
+                      {audience ? ` / ${audience}` : ''}
+                    </p>
                   ) : null}
                   {audienceHasMore ? (
                     <button

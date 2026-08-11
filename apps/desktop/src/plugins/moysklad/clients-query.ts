@@ -211,6 +211,42 @@ export function filterClientRowsByAudience<T extends ClientQueryRow>(
 }
 
 /**
+ * Yield rows one-by-one so the UI can paint chips progressively
+ * instead of freezing on «Подгружаем клиентов…» until the whole page lands.
+ */
+export async function forEachRowProgressive<T>(
+  rows: T[],
+  onRow: (row: T, index: number) => void | Promise<void>,
+  opts?: {
+    isCancelled?: () => boolean
+    /** Frame gap between paints; 0 = next microtask only. */
+    delayMs?: number
+  }
+): Promise<number> {
+  const delayMs = opts?.delayMs ?? 0
+  let painted = 0
+  for (let i = 0; i < rows.length; i++) {
+    if (opts?.isCancelled?.()) {
+      break
+    }
+    await onRow(rows[i], i)
+    painted += 1
+    if (delayMs > 0) {
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, delayMs)
+      })
+    } else if (typeof requestAnimationFrame === 'function') {
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => resolve())
+      })
+    } else {
+      await Promise.resolve()
+    }
+  }
+  return painted
+}
+
+/**
  * Prefer exact cache hit; else filter unfiltered (empty group/q) snapshots
  * by group + q so chip clicks update contacts instantly.
  */
