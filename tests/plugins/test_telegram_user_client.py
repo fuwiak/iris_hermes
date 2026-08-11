@@ -127,6 +127,8 @@ def test_mask_secret_helpers():
 
 def test_normalize_login_phone():
     assert tu.normalize_login_phone("+7 (995) 099-81-70") == "+79950998170"
+    assert tu.normalize_login_phone("+7 968 540 8368") == "+79685408368"
+    assert tu.normalize_login_phone("968 540 8368") == "+79685408368"
     assert tu.normalize_login_phone("89950998170") == "+79950998170"
     assert tu.normalize_login_phone("0079950998170") == "+79950998170"
     assert tu.normalize_login_phone("") == ""
@@ -324,11 +326,41 @@ def test_gateway_start_login_forwards(tmp_path, monkeypatch):
         return {"ok": True, "code_sent": True, "via": "gateway"}
 
     monkeypatch.setattr(tu, "_gateway_request", _fake)
-    out = tu.start_login(phone="+79950998170")
+    out = tu.start_login(phone="+7 968 540 8368")
     assert out["ok"] is True
     assert out["code_sent"] is True
-    assert calls == [("POST", "login", {"phone": "+79950998170", "api_id": "", "api_hash": ""})]
-    assert tu.load_config().get("phone") == "+79950998170"
+    assert out["phone"] == "+79685408368"
+    assert calls == [("POST", "login", {"phone": "+79685408368", "api_id": "", "api_hash": ""})]
+    assert tu.load_config().get("phone") == "+79685408368"
+
+
+def test_gateway_submit_code_skips_local_persist(tmp_path, monkeypatch):
+    """Gateway login must not hang on Selectel trying local MTProto after code."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+
+    def _fake(method, path, **kwargs):
+        assert method == "POST" and path == "code"
+        assert kwargs["json_body"] == {"code": "12345"}
+        return {
+            "ok": True,
+            "authorized": True,
+            "user": {"id": 1, "username": "iris", "phone": "+79685408368"},
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("local Telethon must not run when gateway is set")
+
+    monkeypatch.setattr(tu, "_call", _boom)
+    monkeypatch.setattr(tu, "start_contacts_sync", lambda **_: {"ok": True, "started": False})
+
+    out = tu.submit_code(" 12345 ")
+    assert out["authorized"] is True
+    cfg = tu.load_config()
+    assert cfg["user"]["username"] == "iris"
+    assert cfg["phone"] == "+79685408368"
 
 
 def test_gateway_ensure_runtime_skips_telethon(tmp_path, monkeypatch):

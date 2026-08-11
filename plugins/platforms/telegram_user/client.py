@@ -239,6 +239,9 @@ def normalize_login_phone(value: str) -> str:
     # RU national trunk ``8XXXXXXXXXX`` → ``7XXXXXXXXXX``.
     if len(digits) == 11 and digits.startswith("8"):
         digits = "7" + digits[1:]
+    # RU mobile without country code ``9XXXXXXXXX`` → ``79XXXXXXXXX``.
+    if len(digits) == 10 and digits.startswith("9"):
+        digits = "7" + digits
     return "+" + digits
 
 
@@ -806,6 +809,7 @@ def start_login(
                 cfg = load_config()
                 cfg["phone"] = phone
                 _save_config(cfg)
+            res.setdefault("phone", phone)
         return res
     # Login is non-strict: ignore masked / leftover UI junk; use server .env.
     cleaned_id = sanitize_api_id(api_id)
@@ -879,6 +883,7 @@ def start_login(
             cfg = load_config()
             cfg["phone"] = phone
             _save_config(cfg)
+        res.setdefault("phone", phone)
     return res
 
 
@@ -938,6 +943,7 @@ def _finish_login(client_result: Any) -> dict[str, Any]:
 
 def submit_code(code: str) -> dict[str, Any]:
     """Second login step. Returns ``password_required`` when 2FA is on."""
+    code = str(code or "").strip()
     if _gateway_base():
         res = _gateway_request(
             "POST", "code", json_body={"code": code}, timeout=_LOGIN_TIMEOUT + 30.0
@@ -945,7 +951,6 @@ def submit_code(code: str) -> dict[str, Any]:
         if res.get("authorized"):
             _persist_after_login(res)
         return res
-    code = str(code or "").strip()
     if not code:
         return _err("code_missing", "Введите код из Telegram")
     phone = _RUNNER.phone or str(load_config().get("phone") or "").strip()
@@ -999,15 +1004,20 @@ def submit_password(password: str) -> dict[str, Any]:
 
 
 def _persist_after_login(res: dict[str, Any]) -> None:
-    async def _save() -> dict[str, Any]:
-        client = await _RUNNER.client()
-        _RUNNER.persist_session(client)
-        return {"ok": True}
+    # Session lives on Railway egress — never block login on Selectel MTProto.
+    if not _gateway_base():
+        async def _save() -> dict[str, Any]:
+            client = await _RUNNER.client()
+            _RUNNER.persist_session(client)
+            return {"ok": True}
 
-    _call(_save, timeout=20.0)
+        _call(_save, timeout=20.0)
     with _LOCK:
         cfg = load_config()
         cfg["user"] = res.get("user") or {}
+        phone = str(res.get("phone") or (res.get("user") or {}).get("phone") or "").strip()
+        if phone:
+            cfg["phone"] = normalize_login_phone(phone)
         _save_config(cfg)
     _RUNNER.phone_code_hash = ""
     _invalidate_auth_cache()

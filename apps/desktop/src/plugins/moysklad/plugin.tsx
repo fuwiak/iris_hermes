@@ -3532,17 +3532,24 @@ function CampaignsPage() {
         const body: { phone: string } = {
           phone: tgPhone.trim()
         }
-        const data = await call<{ authorized?: boolean; code_sent?: boolean }>(
+        const data = await call<{ authorized?: boolean; code_sent?: boolean; phone?: string }>(
           '/campaigns/telegram-user/login',
           { method: 'POST', body, timeoutMs: 35_000 }
         )
+        if (data.phone) {
+          setTgPhone(data.phone)
+        }
         if (data.authorized) {
           setActionStatus('✓ Личный Telegram уже подключён')
           await refreshTgUser()
           await tgStartContactsSync()
         } else {
           setTgStep('code')
-          setActionStatus('Код отправлен в Telegram — введите его ниже')
+          setActionStatus(
+            data.phone
+              ? `Код отправлен на ${data.phone} — введите его ниже`
+              : 'Код отправлен в Telegram — введите его ниже'
+          )
         }
       }
     )
