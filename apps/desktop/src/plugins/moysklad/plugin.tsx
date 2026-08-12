@@ -5619,7 +5619,7 @@ function CampaignsPage() {
                 Сохранить фильтр
               </button>
               <button
-                className="ms-link-btn"
+                className="ms-btn"
                 onClick={() => {
                   setSalesFilter('all')
                   setChannelKind('')
@@ -5639,9 +5639,10 @@ function CampaignsPage() {
                   setFilterDrawer(null)
                   setSaveFilterOpen(false)
                 }}
+                title="Сбросить все фильтры аудитории"
                 type="button"
               >
-                Сбросить всё
+                Сбросить фильтры
               </button>
             </div>
           </div>
