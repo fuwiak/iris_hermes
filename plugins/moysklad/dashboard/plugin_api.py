@@ -128,7 +128,7 @@ from plugins.moysklad.conversations import (
     append_message,
     enrich_clients,
     get_thread,
-    sync_from_gateway,
+    sync_client_conversation,
 )
 from plugins.moysklad.outreach import (
     build_outreach_for_row,
@@ -688,6 +688,14 @@ class ConversationAppendBody(BaseModel):
     label: str = ""
     source: str = "manual"
     open_deep_link: bool = False
+
+
+class ConversationSyncBody(BaseModel):
+    """Optional overrides for Sync Telegram (+ AI refresh)."""
+
+    refresh_ai: bool = True
+    provider: str = ""
+    model: str = ""
 
 
 class ClientAiBody(BaseModel):
@@ -2070,27 +2078,82 @@ def post_client_ai(
 
 
 @router.post("/clients/{client_id}/conversation/sync")
-def post_client_conversation_sync(client_id: str) -> dict[str, Any]:
-    """Pull Telegram gateway history into the local client thread."""
+def post_client_conversation_sync(
+    client_id: str,
+    body: ConversationSyncBody | None = None,
+    refresh_ai: bool = Query(
+        True,
+        description="Regenerate summary/recommendation after sync (default on).",
+    ),
+    provider: str = Query(""),
+    model: str = Query(""),
+) -> dict[str, Any]:
+    """Pull Telegram history (gateway + personal MTProto) into the local thread.
+
+    When new messages land (especially inbound), regenerates AI recommendation
+    so the card reflects the latest chat — not a stale heuristic.
+    """
     try:
+        body = body or ConversationSyncBody()
+        want_ai = bool(body.refresh_ai if body.refresh_ai is not None else refresh_ai)
+        # Query params still win when body left defaults empty for provider/model.
+        provider_name = (body.provider or provider or "").strip()
+        model_name = (body.model or model or "").strip()
+        # Explicit query false overrides body true.
+        if refresh_ai is False:
+            want_ai = False
         catalog, meta = _get_catalog(force=False)
         row = find_row_in_catalog(catalog, client_id) if catalog else None
         phone = ""
         tg_nick = ""
+        tg_chat_id = ""
         client_name = ""
+        detail = None
         if row is not None:
             detail = build_client_detail(row)
             client = detail.get("client") or {}
             phone = str(client.get("phone") or "")
             tg_nick = str(client.get("tg_nick") or "")
+            tg_chat_id = str(client.get("tg_chat_id") or "")
             client_name = str(client.get("name") or "")
-        thread = sync_from_gateway(
+        thread = sync_client_conversation(
             client_id=client_id,
             phone=phone,
             tg_nick=tg_nick,
+            tg_chat_id=tg_chat_id,
             client_name=client_name,
         )
-        return _attach_cache_meta({"ok": True, "conversation": thread}, meta)
+        payload: dict[str, Any] = {"ok": True, "conversation": thread}
+        sync_meta = thread.get("sync") or {}
+        imported = int(sync_meta.get("imported") or 0)
+        inbound_imported = int(sync_meta.get("inbound_imported") or 0)
+        # Always regen on Sync when refresh_ai=True and client known — seller
+        # expects «новые рекомендации» after accounting for the thread.
+        if want_ai and row is not None:
+            try:
+                if detail is None:
+                    detail = build_client_detail(row)
+                detail = dict(detail)
+                detail["conversation"] = thread
+                payload["ai"] = generate_ai_for_detail(
+                    detail,
+                    provider=provider_name or None,
+                    model=model_name or None,
+                )
+                payload["ai_refreshed"] = True
+                payload["ai_reason"] = (
+                    "inbound"
+                    if inbound_imported > 0
+                    else "imported"
+                    if imported > 0
+                    else "sync"
+                )
+            except Exception:
+                log.exception("moysklad conversation sync AI refresh failed")
+                payload["ai_refreshed"] = False
+        else:
+            payload["ai_refreshed"] = False
+        return _attach_cache_meta(payload, meta)
     except HTTPException:
         raise
     except ValueError as exc:

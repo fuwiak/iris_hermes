@@ -58,6 +58,27 @@ def test_event_calendar_single_day_no_lead() -> None:
     ) is False
 
 
+def test_event_calendar_past_range_in_august() -> None:
+    """Seller picking March dates in August must still match «8 марта» tag."""
+    today = date(2026, 8, 12)
+    row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 8),
+        event_to=date(2026, 3, 8),
+        lead_days=0,
+        today=today,
+    ) is True
+    # Lead window requires «today inside [event-lead, event]» — August misses.
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 8),
+        event_to=date(2026, 3, 8),
+        lead_days=5,
+        today=today,
+    ) is False
+
+
 def test_event_calendar_range_with_lead() -> None:
     today = date(2026, 3, 4)
     row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}

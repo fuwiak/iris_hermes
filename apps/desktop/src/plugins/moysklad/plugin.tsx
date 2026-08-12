@@ -1576,18 +1576,45 @@ function ClientCardModal({
     try {
       const data = await call<{
         conversation?: ClientConversation & {
-          sync?: { imported?: number; matched_sessions?: number; ok?: boolean; reason?: string }
+          sync?: {
+            imported?: number
+            inbound_imported?: number
+            matched_sessions?: number
+            ok?: boolean
+            reason?: string
+            telegram_user?: { reason?: string; error?: string }
+            gateway?: { reason?: string }
+          }
         }
+        ai?: ClientDetail['ai']
+        ai_refreshed?: boolean
+        ai_reason?: string
       }>(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
-        method: 'POST'
+        method: 'POST',
+        body: {
+          refresh_ai: true,
+          provider: aiProvider || undefined,
+          model: aiModel || undefined
+        }
       })
 
-      if (data.conversation) {
-        setDetail(prev => (prev ? { ...prev, conversation: data.conversation } : prev))
-        const sync = data.conversation.sync
-        if (sync?.reason === 'no_tg_nick_or_phone') {
+      if (data.conversation || data.ai) {
+        setDetail(prev =>
+          prev
+            ? {
+                ...prev,
+                conversation: data.conversation || prev.conversation,
+                ai: data.ai || prev.ai
+              }
+            : prev
+        )
+        const sync = data.conversation?.sync
+        const noPeer =
+          sync?.reason === 'no_tg_nick_or_phone' ||
+          sync?.telegram_user?.reason === 'no_tg_nick_or_phone'
+        if (noPeer && !(sync?.imported || sync?.inbound_imported)) {
           setError('Нет ТГ ника / телефона — sync невозможен')
-        } else if (sync && sync.ok === false && sync.reason) {
+        } else if (sync && sync.ok === false && sync.reason && !data.ai_refreshed) {
           setError(`Sync: ${sync.reason}`)
         }
       }
@@ -1704,10 +1731,10 @@ function ClientCardModal({
                   className="ms-btn"
                   disabled={syncLoading}
                   onClick={() => void syncTelegramHistory()}
-                  title="Подтянуть историю из gateway Telegram по нику/телефону"
+                  title="Подтянуть входящие/исходящие из gateway + личного Telegram; обновить рекомендации AI"
                   type="button"
                 >
-                  {syncLoading ? 'Sync…' : 'Sync Telegram'}
+                  {syncLoading ? 'Sync + AI…' : 'Sync Telegram'}
                 </button>
               </div>
               <ConversationThread conversation={conversation} title="TG conversation" />

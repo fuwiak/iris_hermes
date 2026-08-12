@@ -61,6 +61,98 @@ def test_inbound_append_same_thread(tmp_path, monkeypatch):
     assert "входящее" in thread["messages"][-1]["label"].lower()
 
 
+def test_sync_from_telegram_user_merges_inbound(tmp_path, monkeypatch):
+    """Personal MTProto history must land as inbound/outbound in the thread."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    def _fake_history(*, peer: str, limit: int = 40):
+        assert "@maria" in peer or "maria" in peer
+        return {
+            "ok": True,
+            "tg_chat_id": "4242",
+            "tg_nick": "maria",
+            "messages": [
+                {
+                    "direction": "outbound",
+                    "text": "Здравствуйте!",
+                    "ts": "2026-08-10T10:00:00+00:00",
+                    "message_id": 1,
+                },
+                {
+                    "direction": "inbound",
+                    "text": "Да, давайте букет к пятнице",
+                    "ts": "2026-08-10T10:05:00+00:00",
+                    "message_id": 2,
+                },
+            ],
+            "via": "stub",
+        }
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(tg_user, "fetch_history", _fake_history)
+
+    from plugins.moysklad.conversations import sync_from_telegram_user
+
+    thread = sync_from_telegram_user(
+        client_id="cp-tg",
+        tg_nick="@maria",
+        client_name="Мария",
+    )
+    assert thread["message_count"] == 2
+    assert thread["sync"]["imported"] == 2
+    assert thread["sync"]["inbound_imported"] == 1
+    assert any(m["direction"] == "inbound" for m in thread["messages"])
+    # Idempotent
+    again = sync_from_telegram_user(client_id="cp-tg", tg_nick="@maria")
+    assert again["sync"]["imported"] == 0
+    assert again["message_count"] == 2
+
+
+def test_sync_client_conversation_combines_sources(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    from plugins.moysklad import conversations as conv
+
+    def _fake_gateway(**kwargs):
+        return {
+            **conv.get_thread(client_id=kwargs["client_id"]),
+            "sync": {
+                "ok": True,
+                "imported": 0,
+                "inbound_imported": 0,
+                "matched_sessions": 0,
+                "source": "gateway_telegram",
+            },
+        }
+
+    def _fake_user(**kwargs):
+        append_message(
+            client_id=kwargs["client_id"],
+            text="Входящее с личного TG",
+            direction="inbound",
+            tg_nick=kwargs.get("tg_nick") or "",
+            source="telegram_user",
+        )
+        public = conv.get_thread(client_id=kwargs["client_id"])
+        public["sync"] = {
+            "ok": True,
+            "imported": 1,
+            "inbound_imported": 1,
+            "source": "telegram_user",
+        }
+        return public
+
+    monkeypatch.setattr(conv, "sync_from_gateway", _fake_gateway)
+    monkeypatch.setattr(conv, "sync_from_telegram_user", _fake_user)
+
+    thread = conv.sync_client_conversation(client_id="cp-mix", tg_nick="@x")
+    assert thread["sync"]["inbound_imported"] == 1
+    assert thread["message_count"] >= 1
+
+
 def test_seed_from_attr_once(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_memory_for_tests()

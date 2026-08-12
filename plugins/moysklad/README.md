@@ -85,10 +85,13 @@ Example prompts:
    `ai_fill.json`); cached entries skip LLM on reload. Cells show a **green
    outline + AI badge**. Never overwrites MoySklad-owned non-empty cells.
    Endpoint: `POST /clients/ai-fill` with `ids` for the visible set.
-10. Client card: **Sync Telegram** pulls gateway session history; AI summary
-   supports model picker (`provider`/`model` on `POST /clients/{id}/ai`).
-11. Рассылки: same audience filters as Clients + smart window
-   `days_before_event` (e.g. 5 days before 8 March / событие марта).
+10. Client card: **Sync Telegram** pulls gateway session history **and** the
+   personal MTProto account thread (inbound replies), then regenerates AI
+   summary/recommendation. Model picker: ``provider``/``model`` on
+   ``POST /clients/{id}/ai`` and on sync.
+11. Рассылки: same audience filters as Clients + event calendar
+   (``event_date_from`` / ``event_date_to``) with optional lead window
+   ``days_before_event`` (e.g. 5 days before 8 March / событие марта).
 12. `GET /clients/integrity` — audit tab partition (hybrid / no-orders /
     marker-only) explaining historic «lost clients» counting.
 
@@ -132,9 +135,10 @@ marketplace/direct classification as **Клиенты**. Personalized drafts:
    success the deep-link is skipped; on failure the text is still stored
    and a deep-link may open for manual send.
    `POST /clients/{id}/conversation`, `POST /campaigns/mark-sent`.
-   Inbound replies can be appended with `direction=inbound`. Full live pull
-   from Hermes gateway Telegram sessions is a follow-up: match
-   `session_key` / peer phone or `@nick` to the same index keys and merge.
+   Inbound replies: append with ``direction=inbound``, or **Sync Telegram**
+   which merges Hermes gateway sessions + personal MTProto history
+   (``telegram_user.fetch_history`` / egress ``POST …/history``) and
+   regenerates the AI recommendation.
 
 ### Личный Telegram (MTProto) — «мои контакты»
 

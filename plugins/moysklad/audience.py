@@ -247,7 +247,8 @@ def row_matches_event_calendar(
 
   - ``event_from`` / ``event_to``: inclusive calendar range for the event.
   - ``lead_days > 0``: today must fall in ``[event - lead, event]``.
-  - ``lead_days == 0``: event must be today or later.
+  - ``lead_days == 0``: any event whose date lands in the selected range
+    (past dates OK — seller is picking a calendar window, not «only future»).
     """
     if event_from is None and event_to is None:
         return True
@@ -262,7 +263,13 @@ def row_matches_event_calendar(
         lead = max(0, int(lead_days or 0))
     except (TypeError, ValueError):
         lead = 0
-    dates = event_dates_for_row(row, today=today)
+    # Resolve annual tags against today AND against the selected range so
+    # picking «8 марта 2026» in August still matches the 8-March tag
+    # (next-from-today alone would jump to 2027 and miss the range).
+    dates: set[date] = set(event_dates_for_row(row, today=today))
+    dates.update(event_dates_for_row(row, today=start))
+    if end != start:
+        dates.update(event_dates_for_row(row, today=end))
     if not dates:
         return False
     for event_date in dates:
@@ -272,7 +279,7 @@ def row_matches_event_calendar(
             contact_start = event_date - timedelta(days=lead)
             if contact_start <= today <= event_date:
                 return True
-        elif event_date >= today:
+        else:
             return True
     return False
 

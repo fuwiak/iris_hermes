@@ -606,3 +606,29 @@ def test_local_cheap_poll_uses_cached_user(tmp_path, monkeypatch):
     assert st["session_saved"] is True
     assert st["authorized"] is True
     assert st["authorized_cached"] is True
+
+
+def test_fetch_history_via_gateway(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    captured: dict = {}
+
+    def _req(method, path, **kwargs):
+        captured["method"] = method
+        captured["path"] = path
+        captured["body"] = kwargs.get("json_body")
+        return {
+            "ok": True,
+            "messages": [
+                {"direction": "inbound", "text": "hi", "ts": "2026-08-01T00:00:00Z"}
+            ],
+            "tg_chat_id": "99",
+            "count": 1,
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _req)
+    out = tu.fetch_history(peer="@buyer", limit=20)
+    assert out["ok"] is True
+    assert captured["path"] == "history"
+    assert captured["body"]["peer"] == "@buyer"
+    assert out["messages"][0]["direction"] == "inbound"

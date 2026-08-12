@@ -6,8 +6,9 @@ Persistence ladder (same idea as catalog / ai_fill / telegram_export overlay):
 2. File ``$HERMES_HOME/moysklad/conversations.json``
 3. Process-local memory
 
-Linked by client_id, normalized phone, and Telegram nick. Full live pull from
-gateway Telegram sessions can attach later via the same keys (see README).
+Linked by client_id, normalized phone, and Telegram nick. Sync pulls Hermes
+gateway Telegram sessions **and** the personal MTProto account history
+(``telegram_user``) so inbound replies land in the same thread for AI.
 """
 
 from __future__ import annotations
@@ -589,6 +590,7 @@ def sync_from_gateway(
     nick = normalize_tg_nick(tg_nick)
     digits = normalize_phone(phone)
     imported = 0
+    inbound_imported = 0
     matched_sessions = 0
     error = ""
     try:
@@ -604,6 +606,7 @@ def sync_from_gateway(
                     "ok": False,
                     "reason": "no_tg_nick_or_phone",
                     "imported": 0,
+                    "inbound_imported": 0,
                     "matched_sessions": 0,
                 },
             }
@@ -664,6 +667,8 @@ def sync_from_gateway(
                         "session_id": sid,
                     })
                     imported += 1
+                    if direction == "inbound":
+                        inbound_imported += 1
             if len(existing) > _MAX_MESSAGES:
                 existing = existing[-_MAX_MESSAGES:]
             # Stable chronological order when timestamps allow.
@@ -679,9 +684,214 @@ def sync_from_gateway(
     public["sync"] = {
         "ok": not error,
         "imported": imported,
+        "inbound_imported": inbound_imported,
         "matched_sessions": matched_sessions,
         "error": error or None,
         "source": "gateway_telegram",
     }
     return public
 
+
+def _merge_history_messages(
+    *,
+    client_id: str,
+    phone: str = "",
+    tg_nick: str = "",
+    client_name: str = "",
+    tg_chat_id: str = "",
+    rows: list[dict[str, Any]],
+    source: str,
+    label_suffix: str,
+) -> tuple[dict[str, Any], int, int]:
+    """Merge normalized history rows into the local thread.
+
+    Returns ``(public_thread, imported, inbound_imported)``.
+    """
+    cid = (client_id or "").strip()
+    imported = 0
+    inbound_imported = 0
+    with _LOCK:
+        store = _load()
+        thread = _ensure_thread(
+            store,
+            client_id=cid,
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+        if tg_chat_id and not thread.get("tg_chat_id"):
+            thread["tg_chat_id"] = str(tg_chat_id).strip()
+        existing = list(thread.get("messages") or [])
+        existing_keys = {
+            (
+                str(m.get("direction") or ""),
+                str(m.get("text") or "").strip()[:200],
+                str(m.get("ts") or "")[:19],
+            )
+            for m in existing
+        }
+        for raw in rows or []:
+            text = str(raw.get("text") or "").strip()
+            if not text:
+                continue
+            direction = str(raw.get("direction") or "inbound").strip().lower()
+            if direction not in ("outbound", "inbound", "system"):
+                direction = "inbound"
+            ts = str(raw.get("ts") or _now())
+            key = (direction, text[:200], ts[:19])
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            existing.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "direction": direction,
+                    "channel": "telegram",
+                    "label": _channel_label("telegram", direction) + label_suffix,
+                    "text": text[:4000],
+                    "ts": ts if "T" in ts else _now(),
+                    "source": source,
+                    "message_id": raw.get("message_id"),
+                }
+            )
+            imported += 1
+            if direction == "inbound":
+                inbound_imported += 1
+        if len(existing) > _MAX_MESSAGES:
+            existing = existing[-_MAX_MESSAGES:]
+        existing.sort(key=lambda m: str(m.get("ts") or ""))
+        thread["messages"] = existing
+        if imported:
+            thread["updated_at"] = _now()
+        _save(store)
+        return public_thread(thread), imported, inbound_imported
+
+
+def sync_from_telegram_user(
+    *,
+    client_id: str,
+    phone: str = "",
+    tg_nick: str = "",
+    tg_chat_id: str = "",
+    client_name: str = "",
+    limit: int = 40,
+) -> dict[str, Any]:
+    """Pull personal MTProto chat history into the local client thread.
+
+    Accounts for inbound replies on the operator's own Telegram account
+    (the one used for mass Рассылки) — Bot/gateway sessions alone miss them.
+    """
+    cid = (client_id or "").strip()
+    if not cid:
+        raise ValueError("client_id required")
+    nick = normalize_tg_nick(tg_nick)
+    digits = normalize_phone(phone)
+    chat_id = str(tg_chat_id or "").strip()
+    peer = chat_id or (f"@{nick}" if nick else "") or digits
+    if not peer:
+        public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
+        public["sync"] = {
+            "ok": False,
+            "reason": "no_tg_nick_or_phone",
+            "imported": 0,
+            "inbound_imported": 0,
+            "source": "telegram_user",
+        }
+        return public
+
+    try:
+        from plugins.platforms.telegram_user import client as tg_user
+
+        hist = tg_user.fetch_history(peer=peer, limit=limit)
+    except Exception as exc:
+        public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
+        public["sync"] = {
+            "ok": False,
+            "imported": 0,
+            "inbound_imported": 0,
+            "error": str(exc),
+            "source": "telegram_user",
+        }
+        return public
+
+    if not hist.get("ok"):
+        public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
+        public["sync"] = {
+            "ok": False,
+            "imported": 0,
+            "inbound_imported": 0,
+            "error": hist.get("detail") or hist.get("error") or "history_failed",
+            "reason": hist.get("error") or "history_failed",
+            "source": "telegram_user",
+        }
+        return public
+
+    rows = list(hist.get("messages") or [])
+    resolved_chat = str(hist.get("tg_chat_id") or chat_id or "").strip()
+    resolved_nick = normalize_tg_nick(str(hist.get("tg_nick") or nick or ""))
+    public, imported, inbound_imported = _merge_history_messages(
+        client_id=cid,
+        phone=phone,
+        tg_nick=resolved_nick or nick,
+        client_name=client_name,
+        tg_chat_id=resolved_chat,
+        rows=rows,
+        source="telegram_user",
+        label_suffix=" · личный TG",
+    )
+    public["sync"] = {
+        "ok": True,
+        "imported": imported,
+        "inbound_imported": inbound_imported,
+        "fetched": len(rows),
+        "source": "telegram_user",
+        "via": hist.get("via"),
+    }
+    return public
+
+
+def sync_client_conversation(
+    *,
+    client_id: str,
+    phone: str = "",
+    tg_nick: str = "",
+    tg_chat_id: str = "",
+    client_name: str = "",
+) -> dict[str, Any]:
+    """Gateway sessions + personal MTProto history → one local thread."""
+    gateway = sync_from_gateway(
+        client_id=client_id,
+        phone=phone,
+        tg_nick=tg_nick,
+        client_name=client_name,
+    )
+    user = sync_from_telegram_user(
+        client_id=client_id,
+        phone=phone,
+        tg_nick=tg_nick,
+        tg_chat_id=tg_chat_id,
+        client_name=client_name,
+    )
+    # Prefer the richer merged thread (user sync runs second and reloads store).
+    thread = user if int((user.get("message_count") or 0)) >= int(
+        (gateway.get("message_count") or 0)
+    ) else gateway
+    # If user sync failed soft, still surface gateway messages.
+    if user.get("empty") and not gateway.get("empty"):
+        thread = gateway
+    g_sync = gateway.get("sync") or {}
+    u_sync = user.get("sync") or {}
+    imported = int(g_sync.get("imported") or 0) + int(u_sync.get("imported") or 0)
+    inbound = int(g_sync.get("inbound_imported") or 0) + int(
+        u_sync.get("inbound_imported") or 0
+    )
+    thread = dict(thread)
+    thread["sync"] = {
+        "ok": bool(g_sync.get("ok") or u_sync.get("ok")),
+        "imported": imported,
+        "inbound_imported": inbound,
+        "gateway": g_sync,
+        "telegram_user": u_sync,
+        "source": "gateway+telegram_user",
+    }
+    return thread

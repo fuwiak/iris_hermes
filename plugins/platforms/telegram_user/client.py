@@ -1674,3 +1674,74 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
         }
 
     return _call(_send, timeout=60.0)
+
+
+def _message_ts(msg: Any) -> str:
+    raw = getattr(msg, "date", None)
+    if raw is None:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        # Telethon returns timezone-aware datetime.
+        return raw.isoformat()
+    except Exception:
+        return str(raw)
+
+
+def fetch_history(*, peer: str, limit: int = 40) -> dict[str, Any]:
+    """Pull recent private-chat messages for ``peer`` from the user account.
+
+    Used by MoySklad client-card Sync to account for inbound replies on the
+    personal MTProto session (gateway Bot API sessions alone miss these).
+    """
+    raw = str(peer or "").strip()
+    if not raw:
+        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+    try:
+        lim = max(1, min(100, int(limit or 40)))
+    except (TypeError, ValueError):
+        lim = 40
+
+    if _gateway_base():
+        return _gateway_request(
+            "POST",
+            "history",
+            json_body={"peer": raw, "limit": lim},
+            timeout=60.0,
+        )
+
+    target = _peer_arg(raw)
+    if not str(target).strip("@"):
+        return _err("telegram_chat_missing", "Нужен @ник или chat id")
+
+    async def _hist() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        entity = await client.get_entity(target)
+        rows: list[dict[str, Any]] = []
+        async for msg in client.iter_messages(entity, limit=lim):
+            text = str(getattr(msg, "message", None) or "").strip()
+            if not text:
+                continue
+            outbound = bool(getattr(msg, "out", False))
+            rows.append(
+                {
+                    "direction": "outbound" if outbound else "inbound",
+                    "text": text[:4000],
+                    "ts": _message_ts(msg),
+                    "message_id": getattr(msg, "id", None),
+                }
+            )
+        rows.reverse()  # chronological
+        eid = getattr(entity, "id", None)
+        nick = str(getattr(entity, "username", None) or "").lstrip("@")
+        return {
+            "ok": True,
+            "messages": rows,
+            "tg_chat_id": str(eid) if eid is not None else "",
+            "tg_nick": nick,
+            "count": len(rows),
+            "via": "user_account",
+        }
+
+    return _call(_hist, timeout=60.0)

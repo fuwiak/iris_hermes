@@ -691,6 +691,61 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     return _call(_send, timeout=60.0)
 
 
+def _message_ts(msg: Any) -> str:
+    raw = getattr(msg, "date", None)
+    if raw is None:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        return raw.isoformat()
+    except Exception:
+        return str(raw)
+
+
+def fetch_history(*, peer: str, limit: int = 40) -> dict[str, Any]:
+    """Recent private-chat messages for MoySklad inbound accounting."""
+    raw = str(peer or "").strip()
+    if not raw:
+        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+    try:
+        lim = max(1, min(100, int(limit or 40)))
+    except (TypeError, ValueError):
+        lim = 40
+    target: Any = _peer_arg(raw)
+
+    async def _hist() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        entity = await client.get_entity(target)
+        rows: list[dict[str, Any]] = []
+        async for msg in client.iter_messages(entity, limit=lim):
+            text = str(getattr(msg, "message", None) or "").strip()
+            if not text:
+                continue
+            outbound = bool(getattr(msg, "out", False))
+            rows.append(
+                {
+                    "direction": "outbound" if outbound else "inbound",
+                    "text": text[:4000],
+                    "ts": _message_ts(msg),
+                    "message_id": getattr(msg, "id", None),
+                }
+            )
+        rows.reverse()
+        eid = getattr(entity, "id", None)
+        nick = str(getattr(entity, "username", None) or "").lstrip("@")
+        return {
+            "ok": True,
+            "messages": rows,
+            "tg_chat_id": str(eid) if eid is not None else "",
+            "tg_nick": nick,
+            "count": len(rows),
+            "via": "user_account_gateway",
+        }
+
+    return _call(_hist, timeout=60.0)
+
+
 @app.get("/healthz")
 def healthz() -> PlainTextResponse:
     return PlainTextResponse("ok")
@@ -770,6 +825,13 @@ async def gateway(
 
     if request.method == "POST" and route == "send":
         out = send_message(peer=str(body.get("peer") or ""), text=str(body.get("text") or ""))
+        return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+    if request.method == "POST" and route == "history":
+        out = fetch_history(
+            peer=str(body.get("peer") or body.get("query") or ""),
+            limit=int(body.get("limit") or 40),
+        )
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
     raise HTTPException(status_code=404, detail=f"unknown route: {route}")
