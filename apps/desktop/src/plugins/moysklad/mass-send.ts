@@ -3,14 +3,23 @@
  * Chunking stays client-side so HTTP stays under Bot API / gateway timeouts.
  */
 
-/** Matches backend ``max N clients per batch`` on mark-sent-batch. */
-export const MASS_SEND_CHUNK = 50
+/** Matches backend ``MASS_SEND_BATCH_MAX`` on mark-sent-batch. */
+export const MASS_SEND_CHUNK = 100
 
-/** Soft cap when «Выбрать всю аудиторию» paginates /clients. */
-export const MASS_AUDIENCE_SELECT_CAP = 5000
+/** Soft cap when «Выбрать всю аудиторию» via ``/clients/ids`` (10k blast). */
+export const MASS_AUDIENCE_SELECT_CAP = 10000
 
 /** Ask for confirm before firing this many recipients. */
 export const MASS_SEND_CONFIRM_AT = 20
+
+/**
+ * Scale posture for Рассылки (not Kubernetes):
+ * - One shared draft → mark-sent-batch chunks (cheapest 10k path).
+ * - Per-client AI personalize → backlog of chunks + draft cache (queue mindset).
+ * - Filters stay fast via stamped catalog indexes on the server.
+ */
+export const MASS_SEND_SCALE_HINT =
+  'До 10 тыс.: один общий текст пачками по 100. AI на каждого — очередь чанков + кэш черновиков, не 10k синхронных LLM.'
 
 export type MassSendStep = 1 | 2 | 3 | 4
 
@@ -51,8 +60,9 @@ export function needsMassSendConfirm(count: number, threshold = MASS_SEND_CONFIR
 export function massSendConfirmText(count: number): string {
   return (
     `Отправить одно и то же сообщение ${count} клиентам?\n\n` +
-    `Отправка идёт пачками по ${MASS_SEND_CHUNK}. ` +
-    `Ответы потом собираются кнопкой «Собрать ответы» (TG conversation).`
+    `Отправка идёт пачками по ${MASS_SEND_CHUNK} (до ${MASS_AUDIENCE_SELECT_CAP}). ` +
+    `Ответы потом собираются кнопкой «Собрать ответы» (TG conversation).\n` +
+    MASS_SEND_SCALE_HINT
   )
 }
 

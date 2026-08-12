@@ -120,7 +120,12 @@ def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
                         amount = 0.0
                     if amount > 0:
                         amounts.append(amount)
-                    moment = str(item.get("moment") or item.get("Дата") or "").strip()
+                    moment = str(
+                        item.get("moment")
+                        or item.get("Дата")
+                        or item.get("date")
+                        or ""
+                    ).strip()
                     if moment and moment > last:
                         last = moment
                 row["order_count"] = len(ctx)
@@ -136,6 +141,52 @@ def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
     if isinstance(catalog, dict):
         catalog["rows"] = rows
         catalog["counts"] = counts
+    return counts
+
+
+# Bump when channel / event-index / partition rules change — forces one full
+# walk, then filter clicks reuse stamped catalog (cheap).
+AUDIENCE_READY_VERSION = 5
+
+
+def ensure_audience_ready(
+    catalog: dict[str, Any],
+    *,
+    force: bool = False,
+) -> dict[str, int]:
+    """Stamp counts + event indexes once; skip O(n) channel refresh on every filter.
+
+    Hot path: seller clicks calendar / VIP / group → ``clients_page`` used to
+    call ``refresh_audience_counts`` (full channel rewrite) on ~10k rows every
+    time. Scale the bottleneck: pay the walk once per catalog version, then
+    only match filters.
+    """
+    from plugins.moysklad.audience import stamp_row_event_index
+    from plugins.moysklad.dedupe import recompute_audience_counts
+
+    if not isinstance(catalog, dict):
+        return {"direct": 0, "marketplace": 0, "other": 0, "total": 0}
+
+    rows = list(catalog.get("rows") or [])
+    stamped = int(catalog.get("_audience_stamp_v") or 0)
+    if force or stamped != AUDIENCE_READY_VERSION:
+        counts = refresh_audience_counts(catalog)
+        for row in rows:
+            if isinstance(row, dict):
+                stamp_row_event_index(row)
+        catalog["_audience_stamp_v"] = AUDIENCE_READY_VERSION
+        return counts
+
+    # Cheap repair: rows added after stamp still get an event index.
+    for row in rows:
+        if isinstance(row, dict) and "_event_index_v1" not in row:
+            stamp_row_event_index(row)
+
+    counts = catalog.get("counts")
+    if isinstance(counts, dict) and counts.get("total") is not None:
+        return counts
+    counts = recompute_audience_counts(rows)
+    catalog["counts"] = counts
     return counts
 
 

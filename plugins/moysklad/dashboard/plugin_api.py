@@ -837,7 +837,8 @@ class MarkSentBody(BaseModel):
 
 
 # Per HTTP request — UI chunks larger audiences into several calls.
-MASS_SEND_BATCH_MAX = 50
+MASS_SEND_BATCH_MAX = 100
+MASS_AUDIENCE_IDS_MAX = 10_000
 
 
 class MarkSentBatchBody(BaseModel):
@@ -1378,6 +1379,102 @@ def get_clients(
         ) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/ids")
+def get_clients_ids(
+    sales_filter: str = Query("all"),
+    group: str = Query(""),
+    q: str = Query(""),
+    channel_kind: str = Query(""),
+    require_phone: bool = Query(False),
+    require_telegram: bool = Query(False),
+    vip_only: bool = Query(False),
+    birthday_soon: bool = Query(False),
+    group_source: str = Query("any"),
+    days_before_event: int = Query(0, ge=0, le=365),
+    event_date_from: str = Query(""),
+    event_date_to: str = Query(""),
+    stage: str = Query("all"),
+    limit: int = Query(MASS_AUDIENCE_IDS_MAX, ge=1, le=MASS_AUDIENCE_IDS_MAX),
+    offset: int = Query(0, ge=0),
+    max_orders: int = Query(25000, ge=0, le=100_000),
+    max_counterparties: int = Query(0, ge=0, le=100_000),
+    include_archived: bool = Query(False),
+) -> dict[str, Any]:
+    """Ids-only audience slice for «Выбрать всех» / 10k mass send.
+
+    Skips conversation enrich + public row hydrate — cheapest request that
+    still respects the same filters as ``GET /clients``.
+    """
+    try:
+        catalog, meta = _get_catalog(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            force=False,
+            blocking=True,
+            refresh_counts=False,
+        )
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="catalog unavailable")
+        page = clients_page(
+            _client(),
+            sales_filter=sales_filter,
+            group=group,
+            q=q,
+            channel_kind=channel_kind,
+            require_phone=require_phone,
+            require_telegram=require_telegram,
+            vip_only=vip_only,
+            birthday_soon=birthday_soon,
+            group_source=group_source,
+            days_before_event=days_before_event,
+            event_date_from=event_date_from,
+            event_date_to=event_date_to,
+            stage=stage,
+            limit=limit,
+            offset=offset,
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+            catalog=catalog,
+        )
+        rows = list(page.get("_rows") or [])
+        ids: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            cid = str(
+                row.get("_moysklad_id")
+                or row.get("id")
+                or row.get("moysklad_id")
+                or ""
+            ).strip()
+            if cid:
+                ids.append(cid)
+        payload = {
+            "ok": True,
+            "ids": ids,
+            "matched_total": int(page.get("matched_total") or 0),
+            "returned": len(ids),
+            "offset": offset,
+            "limit": limit,
+            "has_more": bool(page.get("has_more")),
+            "next_offset": page.get("next_offset"),
+            "cap": MASS_AUDIENCE_IDS_MAX,
+            "counts": page.get("counts"),
+        }
+        return _attach_cache_meta(payload, meta if isinstance(meta, dict) else {})
+    except HTTPException:
+        raise
+    except MoySkladError as exc:
+        raise HTTPException(
+            status_code=exc.status_code or 502, detail=str(exc)
+        ) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/ids failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -3563,8 +3660,8 @@ def post_campaign_paraphrase_stream(body: OutreachRewriteBody) -> Any:
 def post_campaign_personalize_stream(body: OutreachPersonalizeBody) -> Any:
     """Batch NDJSON: batch_start → client_done* → batch_done (parallel LLM)."""
     try:
-        limit = max(1, min(int(body.limit or 20), 50))
-        workers = max(1, min(int(body.max_workers or 3), 5))
+        limit = max(1, min(int(body.limit or 20), 200))
+        workers = max(1, min(int(body.max_workers or 6), 8))
         catalog, _meta = _get_catalog(
             max_orders=body.max_orders,
             max_counterparties=body.max_counterparties,

@@ -11,7 +11,7 @@ from plugins.moysklad.audience import (
     row_matches_audience_extras,
     stage_counts,
 )
-from plugins.moysklad.catalog_cache import refresh_audience_counts
+from plugins.moysklad.catalog_cache import ensure_audience_ready
 from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.dedupe import (
     dedupe_catalog_rows,
@@ -529,8 +529,9 @@ def clients_page(
         include_archived=include_archived,
     )
     all_rows: list[dict[str, Any]] = list(catalog["rows"])
-    # Always recompute — durable cache may still hold pre-partition counts.
-    counts = refresh_audience_counts(catalog)
+    # Stamp counts + event indexes once per catalog version — do NOT rewrite
+    # every channel field on each filter click (that made calendar feel frozen).
+    counts = ensure_audience_ready(catalog)
 
     # Search spans all sales tabs — otherwise marketplace clients vanish under
     # default «Прямые» and the UI looks like broken search/filters.

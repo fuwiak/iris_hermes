@@ -196,33 +196,26 @@ def parse_event_date(value: Any) -> Optional[date]:
     return None
 
 
-def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) -> list[date]:
-    """Occasion + order dates for calendar / lead-window audience filters.
+def _collect_row_event_parts(
+    row: dict[str, Any],
+) -> tuple[list[date], list[tuple[int, int]]]:
+    """Split event sources into exact days + annual (month, day) markers."""
+    literals: list[date] = []
+    annuals: list[tuple[int, int]] = []
+    seen_lit: set[date] = set()
+    seen_ann: set[tuple[int, int]] = set()
 
-    Sources:
-    - birthdate attrs, fixed occasion tags («8 марта», «событие марта» → mid-month)
-    - soft season from order months (March → 8 Mar, Aug → mid-month, …)
-    - **literal order ``moment`` / ``Дата`` / ``date``** so picking the order day in
-      Рассылки calendar finds that client (not only 8 Mar / mid-month proxy)
-    - **annual recurrence of the order day** (2025-03-01 → also 2026-03-01 when
-      the seller picks that day next year)
-    - row-level ``last_order_at`` when ``_orders_context`` is stubbed / missing dates
-    """
-    today = today or date.today()
-    found: list[date] = []
-    seen: set[date] = set()
+    def _lit(d: date) -> None:
+        if d not in seen_lit:
+            seen_lit.add(d)
+            literals.append(d)
 
-    def _add(d: date) -> None:
-        if d not in seen:
-            seen.add(d)
-            found.append(d)
+    def _ann(month: int, day: int) -> None:
+        key = (month, day)
+        if key not in seen_ann:
+            seen_ann.add(key)
+            annuals.append(key)
 
-    def _add_order_day(order_day: date) -> None:
-        _add(order_day)
-        # Anniversary of the purchase day against the active ``today`` anchor.
-        _add(_next_annual(order_day.month, order_day.day, today=today))
-
-    # Explicit birthdate attributes from MoySklad / AI fill.
     for key in (
         "Дата рождения",
         "birthdate",
@@ -231,31 +224,27 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
     ):
         bd = _parse_birthdate(row.get(key))
         if bd:
-            _add(_next_annual(bd.month, bd.day, today=today))
+            _ann(bd.month, bd.day)
 
     for group in row_all_groups(row):
         key = normalize_group_key(group)
         blob = key.lower().replace("ё", "е")
         if key in _FIXED_OCCASIONS:
             month, day = _FIXED_OCCASIONS[key]
-            _add(_next_annual(month, day, today=today))
+            _ann(month, day)
             continue
         if _VALENTINE_RE.search(blob):
-            _add(_next_annual(2, 14, today=today))
+            _ann(2, 14)
             continue
         if _SEPTEMBER_RE.search(blob):
-            _add(_next_annual(9, 1, today=today))
+            _ann(9, 1)
             continue
         m = re.match(r"^событие\s+(.+)$", blob)
         if m:
             month = _MONTH_GENITIVE.get(m.group(1).strip())
             if month:
-                # Mid-month default for «событие марта» buckets.
-                _add(_next_annual(month, 15, today=today))
+                _ann(month, 15)
 
-    # Soft occasions from paid/any order months — so «N дней до события»
-    # finds clients with seasonal history even without explicit tags.
-    # Also stamp the real order calendar day (seller picks that day in UI).
     for item in row.get("_orders_context") or []:
         if not isinstance(item, dict):
             continue
@@ -267,7 +256,8 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
         )
         order_day = parse_event_date(moment)
         if order_day is not None:
-            _add_order_day(order_day)
+            _lit(order_day)
+            _ann(order_day.month, order_day.day)
         month = item.get("_month")
         if month is None:
             moment_text = str(moment or "")
@@ -283,27 +273,72 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
         except (TypeError, ValueError):
             month_i = 0
         if month_i == 2:
-            _add(_next_annual(2, 14, today=today))
+            _ann(2, 14)
         elif month_i == 3:
-            _add(_next_annual(3, 8, today=today))
+            _ann(3, 8)
         elif month_i == 9:
-            _add(_next_annual(9, 1, today=today))
+            _ann(9, 1)
         elif month_i in (11, 12, 1):
-            _add(_next_annual(1, 1, today=today))
+            _ann(1, 1)
             if month_i == 11:
-                _add(_next_annual(11, 27, today=today))
+                _ann(11, 27)
         elif 1 <= month_i <= 12:
-            # Other months → mid-month bucket (same as «событие августа»).
-            # Lets the outreach calendar find seasonal clients when the seller
-            # picks e.g. 10–20 Aug without an explicit occasion tag.
-            _add(_next_annual(month_i, 15, today=today))
+            _ann(month_i, 15)
 
-    # Catalog stubs sometimes keep channel-only ``_orders_context`` but still
-    # stamp ``last_order_at`` — calendar must see that day too.
     for key in ("last_order_at", "Дата последнего заказа"):
         last_day = parse_event_date(row.get(key))
         if last_day is not None:
-            _add_order_day(last_day)
+            _lit(last_day)
+            _ann(last_day.month, last_day.day)
+
+    return literals, annuals
+
+
+def stamp_row_event_index(row: dict[str, Any]) -> dict[str, Any]:
+    """Persist cheap calendar index on the catalog row (mutates)."""
+    if not isinstance(row, dict):
+        return {"literals": [], "annuals": []}
+    literals, annuals = _collect_row_event_parts(row)
+    index = {
+        "literals": [d.isoformat() for d in literals],
+        "annuals": [[m, d] for m, d in annuals],
+    }
+    row["_event_index_v1"] = index
+    return index
+
+
+def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) -> list[date]:
+    """Occasion + order dates for calendar / lead-window audience filters.
+
+    Prefer stamped ``_event_index_v1`` (built once per catalog) so filter
+    clicks stay O(markers) instead of re-parsing every order/tag.
+    """
+    today = today or date.today()
+    found: list[date] = []
+    seen: set[date] = set()
+
+    def _add(d: date) -> None:
+        if d not in seen:
+            seen.add(d)
+            found.append(d)
+
+    idx = row.get("_event_index_v1") if isinstance(row, dict) else None
+    if not isinstance(idx, dict):
+        idx = stamp_row_event_index(row if isinstance(row, dict) else {})
+
+    for iso in idx.get("literals") or []:
+        order_day = parse_event_date(iso)
+        if order_day is not None:
+            _add(order_day)
+            _add(_next_annual(order_day.month, order_day.day, today=today))
+
+    for pair in idx.get("annuals") or []:
+        try:
+            month_i, day_i = int(pair[0]), int(pair[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 1 <= month_i <= 12 and 1 <= day_i <= 31:
+            _add(_next_annual(month_i, day_i, today=today))
 
     return found
 

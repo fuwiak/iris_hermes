@@ -2350,7 +2350,7 @@ def iter_personalize_batch_events(
         yield {"type": "batch_done", "total": 0, "ok_count": 0}
         return
 
-    workers = max(1, min(int(max_workers or 3), 5, total))
+    workers = max(1, min(int(max_workers or 6), 8, total))
 
     def _one(index: int, row: dict[str, Any]) -> dict[str, Any]:
         client = row.get("client") if isinstance(row.get("client"), dict) else row

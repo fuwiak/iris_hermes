@@ -192,6 +192,41 @@ def test_refresh_audience_counts_fixes_stale_cache_totals(hermes_home: Path) -> 
     assert stale["counts"] == fresh
 
 
+def test_ensure_audience_ready_stamps_once_then_skips_channel_rewrite(
+    hermes_home: Path, monkeypatch
+) -> None:
+    """Filter clicks must not pay refresh_row_channel_fields on every request."""
+    rows = [
+        {
+            "_moysklad_id": "d1",
+            "_orders_context": [
+                {"moment": "2026-03-01 09:55:00", "Канал продаж": "Telegram", "sum": 100}
+            ],
+            "_moysklad_tags": [],
+        },
+    ]
+    catalog = {"rows": rows, "counts": {"direct": 0, "marketplace": 0, "other": 0, "total": 0}}
+    calls = {"n": 0}
+    import plugins.moysklad.sales_channels as sc
+
+    real = sc.refresh_row_channel_fields
+
+    def _counting(row):
+        calls["n"] += 1
+        return real(row)
+
+    monkeypatch.setattr(sc, "refresh_row_channel_fields", _counting)
+    first = cc.ensure_audience_ready(catalog)
+    assert first["total"] == 1
+    assert catalog.get("_audience_stamp_v") == cc.AUDIENCE_READY_VERSION
+    assert rows[0].get("_event_index_v1")
+    after_first = calls["n"]
+    assert after_first >= 1
+    second = cc.ensure_audience_ready(catalog)
+    assert second == first
+    assert calls["n"] == after_first  # no second full channel rewrite
+
+
 def test_clients_page_ignores_stale_catalog_counts() -> None:
     from plugins.moysklad.classify import clients_page
 

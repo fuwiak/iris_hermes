@@ -253,6 +253,36 @@ Falls back to heuristic tag frequencies when LLM is unavailable.
 
 Full agent procedure: `skills/productivity/moysklad-crm-tabs/SKILL.md` and colocated `SKILL.md`.
 
+## Scaling (filters + 10k Рассылки)
+
+Do **not** start with Kubernetes / microservices. Scale the bottleneck:
+
+```
+CDN (desktop static)     — skip backend when possible
+        ↓
+API (stateless hermes)   — kill any instance OK; catalog in Redis/file
+        ↓
+┌───────┼────────┐
+↓       ↓        ↓
+Redis   file    MoySklad API (sync once)
+catalog cache
+        ↓
+filter match (stamped event index — not full channel rewrite per click)
+        ↓
+Queue mindset for AI:
+  shared draft → mark-sent-batch chunks (100) → up to 10k
+  personalize  → NDJSON chunks + draft cache (workers≤8) → backlog, not outage
+```
+
+| Pain | Next cheap step |
+|---|---|
+| Filters slow | `ensure_audience_ready` stamps once; calendar skips page snapshot; `_event_index_v1` |
+| Select 10k ids | `GET /clients/ids` (no enrich) |
+| Blast 10k same text | `POST /campaigns/mark-sent-batch` chunks of 100 |
+| AI per client | personalize stream + Redis draft cache; raise workers, treat as backlog |
+| Postgres/SQL | N/A yet — catalog is Redis/file JSON |
+| Org / domains | only then split workers (OCR/LLM) — not auth-billing microservices |
+
 ## Files
 
 | Path | Purpose |
@@ -263,6 +293,7 @@ Full agent procedure: `skills/productivity/moysklad-crm-tabs/SKILL.md` and coloc
 | `tools.py` | Schemas + handlers |
 | `sales_channels.py` / `classify.py` | Channel + CRM tab logic |
 | `dedupe.py` / `audience.py` | Multi-stage dedupe + mass audience filters |
+| `catalog_cache.py` | Durable catalog + `ensure_audience_ready` stamp |
 | `groups.py` / `assign_groups.py` | Group cloud + heuristic assign |
 | `recalculate_groups.py` | LLM/heuristic taxonomy propose + reassign |
 | `order_compositions.py` | Lazy MoySklad positions → «состав заказа» for card/AI |
@@ -275,3 +306,4 @@ Full agent procedure: `skills/productivity/moysklad-crm-tabs/SKILL.md` and coloc
 - `moysklad_push_tags` **replaces** the tag list; confirm before write.
 - Large accounts: raise `max_orders` on `moysklad_clients_by_sales_type` if `orders_scanned` looks capped.
 - Rate limits: keep `MOYSKLAD_REQUEST_DELAY_MS` ≥ 250 on bulk reads.
+- 10k **AI** messages ≠ 10k sync LLM calls — use one shared draft for blast; personalize only where cache miss.

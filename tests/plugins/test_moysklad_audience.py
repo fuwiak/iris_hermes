@@ -131,6 +131,30 @@ def test_parse_event_date_moysklad_and_ru_formats() -> None:
     assert parse_event_date("2026-03-01T09:55:00") == date(2026, 3, 1)
 
 
+def test_stamped_event_index_matches_calendar_without_reparsing_orders() -> None:
+    from plugins.moysklad.audience import stamp_row_event_index
+
+    row = {
+        "_moysklad_id": "viktor",
+        "_orders_context": [
+            {"moment": "2026-03-01 09:55:00", "sum": 5732, "_month": 3}
+        ],
+        "last_order_at": "2026-03-01 09:55",
+    }
+    stamp_row_event_index(row)
+    assert "2026-03-01" in (row["_event_index_v1"]["literals"] or [])
+    # Drop raw orders — index alone must still match.
+    row["_orders_context"] = []
+    row.pop("last_order_at", None)
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 1),
+        lead_days=0,
+        today=date(2026, 8, 13),
+    ) is True
+
+
 def test_event_calendar_august_tag_and_order_season() -> None:
     """August calendar pick must match «событие августа» and Aug order history."""
     today = date(2026, 8, 12)
