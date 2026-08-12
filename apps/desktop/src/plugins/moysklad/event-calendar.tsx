@@ -75,7 +75,7 @@ export function EventCalendarPicker({
   const monthLabel = useMemo(
     () =>
       new Date(viewYear, viewMonth, 1).toLocaleDateString('ru-RU', {
-        month: 'long',
+        month: 'short',
         year: 'numeric'
       }),
     [viewMonth, viewYear]

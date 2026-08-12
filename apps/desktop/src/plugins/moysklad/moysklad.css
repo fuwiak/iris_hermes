@@ -903,10 +903,11 @@
 .ms-event-calendar {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.65rem 0.75rem;
+  gap: 0.3rem;
+  max-width: 15.5rem;
+  padding: 0.4rem 0.45rem;
   border: 1px solid #592466;
-  border-radius: 0.75rem;
+  border-radius: 0.55rem;
   background: #2d1233;
 }
 
@@ -914,41 +915,48 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.25rem;
 }
 
 .ms-event-calendar-title {
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: capitalize;
   color: #f3e6f6;
 }
 
 .ms-cal-nav {
-  min-width: 2rem;
-  padding: 0.2rem 0.45rem;
+  min-width: 1.35rem;
+  padding: 0.05rem 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
 }
 
 .ms-event-calendar-weekdays,
 .ms-event-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 0.2rem;
+  gap: 0.1rem;
 }
 
 .ms-event-calendar-weekday {
   text-align: center;
-  font-size: 0.7rem;
+  font-size: 0.58rem;
   font-weight: 700;
   color: #c9a8d4;
+  line-height: 1.1;
 }
 
 .ms-event-calendar-day {
-  aspect-ratio: 1;
+  height: 1.45rem;
+  min-height: 0;
   border: 1px solid transparent;
-  border-radius: 0.45rem;
+  border-radius: 0.28rem;
   background: transparent;
   color: #f3e6f6;
-  font-size: 0.8rem;
+  font-size: 0.65rem;
+  line-height: 1;
+  padding: 0;
   cursor: pointer;
 }
 
@@ -972,20 +980,34 @@
 
 .ms-event-calendar-foot {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.35rem;
   flex-wrap: wrap;
-  font-size: 0.78rem;
+  font-size: 0.65rem;
+  line-height: 1.25;
 }
 
 .ms-event-calendar-lead {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin-top: 0.25rem;
-  padding-top: 0.5rem;
+  gap: 0.25rem;
+  margin-top: 0.1rem;
+  padding-top: 0.35rem;
   border-top: 1px solid #592466;
+}
+
+.ms-event-calendar-lead .ms-filter-label {
+  font-size: 0.68rem;
+}
+
+.ms-event-calendar-lead .ms-chips {
+  gap: 0.28rem;
+}
+
+.ms-event-calendar-lead .ms-chip {
+  padding: 0.18rem 0.45rem;
+  font-size: 0.68rem;
 }
 
 .ms-check {
