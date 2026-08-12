@@ -1,0 +1,195 @@
+import { useStore } from '@nanostores/react'
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { useLocation, useNavigate } from 'react-router'
+
+import { KeybindSettings } from '@/app/settings/keybind-settings'
+import { Button } from '@/components/ui/button'
+import { Codicon } from '@/components/ui/codicon'
+import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
+import { useI18n } from '@/i18n'
+import { triggerHaptic } from '@/lib/haptics'
+import { cn } from '@/lib/utils'
+import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
+import {
+  $capture,
+  $keybindsPanelOpen,
+  closeKeybindsPanel,
+  endCapture,
+  toggleKeybindsPanel
+} from '@/store/keybinds'
+import { $statusbarVisible } from '@/store/statusbar-prefs'
+
+import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
+
+const FAB_CLASS =
+  'pointer-events-auto size-9 rounded-full border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous'
+
+/**
+ * Bottom-right chrome dock — FABs that used to live in the titlebar app-control
+ * cluster (haptics, settings, keybinds). Keybinds expands into a slide-out panel
+ * above the row; the other two are one-shot actions.
+ *
+ * Sets `--corner-chrome-width` on `:root` so sibling corner FABs (plugin AI test)
+ * can sit to the left without overlapping.
+ */
+export function CornerChrome() {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const open = useStore($keybindsPanelOpen)
+  const statusbarVisible = useStore($statusbarVisible)
+  const capturing = useStore($capture)
+  const hapticsMuted = useStore($hapticsMuted)
+  const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      if (capturing) {
+        endCapture()
+        event.preventDefault()
+        event.stopPropagation()
+
+        return
+      }
+
+      closeKeybindsPanel()
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [capturing, open])
+
+  // Three size-9 FABs + two gaps — plugins offset left of this dock.
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--corner-chrome-width', '7.75rem')
+
+    return () => {
+      root.style.removeProperty('--corner-chrome-width')
+    }
+  }, [])
+
+  // Full-screen overlays own the window — same rule as TitlebarControls.
+  if (!embed && isOverlayView(appViewForPath(location.pathname))) {
+    return null
+  }
+
+  const toggleHaptics = () => {
+    if (!hapticsMuted) {
+      triggerHaptic('tap')
+    }
+
+    toggleHapticsMuted()
+
+    if (hapticsMuted) {
+      window.requestAnimationFrame(() => triggerHaptic('success'))
+    }
+  }
+
+  const openSettings = () => {
+    triggerHaptic('open')
+    navigate(SETTINGS_ROUTE)
+  }
+
+  return createPortal(
+    <div
+      className={cn(
+        'pointer-events-none fixed z-(--z-over-modal) right-3 flex flex-col items-end gap-2 [-webkit-app-region:no-drag]',
+        statusbarVisible ? 'bottom-8' : 'bottom-3'
+      )}
+      data-slot="corner-chrome"
+    >
+      {open && (
+        <div
+          aria-label={t.keybinds.title}
+          className="pointer-events-auto flex w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(70vh,36rem)] flex-col overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous duration-150 animate-in fade-in-0 slide-in-from-bottom-2"
+          role="dialog"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-(--ui-stroke-secondary)/60 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <Codicon className="text-muted-foreground" name="keyboard" size="0.875rem" />
+              <h2 className="truncate text-sm font-semibold text-foreground">{t.keybinds.title}</h2>
+            </div>
+            <Button
+              aria-label={t.common.close}
+              onClick={() => {
+                triggerHaptic('tap')
+                closeKeybindsPanel()
+              }}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <Codicon name="close" size="0.875rem" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-dt">
+            <KeybindSettings embedded />
+          </div>
+        </div>
+      )}
+
+      <div className="pointer-events-none flex flex-row-reverse items-center gap-2">
+        <Tip label={<TipKeybindLabel actionId="keybinds.openPanel" text={t.titlebar.openKeybinds} />}>
+          <Button
+            aria-expanded={open}
+            aria-label={t.titlebar.openKeybinds}
+            className={cn(FAB_CLASS, open && 'bg-(--chrome-action-hover)')}
+            onClick={() => {
+              triggerHaptic(open ? 'tap' : 'open')
+              toggleKeybindsPanel()
+            }}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="keyboard" />
+          </Button>
+        </Tip>
+
+        <Tip label={<TipKeybindLabel actionId="nav.settings" text={t.titlebar.openSettings} />}>
+          <Button
+            aria-label={t.titlebar.openSettings}
+            className={FAB_CLASS}
+            onClick={openSettings}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="settings-gear" />
+          </Button>
+        </Tip>
+
+        <Tip label={hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics}>
+          <Button
+            aria-label={hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics}
+            aria-pressed={hapticsMuted}
+            className={cn(FAB_CLASS, hapticsMuted && 'bg-(--chrome-action-hover)')}
+            onClick={toggleHaptics}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
+          </Button>
+        </Tip>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/** @deprecated Prefer CornerChrome — kept so older imports keep working. */
+export const KeybindsPanel = CornerChrome

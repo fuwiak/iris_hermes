@@ -10,16 +10,9 @@ import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
-import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
-import {
-  $fileBrowserOpen,
-  $sidebarOpen,
-  toggleFileBrowserOpen,
-  togglePanesFlipped,
-  toggleSidebarOpen
-} from '@/store/layout'
+import { $fileBrowserOpen, $sidebarOpen, toggleFileBrowserOpen, togglePanesFlipped, toggleSidebarOpen } from '@/store/layout'
 
-import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
+import { appViewForPath, isOverlayView } from '../routes'
 
 import { titlebarButtonClass } from './titlebar'
 
@@ -45,32 +38,19 @@ export type SetTitlebarToolGroup = (id: string, tools: readonly TitlebarTool[], 
 interface TitlebarControlsProps extends ComponentProps<'div'> {
   leftTools?: readonly TitlebarTool[]
   tools?: readonly TitlebarTool[]
-  onOpenSettings: () => void
+  /** @deprecated Settings lives in CornerChrome now; kept for call-site compat. */
+  onOpenSettings?: () => void
 }
 
 /** Shared app-level controls. The web shell also renders these actions as
  * full-size rows in the left navigation instead of desktop titlebar chrome. */
-export function useAppControlTools(onOpenSettings?: () => void): readonly TitlebarTool[] {
+export function useAppControlTools(_onOpenSettings?: () => void): readonly TitlebarTool[] {
   const { t } = useI18n()
-  const navigate = useNavigate()
   const modHeld = useModifierHeld()
-  const hapticsMuted = useStore($hapticsMuted)
   const fileBrowserOpen = useStore($fileBrowserOpen)
   // Dashboard embed already has a chat-first shell — the file-browser toggle just
   // dumps a workspace tree into the primary nav. Keep the Electron titlebar tool.
   const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
-
-  const toggleHaptics = () => {
-    if (!hapticsMuted) {
-      triggerHaptic('tap')
-    }
-
-    toggleHapticsMuted()
-
-    if (hapticsMuted) {
-      window.requestAnimationFrame(() => triggerHaptic('success'))
-    }
-  }
 
   return [
     {
@@ -90,28 +70,6 @@ export function useAppControlTools(onOpenSettings?: () => void): readonly Titleb
         toggleLayoutEditMode()
       },
       title: t.titlebar.layoutEditorTitle
-    },
-    {
-      active: hapticsMuted,
-      icon: <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />,
-      id: 'haptics',
-      label: hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics,
-      onSelect: toggleHaptics
-    },
-    {
-      actionId: 'nav.settings',
-      icon: <Codicon name="settings-gear" />,
-      id: 'settings',
-      label: t.titlebar.openSettings,
-      onSelect: () => {
-        triggerHaptic('open')
-
-        if (onOpenSettings) {
-          onOpenSettings()
-        } else {
-          navigate(SETTINGS_ROUTE)
-        }
-      }
     },
     {
       actionId: 'view.toggleRightSidebar',
@@ -173,12 +131,12 @@ function useModifierHeld(): boolean {
   return held
 }
 
-export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }: TitlebarControlsProps) {
+export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings: _onOpenSettings }: TitlebarControlsProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
   const sidebarOpen = useStore($sidebarOpen)
-  const appControlTools = useAppControlTools(onOpenSettings)
+  const appControlTools = useAppControlTools()
   const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
 
   // POSITIONAL toggles: each button shows/hides everything on its physical

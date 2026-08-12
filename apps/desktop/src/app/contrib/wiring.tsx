@@ -111,7 +111,7 @@ import { useSessionStateCache } from '../session/hooks/use-session-state-cache'
 import { startWorkspaceSession } from '../session/workspace-session-target'
 import { useOverlayRouting } from '../shell/hooks/use-overlay-routing'
 import { useWindowControlsOverlayWidth } from '../shell/hooks/use-window-controls-overlay-width'
-import { KeybindsPanel } from '../shell/keybinds-panel'
+import { CornerChrome } from '../shell/corner-chrome'
 import { titlebarControlsPosition } from '../shell/titlebar'
 import { TitlebarControls } from '../shell/titlebar-controls'
 import { UpdatesOverlay } from '../updates-overlay'
@@ -1105,8 +1105,8 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {/* Toasts above everything. */}
       <NotificationStack />
 
-      {/* Bottom-right collapsible keybinds panel (titlebar keyboard tool moved here). */}
-      <KeybindsPanel />
+      {/* Bottom-right chrome: haptics + settings + keybinds (moved off titlebar). */}
+      <CornerChrome />
 
       {/* Petdex floating mascot — renders nothing unless installed + enabled. */}
       <FloatingPet />
