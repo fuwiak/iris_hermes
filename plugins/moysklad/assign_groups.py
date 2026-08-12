@@ -149,14 +149,22 @@ def heuristic_groups_for_row(row: dict[str, Any]) -> list[str]:
         else payment.get("fulfilled_order_count")
     )
     orders = _as_int(row.get("Всего заказов") or row.get("order_count") or payment.get("order_count"))
+    # No payment signal at all (stub / legacy rows without sums or states) →
+    # order count still drives «постоянный» vs «новый», not everyone «новый».
+    known = (
+        int(payment.get("fulfilled_order_count") or 0)
+        + int(payment.get("unpaid_order_count") or 0)
+        + int(payment.get("cancelled_order_count") or 0)
+    )
+    effective = fulfilled if known > 0 else orders
     if payment.get("failed_only") or (orders > 0 and fulfilled <= 0 and (
         int(payment.get("unpaid_order_count") or 0)
         + int(payment.get("cancelled_order_count") or 0)
     ) > 0):
         parts.append("несостоявшийся")
-    elif fulfilled >= 3:
+    elif effective >= 3:
         parts.append("постоянный клиент")
-    elif fulfilled <= 1:
+    elif effective <= 1:
         parts.append("новый")
 
     # Sales-type tags come from real order channels + audience bucket.

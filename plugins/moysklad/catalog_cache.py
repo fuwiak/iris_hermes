@@ -144,9 +144,9 @@ def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
     return counts
 
 
-# Bump when channel / event-index / partition rules change — forces one full
-# walk, then filter clicks reuse stamped catalog (cheap).
-AUDIENCE_READY_VERSION = 5
+# Bump when channel / event-index / group-index / partition rules change —
+# forces one full walk, then filter clicks reuse stamped catalog (cheap).
+AUDIENCE_READY_VERSION = 6
 
 
 def ensure_audience_ready(
@@ -163,6 +163,7 @@ def ensure_audience_ready(
     """
     from plugins.moysklad.audience import stamp_row_event_index
     from plugins.moysklad.dedupe import recompute_audience_counts
+    from plugins.moysklad.groups import GROUP_INDEX_KEY, stamp_row_group_index
 
     if not isinstance(catalog, dict):
         return {"direct": 0, "marketplace": 0, "other": 0, "total": 0}
@@ -174,13 +175,18 @@ def ensure_audience_ready(
         for row in rows:
             if isinstance(row, dict):
                 stamp_row_event_index(row)
+                stamp_row_group_index(row)
         catalog["_audience_stamp_v"] = AUDIENCE_READY_VERSION
         return counts
 
-    # Cheap repair: rows added after stamp still get an event index.
+    # Cheap repair: rows added after stamp still get event / group indexes.
     for row in rows:
-        if isinstance(row, dict) and "_event_index_v1" not in row:
+        if not isinstance(row, dict):
+            continue
+        if "_event_index_v1" not in row:
             stamp_row_event_index(row)
+        if GROUP_INDEX_KEY not in row:
+            stamp_row_group_index(row)
 
     counts = catalog.get("counts")
     if isinstance(counts, dict) and counts.get("total") is not None:
@@ -279,7 +285,9 @@ def set_cached(
     cached catalog (by canonical id / contact keys) instead of clobbering.
     Full sync (default) replaces, but still runs dedupe on the payload.
     """
+    from plugins.moysklad.audience import stamp_row_event_index
     from plugins.moysklad.dedupe import dedupe_catalog_rows, merge_catalogs, recompute_audience_counts
+    from plugins.moysklad.groups import GROUP_INDEX_KEY, stamp_row_group_index
 
     payload = dict(catalog or {})
     if merge:
@@ -296,6 +304,19 @@ def set_cached(
         payload["rows"] = rows
         payload["counts"] = recompute_audience_counts(rows)
         payload["counterparties_deduped"] = len(rows)
+
+    # Persist filter-ready: rows here are freshly built or already walked, so
+    # repair missing/merge-invalidated indexes and mark the stamp version.
+    # Otherwise partial flushes wiped `_audience_stamp_v` and every /clients
+    # click during a rebuild re-ran the full O(n) audience walk in-request.
+    for row in payload.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        if "_event_index_v1" not in row:
+            stamp_row_event_index(row)
+        if GROUP_INDEX_KEY not in row:
+            stamp_row_group_index(row)
+    payload["_audience_stamp_v"] = AUDIENCE_READY_VERSION
 
     envelope = _envelope(payload, synced_at=synced_at or time.time())
     redis_ttl = redis_retention_seconds()

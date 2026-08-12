@@ -10,6 +10,7 @@ from plugins.moysklad.audience import (
     normalize_stage_filter,
     row_matches_audience_extras,
     stage_counts,
+    stamp_row_event_index,
 )
 from plugins.moysklad.catalog_cache import ensure_audience_ready
 from plugins.moysklad.client import MoySkladClient
@@ -22,6 +23,7 @@ from plugins.moysklad.groups import (
     collect_featured_group_counts,
     ensure_group_options_by_source,
     split_group_options_by_source,
+    stamp_row_group_index,
 )
 from plugins.moysklad.order_status import (
     classify_order_payment,
@@ -305,6 +307,11 @@ def build_enriched_catalog(
             )
             if row is None:
                 continue
+            # Stamp event/group indexes at build time (cost hides behind API
+            # delays) so partial flushes and the final catalog are served
+            # filter-ready — no O(n) restamp walk inside /clients requests.
+            stamp_row_event_index(row)
+            stamp_row_group_index(row)
             rows.append(row)
             counterparties_scanned += 1
             if (

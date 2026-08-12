@@ -110,6 +110,14 @@ def row_matches_channel_kind(row: dict[str, Any], channel_kind: str) -> bool:
 
 def row_matches_birthday_occasion(row: dict[str, Any]) -> bool:
     """Tags / groups hinting birthday or generic «событие» month buckets."""
+    idx = row.get("_group_index_v1") if isinstance(row, dict) else None
+    if isinstance(idx, dict):
+        # Stamped canonical keys — avoids per-click row_all_groups walks
+        # (AI-fill store lookups per row made «ДР» take ~5s on 10k rows).
+        keys = list((idx.get("ms") or {}).keys()) + list((idx.get("ai") or {}).keys())
+        return any(
+            _BIRTHDAY_RE.search(key) or "событие" in key for key in keys
+        )
     for group in row_all_groups(row):
         if _BIRTHDAY_RE.search(group):
             return True

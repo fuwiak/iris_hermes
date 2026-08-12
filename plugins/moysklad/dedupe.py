@@ -223,6 +223,12 @@ def merge_client_rows(keep: dict[str, Any], incoming: dict[str, Any]) -> dict[st
         if cur in (None, "", [], {}) and value not in (None, "", [], {}):
             base[key] = value
 
+    # Merged data invalidates precomputed filter indexes — drop so the next
+    # ensure_audience_ready / set_cached repair restamps just these rows.
+    # (Literal keys: importing audience/groups here would cycle.)
+    base.pop("_event_index_v1", None)
+    base.pop("_group_index_v1", None)
+
     # Recompute order aggregates when context present.
     ctx = _as_list(base.get("_orders_context"))
     if ctx:

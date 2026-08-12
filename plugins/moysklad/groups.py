@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from functools import lru_cache
 from typing import Any
 
 from plugins.moysklad.sales_channels import (
@@ -17,6 +18,11 @@ from plugins.moysklad.sales_channels import (
     _token_matches_any,
     moysklad_group_tokens,
 )
+
+# Row-level stamp with precomputed canonical group hit keys — chip cloud and
+# group filters must not re-run normalize/fuzzy regexes over ~10k rows per
+# click (84s of a 89s /clients request was this walk).
+GROUP_INDEX_KEY = "_group_index_v1"
 
 # Soft AI segment chips — always shown in «Группы: ИИ» even at count 0 so the
 # section never disappears when AI-fill store is empty / snapshot is stale.
@@ -209,6 +215,75 @@ def row_all_groups(row: dict[str, Any]) -> list[str]:
     return out
 
 
+@lru_cache(maxsize=1)
+def _curated_display_by_key() -> dict[str, str]:
+    return {
+        normalize_group_key(label): label
+        for label in SHARED_OCCASION_GROUPS + EVENT_MONTH_GROUPS
+    }
+
+
+def _display_for_token(group: str) -> str:
+    """Chip label for a raw tag: curated casing when known, else operator's."""
+    key = normalize_group_key(group)
+    curated = _curated_display_by_key().get(key)
+    if curated:
+        return curated
+    raw = str(group or "").strip()
+    return raw or key
+
+
+@lru_cache(maxsize=4)
+def _featured_hit_specs(sales_filter: str) -> tuple[tuple[str, tuple[str, str]], ...]:
+    """(canonical_key, (label, display_label)) pairs for fuzzy featured hits."""
+    out: list[tuple[str, tuple[str, str]]] = []
+    for label in crm_featured_groups(sales_filter):
+        key = normalize_group_key(label)
+        if key:
+            out.append((key, (label, canonical_group_label(label))))
+    return tuple(out)
+
+
+def _group_hit_map(tokens: list[str]) -> dict[str, str]:
+    """Canonical keys of all tokens ∪ fuzzy-matched featured keys → display label.
+
+    Same semantics as the old per-request ``_hits_for(include_all=True)``:
+    every tag becomes a chip key; curated occasion labels also hit when a token
+    only fuzzy-contains them (``флаувай скайлофт`` → ``скайлофт``).
+    """
+    hits: dict[str, str] = {}
+    for group in tokens:
+        gkey = normalize_group_key(group)
+        if gkey and gkey not in hits:
+            hits[gkey] = _display_for_token(group)
+    if tokens:
+        for key, (label, display_label) in _featured_hit_specs("all"):
+            if key in hits:
+                continue
+            if any(
+                _token_matches_any(group, (label, display_label))
+                for group in tokens
+            ):
+                hits[key] = display_label
+    return hits
+
+
+def stamp_row_group_index(row: dict[str, Any]) -> dict[str, Any]:
+    """Persist per-row group hit index on the catalog row (mutates).
+
+    AI hits freeze the ai_fill overlay at stamp time; a Sync / catalog rebuild
+    (``ensure_audience_ready(force=True)`` path) re-stamps them.
+    """
+    if not isinstance(row, dict):
+        return {"ms": {}, "ai": {}}
+    index = {
+        "ms": _group_hit_map(row_groups(row)),
+        "ai": _group_hit_map(row_ai_groups(row)),
+    }
+    row[GROUP_INDEX_KEY] = index
+    return index
+
+
 def row_has_group(
     row: dict[str, Any],
     group: str,
@@ -220,6 +295,15 @@ def row_has_group(
     if not target:
         return True
     src = (source or "any").strip().lower().replace("ё", "е")
+    idx = row.get(GROUP_INDEX_KEY) if isinstance(row, dict) else None
+    if isinstance(idx, dict):
+        ms_keys = idx.get("ms") or {}
+        ai_keys = idx.get("ai") or {}
+        if src in ("ms", "moysklad", "мойсклад", "мск", "mcs"):
+            return target in ms_keys
+        if src in ("ai", "ии", "llm", "heuristic"):
+            return target in ai_keys
+        return target in ms_keys or target in ai_keys
     if src in ("ms", "moysklad", "мойсклад", "мск", "mcs"):
         tokens = row_groups(row)
     elif src in ("ai", "ии", "llm", "heuristic"):
@@ -267,53 +351,31 @@ def _count_group_hits(
     featured: tuple[str, ...],
     selected_key: str,
 ) -> tuple[Counter[str], Counter[str], dict[str, str]]:
-    """Return (ms_counter, ai_counter, display_label_by_key)."""
-    featured_keys = {normalize_group_key(label): label for label in featured}
+    """Return (ms_counter, ai_counter, display_label_by_key).
+
+    Counts come from the per-row ``_group_index_v1`` stamp (built once per
+    catalog by ``ensure_audience_ready``); rows missing the stamp are stamped
+    on the fly so the result never diverges from the filter path.
+    """
     display: dict[str, str] = {
         normalize_group_key(label): canonical_group_label(label) for label in featured
     }
     ms_counter: Counter[str] = Counter()
     ai_counter: Counter[str] = Counter()
-    event_re = re.compile(r"событи", re.IGNORECASE)
-
-    def _hits_for(tokens: list[str], *, include_all: bool) -> set[str]:
-        hit_keys: set[str] = set()
-        for label in featured:
-            label_key = normalize_group_key(label)
-            if any(
-                normalize_group_key(group) == label_key
-                or _token_matches_any(group, (label, display.get(label_key, label)))
-                for group in tokens
-            ):
-                hit_keys.add(label_key)
-        for group in tokens:
-            gkey = normalize_group_key(group)
-            if not gkey:
-                continue
-            if include_all or event_re.search(group) or event_re.search(gkey):
-                display.setdefault(gkey, canonical_group_label(group))
-                hit_keys.add(gkey)
-            elif gkey in featured_keys:
-                hit_keys.add(gkey)
-                display.setdefault(gkey, canonical_group_label(featured_keys[gkey]))
-            elif gkey == selected_key:
-                display.setdefault(gkey, canonical_group_label(group))
-                hit_keys.add(gkey)
-        return hit_keys
 
     for row in rows:
-        ms_tokens = row_groups(row)
-        ai_tokens = row_ai_groups(row)
-        # include_all=True for МС: every MoySklad tag becomes a filter chip,
-        # not only the curated occasion whitelist.
-        for key in _hits_for(ms_tokens, include_all=True):
-            if key:
-                ms_counter[key] += 1
-        for key in _hits_for(ai_tokens, include_all=True):
-            if key:
-                ai_counter[key] += 1
-        if selected_key and selected_key not in display:
-            display[selected_key] = canonical_group_label(selected_key)
+        idx = row.get(GROUP_INDEX_KEY) if isinstance(row, dict) else None
+        if not isinstance(idx, dict):
+            idx = stamp_row_group_index(row if isinstance(row, dict) else {})
+        for key, label in (idx.get("ms") or {}).items():
+            ms_counter[key] += 1
+            display.setdefault(key, label)
+        for key, label in (idx.get("ai") or {}).items():
+            ai_counter[key] += 1
+            display.setdefault(key, label)
+
+    if selected_key and selected_key not in display:
+        display[selected_key] = canonical_group_label(selected_key)
 
     return ms_counter, ai_counter, display
 

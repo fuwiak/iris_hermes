@@ -200,15 +200,26 @@ def _apply_telegram_export_and_recache(
     # Always stamp from cache (Redis/file) so warm restarts still fill rows.
     stamped = stamp_catalog_rows_from_overlay(rows)
     catalog["rows"] = rows
-    key = cache_key(
-        max_orders=max_orders,
-        max_counterparties=max_counterparties,
-        include_archived=include_archived,
+    # Rewrite durable cache only when the overlay changed rows — this helper
+    # runs on every /clients full-path request, and an unconditional
+    # set_cached re-deduped + re-serialized the ~20MB catalog per click.
+    changed = bool(
+        force_import
+        or stamped > 0
+        or int((result or {}).get("stamped_rows") or 0) > 0
     )
-    try:
-        set_cached(key, catalog, synced_at=float(time.time()))
-    except Exception:
-        log.warning("moysklad catalog recache after tg-export failed", exc_info=True)
+    if changed:
+        key = cache_key(
+            max_orders=max_orders,
+            max_counterparties=max_counterparties,
+            include_archived=include_archived,
+        )
+        try:
+            set_cached(key, catalog, synced_at=float(time.time()))
+        except Exception:
+            log.warning(
+                "moysklad catalog recache after tg-export failed", exc_info=True
+            )
     out = dict(result or {})
     out["stamped_rows"] = max(int(out.get("stamped_rows") or 0), stamped)
     out["cache_backend"] = out.get("cache_backend") or tg_cache_backend_name()
@@ -1316,41 +1327,41 @@ def get_clients(
             meta["stale"] = True
 
         # Grow Redis/file window so next scroll hits snapshot (fast path).
+        # Calendar / lead-window queries never read snapshots (see above) —
+        # skip the write too. The 2500-row window rebuild runs in a daemon
+        # thread: building + enriching it inline made every first filter
+        # click take 30–90s and the UI hung at «0 · обновляем…».
         try:
-            if offset == 0:
+            if calendar_filter_active:
+                pass
+            elif offset == 0:
                 if int(limit) >= PAGE_SNAPSHOT_ROWS:
-                    snap_page = page
+                    set_page_snapshot(
+                        snap_key,
+                        _strip_internal(page),
+                        synced_at=float(meta.get("synced_at") or time.time()),
+                    )
                 else:
-                    snap_page = clients_page(
-                        _client(),
+                    _schedule_snapshot_refresh(
+                        snap_key,
+                        catalog=catalog,
                         sales_filter=sales_filter,
                         group=group,
                         q=q,
+                        group_source=group_source,
                         channel_kind=channel_kind,
                         require_phone=require_phone,
                         require_telegram=require_telegram,
                         vip_only=vip_only,
                         birthday_soon=birthday_soon,
-                        group_source=group_source,
                         days_before_event=days_before_event,
                         event_date_from=event_date_from,
                         event_date_to=event_date_to,
                         stage=stage,
-                        limit=PAGE_SNAPSHOT_ROWS,
-                        offset=0,
                         max_orders=max_orders,
                         max_counterparties=max_counterparties,
                         include_archived=include_archived,
-                        catalog=catalog,
                     )
-                    snap_page["clients"] = enrich_clients(
-                        list(snap_page.get("clients") or [])
-                    )
-                set_page_snapshot(
-                    snap_key,
-                    _strip_internal(snap_page),
-                    synced_at=float(meta.get("synced_at") or time.time()),
-                )
             else:
                 extend_page_snapshot(
                     snap_key,

@@ -312,12 +312,16 @@ def stamp_catalog_rows_from_overlay(rows: list[dict[str, Any]]) -> int:
             row["tg_chat_id"] = chat_id
             changed = True
         preview = str(entry.get("preview") or "").strip()
-        if preview:
+        # Only count as changed when the value actually differs — otherwise
+        # every /clients request re-serialized the whole catalog to cache.
+        if preview and str(row.get("tg_conversation") or "") != preview:
             row["TG conversation"] = preview
             row["tg_conversation"] = preview
             changed = True
         if entry.get("message_count") is not None:
-            row["conversation_count"] = int(entry.get("message_count") or 0)
+            count = int(entry.get("message_count") or 0)
+            if int(row.get("conversation_count") or -1) != count:
+                row["conversation_count"] = count
         if changed:
             stamped += 1
     return stamped
