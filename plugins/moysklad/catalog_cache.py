@@ -314,9 +314,11 @@ def _peek_any(key: str) -> Optional[dict[str, Any]]:
     return None
 
 
-# --- First-page snapshots (instant paint; independent of full catalog) -------
+# --- Page window snapshots (instant paint + fast scroll without full catalog) -
 
-PAGE_SNAPSHOT_ROWS = 100
+# Keep a rolling window in Redis/file so «Ещё клиенты» does not wait on a cold
+# MoySklad rebuild. First paint still requests limit=100; appends slice here.
+PAGE_SNAPSHOT_ROWS = 2500
 _PAGE_MEMORY: dict[str, dict[str, Any]] = {}
 
 
@@ -336,9 +338,9 @@ def page_snapshot_key(
     event_date_to: str = "",
     stage: str = "all",
 ) -> str:
-    """Stable key for the first-page clients snapshot (filter dims only)."""
+    """Stable key for the clients page window snapshot (filter dims only)."""
     parts = (
-        "moysklad:clients:page:v2",
+        "moysklad:clients:page:v3",
         _account_fingerprint(),
         f"sf={(sales_filter or 'all').strip().lower()}",
         f"g={(group or '').strip().lower()}",
@@ -357,13 +359,22 @@ def page_snapshot_key(
     return ":".join(parts)
 
 
+def _client_row_id(row: dict[str, Any]) -> str:
+    return str(
+        row.get("id")
+        or row.get("_moysklad_id")
+        or row.get("moysklad_id")
+        or ""
+    ).strip()
+
+
 def set_page_snapshot(
     key: str,
     page: dict[str, Any],
     *,
     synced_at: float | None = None,
 ) -> dict[str, Any]:
-    """Persist first-page payload for instant cold/SWR paint."""
+    """Persist page-window payload for instant cold/SWR paint + scroll."""
     payload = dict(page or {})
     clients = list(payload.get("clients") or [])[:PAGE_SNAPSHOT_ROWS]
     payload["clients"] = clients
@@ -396,6 +407,55 @@ def set_page_snapshot(
         log.warning("MoySklad page snapshot file write failed: %s", exc)
 
     return envelope
+
+
+def extend_page_snapshot(
+    key: str,
+    clients: list[dict[str, Any]],
+    *,
+    matched_total: int | None = None,
+    counts: dict[str, Any] | None = None,
+    synced_at: float | None = None,
+) -> dict[str, Any] | None:
+    """Append newly fetched clients into the Redis/file window (dedupe by id)."""
+    incoming = [c for c in (clients or []) if isinstance(c, dict)]
+    if not incoming and matched_total is None and counts is None:
+        return get_page_snapshot(key)
+
+    existing_env = get_page_snapshot(key)
+    prior_page = (
+        existing_env.get("page") if isinstance(existing_env, dict) else None
+    )
+    prior_clients = list((prior_page or {}).get("clients") or [])
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for row in prior_clients + incoming:
+        rid = _client_row_id(row)
+        if not rid:
+            # Keep anonymous rows at the end without collapsing.
+            order.append(f"anon:{len(order)}")
+            by_id[order[-1]] = row
+            continue
+        if rid not in by_id:
+            order.append(rid)
+        by_id[rid] = row
+    merged = [by_id[i] for i in order][:PAGE_SNAPSHOT_ROWS]
+    page = dict(prior_page or {})
+    page["clients"] = merged
+    page["returned"] = len(merged)
+    if matched_total is not None:
+        page["matched_total"] = int(matched_total)
+    if counts is not None:
+        page["counts"] = counts
+    mt = int(page.get("matched_total") or 0)
+    page["has_more"] = mt > len(merged) or bool(page.get("has_more"))
+    page["next_offset"] = len(merged)
+    return set_page_snapshot(
+        key,
+        page,
+        synced_at=synced_at
+        or float((existing_env or {}).get("synced_at") or time.time()),
+    )
 
 
 def get_page_snapshot(key: str) -> Optional[dict[str, Any]]:
@@ -437,26 +497,32 @@ def slice_page_snapshot(
     limit: int,
     offset: int = 0,
 ) -> Optional[dict[str, Any]]:
-    """Return a response-shaped page dict sliced to ``limit``/``offset``."""
-    if offset != 0:
-        return None
+    """Return a response-shaped page dict sliced to ``limit``/``offset``.
+
+    Supports offset>0 when the Redis/file window already holds those rows so
+    load-more stays fast while the full catalog is still rebuilding.
+    """
     page = envelope.get("page")
     if not isinstance(page, dict):
         return None
     clients = list(page.get("clients") or [])
+    off = max(0, int(offset or 0))
+    if off >= len(clients):
+        return None
     lim = max(1, min(int(limit or PAGE_SNAPSHOT_ROWS), PAGE_SNAPSHOT_ROWS))
-    sliced = clients[:lim]
+    sliced = clients[off : off + lim]
+    if not sliced:
+        return None
     out = dict(page)
     out["clients"] = sliced
     out["returned"] = len(sliced)
-    # next_offset must match the returned page, not the full snapshot's cursor
-    # (otherwise limit=24 still advertises next_offset=100 and UI skips rows).
     matched_total = int(page.get("matched_total") or 0)
-    out["next_offset"] = len(sliced)
+    next_off = off + len(sliced)
+    out["next_offset"] = next_off
     out["has_more"] = (
-        len(clients) > lim
+        next_off < len(clients)
         or bool(page.get("has_more"))
-        or matched_total > len(sliced)
+        or matched_total > next_off
     )
     return out
 

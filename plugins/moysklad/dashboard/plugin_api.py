@@ -96,6 +96,7 @@ from plugins.moysklad.catalog_cache import (
     cache_backend_name,
     cache_key,
     cache_ttl_seconds,
+    extend_page_snapshot,
     format_synced_at,
     get_cached,
     get_page_snapshot,
@@ -318,22 +319,52 @@ def _catalog_meta(
     }
 
 
-def _rebuild_catalog_locked(
+def _catalog_is_partial(catalog: dict[str, Any] | None) -> bool:
+    return bool(isinstance(catalog, dict) and catalog.get("partial"))
+
+
+def _envelope_catalog_complete(envelope: dict[str, Any] | None) -> bool:
+    if not isinstance(envelope, dict):
+        return False
+    cat = envelope.get("catalog")
+    return isinstance(cat, dict) and not cat.get("partial")
+
+
+def _rebuild_catalog(
     key: str,
     *,
     max_orders: int,
     max_counterparties: int,
     include_archived: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Blocking MoySklad rebuild; caller must hold ``_SYNC_LOCK`` when needed."""
+    """MoySklad rebuild with progressive Redis/file flushes (no long lock).
+
+    Counterparties stream into durable cache every ~500 rows so ``/clients``
+    load-more can serve partial catalogs while the rest downloads.
+    """
     client = _client()
+
+    def _on_partial(partial: dict[str, Any]) -> None:
+        try:
+            set_cached(key, dict(partial), merge=False)
+            log.info(
+                "moysklad catalog partial flush key=%s rows=%s",
+                key[-24:],
+                len(partial.get("rows") or []),
+            )
+        except Exception:
+            log.warning("moysklad catalog partial flush failed", exc_info=True)
+
     catalog = build_enriched_catalog(
         client,
         max_orders=max_orders,
         max_counterparties=max_counterparties,
         include_archived=include_archived,
+        on_partial=_on_partial,
+        flush_every=500,
     )
-    envelope = set_cached(key, catalog)
+    catalog["partial"] = False
+    envelope = set_cached(key, catalog, merge=False)
     return catalog, _catalog_meta(envelope, cached=False)
 
 
@@ -348,20 +379,24 @@ def _schedule_catalog_revalidate(
     with _REVALIDATE_LOCK:
         if key in _REVALIDATE_IN_FLIGHT:
             return False
+        # Complete catalog already durable — skip. Partial must continue.
+        if _envelope_catalog_complete(get_cached(key)):
+            return False
         _REVALIDATE_IN_FLIGHT.add(key)
 
     def _worker() -> None:
         try:
-            with _SYNC_LOCK:
-                # Fresh write may have landed while we were queued.
-                if get_cached(key) is not None:
-                    return
-                _rebuild_catalog_locked(
-                    key,
-                    max_orders=max_orders,
-                    max_counterparties=max_counterparties,
-                    include_archived=include_archived,
-                )
+            # Do NOT hold _SYNC_LOCK across MoySklad I/O — readers need
+            # progressive Redis flushes for load-more.
+            fresh = get_cached(key)
+            if _envelope_catalog_complete(fresh):
+                return
+            _rebuild_catalog(
+                key,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+            )
         except Exception:
             log.exception("moysklad catalog background revalidate failed key=%s", key)
         finally:
@@ -402,6 +437,20 @@ def _get_catalog(
         envelope = get_cached(key)
         if envelope is not None:
             catalog = envelope["catalog"]
+            if _catalog_is_partial(catalog):
+                scheduled = _schedule_catalog_revalidate(
+                    key,
+                    max_orders=max_orders,
+                    max_counterparties=max_counterparties,
+                    include_archived=include_archived,
+                )
+                return catalog, _catalog_meta(
+                    envelope,
+                    cached=True,
+                    stale=True,
+                    revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                    counts_refreshed=False,
+                )
             synced_at = float(envelope.get("synced_at") or 0)
             counts_rewritten = False
             if refresh_counts:
@@ -454,7 +503,7 @@ def _get_catalog(
         # Another request may have filled the cache while we waited.
         if not force:
             envelope = get_cached(key)
-            if envelope is not None:
+            if envelope is not None and _envelope_catalog_complete(envelope):
                 catalog = envelope["catalog"]
                 synced_at = float(envelope.get("synced_at") or 0)
                 counts_rewritten = False
@@ -468,19 +517,34 @@ def _get_catalog(
             stale_env = peek_cached(key)
             if stale_env is not None and isinstance(stale_env.get("catalog"), dict):
                 catalog = stale_env["catalog"]
-                scheduled = _schedule_catalog_revalidate(
-                    key,
-                    max_orders=max_orders,
-                    max_counterparties=max_counterparties,
-                    include_archived=include_archived,
-                )
-                return catalog, _catalog_meta(
-                    stale_env,
-                    cached=True,
-                    stale=True,
-                    revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
-                    counts_refreshed=False,
-                )
+                if _catalog_is_partial(catalog) and not blocking:
+                    scheduled = _schedule_catalog_revalidate(
+                        key,
+                        max_orders=max_orders,
+                        max_counterparties=max_counterparties,
+                        include_archived=include_archived,
+                    )
+                    return catalog, _catalog_meta(
+                        stale_env,
+                        cached=True,
+                        stale=True,
+                        revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                        counts_refreshed=False,
+                    )
+                if not _catalog_is_partial(catalog):
+                    scheduled = _schedule_catalog_revalidate(
+                        key,
+                        max_orders=max_orders,
+                        max_counterparties=max_counterparties,
+                        include_archived=include_archived,
+                    )
+                    return catalog, _catalog_meta(
+                        stale_env,
+                        cached=True,
+                        stale=True,
+                        revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                        counts_refreshed=False,
+                    )
             if not blocking:
                 scheduled = _schedule_catalog_revalidate(
                     key,
@@ -488,6 +552,18 @@ def _get_catalog(
                     max_counterparties=max_counterparties,
                     include_archived=include_archived,
                 )
+                # Prefer any partial already flushed to Redis.
+                partial_env = get_cached(key) or peek_cached(key)
+                if partial_env is not None and isinstance(
+                    partial_env.get("catalog"), dict
+                ):
+                    return partial_env["catalog"], _catalog_meta(
+                        partial_env,
+                        cached=True,
+                        stale=True,
+                        revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                        counts_refreshed=False,
+                    )
                 return None, {
                     "cached": False,
                     "stale": True,
@@ -500,12 +576,52 @@ def _get_catalog(
                     "snapshot": False,
                 }
 
-        return _rebuild_catalog_locked(
+        # Only one blocking rebuild at a time; release lock before MoySklad I/O
+        # by scheduling when another rebuild is already in flight.
+        if key in _REVALIDATE_IN_FLIGHT:
+            partial_env = get_cached(key) or peek_cached(key)
+            if partial_env is not None and isinstance(partial_env.get("catalog"), dict):
+                return partial_env["catalog"], _catalog_meta(
+                    partial_env,
+                    cached=True,
+                    stale=True,
+                    revalidating=True,
+                    counts_refreshed=False,
+                )
+
+    # Rebuild outside the brief decision lock so progressive flushes are readable.
+    with _REVALIDATE_LOCK:
+        already = key in _REVALIDATE_IN_FLIGHT
+        if not already:
+            _REVALIDATE_IN_FLIGHT.add(key)
+    try:
+        if already:
+            # Wait briefly for progressive bytes rather than a second MoySklad pull.
+            for _ in range(40):
+                time.sleep(0.25)
+                env = get_cached(key)
+                if env is not None and isinstance(env.get("catalog"), dict):
+                    return env["catalog"], _catalog_meta(
+                        env,
+                        cached=True,
+                        stale=_catalog_is_partial(env.get("catalog")),
+                        revalidating=key in _REVALIDATE_IN_FLIGHT,
+                        counts_refreshed=False,
+                    )
+            raise HTTPException(
+                status_code=503,
+                detail="catalog rebuilding; retry shortly",
+            )
+        return _rebuild_catalog(
             key,
             max_orders=max_orders,
             max_counterparties=max_counterparties,
             include_archived=include_archived,
         )
+    finally:
+        if not already:
+            with _REVALIDATE_LOCK:
+                _REVALIDATE_IN_FLIGHT.discard(key)
 
 
 class AiFillBody(BaseModel):
@@ -1036,17 +1152,15 @@ def get_clients(
     try:
         want_fast = (not refresh) and offset == 0
 
-        # Instant paint: always serve first-100 snapshot when present.
-        if want_fast:
+        # Instant paint / scroll: serve Redis/file page window when it covers
+        # this offset (grows via extend_page_snapshot after each successful page).
+        if not refresh:
             snap_env = get_page_snapshot(snap_key)
             if snap_env is not None:
-                sliced = slice_page_snapshot(snap_env, limit=limit, offset=0)
+                sliced = slice_page_snapshot(
+                    snap_env, limit=limit, offset=offset
+                )
                 if sliced is not None:
-                    # Snapshots may predate the TG export import / thread
-                    # seeding, so their «TG conversation» previews go blank and
-                    # the column flickers between paints. Re-enrich at serve
-                    # time — overlay + thread stores are memory-cached, this is
-                    # milliseconds for a 100-row snapshot.
                     try:
                         sliced["clients"] = enrich_clients(
                             list(sliced.get("clients") or [])
@@ -1054,8 +1168,15 @@ def get_clients(
                     except Exception:
                         log.debug("snapshot re-enrich failed", exc_info=True)
                     fresh = get_cached(catalog_key)
+                    cat = (
+                        fresh.get("catalog")
+                        if isinstance(fresh, dict)
+                        else None
+                    )
                     revalidating = False
-                    if fresh is None:
+                    if fresh is None or _catalog_is_partial(
+                        cat if isinstance(cat, dict) else None
+                    ):
                         revalidating = _schedule_catalog_revalidate(
                             catalog_key,
                             max_orders=max_orders,
@@ -1064,30 +1185,36 @@ def get_clients(
                         ) or catalog_key in _REVALIDATE_IN_FLIGHT
                     else:
                         revalidating = catalog_key in _REVALIDATE_IN_FLIGHT
-                        cat = fresh.get("catalog") if isinstance(fresh, dict) else None
-                        _schedule_snapshot_refresh(
-                            snap_key,
-                            catalog=cat if isinstance(cat, dict) else None,
-                            sales_filter=sales_filter,
-                            group=group,
-                            q=q,
-                            group_source=group_source,
-                            channel_kind=channel_kind,
-                            require_phone=require_phone,
-                            require_telegram=require_telegram,
-                            vip_only=vip_only,
-                            birthday_soon=birthday_soon,
-                            days_before_event=days_before_event,
-                            event_date_from=event_date_from,
-                            event_date_to=event_date_to,
-                            stage=stage,
-                            max_orders=max_orders,
-                            max_counterparties=max_counterparties,
-                            include_archived=include_archived,
-                        )
+                        if offset == 0:
+                            _schedule_snapshot_refresh(
+                                snap_key,
+                                catalog=cat if isinstance(cat, dict) else None,
+                                sales_filter=sales_filter,
+                                group=group,
+                                q=q,
+                                group_source=group_source,
+                                channel_kind=channel_kind,
+                                require_phone=require_phone,
+                                require_telegram=require_telegram,
+                                vip_only=vip_only,
+                                birthday_soon=birthday_soon,
+                                days_before_event=days_before_event,
+                                event_date_from=event_date_from,
+                                event_date_to=event_date_to,
+                                stage=stage,
+                                max_orders=max_orders,
+                                max_counterparties=max_counterparties,
+                                include_archived=include_archived,
+                            )
                     out_meta = {
                         "cached": True,
-                        "stale": bool(revalidating or fresh is None),
+                        "stale": bool(
+                            revalidating
+                            or fresh is None
+                            or _catalog_is_partial(
+                                cat if isinstance(cat, dict) else None
+                            )
+                        ),
                         "revalidating": bool(revalidating),
                         "snapshot": True,
                         "synced_at": float(snap_env.get("synced_at") or 0),
@@ -1103,13 +1230,14 @@ def get_clients(
                         out_meta,
                     )
 
+        # offset>0 must NOT block on MoySklad — serve partial Redis / retry.
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
             include_archived=include_archived,
             force=refresh,
-            blocking=not want_fast,
-            refresh_counts=not want_fast,
+            blocking=False if offset > 0 else (not want_fast),
+            refresh_counts=False if offset > 0 else (not want_fast),
         )
 
         if catalog is None and want_fast:
@@ -1124,9 +1252,16 @@ def get_clients(
             )
 
         if catalog is None:
+            # Load-more while rebuild still warming — ask UI to retry.
+            _schedule_catalog_revalidate(
+                catalog_key,
+                max_orders=max_orders,
+                max_counterparties=max_counterparties,
+                include_archived=include_archived,
+            )
             raise HTTPException(
                 status_code=503,
-                detail="catalog unavailable; retry shortly",
+                detail="catalog rebuilding; retry shortly",
             )
 
         # One-shot Telegram Desktop export → conversations / ТГ ник (+ Redis/file).
@@ -1165,9 +1300,16 @@ def get_clients(
         )
         page["clients"] = enrich_clients(list(page.get("clients") or []))
 
-        # Seed/refresh first-100 snapshot for this filter (independent of request limit).
-        if offset == 0:
-            try:
+        # Partial catalog may undercount — keep scrolling until rebuild finishes.
+        if _catalog_is_partial(catalog):
+            page["has_more"] = True
+            meta = dict(meta)
+            meta["revalidating"] = True
+            meta["stale"] = True
+
+        # Grow Redis/file window so next scroll hits snapshot (fast path).
+        try:
+            if offset == 0:
                 if int(limit) >= PAGE_SNAPSHOT_ROWS:
                     snap_page = page
                 else:
@@ -1201,8 +1343,18 @@ def get_clients(
                     _strip_internal(snap_page),
                     synced_at=float(meta.get("synced_at") or time.time()),
                 )
-            except Exception:
-                log.warning("moysklad page snapshot write failed", exc_info=True)
+            else:
+                extend_page_snapshot(
+                    snap_key,
+                    list(page.get("clients") or []),
+                    matched_total=int(page.get("matched_total") or 0),
+                    counts=page.get("counts")
+                    if isinstance(page.get("counts"), dict)
+                    else None,
+                    synced_at=float(meta.get("synced_at") or time.time()),
+                )
+        except Exception:
+            log.warning("moysklad page snapshot write failed", exc_info=True)
 
         meta = dict(meta)
         meta["snapshot"] = False

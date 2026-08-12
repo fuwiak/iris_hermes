@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from plugins.moysklad.audience import (
     normalize_group_source,
@@ -87,14 +87,96 @@ def _normalize_filter_key(sales_filter: str) -> str:
     return filter_key or "all"
 
 
+def _enrich_counterparty_row(
+    cp: dict[str, Any],
+    *,
+    channels_by_agent: dict[str, list[str]],
+    order_ctx_by_agent: dict[str, list[dict[str, Any]]],
+    sums_by_agent: dict[str, list[float]],
+    names_by_agent: dict[str, str],
+) -> dict[str, Any] | None:
+    """Build one CRM row from a MoySklad counterparty + order indexes."""
+    cp_id = str(cp.get("id") or "").strip()
+    if not cp_id:
+        return None
+    row = counterparty_row_from_api(
+        cp, order_channels=channels_by_agent.get(cp_id, [])
+    )
+    # Prefer full order context (with dates/sums) over channel-only stubs.
+    ctx = order_ctx_by_agent.get(cp_id) or row.get("_orders_context") or []
+    row["_orders_context"] = ctx
+    # Deduped channel list from real orders (preserve first-seen order).
+    order_channels: list[str] = []
+    seen_ch: set[str] = set()
+    for item in ctx:
+        ch = str(
+            (item or {}).get("Канал продаж") or (item or {}).get("channel") or ""
+        ).strip()
+        key = ch.lower()
+        if ch and key not in seen_ch:
+            seen_ch.add(key)
+            order_channels.append(ch)
+    if not order_channels:
+        order_channels = list(channels_by_agent.get(cp_id) or [])
+    row["_order_channels_all"] = order_channels
+    row["Канал продаж"] = ", ".join(order_channels)
+    sales_type = sales_channel_type_from_channels(order_channels)
+    row["Тип канала продаж"] = sales_type
+    row["Тип продаж"] = sales_type
+
+    payment = summarize_order_context(ctx if isinstance(ctx, list) else [])
+    amounts = sums_by_agent.get(cp_id) or []
+    if not amounts and payment.get("avg_check_paid") is not None:
+        amounts = [float(payment["avg_check_paid"])]
+    # Display totals include all API orders; fulfilled = paid only.
+    order_count = int(payment.get("order_count") or 0)
+    fulfilled = int(payment.get("fulfilled_order_count") or 0)
+    avg_check = payment.get("avg_check_paid")
+    if avg_check is None and amounts:
+        avg_check = round(sum(amounts) / len(amounts), 2)
+    last_order = (
+        payment.get("last_paid_order_at") or payment.get("last_order_at") or ""
+    )
+    row["Всего заказов"] = order_count
+    row["Средний чек"] = avg_check if avg_check is not None else ""
+    row["Дата последнего заказа"] = last_order or ""
+    row["order_count"] = order_count
+    row["fulfilled_order_count"] = fulfilled
+    row["paid_order_count"] = int(payment.get("paid_order_count") or 0)
+    row["unpaid_order_count"] = int(payment.get("unpaid_order_count") or 0)
+    row["cancelled_order_count"] = int(payment.get("cancelled_order_count") or 0)
+    row["failed_only"] = bool(payment.get("failed_only"))
+    row["customer_outcome"] = payment.get("customer_outcome") or "none"
+    row["Тип клиента"] = client_stage(row["customer_outcome"])
+    row["client_stage"] = row["Тип клиента"]
+    row["client_stage_reason"] = client_stage_reason(payment)
+    row["avg_check"] = avg_check
+    row["last_order_at"] = last_order or None
+    refresh_row_channel_fields(row)
+    if not row.get("Наименование") and cp_id in names_by_agent:
+        row["Наименование"] = names_by_agent[cp_id]
+    desc = cp.get("description")
+    if desc:
+        row["description"] = str(desc)
+        row["_comment_blob"] = str(desc)
+    return row
+
+
 def build_enriched_catalog(
     client: MoySkladClient,
     *,
     max_orders: int = 25000,
     max_counterparties: int = 0,
     include_archived: bool = False,
+    on_partial: Callable[[dict[str, Any]], None] | None = None,
+    flush_every: int = 500,
 ) -> dict[str, Any]:
-    """Fetch MoySklad counterparties + orders into CRM-shaped rows."""
+    """Fetch MoySklad counterparties + orders into CRM-shaped rows.
+
+    When ``on_partial`` is set, flushes a ``partial=True`` catalog every
+    ``flush_every`` counterparties (and after each API page) so Redis/file
+    can serve scroll/load-more while the rest of the download continues.
+    """
     channels_payload = client.channels(fetch_all=True, limit=0, include_archived=True)
     channels_by_id = sales_channels_by_id(list(channels_payload.get("rows") or []))
 
@@ -164,80 +246,80 @@ def build_enriched_catalog(
         if name and agent_id not in names_by_agent:
             names_by_agent[agent_id] = name
 
-    cps_payload = client.counterparties(
-        fetch_all=True,
-        limit=max_counterparties,
-        include_archived=include_archived,
-    )
-    counterparties = dedupe_entity_pages(cps_payload.get("rows") or [])
+    # Page counterparties so we can flush Redis/file before the full download ends.
+    from plugins.moysklad.client import PAGE_SIZE as _CP_PAGE
 
     rows: list[dict[str, Any]] = []
+    counterparties_scanned = 0
+    seen_cp_ids: set[str] = set()
+    cp_offset = 0
+    last_flush_at = 0
+    flush_n = max(100, int(flush_every or 500))
+    unlimited = max_counterparties <= 0
 
-    for cp in counterparties:
-        cp_id = str(cp.get("id") or "").strip()
-        if not cp_id:
-            continue
-        row = counterparty_row_from_api(
-            cp, order_channels=channels_by_agent.get(cp_id, [])
+    def _flush_partial() -> None:
+        nonlocal last_flush_at
+        if on_partial is None:
+            return
+        # Cheap path: flush raw rows so far; final return still dedupes fully.
+        partial_rows = dedupe_catalog_rows(list(rows))
+        on_partial(
+            {
+                "rows": partial_rows,
+                "counts": recompute_audience_counts(partial_rows),
+                "orders_scanned": len(orders),
+                "counterparties_scanned": counterparties_scanned,
+                "counterparties_deduped": len(partial_rows),
+                "partial": True,
+            }
         )
-        # Prefer full order context (with dates/sums) over channel-only stubs.
-        ctx = order_ctx_by_agent.get(cp_id) or row.get("_orders_context") or []
-        row["_orders_context"] = ctx
-        # Deduped channel list from real orders (preserve first-seen order).
-        order_channels: list[str] = []
-        seen_ch: set[str] = set()
-        for item in ctx:
-            ch = str((item or {}).get("Канал продаж") or (item or {}).get("channel") or "").strip()
-            key = ch.lower()
-            if ch and key not in seen_ch:
-                seen_ch.add(key)
-                order_channels.append(ch)
-        if not order_channels:
-            order_channels = list(channels_by_agent.get(cp_id) or [])
-        row["_order_channels_all"] = order_channels
-        row["Канал продаж"] = ", ".join(order_channels)
-        sales_type = sales_channel_type_from_channels(order_channels)
-        row["Тип канала продаж"] = sales_type
-        row["Тип продаж"] = sales_type
+        last_flush_at = len(rows)
 
-        payment = summarize_order_context(ctx if isinstance(ctx, list) else [])
-        amounts = sums_by_agent.get(cp_id) or []
-        if not amounts and payment.get("avg_check_paid") is not None:
-            amounts = [float(payment["avg_check_paid"])]
-        # Display totals include all API orders; fulfilled = paid only.
-        order_count = int(payment.get("order_count") or 0)
-        fulfilled = int(payment.get("fulfilled_order_count") or 0)
-        avg_check = payment.get("avg_check_paid")
-        if avg_check is None and amounts:
-            avg_check = round(sum(amounts) / len(amounts), 2)
-        last_order = (
-            payment.get("last_paid_order_at")
-            or payment.get("last_order_at")
-            or ""
+    while unlimited or counterparties_scanned < max_counterparties:
+        batch_limit = _CP_PAGE if unlimited else min(
+            _CP_PAGE, max_counterparties - counterparties_scanned
         )
-        row["Всего заказов"] = order_count
-        row["Средний чек"] = avg_check if avg_check is not None else ""
-        row["Дата последнего заказа"] = last_order or ""
-        row["order_count"] = order_count
-        row["fulfilled_order_count"] = fulfilled
-        row["paid_order_count"] = int(payment.get("paid_order_count") or 0)
-        row["unpaid_order_count"] = int(payment.get("unpaid_order_count") or 0)
-        row["cancelled_order_count"] = int(payment.get("cancelled_order_count") or 0)
-        row["failed_only"] = bool(payment.get("failed_only"))
-        row["customer_outcome"] = payment.get("customer_outcome") or "none"
-        row["Тип клиента"] = client_stage(row["customer_outcome"])
-        row["client_stage"] = row["Тип клиента"]
-        row["client_stage_reason"] = client_stage_reason(payment)
-        row["avg_check"] = avg_check
-        row["last_order_at"] = last_order or None
-        refresh_row_channel_fields(row)
-        if not row.get("Наименование") and cp_id in names_by_agent:
-            row["Наименование"] = names_by_agent[cp_id]
-        desc = cp.get("description")
-        if desc:
-            row["description"] = str(desc)
-            row["_comment_blob"] = str(desc)
-        rows.append(row)
+        if batch_limit <= 0:
+            break
+        cps_payload = client.counterparties(
+            fetch_all=False,
+            limit=batch_limit,
+            offset=cp_offset,
+            include_archived=include_archived,
+        )
+        batch = dedupe_entity_pages(cps_payload.get("rows") or [])
+        if not batch:
+            break
+        for cp in batch:
+            cp_id = str(cp.get("id") or "").strip()
+            if cp_id:
+                if cp_id in seen_cp_ids:
+                    continue
+                seen_cp_ids.add(cp_id)
+            row = _enrich_counterparty_row(
+                cp,
+                channels_by_agent=channels_by_agent,
+                order_ctx_by_agent=order_ctx_by_agent,
+                sums_by_agent=sums_by_agent,
+                names_by_agent=names_by_agent,
+            )
+            if row is None:
+                continue
+            rows.append(row)
+            counterparties_scanned += 1
+            if (
+                on_partial is not None
+                and len(rows) - last_flush_at >= flush_n
+            ):
+                _flush_partial()
+            if not unlimited and counterparties_scanned >= max_counterparties:
+                break
+        if len(batch) < batch_limit:
+            break
+        cp_offset += len(batch)
+
+    if on_partial is not None and rows and len(rows) != last_flush_at:
+        _flush_partial()
 
     # Multi-stage dedupe (id → contact → fuzzy); counts after collapse.
     rows = dedupe_catalog_rows(rows)
@@ -247,8 +329,9 @@ def build_enriched_catalog(
         "rows": rows,
         "counts": counts,
         "orders_scanned": len(orders),
-        "counterparties_scanned": len(counterparties),
+        "counterparties_scanned": counterparties_scanned,
         "counterparties_deduped": len(rows),
+        "partial": False,
     }
 
 

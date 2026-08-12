@@ -5,15 +5,20 @@ import {
   chunkIds,
   massSendConfirmText,
   massSendProgressLabel,
+  massSendStepHint,
   mergeUniqueIds,
-  needsMassSendConfirm
+  needsMassSendConfirm,
+  resolveMassSendStep
 } from './mass-send'
 
 describe('mass-send helpers', () => {
   it('chunks ids and drops blanks / dupes', () => {
     const ids = ['a', 'b', 'a', '', 'c', '  ', 'd']
     const chunks = chunkIds(ids, 2)
-    expect(chunks).toEqual([['a', 'b'], ['c', 'd']])
+    expect(chunks).toEqual([
+      ['a', 'b'],
+      ['c', 'd']
+    ])
     expect(chunkIds(ids).every(c => c.length <= MASS_SEND_CHUNK)).toBe(true)
   })
 
@@ -35,5 +40,19 @@ describe('mass-send helpers', () => {
 
   it('mergeUniqueIds preserves order', () => {
     expect(mergeUniqueIds(['a', 'b'], ['b', 'c', 'a', ''])).toEqual(['a', 'b', 'c'])
+  })
+
+  it('resolveMassSendStep follows audience → text → send → replies', () => {
+    expect(resolveMassSendStep({ selectedCount: 0, hasDraft: false, sentCount: 0 })).toBe(1)
+    expect(resolveMassSendStep({ selectedCount: 10, hasDraft: false, sentCount: 0 })).toBe(2)
+    expect(resolveMassSendStep({ selectedCount: 10, hasDraft: true, sentCount: 0 })).toBe(3)
+    expect(resolveMassSendStep({ selectedCount: 10, hasDraft: true, sentCount: 10 })).toBe(4)
+  })
+
+  it('step hints tell operator the next click', () => {
+    expect(massSendStepHint(1, { audience: 90, selectedCount: 0, chunk: 50 })).toContain(
+      'Выбрать всех'
+    )
+    expect(massSendStepHint(3, { audience: 90, selectedCount: 90, chunk: 50 })).toContain('90')
   })
 })

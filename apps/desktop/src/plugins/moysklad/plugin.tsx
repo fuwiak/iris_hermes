@@ -44,10 +44,13 @@ import {
   chunkIds,
   MASS_AUDIENCE_SELECT_CAP,
   MASS_SEND_CHUNK,
+  MASS_SEND_STEP_LABELS,
   massSendConfirmText,
   massSendProgressLabel,
+  massSendStepHint,
   mergeUniqueIds,
-  needsMassSendConfirm
+  needsMassSendConfirm,
+  resolveMassSendStep
 } from './mass-send'
 
 interface GroupChipOption {
@@ -2018,9 +2021,9 @@ const CLIENTS_FETCH_TIMEOUT_MS = 90_000
 /** First audience paint — match backend PAGE_SNAPSHOT_ROWS (fast snapshot path). */
 const AUDIENCE_PAGE_SIZE = 100
 /**
- * Scroll/load-more batches. Offset>0 skips the snapshot fast-path and rebuilds
- * the filtered page server-side — large pages cut round-trips (8 was glacial
- * for ~10k catalogs: «Подгружаем… 24 / 9507»).
+ * Scroll/load-more batches. Backend grows a Redis/file page window so appends
+ * hit snapshot when possible; otherwise partial catalog flushes while MoySklad
+ * still downloads (~10k: «Подгружаем… 100 / 9507» must not block on full rebuild).
  */
 const AUDIENCE_APPEND_PAGE_SIZE = 250
 /** Cap localStorage audience cache growth after appends. */
@@ -4044,17 +4047,50 @@ function CampaignsPage() {
 
       try {
         const pageLimit = append ? AUDIENCE_APPEND_PAGE_SIZE : AUDIENCE_PAGE_SIZE
-        const page = await call<{
-          counts?: Counts
-          matched_total?: number
-          clients?: ClientRow[]
-          group_options?: GroupChipOption[]
-          group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
-          has_more?: boolean
-          next_offset?: number
-        }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
-          timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
-        })
+        const fetchPage = () =>
+          call<{
+            counts?: Counts
+            matched_total?: number
+            clients?: ClientRow[]
+            group_options?: GroupChipOption[]
+            group_options_by_source?: { ms?: GroupChipOption[]; ai?: GroupChipOption[] }
+            has_more?: boolean
+            next_offset?: number
+            revalidating?: boolean
+          }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
+            timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
+          })
+
+        const isCatalogWarming = (err: unknown) => {
+          const text = err instanceof Error ? err.message : String(err)
+          return /503|rebuilding|retry shortly|catalog unavailable/i.test(text)
+        }
+
+        let page: Awaited<ReturnType<typeof fetchPage>> | null = null
+        const maxAttempts = append ? 10 : 1
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          try {
+            page = await fetchPage()
+            if (
+              !append ||
+              (page.clients || []).length > 0 ||
+              attempt >= maxAttempts - 1
+            ) {
+              break
+            }
+          } catch (err) {
+            if (!append || !isCatalogWarming(err) || attempt >= maxAttempts - 1) {
+              throw err
+            }
+          }
+          await new Promise(r => setTimeout(r, 400 + attempt * 200))
+          if (gen !== audienceLoadGen.current) {
+            return
+          }
+        }
+        if (!page) {
+          throw new Error('catalog rebuilding; retry shortly')
+        }
 
         if (gen !== audienceLoadGen.current) {
           return
@@ -5577,36 +5613,186 @@ function CampaignsPage() {
     }
   }
 
+  const massSelectedCount =
+    pickMode === 'multi'
+      ? selectedClientIds.length
+      : selectedClientId
+        ? 1
+        : 0
+  const massStep = resolveMassSendStep({
+    selectedCount: massSelectedCount,
+    hasDraft: Boolean(offer.trim()),
+    sentCount: lastSentClientIds.length
+  })
+  const massHint = massSendStepHint(massStep, {
+    audience,
+    selectedCount: massSelectedCount,
+    chunk: MASS_SEND_CHUNK
+  })
+  const canMassSend =
+    massSelectedCount > 0 &&
+    Boolean(offer.trim()) &&
+    !checkingSanity &&
+    !generating &&
+    !rewriting &&
+    !suggestingBouquet &&
+    !paraphrasing
+
   return (
     <div className="ms-page" data-selectable-text="true">
       <div className="ms-page-header">
         <div>
           <h1>Рассылки</h1>
           <p className="ms-muted">
-            Массовая отправка по дедуп-кэшу Клиентов · ответы → TG conversation
+            4 шага: аудитория → текст → отправка → ответы
           </p>
         </div>
         <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
           ← Клиенты
         </button>
       </div>
-      <ol className="ms-howto">
-        <li>
-          Фильтры аудитории → <strong>{audience}</strong> чел. после дедупа
-        </li>
-        <li>
-          Текст один на всех (или «Персонализировать») →{' '}
-          <strong>Выбрать всю аудиторию</strong>
-        </li>
-        <li>
-          <strong>Проверить получателей</strong> →{' '}
-          <strong>Отправить пачками</strong> (по {MASS_SEND_CHUNK}, сотни/тысячи)
-        </li>
-        <li>
-          <strong>Собрать ответы</strong> — входящие из личного TG / Business в
-          историю клиента
-        </li>
-      </ol>
+
+      <section className="ms-mass-rail" aria-label="Массовая рассылка">
+        <ol className="ms-mass-steps">
+          {([1, 2, 3, 4] as const).map(step => (
+            <li
+              className={`ms-mass-step${massStep === step ? ' is-active' : ''}${
+                massStep > step ? ' is-done' : ''
+              }`}
+              key={step}
+            >
+              <span className="ms-mass-step-num">{step}</span>
+              <span className="ms-mass-step-label">{MASS_SEND_STEP_LABELS[step]}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="ms-mass-hint">{massHint}</p>
+        <div className="ms-mass-rail-actions">
+          {massStep === 1 ? (
+            <>
+              <button
+                className="ms-btn ms-btn-primary"
+                disabled={selectingAudience || audience < 1}
+                onClick={() => void selectEntireAudience()}
+                type="button"
+              >
+                {selectingAudience
+                  ? 'Собираю id…'
+                  : `Выбрать всех (${audience})`}
+              </button>
+              <button
+                className="ms-btn"
+                disabled={selectingAudience || !audiencePreview.length}
+                onClick={() => selectLoadedAudience()}
+                type="button"
+              >
+                Только загруженных ({audiencePreview.length})
+              </button>
+            </>
+          ) : null}
+          {massStep === 2 ? (
+            <p className="ms-muted ms-mass-inline-note">
+              Текст — в поле ниже. AI-кнопки там же.
+            </p>
+          ) : null}
+          {massStep === 3 || (massStep === 2 && massSelectedCount > 1) ? (
+            <>
+              {channel.startsWith('telegram') && massSelectedCount > 1 ? (
+                <button
+                  className="ms-btn"
+                  disabled={preflightBusy || massSelectedCount < 1}
+                  onClick={() => void runPreflight()}
+                  type="button"
+                >
+                  {preflightBusy ? 'Проверяю…' : 'Проверить получателей'}
+                </button>
+              ) : null}
+              <button
+                className="ms-btn ms-btn-primary"
+                disabled={!canMassSend}
+                onClick={() => void markSentToConversation()}
+                type="button"
+              >
+                {checkingSanity
+                  ? 'Отправляю…'
+                  : massSelectedCount > 1
+                    ? `Отправить ${massSelectedCount} пачками`
+                    : 'Отправить в Telegram'}
+              </button>
+            </>
+          ) : null}
+          {massStep === 4 || lastSentClientIds.length > 0 ? (
+            <button
+              className={`ms-btn${massStep === 4 ? ' ms-btn-primary' : ''}`}
+              disabled={repliesBusy}
+              onClick={() => void collectReplies()}
+              type="button"
+            >
+              {repliesBusy ? 'Собираю…' : 'Собрать ответы'}
+            </button>
+          ) : null}
+          {massSelectedCount > 0 ? (
+            <span className="ms-mass-count">
+              Выбрано <strong>{massSelectedCount}</strong>
+              {audience ? ` / ${audience}` : ''}
+              {lastSentClientIds.length
+                ? ` · отправлено ${lastSentClientIds.length}`
+                : ''}
+            </span>
+          ) : null}
+        </div>
+        {actionStatus ? <p className="ms-muted ms-mass-status">{actionStatus}</p> : null}
+        {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
+        {preflight ? (
+          <p className="ms-muted ms-preflight-note">
+            Готовы: {preflight.ready ?? 0} · недостижимы: {preflight.blocked ?? 0}
+            {preflight.recipients && preflight.blocked ? (
+              <>
+                {' — '}
+                {preflight.recipients
+                  .filter(r => !r.ok)
+                  .slice(0, 5)
+                  .map(r => r.name || r.client_id)
+                  .join(', ')}
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        {(repliesMeta || replies.length > 0) && (
+          <div className="ms-replies-inbox">
+            <p className="ms-ai-label">Ответы клиентов</p>
+            {repliesMeta ? <p className="ms-muted">{repliesMeta}</p> : null}
+            {replies.length ? (
+              <ul className="ms-replies-list">
+                {replies.map(row => (
+                  <li key={row.client_id || row.preview}>
+                    <button
+                      className="ms-link-btn"
+                      onClick={() => {
+                        if (!row.client_id) {
+                          return
+                        }
+                        setPickMode('single')
+                        setSelectedClientId(row.client_id)
+                        setSelectedClientName(row.client_name || '')
+                        setContactPickerId(row.client_id)
+                        void loadOutreach(row.client_id, channel)
+                      }}
+                      type="button"
+                    >
+                      {row.client_name || row.tg_nick || row.client_id}
+                    </button>
+                    {row.preview ? (
+                      <span className="ms-muted"> — {row.preview}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+      </section>
+
       <FilterTabs
         counts={counts}
         disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
@@ -5615,7 +5801,7 @@ function CampaignsPage() {
       />
 
       <section className="ms-audience-builder">
-        <h2 className="ms-section-title">Аудитория массовой рассылки</h2>
+        <h2 className="ms-section-title">1. Аудитория</h2>
         <p className="ms-muted">
           Найдено (после дедупа): <strong>{audience}</strong>
           {loading ? ' · обновляем…' : ''}

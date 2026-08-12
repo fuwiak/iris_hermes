@@ -78,7 +78,7 @@ def test_page_snapshot_roundtrip_first_100(hermes_home: Path) -> None:
         "next_offset": 100,
     }
     env = cc.set_page_snapshot(key, page, synced_at=123.0)
-    assert len(env["page"]["clients"]) == cc.PAGE_SNAPSHOT_ROWS
+    assert len(env["page"]["clients"]) == 120  # under PAGE_SNAPSHOT_ROWS cap
     hit = cc.get_page_snapshot(key)
     assert hit is not None
     sliced = cc.slice_page_snapshot(hit, limit=100, offset=0)
@@ -92,7 +92,65 @@ def test_page_snapshot_roundtrip_first_100(hermes_home: Path) -> None:
     assert len(small["clients"]) == 24
     assert small["next_offset"] == 24
     assert small["has_more"] is True
-    assert cc.slice_page_snapshot(hit, limit=50, offset=5) is None  # only offset 0
+    # Load-more from Redis window — offset>0 must slice when rows exist.
+    mid = cc.slice_page_snapshot(hit, limit=50, offset=5)
+    assert mid is not None
+    assert len(mid["clients"]) == 50
+    assert mid["clients"][0]["id"] == "5"
+    assert mid["next_offset"] == 55
+
+
+def test_extend_page_snapshot_grows_window(hermes_home: Path) -> None:
+    key = cc.page_snapshot_key(sales_filter="all", group="", q="", group_source="any")
+    cc.set_page_snapshot(
+        key,
+        {
+            "clients": [{"id": "1"}, {"id": "2"}],
+            "matched_total": 5,
+            "has_more": True,
+        },
+    )
+    cc.extend_page_snapshot(
+        key,
+        [{"id": "2"}, {"id": "3"}, {"id": "4"}],
+        matched_total=5,
+    )
+    hit = cc.get_page_snapshot(key)
+    assert hit is not None
+    ids = [c["id"] for c in hit["page"]["clients"]]
+    assert ids == ["1", "2", "3", "4"]
+    sliced = cc.slice_page_snapshot(hit, limit=2, offset=2)
+    assert sliced is not None
+    assert [c["id"] for c in sliced["clients"]] == ["3", "4"]
+    assert sliced["has_more"] is True
+
+
+def test_partial_catalog_roundtrip(hermes_home: Path) -> None:
+    key = cc.cache_key(max_orders=100, max_counterparties=0, include_archived=False)
+    cc.set_cached(
+        key,
+        {
+            "rows": [{"id": "a"}, {"id": "b"}],
+            "counts": {"total": 2},
+            "partial": True,
+        },
+    )
+    hit = cc.get_cached(key)
+    assert hit is not None
+    assert hit["catalog"]["partial"] is True
+    assert len(hit["catalog"]["rows"]) == 2
+    cc.set_cached(
+        key,
+        {
+            "rows": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "counts": {"total": 3},
+            "partial": False,
+        },
+    )
+    done = cc.get_cached(key)
+    assert done is not None
+    assert done["catalog"]["partial"] is False
+    assert len(done["catalog"]["rows"]) == 3
 
 
 def test_invalidate_removes_file(hermes_home: Path) -> None:
