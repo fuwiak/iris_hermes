@@ -6961,16 +6961,6 @@ const plugin: HermesPlugin = {
           label: 'Рассылки',
           path: '/campaigns'
         } satisfies SidebarNavContribution
-      },
-      {
-        id: 'plugins-nav',
-        area: SIDEBAR_NAV_AREA,
-        order: 90,
-        data: {
-          codicon: 'extensions',
-          label: 'Plugins',
-          path: '/settings?tab=plugins'
-        } satisfies SidebarNavContribution
       }
     ])
   }

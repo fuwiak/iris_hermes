@@ -98,11 +98,9 @@ import { $focusedStoredSessionId, $workingSessionIds, type SplitDir } from '@/st
 
 import {
   type AppView,
-  CRON_ROUTE,
   MESSAGING_ROUTE,
   SIDEBAR_NAV_AREA,
-  type SidebarNavContribution,
-  SKILLS_ROUTE
+  type SidebarNavContribution
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
@@ -139,7 +137,8 @@ import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
 const NON_SESSION_INITIAL_ROWS = 3
 const NON_SESSION_LOAD_STEP = 10
 
-/** Hermes One primary nav — Discover / Office / Kanban / Schedules. Stock Capabilities/Messaging/Artifacts removed. */
+/** Hermes One primary nav — New Chat + Office stay in the sidebar; Discover /
+ *  Kanban / Schedules / Plugins live in CornerChrome (bottom-right). */
 const SIDEBAR_NAV: SidebarNavItem[] = [
   {
     id: 'new-session',
@@ -149,33 +148,11 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     keybindActionId: 'session.new'
   },
   {
-    id: 'skills',
-    label: '',
-    icon: props => <Codicon name="symbol-misc" {...props} />,
-    route: SKILLS_ROUTE,
-    keybindActionId: 'nav.skills'
-  },
-  {
     id: 'messaging',
     label: '',
     icon: props => <Codicon name="comment" {...props} />,
     route: MESSAGING_ROUTE,
     keybindActionId: 'nav.messaging'
-  },
-  // Labeled "Kanban" via hermesOneNav — real board route (plugin must be on).
-  {
-    id: 'artifacts',
-    label: '',
-    icon: props => <Codicon name="project" {...props} />,
-    route: '/kanban',
-    keybindActionId: 'nav.artifacts'
-  },
-  {
-    id: 'schedules',
-    label: '',
-    icon: props => <Codicon name="clock" {...props} />,
-    route: CRON_ROUTE,
-    keybindActionId: 'nav.cron'
   }
 ]
 

@@ -1,13 +1,10 @@
 /**
  * Kanban — the founding plugin use case, now pure SDK-consumer work: a
- * first-class `/kanban` board page + sidebar nav row + a live statusbar count,
- * all reusing the existing `plugins/kanban/dashboard/plugin_api.py` REST router
- * through `ctx.rest` (namespace-scoped to `/api/plugins/kanban`). No new
- * backend, no core edits.
+ * first-class `/kanban` board page + live statusbar count (CornerChrome owns
+ * the board FAB). Reuses `plugins/kanban/dashboard/plugin_api.py` via `ctx.rest`.
  *
- * Ships OFF by default on Electron (`defaultEnabled` false unless Hermes One
- * web — where the primary nav includes the board). Inventories in
- * Settings ▸ Plugins either way.
+ * Always on — Hermes One is the only desktop presentation. Inventories in
+ * Settings ▸ Plugins.
  */
 
 import './kanban.css'
@@ -23,8 +20,6 @@ import {
   type PaletteContribution,
   type RouteContribution,
   ROUTES_AREA,
-  SIDEBAR_NAV_AREA,
-  type SidebarNavContribution,
   STATUSBAR_AREAS,
   Tip,
   useQuery,
@@ -110,12 +105,6 @@ const plugin: HermesPlugin = {
         area: ROUTES_AREA,
         data: { path: '/kanban' } satisfies RouteContribution,
         render: () => <KanbanBoardPage />
-      },
-      {
-        id: 'nav',
-        area: SIDEBAR_NAV_AREA,
-        order: 50,
-        data: { codicon: 'project', label: 'Kanban', path: '/kanban' } satisfies SidebarNavContribution
       },
       {
         id: 'count',

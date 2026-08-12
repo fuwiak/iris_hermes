@@ -22,18 +22,22 @@ import {
 } from '@/store/keybinds'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
 
-import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
+import { appViewForPath, CRON_ROUTE, isOverlayView, navigateToWorkspacePage, routePathname, SETTINGS_ROUTE, SKILLS_ROUTE } from '../routes'
 
 const FAB_CLASS =
   'pointer-events-auto size-9 rounded-full border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous'
 
-/** Four size-9 FABs + three gaps (2.25*4 + 0.5*3 = 10.5rem). */
+const KANBAN_ROUTE = '/kanban'
+const PLUGINS_SETTINGS_ROUTE = `${SETTINGS_ROUTE}?tab=plugins`
+
+/** Widest dock row: four size-9 FABs + three gaps. */
 const CORNER_CHROME_WIDTH = '10.5rem'
 
 /**
- * Bottom-right chrome dock — FABs that used to live in the titlebar app-control
- * cluster (layout, haptics, settings, keybinds). Keybinds expands into a
- * slide-out panel above the row; the others are one-shot / toggle actions.
+ * Bottom-right chrome dock — FABs moved off the titlebar / Hermes One sidebar:
+ *   nav row:   Обзор · Kanban · Расписания · Plugins
+ *   chrome row: layout · haptics · settings · keybinds
+ * Keybinds expands into a slide-out panel above the rows.
  *
  * Sets `--corner-chrome-width` on `:root` so sibling corner FABs (plugin AI test)
  * can sit to the left without overlapping.
@@ -42,6 +46,7 @@ export function CornerChrome() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
+  const path = routePathname(location.pathname)
   const open = useStore($keybindsPanelOpen)
   const statusbarVisible = useStore($statusbarVisible)
   const capturing = useStore($capture)
@@ -49,6 +54,8 @@ export function CornerChrome() {
   const layoutEditing = useStore($layoutEditMode)
   const modHeld = useModifierHeld()
   const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
+  const nav = t.sidebar.hermesOneNav
+  const pluginsLabel = t.settings.nav.plugins
 
   useEffect(() => {
     if (!open) {
@@ -116,9 +123,14 @@ export function CornerChrome() {
     }
   }
 
-  const openSettings = () => {
+  const go = (to: string, workspace = false) => {
     triggerHaptic('open')
-    navigate(SETTINGS_ROUTE)
+
+    if (workspace) {
+      navigateToWorkspacePage(navigate, to)
+    } else {
+      navigate(to)
+    }
   }
 
   return createPortal(
@@ -159,6 +171,61 @@ export function CornerChrome() {
         </div>
       )}
 
+      {/* Product nav — was Hermes One sidebar primary (minus New Chat / Office). */}
+      <div className="pointer-events-none flex flex-row-reverse items-center gap-2">
+        <Tip label={pluginsLabel}>
+          <Button
+            aria-label={pluginsLabel}
+            className={FAB_CLASS}
+            onClick={() => go(PLUGINS_SETTINGS_ROUTE)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="extensions" />
+          </Button>
+        </Tip>
+
+        <Tip label={<TipKeybindLabel actionId="nav.cron" text={nav.schedules} />}>
+          <Button
+            aria-label={nav.schedules}
+            className={cn(FAB_CLASS, path === CRON_ROUTE && 'bg-(--chrome-action-hover)')}
+            onClick={() => go(CRON_ROUTE)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="clock" />
+          </Button>
+        </Tip>
+
+        <Tip label={<TipKeybindLabel actionId="nav.artifacts" text={nav.kanban} />}>
+          <Button
+            aria-label={nav.kanban}
+            className={cn(FAB_CLASS, path === KANBAN_ROUTE && 'bg-(--chrome-action-hover)')}
+            onClick={() => go(KANBAN_ROUTE, true)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="project" />
+          </Button>
+        </Tip>
+
+        <Tip label={<TipKeybindLabel actionId="nav.skills" text={nav.discover} />}>
+          <Button
+            aria-label={nav.discover}
+            className={cn(FAB_CLASS, path === SKILLS_ROUTE && 'bg-(--chrome-action-hover)')}
+            onClick={() => go(SKILLS_ROUTE, true)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Codicon name="symbol-misc" />
+          </Button>
+        </Tip>
+      </div>
+
       <div className="pointer-events-none flex flex-row-reverse items-center gap-2">
         <Tip label={<TipKeybindLabel actionId="keybinds.openPanel" text={t.titlebar.openKeybinds} />}>
           <Button
@@ -181,7 +248,7 @@ export function CornerChrome() {
           <Button
             aria-label={t.titlebar.openSettings}
             className={FAB_CLASS}
-            onClick={openSettings}
+            onClick={() => go(SETTINGS_ROUTE)}
             size="icon"
             type="button"
             variant="ghost"

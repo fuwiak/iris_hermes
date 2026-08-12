@@ -98,7 +98,7 @@ export const INTRO_SCREEN = {
 
 /** Screenshot B — sidebar primary nav, top to bottom. */
 export const SIDEBAR_SCREEN = {
-  nav: ['New Chat', 'Discover', 'Office', 'Kanban', 'Schedules'],
+  nav: ['New Chat', 'Office'],
   sessionsSection: 'Chats'
 } as const
 
