@@ -1115,6 +1115,44 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #6b2d7a;
+  border-radius: 0.75rem;
+  background: #2a1230;
+}
+
+.ms-audience-in-filters {
+  margin-top: 0.25rem;
+}
+
+.ms-rail-audience-chips {
+  max-height: 6.5rem;
+  overflow: auto;
+  padding-bottom: 0.15rem;
+}
+
+.ms-groups-details {
+  border-top: 1px solid #592466;
+  padding-top: 0.5rem;
+}
+
+.ms-groups-details > summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0.45rem;
+}
+
+.ms-groups-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ms-groups-details > summary::before {
+  content: '▸ ';
+  color: #c9a8d4;
+}
+
+.ms-groups-details[open] > summary::before {
+  content: '▾ ';
 }
 
 .ms-audience-pick-head {

@@ -4212,6 +4212,10 @@ function CampaignsPage() {
           return
         }
 
+        if (painted.length > 0) {
+          setContactsOpen(true)
+        }
+
         let next = page.next_offset != null ? page.next_offset : offset + rows.length
         if (!append && painted.length > next) {
           next = painted.length
@@ -5432,10 +5436,38 @@ function CampaignsPage() {
         <p className="ms-mass-hint">
           {selectedClientId
             ? `Клиент: ${selectedClientName || facts?.name || selectedClientId}. Правьте текст ниже и жмите «Отправить».`
-            : audience > 0
-              ? `В фильтре ${audience} чел. Откройте список и нажмите на клиента.`
-              : 'Сузьте фильтры — пока matched = 0.'}
+            : loading && audiencePreview.length === 0
+              ? 'Загружаем список клиентов…'
+              : audiencePreview.length > 0
+                ? `В фильтре ${audience} чел. — нажмите клиента в списке ниже.`
+                : audience > 0
+                  ? `В фильтре ${audience} чел. Список ещё грузится — подождите секунду.`
+                  : 'Сузьте фильтры — пока matched = 0.'}
         </p>
+        {!selectedClientId && audiencePreview.length > 0 ? (
+          <div className="ms-chips ms-rail-audience-chips">
+            {audiencePreview.slice(0, 12).map(row => {
+              const nick = (row.tg_nick || '').replace(/^@/, '')
+              return (
+                <button
+                  className="ms-chip"
+                  key={`rail-${row.id || row.name}`}
+                  onClick={() => selectAudienceClient(row)}
+                  title={nick ? `@${nick}` : row.phone || row.id}
+                  type="button"
+                >
+                  {row.name || row.phone || row.id}
+                  {nick ? <span>@{nick}</span> : null}
+                </button>
+              )
+            })}
+            {audience > Math.min(12, audiencePreview.length) ? (
+              <span className="ms-muted">
+                +{audience - Math.min(12, audiencePreview.length)} в полном списке ↓
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="ms-mass-rail-actions">
           {selectedClientId && offer.trim() ? (
             <button
@@ -5764,50 +5796,7 @@ function CampaignsPage() {
               </div>
             </div>
 
-            <div className="ms-filter-window-span">
-              <GroupCloudSection
-                activeGroup={group}
-                activeSource={groupSource}
-                emptyHint="Нет тегов МойСклад в текущей выборке"
-                items={groupOptionsMs}
-                limit={120}
-                onToggle={(name, source) => {
-                  if (group === name && groupSource === source) {
-                    setGroup('')
-                    setGroupSource('any')
-                  } else {
-                    setGroup(name)
-                    setGroupSource(source)
-                  }
-                }}
-                sourceKey="ms"
-                title="Группы: Мой склад"
-              />
-            </div>
-
-            <div className="ms-filter-window-span">
-              <GroupCloudSection
-                activeGroup={group}
-                activeSource={groupSource}
-                emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
-                items={groupOptionsAi}
-                limit={80}
-                onToggle={(name, source) => {
-                  if (group === name && groupSource === source) {
-                    setGroup('')
-                    setGroupSource('any')
-                  } else {
-                    setGroup(name)
-                    setGroupSource(source)
-                  }
-                }}
-                sourceKey="ai"
-                title="Группы: ИИ"
-              />
-            </div>
-          </div>
-        </div>
-
+            <div className="ms-filter-window-span ms-audience-in-filters">
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
             <p className="ms-muted">
@@ -5933,6 +5922,57 @@ function CampaignsPage() {
             </p>
           )}
         </div>
+            </div>
+            <details className="ms-filter-window-span ms-groups-details" open={Boolean(group)}>
+              <summary className="ms-filter-label">
+                Группы (Мой склад / ИИ)
+                {group ? ` · выбрано: ${group}` : ''}
+              </summary>
+            <div className="ms-filter-window-span">
+              <GroupCloudSection
+                activeGroup={group}
+                activeSource={groupSource}
+                emptyHint="Нет тегов МойСклад в текущей выборке"
+                items={groupOptionsMs}
+                limit={120}
+                onToggle={(name, source) => {
+                  if (group === name && groupSource === source) {
+                    setGroup('')
+                    setGroupSource('any')
+                  } else {
+                    setGroup(name)
+                    setGroupSource(source)
+                  }
+                }}
+                sourceKey="ms"
+                title="Группы: Мой склад"
+              />
+            </div>
+
+            <div className="ms-filter-window-span">
+              <GroupCloudSection
+                activeGroup={group}
+                activeSource={groupSource}
+                emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
+                items={groupOptionsAi}
+                limit={80}
+                onToggle={(name, source) => {
+                  if (group === name && groupSource === source) {
+                    setGroup('')
+                    setGroupSource('any')
+                  } else {
+                    setGroup(name)
+                    setGroupSource(source)
+                  }
+                }}
+                sourceKey="ai"
+                title="Группы: ИИ"
+              />
+            </div>
+            </details>
+          </div>
+        </div>
+
       </section>
 
       <div className="ms-filter-tabs" role="tablist">
