@@ -5,6 +5,7 @@ from __future__ import annotations
 from plugins.moysklad.client_card import build_client_detail
 from plugins.moysklad.conversations import (
     append_message,
+    clear_live_pull_throttle_for_tests,
     clear_memory_for_tests,
     enrich_client_row,
     get_thread,
@@ -108,6 +109,63 @@ def test_sync_from_telegram_user_merges_inbound(tmp_path, monkeypatch):
     again = sync_from_telegram_user(client_id="cp-tg", tg_nick="@maria")
     assert again["sync"]["imported"] == 0
     assert again["message_count"] == 2
+
+
+def test_conversation_for_detail_pulls_inbound(tmp_path, monkeypatch):
+    """Selecting a client for Facts must pull personal-TG replies into history."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    clear_live_pull_throttle_for_tests()
+
+    append_message(
+        client_id="cp-facts",
+        text="Рассылка: букет к пятнице?",
+        direction="outbound",
+        tg_nick="@buyer",
+        tg_chat_id="777",
+        source="campaign_send",
+    )
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(
+        tg_user,
+        "fetch_history",
+        lambda *, peer, limit=40: {
+            "ok": True,
+            "tg_chat_id": "777",
+            "tg_nick": "buyer",
+            "messages": [
+                {
+                    "direction": "outbound",
+                    "text": "Рассылка: букет к пятнице?",
+                    "ts": "2026-08-10T10:00:00+00:00",
+                    "message_id": 1,
+                },
+                {
+                    "direction": "inbound",
+                    "text": "Да, давайте розы",
+                    "ts": "2026-08-10T11:00:00+00:00",
+                    "message_id": 2,
+                },
+            ],
+        },
+    )
+
+    from plugins.moysklad.conversations import conversation_for_detail
+
+    detail = {
+        "client": {
+            "id": "cp-facts",
+            "name": "Buyer",
+            "tg_nick": "@buyer",
+            "tg_chat_id": "777",
+        }
+    }
+    thread = conversation_for_detail(detail, pull_live=True, force=True)
+    assert thread["message_count"] >= 2
+    assert any(m.get("direction") == "inbound" for m in thread["messages"])
+    assert int((thread.get("sync") or {}).get("inbound_imported") or 0) >= 1
 
 
 def test_sync_client_conversation_combines_sources(tmp_path, monkeypatch):

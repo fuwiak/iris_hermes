@@ -1474,6 +1474,11 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             label="",
             phone=phone,
             tg_nick=tg_nick,
+            tg_chat_id=str(
+                delivery.get("chat_id")
+                or tg_chat_id
+                or ""
+            ),
             client_name=client_name,
             source=source,
         )
@@ -1636,6 +1641,11 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                 label="",
                 phone=phone,
                 tg_nick=tg_nick,
+                tg_chat_id=str(
+                    delivery.get("chat_id")
+                    or tg_chat_id
+                    or ""
+                ),
                 client_name=client_name,
                 source=source,
             )

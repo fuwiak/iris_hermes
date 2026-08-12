@@ -40,6 +40,10 @@ DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 # Soft cap so the JSON store stays readable in UI / AI facts.
 _MAX_MESSAGES = 200
 
+# Soft throttle so Facts / card open do not hammer MTProto on every paint.
+_LIVE_PULL_TTL_SECONDS = 90.0
+_LIVE_PULL_AT: dict[str, float] = {}
+
 
 def cache_ttl_seconds() -> int:
     raw = (os.environ.get("MOYSKLAD_CONVERSATIONS_TTL_SECONDS") or "").strip()
@@ -127,6 +131,7 @@ def clear_memory_for_tests() -> None:
     global _MEMORY_STORE, _MEMORY_FP
     _MEMORY_STORE = None
     _MEMORY_FP = None
+    _LIVE_PULL_AT.clear()
 
 
 def _load() -> dict[str, Any]:
@@ -394,6 +399,7 @@ def append_message(
     label: str = "",
     phone: str = "",
     tg_nick: str = "",
+    tg_chat_id: str = "",
     client_name: str = "",
     source: str = "manual",
 ) -> dict[str, Any]:
@@ -427,6 +433,9 @@ def append_message(
             tg_nick=tg_nick,
             client_name=client_name,
         )
+        chat = str(tg_chat_id or "").strip()
+        if chat:
+            thread["tg_chat_id"] = chat
         messages = list(thread.get("messages") or [])
         messages.append(msg)
         if len(messages) > _MAX_MESSAGES:
@@ -533,16 +542,87 @@ def enrich_clients(clients: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [enrich_client_row(c) for c in (clients or [])]
 
 
-def conversation_for_detail(detail: dict[str, Any]) -> dict[str, Any]:
-    """Resolve + seed thread for a client-card detail payload."""
+# Soft throttle so Facts / card open do not hammer MTProto on every paint.
+# (TTL / stamp dict live near top of module — see _LIVE_PULL_*.)
+
+
+def conversation_for_detail(
+    detail: dict[str, Any],
+    *,
+    pull_live: bool = True,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Resolve thread for a client-card / Facts payload.
+
+    Default ``pull_live=True``: best-effort sync of gateway + personal MTProto
+    history so replies after a mass Рассылка land in «TG conversation» (throttled
+    per client). Pass ``pull_live=False`` for cheap seed-only reads.
+    """
     client = detail.get("client") or {}
-    return seed_from_moysklad_attr(
-        client_id=str(client.get("id") or ""),
-        attr_value=str(client.get("tg_conversation") or ""),
-        phone=str(client.get("phone") or ""),
-        tg_nick=str(client.get("tg_nick") or ""),
-        client_name=str(client.get("name") or ""),
-    )
+    cid = str(client.get("id") or "").strip()
+    phone = str(client.get("phone") or "")
+    tg_nick = str(client.get("tg_nick") or "")
+    tg_chat_id = str(client.get("tg_chat_id") or "")
+    client_name = str(client.get("name") or "")
+    if not pull_live or not cid:
+        return seed_from_moysklad_attr(
+            client_id=cid,
+            attr_value=str(client.get("tg_conversation") or ""),
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+    now = time.time()
+    last = _LIVE_PULL_AT.get(cid)
+    if not force and last is not None and (now - last) < _LIVE_PULL_TTL_SECONDS:
+        # Recent live pull already ran — serve local store (incl. inbound).
+        local = get_thread(
+            client_id=cid,
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+        if int(local.get("message_count") or 0) > 0:
+            return local
+        return seed_from_moysklad_attr(
+            client_id=cid,
+            attr_value=str(client.get("tg_conversation") or ""),
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+    try:
+        _LIVE_PULL_AT[cid] = now
+        thread = sync_client_conversation(
+            client_id=cid,
+            phone=phone,
+            tg_nick=tg_nick,
+            tg_chat_id=tg_chat_id,
+            client_name=client_name,
+        )
+        # If live sync found nothing, keep MoySklad attr seed.
+        if int(thread.get("message_count") or 0) == 0:
+            return seed_from_moysklad_attr(
+                client_id=cid,
+                attr_value=str(client.get("tg_conversation") or ""),
+                phone=phone,
+                tg_nick=tg_nick,
+                client_name=client_name,
+            )
+        return thread
+    except Exception:
+        log.debug("conversation_for_detail live pull failed", exc_info=True)
+        return seed_from_moysklad_attr(
+            client_id=cid,
+            attr_value=str(client.get("tg_conversation") or ""),
+            phone=phone,
+            tg_nick=tg_nick,
+            client_name=client_name,
+        )
+
+
+def clear_live_pull_throttle_for_tests() -> None:
+    _LIVE_PULL_AT.clear()
 
 
 def _session_blob(session: dict[str, Any]) -> str:
@@ -894,4 +974,7 @@ def sync_client_conversation(
         "telegram_user": u_sync,
         "source": "gateway+telegram_user",
     }
+    cid = (client_id or "").strip()
+    if cid:
+        _LIVE_PULL_AT[cid] = time.time()
     return thread

@@ -3348,8 +3348,27 @@ function CampaignsPage() {
       }
 
       // Keep seeded /clients facts when draft cache has message but no facts blob.
+      // Never let a stale draft conversation (often «· 1» outbound only) clobber
+      // a fresher live pull from loadClientFacts.
       if (draft.facts) {
-        setFacts(draft.facts)
+        setFacts(prev => {
+          const next = { ...draft.facts! }
+          const prevCount = Number(prev?.conversation?.message_count || 0)
+          const nextCount = Number(next.conversation?.message_count || 0)
+          if (prev?.conversation && prevCount >= nextCount) {
+            next.conversation = prev.conversation
+          }
+          if (
+            prev?.recommendation &&
+            (!next.recommendation || prevCount > nextCount)
+          ) {
+            next.recommendation = prev.recommendation
+            next.history_profile = prev.history_profile || next.history_profile
+            next.occasion_intent = prev.occasion_intent || next.occasion_intent
+            next.ai_source = prev.ai_source || next.ai_source
+          }
+          return next
+        })
       }
       setSanity(draft.sanity || null)
       setGroundingNotes(draft.grounding_notes || '')
@@ -4211,18 +4230,70 @@ function CampaignsPage() {
     [applyOfferText, call, channel, restoreServerDraft]
   )
 
-  /** Open Facts panel from /clients/{id} on select — independent of AI generate. */
+  /** Open Facts panel from /clients/{id} on select — independent of AI generate.
+   *  Syncs personal TG first so replies after a mass Рассылка land in history.
+   */
   const loadClientFacts = useCallback(
     async (clientId: string) => {
       const gen = ++factsGenRef.current
       try {
+        // Force live pull (bypass 90s throttle) so inbound replies after send appear.
+        try {
+          const synced = await call<{
+            conversation?: ClientConversation
+            ai?: ClientDetail['ai']
+          }>(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
+            method: 'POST',
+            timeoutMs: 90_000,
+            body: { refresh_ai: true }
+          })
+          if (gen !== factsGenRef.current) {
+            return
+          }
+          if (synced.conversation || synced.ai) {
+            setFacts(prev => {
+              if (!prev) {
+                return {
+                  client_id: clientId,
+                  conversation: synced.conversation,
+                  recommendation: synced.ai?.recommendation,
+                  history_profile: synced.ai?.history_profile,
+                  occasion_intent: synced.ai?.occasion_intent,
+                  ai_source: synced.ai?.source
+                }
+              }
+              return {
+                ...prev,
+                conversation: synced.conversation || prev.conversation,
+                recommendation:
+                  synced.ai?.recommendation || prev.recommendation,
+                history_profile:
+                  synced.ai?.history_profile || prev.history_profile,
+                occasion_intent:
+                  synced.ai?.occasion_intent || prev.occasion_intent,
+                ai_source: synced.ai?.source || prev.ai_source
+              }
+            })
+          }
+        } catch {
+          /* sync best-effort — detail fetch still paints orders/facts */
+        }
+
         const detail = await call<ClientDetail>(
           `/clients/${encodeURIComponent(clientId)}`
         )
         if (gen !== factsGenRef.current) {
           return
         }
-        setFacts(factsFromDetail(detail))
+        setFacts(prev => {
+          const next = factsFromDetail(detail)
+          const prevCount = Number(prev?.conversation?.message_count || 0)
+          const nextCount = Number(next.conversation?.message_count || 0)
+          if (prev?.conversation && prevCount > nextCount) {
+            next.conversation = prev.conversation
+          }
+          return next
+        })
       } catch {
         // Keep optimistic seed from the chip row; do not wipe on soft fail.
         if (gen !== factsGenRef.current) {

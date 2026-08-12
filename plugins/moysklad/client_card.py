@@ -574,6 +574,14 @@ def build_client_detail(row: dict[str, Any]) -> dict[str, Any]:
         from plugins.moysklad.conversations import conversation_for_detail
 
         detail["conversation"] = conversation_for_detail(detail)
+        sync_meta = (detail.get("conversation") or {}).get("sync") or {}
+        # New inbound replies after a mass send → refresh recommendation so
+        # Facts / card don't keep the pre-reply tip.
+        if int(sync_meta.get("inbound_imported") or 0) > 0:
+            try:
+                detail["ai"] = generate_ai_for_detail(detail)
+            except Exception:
+                log.debug("AI refresh after inbound sync failed", exc_info=True)
     except Exception:  # pragma: no cover — store must not break card
         detail["conversation"] = {
             "messages": [],
