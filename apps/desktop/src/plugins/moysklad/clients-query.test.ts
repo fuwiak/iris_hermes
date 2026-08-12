@@ -118,6 +118,37 @@ describe('filterClientRowsByAudience', () => {
       }).map(r => r.id)
     ).toEqual(['1'])
   })
+
+  it('narrows by salesFilter direct vs marketplace', () => {
+    const rows = [
+      { id: '1', name: 'A', sales_type: 'Прямые', audience: { direct: true, marketplace: false } },
+      { id: '2', name: 'B', sales_type: 'Маркетплейс', audience: { direct: false, marketplace: true } },
+      { id: '3', name: 'C', sales_type: 'Прямые + Маркетплейс', audience: { direct: true, marketplace: true } }
+    ]
+    expect(
+      filterClientRowsByAudience(rows, { salesFilter: 'direct' }).map(r => r.id)
+    ).toEqual(['1'])
+    expect(
+      filterClientRowsByAudience(rows, { salesFilter: 'marketplace' }).map(r => r.id)
+    ).toEqual(['2', '3'])
+  })
+
+  it('applies phone / telegram / vip extras locally', () => {
+    const rows = [
+      { id: '1', name: 'A', phone: '+79001112233', tg_nick: '', tags: [] },
+      { id: '2', name: 'B', phone: '', tg_nick: '@bob', tags: ['VIP'] },
+      { id: '3', name: 'C', phone: '89005556677', tg_nick: '@c', tags: [] }
+    ]
+    expect(
+      filterClientRowsByAudience(rows, { requirePhone: true }).map(r => r.id)
+    ).toEqual(['1', '3'])
+    expect(
+      filterClientRowsByAudience(rows, { requireTelegram: true }).map(r => r.id)
+    ).toEqual(['2', '3'])
+    expect(filterClientRowsByAudience(rows, { vipOnly: true }).map(r => r.id)).toEqual([
+      '2'
+    ])
+  })
 })
 
 describe('pickLocalClientsSeed', () => {

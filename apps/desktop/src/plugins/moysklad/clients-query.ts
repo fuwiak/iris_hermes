@@ -68,9 +68,90 @@ export interface ClientQueryRow {
   channel?: string | null
   channels?: string[] | null
   state?: string | null
+  sales_type?: string | null
+  vip?: boolean | null
+  audience?: { direct?: boolean; marketplace?: boolean } | null
   tg_conversation?: string | null
   tg_conversation_preview?: string | null
   actual_address?: string | null
+}
+
+const VIP_RE = /\b(vip|вип)\b/i
+
+/** Mirrors plugins/moysklad/audience.row_is_vip for public ClientRow. */
+export function rowLooksVip(row: ClientQueryRow): boolean {
+  if (row.vip) {
+    return true
+  }
+  const blob = [
+    ...(row.tags || []),
+    row.state,
+    row.groups,
+    row.ms_groups,
+    ...(row.ai_groups || [])
+  ]
+    .map(x => String(x || ''))
+    .join(' ')
+  return VIP_RE.test(blob)
+}
+
+/** Mirrors sales_filter tabs: all / direct / marketplace. */
+export function rowMatchesSalesFilter(
+  row: ClientQueryRow,
+  salesFilter: string
+): boolean {
+  const key = String(salesFilter || 'all')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  if (!key || key === 'all' || key === 'any') {
+    return true
+  }
+  const aud = row.audience
+  if (aud && typeof aud === 'object') {
+    if (key === 'direct' || key === 'прямые') {
+      return Boolean(aud.direct) && !aud.marketplace
+    }
+    if (key === 'marketplace' || key === 'маркетплейс') {
+      return Boolean(aud.marketplace)
+    }
+  }
+  const st = String(row.sales_type || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  if (key === 'direct' || key === 'прямые') {
+    return st.includes('прям') && !st.includes('маркет')
+  }
+  if (key === 'marketplace' || key === 'маркетплейс') {
+    return st.includes('маркет') || st.includes('flow') || st.includes('флау')
+  }
+  return true
+}
+
+/** Mirrors plugins/moysklad/audience.row_matches_channel_kind. */
+export function rowMatchesChannelKind(
+  row: ClientQueryRow,
+  channelKind: string
+): boolean {
+  const key = String(channelKind || '')
+    .trim()
+    .toLowerCase()
+  if (!key || key === 'any' || key === 'all') {
+    return true
+  }
+  const nick = String(row.tg_nick || '').trim()
+  const phone = digitsPhone(String(row.phone || ''))
+  const blob = clientSalesChannelTokens(row).join(' ').toLowerCase()
+  if (key === 'telegram' || key === 'tg') {
+    return Boolean(nick) || blob.includes('telegram') || blob.includes('телеграм')
+  }
+  if (key === 'whatsapp' || key === 'wa' || key === 'max') {
+    return (
+      Boolean(phone) ||
+      /whatsapp|watsapp|ватсап|вотсап|\bmax\b|макс/.test(blob)
+    )
+  }
+  return true
 }
 
 function splitGroupTokens(raw: string): string[] {
@@ -196,9 +277,51 @@ export function filterClientRowsByQuery<T extends ClientQueryRow>(rows: T[], q: 
 
 export function filterClientRowsByAudience<T extends ClientQueryRow>(
   rows: T[],
-  opts: { q?: string; group?: string; groupSource?: string }
+  opts: {
+    q?: string
+    group?: string
+    groupSource?: string
+    salesFilter?: string
+    channelKind?: string
+    requirePhone?: boolean
+    requireTelegram?: boolean
+    vipOnly?: boolean
+    birthdaySoon?: boolean
+  }
 ): T[] {
   let out = rows
+  const salesFilter = String(opts.salesFilter || 'all').trim()
+  if (salesFilter && salesFilter !== 'all') {
+    out = out.filter(row => rowMatchesSalesFilter(row, salesFilter))
+  }
+  const channelKind = String(opts.channelKind || '').trim()
+  if (channelKind) {
+    out = out.filter(row => rowMatchesChannelKind(row, channelKind))
+  }
+  if (opts.requirePhone) {
+    out = out.filter(row => Boolean(digitsPhone(String(row.phone || ''))))
+  }
+  if (opts.requireTelegram) {
+    out = out.filter(row => Boolean(String(row.tg_nick || '').trim()))
+  }
+  if (opts.vipOnly) {
+    out = out.filter(row => rowLooksVip(row))
+  }
+  if (opts.birthdaySoon) {
+    out = out.filter(row => {
+      const blob = [
+        ...(row.tags || []),
+        row.groups,
+        row.ms_groups,
+        ...(row.ai_groups || [])
+      ]
+        .map(x => String(x || ''))
+        .join(' ')
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+      return /день\s*рожден|др\b|birthday|событие/.test(blob)
+    })
+  }
   const group = String(opts.group || '').trim()
   if (group) {
     out = out.filter(row => rowMatchesGroupFilter(row, group, opts.groupSource || 'any'))

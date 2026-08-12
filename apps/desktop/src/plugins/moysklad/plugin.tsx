@@ -442,6 +442,7 @@ interface ClientRow {
   email?: string
   state?: string
   sales_type?: string
+  audience?: { direct?: boolean; marketplace?: boolean }
   channel?: string
   channels?: string[]
   tags?: string[]
@@ -2201,7 +2202,12 @@ function seedClientsLocalPayload(parts: {
       )
     ],
     filterRows: (seed, q, group, groupSource) => {
-      const clients = filterClientRowsByAudience(seed.clients, { q, group, groupSource })
+      const clients = filterClientRowsByAudience(seed.clients, {
+        q,
+        group,
+        groupSource,
+        salesFilter: parts.salesFilter
+      })
       if (!clients.length) {
         return null
       }
@@ -2210,6 +2216,7 @@ function seedClientsLocalPayload(parts: {
         q,
         group,
         group_source: groupSource,
+        sales_filter: parts.salesFilter,
         clients,
         matched_total: clients.length,
         has_more: Boolean(seed.has_more),
@@ -4045,15 +4052,26 @@ function CampaignsPage() {
     [activeSegmentId, call, loadSegments]
   )
 
+  const audienceCalendarFilterActive = Boolean(
+    daysBeforeEvent > 0 || eventDateFrom || eventDateTo
+  )
   const audienceExtrasFilterActive = Boolean(
     channelKind ||
       requirePhone ||
       requireTelegram ||
       vipOnly ||
       birthdaySoon ||
-      daysBeforeEvent > 0 ||
-      eventDateFrom ||
-      eventDateTo
+      audienceCalendarFilterActive
+  )
+  const audienceClientFastFilterActive = Boolean(
+    (salesFilter && salesFilter !== 'all') ||
+      group ||
+      audienceQDebounced.trim() ||
+      channelKind ||
+      requirePhone ||
+      requireTelegram ||
+      vipOnly ||
+      birthdaySoon
   )
 
   const loadAudience = useCallback(
@@ -4066,8 +4084,8 @@ function CampaignsPage() {
         if (audienceLoadMoreRef.current || !audienceHasMoreRef.current) {return}
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
-      } else if (audienceExtrasFilterActive) {
-        // Local cache ignores phone/tg/VIP/event filters — don't paint stale chips.
+      } else if (audienceCalendarFilterActive) {
+        // Calendar / days-before need server dates — don't paint stale chips.
         setAudiencePreview([])
         setAudience(0)
         audienceNextOffsetRef.current = 0
@@ -4077,7 +4095,7 @@ function CampaignsPage() {
         setLoading(true)
         setError('')
       } else {
-        // Instant: filter local cache / painted chips by group+q while API revalidates.
+        // Instant: filter local cache / painted chips while API revalidates.
         const local = seedClientsLocalPayload({
           salesFilter,
           q: audienceQDebounced,
@@ -4090,21 +4108,33 @@ function CampaignsPage() {
           groupOptionsMsRef.current,
           groupOptionsAiRef.current
         )
+        const fastOpts = {
+          q: audienceQDebounced,
+          group,
+          groupSource,
+          salesFilter,
+          channelKind,
+          requirePhone,
+          requireTelegram,
+          vipOnly,
+          birthdaySoon
+        }
         if (local?.clients?.length) {
-          setAudiencePreview(local.clients)
+          const clients = audienceExtrasFilterActive
+            ? filterClientRowsByAudience(local.clients, fastOpts)
+            : local.clients
+          setAudiencePreview(clients)
           setAudience(
-            chipCount != null ? chipCount : local.matched_total || local.clients.length
+            chipCount != null ? chipCount : local.matched_total || clients.length
           )
           if (local.counts) {
             setCounts(local.counts)
           }
-          const nextOff = local.clients.length
+          const nextOff = clients.length
           const more =
             Boolean(local.has_more) ||
-            (chipCount != null && chipCount > local.clients.length) ||
-            (local.matched_total || 0) > local.clients.length
-          // Offset = painted length — never trust stale snapshot next_offset
-          // (e.g. 100 while only 24 chips shown) or first «Ещё» skips a page.
+            (chipCount != null && chipCount > clients.length) ||
+            (local.matched_total || 0) > clients.length
           audienceNextOffsetRef.current = nextOff
           audienceHasMoreRef.current = more
           setAudienceNextOffset(nextOff)
@@ -4112,12 +4142,8 @@ function CampaignsPage() {
           setLoading(true)
         } else {
           const painted = audiencePreviewRef.current
-          if ((group || audienceQDebounced.trim()) && painted.length) {
-            const filtered = filterClientRowsByAudience(painted, {
-              q: audienceQDebounced,
-              group,
-              groupSource
-            })
+          if (audienceClientFastFilterActive && painted.length) {
+            const filtered = filterClientRowsByAudience(painted, fastOpts)
             setAudiencePreview(filtered)
             setAudience(chipCount != null ? chipCount : filtered.length)
             const nextOff = filtered.length
@@ -4126,8 +4152,8 @@ function CampaignsPage() {
             audienceHasMoreRef.current = more
             setAudienceNextOffset(nextOff)
             setAudienceHasMore(more)
-          } else if (group || audienceQDebounced.trim()) {
-            // Filter active but nothing paintable — clear stale «все 9504».
+          } else if (audienceClientFastFilterActive) {
+            // Filter active but nothing paintable — clear stale «все».
             setAudiencePreview([])
             setAudience(chipCount != null ? chipCount : 0)
             audienceNextOffsetRef.current = 0
@@ -4195,23 +4221,18 @@ function CampaignsPage() {
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
 
-        // One setState per page — per-row rAF paint made «Подгружаем» crawl.
-        let painted: ClientRow[]
-        if (append) {
-          painted = mergeClientPages(audiencePreviewRef.current, rows)
-          // Empty append while catalog still warming → stop spinner thrash.
-          if (!rows.length && painted.length >= (page.matched_total || 0)) {
-            audienceHasMoreRef.current = false
-            setAudienceHasMore(false)
-          }
-        } else if (audienceExtrasFilterActive) {
-          // Extras filters are server-only — never merge stale unfiltered chips.
-          painted = rows
-        } else {
-          const prior = audiencePreviewRef.current
-          // Revalidate first page without wiping chips already painted from cache/scroll.
-          painted =
-            prior.length > rows.length ? mergeClientPages(rows, prior) : rows
+        // First page always replaces — never merge stale unfiltered chips back in
+        // (sales / group / extras looked broken because prior list was longer).
+        const painted: ClientRow[] = append
+          ? mergeClientPages(audiencePreviewRef.current, rows)
+          : rows
+        if (
+          append &&
+          !rows.length &&
+          painted.length >= (page.matched_total || 0)
+        ) {
+          audienceHasMoreRef.current = false
+          setAudienceHasMore(false)
         }
         setAudiencePreview(painted)
 
@@ -4219,13 +4240,11 @@ function CampaignsPage() {
           return
         }
 
-        let next = page.next_offset != null ? page.next_offset : offset + rows.length
-        if (!append && painted.length > next) {
-          next = painted.length
-        }
+        const next =
+          page.next_offset != null ? page.next_offset : offset + rows.length
         const more =
           page.has_more != null
-            ? Boolean(page.has_more) || painted.length < (page.matched_total || 0)
+            ? Boolean(page.has_more)
             : next < (page.matched_total || 0)
         audienceNextOffsetRef.current = next
         audienceHasMoreRef.current = more
@@ -4288,13 +4307,20 @@ function CampaignsPage() {
       }
     },
     [
+      audienceCalendarFilterActive,
+      audienceClientFastFilterActive,
       audienceExtrasFilterActive,
       audienceFilterParams,
       audienceQDebounced,
+      birthdaySoon,
       call,
+      channelKind,
       group,
       groupSource,
-      salesFilter
+      requirePhone,
+      requireTelegram,
+      salesFilter,
+      vipOnly
     ]
   )
 
