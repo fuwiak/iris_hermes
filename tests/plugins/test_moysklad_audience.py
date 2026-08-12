@@ -39,6 +39,170 @@ def test_row_has_group_source_scoped(monkeypatch) -> None:
     assert row_has_group(row, "премиум", source="ms") is False
 
 
+def test_event_calendar_august_tag_and_order_season() -> None:
+    """August calendar pick must match «событие августа» and Aug order history."""
+    today = date(2026, 8, 12)
+    tagged = {"_moysklad_tags": ["событие августа"], "_moysklad_id": "aug-tag"}
+    from_orders = {
+        "_moysklad_id": "aug-ord",
+        "_moysklad_tags": [],
+        "_orders_context": [
+            {"moment": "2025-08-18 12:00:00", "sum": 3000, "_month": 8},
+        ],
+    }
+    birthday = {
+        "_moysklad_id": "aug-bd",
+        "_moysklad_tags": [],
+        "Дата рождения": "1990-08-15",
+    }
+    other = {
+        "_moysklad_id": "mar",
+        "_moysklad_tags": ["8 марта"],
+        "_orders_context": [],
+    }
+
+    # Single day Aug 15
+    for row in (tagged, from_orders, birthday):
+        assert row_matches_event_calendar(
+            row,
+            event_from=date(2026, 8, 15),
+            event_to=date(2026, 8, 15),
+            lead_days=0,
+            today=today,
+        ) is True
+    assert row_matches_event_calendar(
+        other,
+        event_from=date(2026, 8, 15),
+        event_to=date(2026, 8, 15),
+        lead_days=0,
+        today=today,
+    ) is False
+
+    # Range 10–20 Aug (what seller picks on the Aug 2026 calendar)
+    for row in (tagged, from_orders, birthday):
+        assert row_matches_event_calendar(
+            row,
+            event_from=date(2026, 8, 10),
+            event_to=date(2026, 8, 20),
+            lead_days=0,
+            today=today,
+        ) is True
+    assert row_matches_event_calendar(
+        other,
+        event_from=date(2026, 8, 10),
+        event_to=date(2026, 8, 20),
+        lead_days=0,
+        today=today,
+    ) is False
+
+
+def test_event_calendar_swapped_range_and_lead() -> None:
+    today = date(2026, 8, 12)
+    row = {"_moysklad_tags": ["событие августа"], "_moysklad_id": "x"}
+    # from > to must still match
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 8, 20),
+        event_to=date(2026, 8, 10),
+        lead_days=0,
+        today=today,
+    ) is True
+    # Lead: today Aug 12 is within 5d of Aug 15
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 8, 10),
+        event_to=date(2026, 8, 20),
+        lead_days=5,
+        today=today,
+    ) is True
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 8, 10),
+        event_to=date(2026, 8, 20),
+        lead_days=1,
+        today=today,
+    ) is False
+
+
+def test_clients_page_filters_multiple_clients_by_august_range() -> None:
+    """Outreach /clients with event_date_* keeps only matching occasion clients."""
+    from plugins.moysklad.classify import clients_page
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+    rows = [
+        {
+            "_moysklad_id": "a",
+            "Наименование": "Август",
+            "Телефон": "+79001110001",
+            "_moysklad_tags": ["событие августа"],
+            "_orders_context": [
+                {"id": "1", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1}
+            ],
+        },
+        {
+            "_moysklad_id": "b",
+            "Наименование": "ДР 15 авг",
+            "Телефон": "+79001110002",
+            "_moysklad_tags": [],
+            "Дата рождения": "1988-08-15",
+            "_orders_context": [
+                {"id": "2", "Канал продаж": "Витрина", "channel": "Витрина", "sum": 1}
+            ],
+        },
+        {
+            "_moysklad_id": "c",
+            "Наименование": "Март",
+            "Телефон": "+79001110003",
+            "_moysklad_tags": ["8 марта"],
+            "_orders_context": [
+                {"id": "3", "Канал продаж": "Ozon", "channel": "Ozon", "sum": 1}
+            ],
+        },
+        {
+            "_moysklad_id": "d",
+            "Наименование": "Без события",
+            "Телефон": "+79001110004",
+            "_moysklad_tags": [],
+            "_orders_context": [
+                {"id": "4", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1}
+            ],
+        },
+    ]
+    for r in rows:
+        refresh_row_channel_fields(r)
+    catalog = {
+        "rows": rows,
+        "counts": {"total": 4, "direct": 3, "marketplace": 1},
+        "orders_scanned": 4,
+        "counterparties_scanned": 4,
+        "counterparties_deduped": 4,
+    }
+
+    class _Dummy:
+        pass
+
+    page = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        event_date_from="2026-08-10",
+        event_date_to="2026-08-20",
+        catalog=catalog,
+    )
+    assert {c["id"] for c in page["clients"]} == {"a", "b"}
+    assert page["matched_total"] == 2
+    assert page["event_date_from"] == "2026-08-10"
+    assert page["event_date_to"] == "2026-08-20"
+
+    single = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        event_date_from="2026-08-15",
+        event_date_to="2026-08-15",
+        catalog=catalog,
+    )
+    assert {c["id"] for c in single["clients"]} == {"a", "b"}
+
+
 def test_event_calendar_single_day_no_lead() -> None:
     today = date(2026, 3, 1)
     row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}

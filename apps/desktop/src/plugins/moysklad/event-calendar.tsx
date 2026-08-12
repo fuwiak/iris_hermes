@@ -51,6 +51,28 @@ export function formatRuRange(from: string | null, to: string | null): string {
   return `${fmt(a)} — ${fmt(b)}`
 }
 
+/** Pure click handler for single-day / range selection. */
+export function applyCalendarDayClick(
+  iso: string,
+  state: {
+    anchor: string | null
+    dateFrom: string | null
+    dateTo: string | null
+  }
+): { anchor: string | null; dateFrom: string | null; dateTo: string | null } {
+  const rangeStart = state.dateFrom || state.dateTo
+  const rangeEnd = state.dateTo || state.dateFrom
+  if (!state.anchor || (rangeStart && rangeEnd && rangeStart !== rangeEnd)) {
+    return { anchor: iso, dateFrom: iso, dateTo: iso }
+  }
+  if (state.anchor === iso) {
+    return state
+  }
+  const from = state.anchor < iso ? state.anchor : iso
+  const to = state.anchor < iso ? iso : state.anchor
+  return { anchor: null, dateFrom: from, dateTo: to }
+}
+
 export interface EventCalendarPickerProps {
   dateFrom: string | null
   dateTo: string | null
@@ -119,18 +141,13 @@ export function EventCalendarPicker({
   const isRangeEdge = (iso: string) => iso === rangeStart || iso === rangeEnd
 
   const onDayClick = (iso: string) => {
-    if (!anchor || (rangeStart && rangeEnd && rangeStart !== rangeEnd)) {
-      setAnchor(iso)
-      onRangeChange(iso, iso)
-      return
-    }
-    if (anchor === iso) {
-      return
-    }
-    const from = anchor < iso ? anchor : iso
-    const to = anchor < iso ? iso : anchor
-    setAnchor(null)
-    onRangeChange(from, to)
+    const next = applyCalendarDayClick(iso, {
+      anchor,
+      dateFrom,
+      dateTo
+    })
+    setAnchor(next.anchor)
+    onRangeChange(next.dateFrom, next.dateTo)
   }
 
   const clear = () => {

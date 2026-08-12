@@ -221,6 +221,11 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
             _add(_next_annual(1, 1, today=today))
             if month_i == 11:
                 _add(_next_annual(11, 27, today=today))
+        elif 1 <= month_i <= 12:
+            # Other months → mid-month bucket (same as «событие августа»).
+            # Lets the outreach calendar find seasonal clients when the seller
+            # picks e.g. 10–20 Aug without an explicit occasion tag.
+            _add(_next_annual(month_i, 15, today=today))
     return found
 
 
