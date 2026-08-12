@@ -422,6 +422,42 @@ def _row_has_marketplace_order_channel(row: dict[str, Any]) -> bool:
     return any(is_marketplace_channel(c) for c in unique_sales_channels(row))
 
 
+def _row_order_sales_channels(row: dict[str, Any]) -> list[str]:
+    """Channels explicitly stamped on order rows (not tag fallbacks)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for order in row.get("_orders_context") or []:
+        if not isinstance(order, dict):
+            continue
+        ch = str(order.get("Канал продаж") or order.get("channel") or "").strip()
+        if not ch:
+            continue
+        key = ch.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ch)
+    return out
+
+
+def _marketplace_marker_from_status_only(row: dict[str, Any]) -> bool:
+    """True when the only marketplace marker is counterparty status «новый»."""
+    if not _row_matches_marketplace_markers(row):
+        return False
+    if _row_matches_audience(
+        row,
+        channels=MARKETPLACE_AUDIENCE_CHANNELS,
+        statuses=(),
+        groups=MARKETPLACE_AUDIENCE_GROUPS,
+        group_patterns=MARKETPLACE_AUDIENCE_GROUP_PATTERNS,
+    ):
+        return False
+    for status in moysklad_status_tokens(row):
+        if _status_matches_allowlist(status, MARKETPLACE_AUDIENCE_STATUSES):
+            return True
+    return False
+
+
 def _row_matches_marketplace_markers(row: dict[str, Any]) -> bool:
     """FlowWow allowlist ∪ marketplace statuses ∪ occasion groups (TZ)."""
     return _row_matches_audience(
@@ -443,9 +479,20 @@ def row_audience_bucket(row: dict[str, Any]) -> str:
     marketplace status/group/FlowWow markers match. Everyone else → direct
     (including clients with no channel yet). Hybrid (both channel types)
     lands in marketplace.
+
+    Clients with real direct order channels (e.g. «Витрина») stay in
+    «Прямые» even when counterparty status is «новый» — status-only markers
+    must not override order facts. Occasion / FlowWow group tags still win.
     """
     if _row_has_marketplace_order_channel(row):
         return "marketplace"
+    order_channels = _row_order_sales_channels(row)
+    if order_channels and all(is_direct_sales_channel(c) for c in order_channels):
+        if _row_matches_marketplace_markers(row) and not _marketplace_marker_from_status_only(
+            row
+        ):
+            return "marketplace"
+        return "direct"
     if _row_matches_marketplace_markers(row):
         return "marketplace"
     return "direct"

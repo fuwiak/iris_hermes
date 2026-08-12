@@ -193,7 +193,15 @@ def merge_client_rows(keep: dict[str, Any], incoming: dict[str, Any]) -> dict[st
                 oid = str(order.get("id") or "").strip()
                 fallback = "|".join(
                     str(order.get(k) or "")
-                    for k in ("moment", "Дата", "name", "Сумма", "sum", "channel")
+                    for k in (
+                        "moment",
+                        "Дата",
+                        "name",
+                        "Сумма",
+                        "sum",
+                        "channel",
+                        "Канал продаж",
+                    )
                 )
                 token = oid or fallback
                 if token in seen_oids:
@@ -241,6 +249,12 @@ def merge_client_rows(keep: dict[str, Any], incoming: dict[str, Any]) -> dict[st
         if last:
             base["last_order_at"] = last
             base["Дата последнего заказа"] = last
+        try:
+            from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+            refresh_row_channel_fields(base)
+        except Exception:
+            pass
 
     return base
 

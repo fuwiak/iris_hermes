@@ -47,6 +47,34 @@ def _row(
     }
 
 
+def test_merge_orders_keeps_distinct_sales_channels() -> None:
+    from plugins.moysklad.dedupe import merge_client_rows
+    from plugins.moysklad.sales_channels import unique_sales_channels
+
+    left = {
+        "_moysklad_id": "c1",
+        "_orders_context": [
+            {
+                "moment": "2026-03-01",
+                "sum": 1000,
+                "Канал продаж": "Витрина",
+            }
+        ],
+    }
+    right = {
+        "_moysklad_id": "c1",
+        "_orders_context": [
+            {
+                "moment": "2026-03-01",
+                "sum": 1000,
+                "Канал продаж": "Ozon",
+            }
+        ],
+    }
+    merged = merge_client_rows(left, right)
+    assert unique_sales_channels(merged) == ["Витрина", "Ozon"]
+
+
 def test_stage1_canonical_id_merges_duplicates() -> None:
     rows = [
         _row(cid="a", name="Alice", phone="+79991112233", orders=1),

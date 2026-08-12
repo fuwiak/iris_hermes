@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  clientSalesChannelTokens,
   digitsPhone,
   filterClientRowsByAudience,
   filterClientRowsByQuery,
@@ -9,8 +10,35 @@ import {
   normalizeGroupKey,
   pickLocalClientsSeed,
   rowMatchesClientQuery,
-  rowMatchesGroupFilter
+  rowMatchesGroupFilter,
+  rowMatchesSalesChannelColumnFilter
 } from './clients-query'
+
+describe('clientSalesChannelTokens', () => {
+  it('lists every channel, not only the joined display string', () => {
+    const row = {
+      channels: ['Витрина', 'Telegram'],
+      channel: 'Витрина, Telegram'
+    }
+    expect(clientSalesChannelTokens(row)).toEqual(['Витрина', 'Telegram'])
+  })
+
+  it('filters column by a single channel token', () => {
+    const row = {
+      channels: ['Витрина', 'Ozon'],
+      channel: 'Витрина, Ozon'
+    }
+    expect(
+      rowMatchesSalesChannelColumnFilter(row, '', ['Витрина'], '(пусто)')
+    ).toBe(true)
+    expect(
+      rowMatchesSalesChannelColumnFilter(row, '', ['Ozon'], '(пусто)')
+    ).toBe(true)
+    expect(
+      rowMatchesSalesChannelColumnFilter(row, '', ['Telegram'], '(пусто)')
+    ).toBe(false)
+  })
+})
 
 describe('isBenignRequestAbort', () => {
   it('treats Chromium abort string as soft cancel', () => {

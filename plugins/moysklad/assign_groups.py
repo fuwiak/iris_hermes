@@ -157,16 +157,26 @@ def heuristic_groups_for_row(row: dict[str, Any]) -> list[str]:
     # Sales-type tags come from order channels only — MoySklad group tags
     # like «премиум» must not be treated as marketplace channels.
     order_channels: list[str] = []
+    seen_ch: set[str] = set()
     for order in row.get("_orders_context") or []:
         if not isinstance(order, dict):
             continue
-        ch = order.get("Канал продаж")
+        ch = order.get("Канал продаж") or order.get("channel")
         if ch and str(ch).strip():
-            order_channels.append(str(ch).strip())
+            label = str(ch).strip()
+            key = label.lower()
+            if key not in seen_ch:
+                seen_ch.add(key)
+                order_channels.append(label)
     if not order_channels:
         stored = str(row.get("Канал продаж") or "").strip()
         if stored:
-            order_channels = [stored]
+            for part in stored.split(","):
+                label = part.strip()
+                key = label.lower()
+                if label and key not in seen_ch:
+                    seen_ch.add(key)
+                    order_channels.append(label)
     sales_type = sales_channel_type_from_channels(order_channels)
     if sales_type in (SALES_CHANNEL_TYPE_MARKETPLACE, SALES_CHANNEL_TYPE_HYBRID):
         parts.append("маркетплейс")

@@ -246,6 +246,46 @@ export async function forEachRowProgressive<T>(
   return painted
 }
 
+const NO_SALES_CHANNEL = 'Без канала'
+
+/** Individual MoySklad sales channels for a client row (not joined display). */
+export function clientSalesChannelTokens(row: ClientQueryRow): string[] {
+  const fromList = (row.channels || [])
+    .map(c => String(c || '').trim())
+    .filter(c => c && c !== NO_SALES_CHANNEL)
+  if (fromList.length) {
+    return fromList
+  }
+  return String(row.channel || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(c => c && c !== NO_SALES_CHANNEL)
+}
+
+export function rowMatchesSalesChannelColumnFilter(
+  row: ClientQueryRow,
+  query: string,
+  selected: string[] | null,
+  blankLabel: string
+): boolean {
+  const tokens = clientSalesChannelTokens(row)
+  const labels = tokens.length > 0 ? tokens : [blankLabel]
+  const displayJoined = tokens.length > 0 ? tokens.join(', ') : NO_SALES_CHANNEL
+
+  if (query.trim()) {
+    const q = query.trim().toLowerCase()
+    const blob = `${displayJoined} ${labels.join(' ')}`.toLowerCase()
+    if (!blob.includes(q)) {
+      return false
+    }
+  }
+  if (selected != null) {
+    const picked = labels.map(c => (c === '' || c === '—' ? blankLabel : c))
+    return picked.some(l => selected.includes(l))
+  }
+  return true
+}
+
 /**
  * Prefer exact cache hit; else filter unfiltered (empty group/q) snapshots
  * by group + q so chip clicks update contacts instantly.

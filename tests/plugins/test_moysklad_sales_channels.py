@@ -6,6 +6,7 @@ from plugins.moysklad.dedupe import recompute_audience_counts
 from plugins.moysklad.sales_channels import (
     is_direct_sales_channel,
     is_marketplace_channel,
+    refresh_row_channel_fields,
     row_audience_bucket,
     row_matches_direct_audience,
     row_matches_marketplace_audience,
@@ -142,6 +143,39 @@ def test_ozon_order_is_marketplace_not_other() -> None:
 def test_no_channel_defaults_to_direct() -> None:
     row = {"_orders_context": [], "_moysklad_tags": [], "_moysklad_state": ""}
     assert row_audience_bucket(row) == "direct"
+
+
+def test_vitrina_direct_despite_novy_status() -> None:
+    """Витрина orders → direct tab; «новый» status must not override."""
+    row = {
+        "_moysklad_id": "v9268",
+        "Телефон": "+79268290551",
+        "_moysklad_state": "новый",
+        "Статус контрагента": "новый",
+        "_orders_context": [
+            {"id": "o1", "Канал продаж": "Витрина", "channel": "Витрина", "sum": 3000},
+            {"id": "o2", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 2000},
+        ],
+        "_moysklad_tags": [],
+    }
+    refresh_row_channel_fields(row)
+    assert unique_sales_channels(row) == ["Витрина", "Telegram"]
+    assert sales_channel_type_from_channels(unique_sales_channels(row)) == "прямые продажи"
+    assert row_matches_direct_audience(row) is True
+    assert row_matches_marketplace_audience(row) is False
+    assert row_audience_bucket(row) == "direct"
+
+
+def test_vitrina_with_8_marta_stays_marketplace() -> None:
+    row = {
+        "_moysklad_id": "vm",
+        "_orders_context": [{"Канал продаж": "Витрина", "channel": "Витрина", "sum": 1}],
+        "_moysklad_tags": ["8 марта"],
+        "_moysklad_tags_display": "8 марта",
+        "_moysklad_state": "новый",
+    }
+    refresh_row_channel_fields(row)
+    assert row_audience_bucket(row) == "marketplace"
 
 
 def test_marketplace_group_wins_over_direct_channel() -> None:

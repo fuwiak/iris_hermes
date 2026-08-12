@@ -26,10 +26,12 @@ import {
 } from './audience-pick'
 import { EventCalendarPicker } from './event-calendar'
 import {
+  clientSalesChannelTokens,
   filterClientRowsByAudience,
   forEachRowProgressive,
   isBenignRequestAbort,
-  pickLocalClientsSeed
+  pickLocalClientsSeed,
+  rowMatchesSalesChannelColumnFilter
 } from './clients-query'
 
 interface GroupChipOption {
@@ -814,6 +816,9 @@ function applyClientColumnFilters(
     out = rows.filter(row =>
       active.every(col => {
         const f = filters[col.key] || EMPTY_FILTER
+        if (col.key === 'channel_display') {
+          return rowMatchesSalesChannelColumnFilter(row, f.query, f.selected, BLANK_FILTER_LABEL)
+        }
         const display = columnDisplayValue(col, row)
         const label = filterLabel(display)
         if (f.query.trim()) {
@@ -843,6 +848,15 @@ function applyClientColumnFilters(
 function uniqueColumnValues(rows: ClientRow[], col: (typeof CLIENT_COLUMNS)[number]): string[] {
   const counts = new Map<string, number>()
   for (const row of rows) {
+    if (col.key === 'channel_display') {
+      const tokens = clientSalesChannelTokens(row)
+      const labels =
+        tokens.length > 0 ? tokens.map(c => filterLabel(c)) : [BLANK_FILTER_LABEL]
+      for (const label of labels) {
+        counts.set(label, (counts.get(label) || 0) + 1)
+      }
+      continue
+    }
     const label = filterLabel(columnDisplayValue(col, row))
     counts.set(label, (counts.get(label) || 0) + 1)
   }
