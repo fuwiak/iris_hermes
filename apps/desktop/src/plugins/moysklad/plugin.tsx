@@ -1,12 +1,20 @@
 import './moysklad.css'
 
 import {
+  atom,
+  Button,
+  cn,
+  Codicon,
+  haptic,
   type HermesPlugin,
   host,
   type RouteContribution,
   ROUTES_AREA,
   SIDEBAR_NAV_AREA,
-  type SidebarNavContribution
+  type SidebarNavContribution,
+  Tip,
+  TITLEBAR_AREAS,
+  useValue
 } from '@hermes/plugin-sdk'
 import {
   type FormEvent,
@@ -2761,7 +2769,9 @@ function ClientsPage() {
           </button>
           <button
             className="ms-btn"
-            onClick={() => host.navigate('/clients/playground')}
+            onClick={() => {
+              toggleAiPlayground()
+            }}
             title="AI тест: монитор качества Саммари / Повод / Рекомендация"
             type="button"
           >
@@ -6419,7 +6429,115 @@ function playgroundStats(text: string): { chars: number; words: number; lines: n
   }
 }
 
-function AiPlaygroundPage() {
+const $aiPlaygroundOpen = atom(false)
+
+function openAiPlayground() {
+  $aiPlaygroundOpen.set(true)
+}
+
+function closeAiPlayground() {
+  $aiPlaygroundOpen.set(false)
+}
+
+function toggleAiPlayground() {
+  $aiPlaygroundOpen.set(!$aiPlaygroundOpen.get())
+}
+
+/** Bottom-right FAB + slide-out — same pattern as desktop keybinds panel.
+ *  Mounted via titleBar.center (always on); portals to body so chrome stays empty. */
+function AiPlaygroundChrome() {
+  const open = useValue($aiPlaygroundOpen)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      if (target?.closest?.('textarea, input, select, [contenteditable="true"]')) {
+        return
+      }
+
+      closeAiPlayground()
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [open])
+
+  return createPortal(
+    <div
+      className={cn(
+        'pointer-events-none fixed z-[200] right-14 bottom-3 flex flex-col items-end gap-2',
+        '[-webkit-app-region:no-drag]'
+      )}
+      data-slot="ms-ai-playground-panel"
+    >
+      {open ? (
+        <div
+          aria-label="AI тест · клиенты"
+          className="pointer-events-auto flex w-[min(40rem,calc(100vw-5rem))] max-h-[min(78vh,42rem)] flex-col overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--ui-stroke-secondary)_80%,transparent)] bg-[var(--ui-chat-bubble-background,#1a1a1e)] shadow-lg"
+          role="dialog"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--ui-stroke-secondary)_60%,transparent)] px-3 py-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold">AI тест · клиенты</h2>
+              <p className="ms-muted truncate text-[0.7rem]">
+                Саммари / Повод / Рекомендация · golden dataset
+              </p>
+            </div>
+            <Button
+              aria-label="Закрыть"
+              onClick={() => {
+                haptic('tap')
+                closeAiPlayground()
+              }}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <Codicon name="close" size="0.875rem" />
+            </Button>
+          </div>
+          <div className="ms-playground-float-body min-h-0 flex-1 overflow-y-auto">
+            <AiPlaygroundPage embedded />
+          </div>
+        </div>
+      ) : null}
+
+      <Tip label="AI тест · клиенты">
+        <Button
+          aria-expanded={open}
+          aria-label="AI тест · клиенты"
+          className={cn(
+            'pointer-events-auto size-9 rounded-full border border-[color-mix(in_srgb,var(--ui-stroke-secondary)_80%,transparent)] bg-[var(--ui-chat-bubble-background,#1a1a1e)] shadow-lg',
+            open && 'bg-[var(--chrome-action-hover,rgba(255,255,255,0.08))]'
+          )}
+          onClick={() => {
+            haptic(open ? 'tap' : 'open')
+            toggleAiPlayground()
+          }}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Codicon name="beaker" />
+        </Button>
+      </Tip>
+    </div>,
+    document.body
+  )
+}
+
+function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
   const call = useMsRest()
   const [clients, setClients] = useState<GoldenClientSummary[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -6549,39 +6667,68 @@ function AiPlaygroundPage() {
   const llmPretty = outputs.llm || ''
 
   return (
-    <div className="ms-page ms-playground" data-selectable-text="true">
-      <div className="ms-page-header">
-        <div>
-          <h1>AI тест · клиенты</h1>
-          <p className="ms-muted">
-            Контроль качества: правьте входной JSON → Смотрите Саммари / Повод / Рекомендацию
-          </p>
+    <div
+      className={cn('ms-playground', !embedded && 'ms-page')}
+      data-selectable-text="true"
+    >
+      {!embedded ? (
+        <div className="ms-page-header">
+          <div>
+            <h1>AI тест · клиенты</h1>
+            <p className="ms-muted">
+              Контроль качества: правьте входной JSON → Смотрите Саммари / Повод / Рекомендацию
+            </p>
+            {meta ? <p className="ms-muted ms-sync-meta">{meta}</p> : null}
+          </div>
+          <div className="ms-actions">
+            <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
+              ← Клиенты
+            </button>
+            <button
+              className="ms-btn"
+              disabled={running || !inputText.trim()}
+              onClick={() => void runPlayground(false)}
+              title="Heuristic по текущему JSON (без LLM)"
+              type="button"
+            >
+              {running ? 'Считаю…' : 'Пересчитать'}
+            </button>
+            <button
+              className="ms-btn ms-btn-primary"
+              disabled={running || !inputText.trim()}
+              onClick={() => void runPlayground(true)}
+              title="Вызов auxiliary LLM — сравните с heuristic"
+              type="button"
+            >
+              Запустить LLM
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="ms-playground-float-actions">
           {meta ? <p className="ms-muted ms-sync-meta">{meta}</p> : null}
+          <div className="ms-actions">
+            <button
+              className="ms-btn"
+              disabled={running || !inputText.trim()}
+              onClick={() => void runPlayground(false)}
+              title="Heuristic по текущему JSON (без LLM)"
+              type="button"
+            >
+              {running ? 'Считаю…' : 'Пересчитать'}
+            </button>
+            <button
+              className="ms-btn ms-btn-primary"
+              disabled={running || !inputText.trim()}
+              onClick={() => void runPlayground(true)}
+              title="Вызов auxiliary LLM — сравните с heuristic"
+              type="button"
+            >
+              Запустить LLM
+            </button>
+          </div>
         </div>
-        <div className="ms-actions">
-          <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
-            ← Клиенты
-          </button>
-          <button
-            className="ms-btn"
-            disabled={running || !inputText.trim()}
-            onClick={() => void runPlayground(false)}
-            title="Heuristic по текущему JSON (без LLM)"
-            type="button"
-          >
-            {running ? 'Считаю…' : 'Пересчитать'}
-          </button>
-          <button
-            className="ms-btn ms-btn-primary"
-            disabled={running || !inputText.trim()}
-            onClick={() => void runPlayground(true)}
-            title="Вызов auxiliary LLM — сравните с heuristic"
-            type="button"
-          >
-            Запустить LLM
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="ms-playground-toolbar">
         <label className="ms-playground-pick">
@@ -6732,6 +6879,15 @@ function AiPlaygroundPage() {
   )
 }
 
+function AiPlaygroundLegacyRoute() {
+  useEffect(() => {
+    openAiPlayground()
+    host.navigate('/clients')
+  }, [])
+
+  return <p className="ms-muted">Открываю AI тест…</p>
+}
+
 const plugin: HermesPlugin = {
   id: 'moysklad',
   name: 'МойСклад CRM',
@@ -6757,7 +6913,12 @@ const plugin: HermesPlugin = {
         id: 'clients-playground-page',
         area: ROUTES_AREA,
         data: { path: '/clients/playground' } satisfies RouteContribution,
-        render: () => <AiPlaygroundPage />
+        render: () => <AiPlaygroundLegacyRoute />
+      },
+      {
+        id: 'clients-playground-chrome',
+        area: TITLEBAR_AREAS.center,
+        render: () => <AiPlaygroundChrome />
       },
       {
         id: 'campaigns-page',
@@ -6773,16 +6934,6 @@ const plugin: HermesPlugin = {
           codicon: 'organization',
           label: 'Клиенты',
           path: '/clients'
-        } satisfies SidebarNavContribution
-      },
-      {
-        id: 'clients-playground-nav',
-        area: SIDEBAR_NAV_AREA,
-        order: 41,
-        data: {
-          codicon: 'beaker',
-          label: 'AI тест',
-          path: '/clients/playground'
         } satisfies SidebarNavContribution
       },
       {
