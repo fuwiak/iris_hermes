@@ -2258,8 +2258,8 @@ def post_client_ai(
         max_orders = body.max_orders or max_orders
         max_counterparties = body.max_counterparties or max_counterparties
         include_archived = bool(body.include_archived or include_archived)
-        provider = (body.provider or provider or "").strip()
-        model = (body.model or model or "").strip()
+        provider = (body.provider or provider or "").strip() or "openrouter"
+        model = (body.model or model or "").strip() or "deepseek/deepseek-chat"
         catalog, meta = _get_catalog(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
@@ -2328,8 +2328,8 @@ def post_client_conversation_sync(
         body = body or ConversationSyncBody()
         want_ai = bool(body.refresh_ai if body.refresh_ai is not None else refresh_ai)
         # Query params still win when body left defaults empty for provider/model.
-        provider_name = (body.provider or provider or "").strip()
-        model_name = (body.model or model or "").strip()
+        provider_name = (body.provider or provider or "").strip() or "openrouter"
+        model_name = (body.model or model or "").strip() or "deepseek/deepseek-chat"
         # Explicit query false overrides body true.
         if refresh_ai is False:
             want_ai = False

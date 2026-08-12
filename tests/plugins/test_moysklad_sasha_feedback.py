@@ -431,13 +431,11 @@ class TestAiModelChoice:
         assert out["provider"] == "openrouter"
         assert out["model"] == "deepseek/deepseek-chat"
 
-        # GPT path is the same knob.
-        out2 = generate_ai_for_detail(
-            detail,
-            provider="openrouter",
-            model="openai/gpt-4o-mini",
-        )
-        assert out2["model"] == "openai/gpt-4o-mini"
+        # Empty override → DeepSeek default.
+        out_default = generate_ai_for_detail(detail)
+        assert out_default["provider"] == "openrouter"
+        assert out_default["model"] == "deepseek/deepseek-chat"
+        assert captured.get("model") == "deepseek/deepseek-chat"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

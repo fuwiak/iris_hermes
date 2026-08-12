@@ -335,6 +335,8 @@ interface ClientDetail {
     occasion_intent?: string
     recommendation?: string
     source?: string
+    provider?: string
+    model?: string
     data_thin?: boolean
   }
   risks?: ClientRisks
@@ -1118,6 +1120,8 @@ interface ClientFacts {
   history_profile?: string | null
   occasion_intent?: string | null
   ai_source?: string | null
+  ai_model?: string | null
+  ai_provider?: string | null
   risks?: ClientRisks
   block_history_profile?: FactBlock
   block_occasion_intent?: FactBlock
@@ -1141,6 +1145,45 @@ interface SanityResult {
 const DRAFT_PREFILL_KEY = 'moysklad.draftPrefill'
 /** Status shown after successful generate (and restored from Redis/file cache). */
 const AI_GENERATED_STATUS = 'AI сгенерировал креативный текст — можно править вручную.'
+
+/** Client-card summary / recommendation — DeepSeek only (default + sole UI option). */
+const MS_AI_DEFAULT_PROVIDER = 'openrouter'
+const MS_AI_DEFAULT_MODEL = 'deepseek/deepseek-chat'
+
+function readMsAiChoice(): { provider: string; model: string } {
+  if (typeof localStorage === 'undefined') {
+    return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
+  }
+  try {
+    const provider = localStorage.getItem('ms.ai.provider')
+    const model = localStorage.getItem('ms.ai.model')
+    // Migrate empty «default» / non-DeepSeek picks to DeepSeek.
+    if (!provider || !model || !/deepseek/i.test(model)) {
+      localStorage.setItem('ms.ai.provider', MS_AI_DEFAULT_PROVIDER)
+      localStorage.setItem('ms.ai.model', MS_AI_DEFAULT_MODEL)
+      return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
+    }
+    return { provider, model }
+  } catch {
+    return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
+  }
+}
+
+function isDeepseekAiSource(facts: {
+  ai_source?: string | null
+  ai_model?: string | null
+} | null): boolean {
+  if (!facts) {
+    return false
+  }
+  const model = String(facts.ai_model || '').toLowerCase()
+  if (model.includes('deepseek')) {
+    return true
+  }
+  // LLM without model tag after DeepSeek-only default still counts.
+  const src = String(facts.ai_source || '').toLowerCase()
+  return src === 'llm' || src.includes('deepseek')
+}
 
 interface DraftPrefill {
   clientId: string
@@ -1363,6 +1406,8 @@ function factsFromDetail(detail: ClientDetail): ClientFacts {
     history_profile: detail.ai?.history_profile || null,
     occasion_intent: detail.ai?.occasion_intent || null,
     ai_source: detail.ai?.source || null,
+    ai_model: detail.ai?.model || null,
+    ai_provider: detail.ai?.provider || null,
     risks: detail.risks,
     block_history_profile: blocks?.history_profile,
     block_occasion_intent: blocks?.occasion_intent,
@@ -1397,7 +1442,9 @@ function FactsPanel({
   const historyProse = (facts.history_profile || '').trim()
   const occasionProse = (facts.occasion_intent || '').trim()
   const recommendation = (facts.recommendation || '').trim()
-  const hasAiSummary = Boolean(historyProse || occasionProse || recommendation)
+  const showDeepseekSummary =
+    isDeepseekAiSource(facts) &&
+    Boolean(historyProse || occasionProse || recommendation)
 
   const historyBlock =
     facts.block_history_profile || facts.fact_blocks?.history_profile || null
@@ -1429,9 +1476,9 @@ function FactsPanel({
         <span className="ms-muted">Telegram</span>
         <span>{facts.tg_nick || '—'}</span>
       </div>
-      {hasAiSummary ? (
+      {showDeepseekSummary ? (
         <div className="ms-fact-block ms-facts-ai-summary">
-          <p className="ms-ai-label">Саммари AI</p>
+          <p className="ms-ai-label">Саммари AI · DeepSeek</p>
           {historyProse ? (
             <>
               <p className="ms-ai-label">История и профиль клиента</p>
@@ -1452,8 +1499,8 @@ function FactsPanel({
           ) : null}
         </div>
       ) : null}
-      {!historyProse ? <FactBlockView block={historyBlock} /> : null}
-      {!occasionProse ? <FactBlockView block={occasionBlock} /> : null}
+      {!showDeepseekSummary && !historyProse ? <FactBlockView block={historyBlock} /> : null}
+      {!showDeepseekSummary && !occasionProse ? <FactBlockView block={occasionBlock} /> : null}
       <FactBlockView block={risksBlock} />
       <ConversationThread
         compact
@@ -1569,17 +1616,15 @@ function ClientCardModal({
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
-  const [aiProvider, setAiProvider] = useState(() => {
-    if (typeof localStorage === 'undefined') {return ''}
-    return localStorage.getItem('ms.ai.provider') || ''
-  })
-  const [aiModel, setAiModel] = useState(() => {
-    if (typeof localStorage === 'undefined') {return ''}
-    return localStorage.getItem('ms.ai.model') || ''
-  })
+  const aiProvider = MS_AI_DEFAULT_PROVIDER
+  const aiModel = MS_AI_DEFAULT_MODEL
   const [error, setError] = useState('')
   const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
+
+  useEffect(() => {
+    readMsAiChoice() // migrate stale localStorage → DeepSeek default
+  }, [])
 
   useEffect(() => {
     if (!clientId) {return}
@@ -1916,60 +1961,34 @@ function ClientCardModal({
             </section>
             <section className="ms-card-section">
               <div className="ms-card-head">
-                <h4>Саммари AI</h4>
+                <h4>Саммари AI · DeepSeek</h4>
                 <div className="ms-chips">
                   <button className="ms-btn" disabled={aiLoading} onClick={() => void refreshAi()} type="button">
                     {aiLoading ? 'Генерация…' : 'Обновить AI'}
                   </button>
                 </div>
               </div>
-              <div className="ms-filter-block">
-                <span className="ms-filter-label">Модель (эксперимент)</span>
-                <div className="ms-chips">
-                  {[
-                    { provider: '', model: '', label: 'default' },
-                    { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek' },
-                    { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o-mini' },
-                    { provider: 'openrouter', model: 'openai/gpt-4o', label: 'GPT-4o' },
-                    { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', label: 'Haiku' }
-                  ].map(opt => {
-                    const active =
-                      (aiProvider || '') === opt.provider && (aiModel || '') === opt.model
-
-                    return (
-                      <button
-                        className={`ms-chip${active ? ' is-active' : ''}`}
-                        key={opt.label}
-                        onClick={() => {
-                          setAiProvider(opt.provider)
-                          setAiModel(opt.model)
-                          try {
-                            localStorage.setItem('ms.ai.provider', opt.provider)
-                            localStorage.setItem('ms.ai.model', opt.model)
-                          } catch {
-                            /* ignore quota */
-                          }
-                        }}
-                        type="button"
-                      >
-                        {opt.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              {ai.data_thin ? <p className="ms-muted">Данных мало — выводы осторожные.</p> : null}
-              <p className="ms-ai-label">История и профиль</p>
-              <p>{ai.history_profile || '—'}</p>
-              <p className="ms-ai-label">Повод и intent покупки</p>
-              <p>{ai.occasion_intent || '—'}</p>
-              <h4>Рекомендация AI</h4>
-              <p>{ai.recommendation || '—'}</p>
               <p className="ms-muted">
-                Источник: {ai.source || 'heuristic'}
-                {aiProvider || aiModel
-                  ? ` · ${[aiProvider, aiModel].filter(Boolean).join('/')}`
-                  : ''}
+                Модель по умолчанию: DeepSeek ({MS_AI_DEFAULT_MODEL})
+              </p>
+              {ai.data_thin ? <p className="ms-muted">Данных мало — выводы осторожные.</p> : null}
+              {/deepseek/i.test(String(ai.model || aiModel || '')) || ai.source === 'llm' ? (
+                <>
+                  <p className="ms-ai-label">История и профиль</p>
+                  <p>{ai.history_profile || '—'}</p>
+                  <p className="ms-ai-label">Повод и intent покупки</p>
+                  <p>{ai.occasion_intent || '—'}</p>
+                  <h4>Рекомендация AI</h4>
+                  <p>{ai.recommendation || '—'}</p>
+                </>
+              ) : (
+                <p className="ms-muted">
+                  Нажмите «Обновить AI» — саммари только через DeepSeek.
+                </p>
+              )}
+              <p className="ms-muted">
+                Источник: {ai.source || '—'}
+                {ai.model || aiModel ? ` · ${ai.model || aiModel}` : ''}
               </p>
             </section>
             <section className="ms-card-section">
@@ -4334,7 +4353,11 @@ function CampaignsPage() {
           }>(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
             method: 'POST',
             timeoutMs: 90_000,
-            body: { refresh_ai: true }
+            body: {
+              refresh_ai: true,
+              provider: MS_AI_DEFAULT_PROVIDER,
+              model: MS_AI_DEFAULT_MODEL
+            }
           })
           if (gen !== factsGenRef.current) {
             return
@@ -4348,7 +4371,9 @@ function CampaignsPage() {
                   recommendation: synced.ai?.recommendation,
                   history_profile: synced.ai?.history_profile,
                   occasion_intent: synced.ai?.occasion_intent,
-                  ai_source: synced.ai?.source
+                  ai_source: synced.ai?.source,
+                  ai_model: synced.ai?.model || MS_AI_DEFAULT_MODEL,
+                  ai_provider: synced.ai?.provider || MS_AI_DEFAULT_PROVIDER
                 }
               }
               return {
@@ -4360,7 +4385,10 @@ function CampaignsPage() {
                   synced.ai?.history_profile || prev.history_profile,
                 occasion_intent:
                   synced.ai?.occasion_intent || prev.occasion_intent,
-                ai_source: synced.ai?.source || prev.ai_source
+                ai_source: synced.ai?.source || prev.ai_source,
+                ai_model: synced.ai?.model || prev.ai_model || MS_AI_DEFAULT_MODEL,
+                ai_provider:
+                  synced.ai?.provider || prev.ai_provider || MS_AI_DEFAULT_PROVIDER
               }
             })
           }
@@ -5416,13 +5444,6 @@ function CampaignsPage() {
         )}
       </section>
 
-      <FilterTabs
-        counts={counts}
-        disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
-        onChange={setSalesFilter}
-        salesFilter={salesFilter}
-      />
-
       <section className="ms-audience-builder">
         <h2 className="ms-section-title">1. Аудитория</h2>
         <p className="ms-muted">
@@ -5461,162 +5482,219 @@ function CampaignsPage() {
             <> · кликните клиента в списке</>
           )}
         </p>
-        <div className="ms-filter-block">
-          <span className="ms-filter-label">Канал доставки</span>
-          <div className="ms-filter-tabs" role="group">
-            {[
-              { id: '', label: 'Любой' },
-              { id: 'telegram', label: 'Только Telegram' },
-              { id: 'whatsapp', label: 'Только WhatsApp' }
-            ].map(opt => (
-              <button
-                className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
-                key={opt.id || 'any'}
-                onClick={() => syncDeliveryChannel(opt.id)}
-                type="button"
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="ms-filter-block">
-          <span className="ms-filter-label">Дополнительно</span>
-          <div className="ms-chips">
+
+        <div className="ms-filter-window" aria-label="Фильтры аудитории">
+          <div className="ms-filter-window-head">
+            <strong>Фильтры</strong>
             <button
-              className={`ms-chip${vipOnly ? ' is-active' : ''}`}
-              onClick={() => setVipOnly(v => !v)}
-              type="button"
-            >
-              VIP
-            </button>
-            <button
-              className={`ms-chip${requirePhone ? ' is-active' : ''}`}
-              onClick={() => setRequirePhone(v => !v)}
-              type="button"
-            >
-              Есть телефон
-            </button>
-            <button
-              className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
-              onClick={() => setRequireTelegram(v => !v)}
-              type="button"
-            >
-              Есть Telegram
-            </button>
-            <button
-              className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
-              onClick={() => setBirthdaySoon(v => !v)}
-              type="button"
-            >
-              ДР / события
-            </button>
-          </div>
-        </div>
-        <div className="ms-filter-block">
-          <span className="ms-filter-label">Даты события</span>
-          <EventCalendarPicker
-            dateFrom={eventDateFrom}
-            dateTo={eventDateTo}
-            leadDays={daysBeforeEvent}
-            onLeadDaysChange={n => {
-              setDaysBeforeEvent(n)
-              if (n > 0) {
+              className="ms-link-btn"
+              onClick={() => {
+                setSalesFilter('all')
+                setChannelKind('')
+                setVipOnly(false)
+                setRequirePhone(false)
+                setRequireTelegram(false)
                 setBirthdaySoon(false)
-              }
-            }}
-            onRangeChange={(from, to) => {
-              setEventDateFrom(from)
-              setEventDateTo(to)
-              if (from || to) {
-                setBirthdaySoon(false)
-              }
-            }}
-          />
-        </div>
-        <div className="ms-filter-block ms-segments-block">
-          <span className="ms-filter-label">Сохранённые списки</span>
-          <div className="ms-segments-row">
-            <input
-              className="ms-input"
-              onChange={e => setSegmentName(e.target.value)}
-              placeholder="Имя списка, напр. «Не состоялся · Прямые»"
-              value={segmentName}
-            />
-            <button
-              className="ms-btn"
-              disabled={segmentSaving || !segmentName.trim()}
-              onClick={() => void saveCurrentSegment()}
-              title="Сохранит текущие фильтры выше как именованный список (не снимок id, а рецепт фильтра)"
+                setDaysBeforeEvent(0)
+                setEventDateFrom('')
+                setEventDateTo('')
+                setGroup('')
+                setGroupSource('any')
+                setAudienceQ('')
+                setActiveSegmentId('')
+                setSegmentStatus('')
+              }}
               type="button"
             >
-              {segmentSaving ? 'Сохраняю…' : activeSegmentId ? 'Обновить список' : 'Сохранить список'}
+              Сбросить всё
             </button>
           </div>
-          {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
-          <div className="ms-chips">
-            {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
-            {!segmentsLoading && segments.length === 0 ? (
-              <span className="ms-muted">Списков пока нет</span>
-            ) : null}
-            {segments.map(seg => (
-              <span
-                className={`ms-chip ms-segment-chip${activeSegmentId === seg.id ? ' is-active' : ''}`}
-                key={seg.id}
-              >
-                <button onClick={() => applySegment(seg)} type="button">
-                  {seg.name}
-                  {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
-                </button>
+
+          <div className="ms-filter-window-body">
+            <div className="ms-filter-block">
+              <span className="ms-filter-label">Канал продаж</span>
+              <FilterTabs
+                counts={counts}
+                disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
+                onChange={setSalesFilter}
+                salesFilter={salesFilter}
+              />
+            </div>
+
+            <div className="ms-filter-block">
+              <span className="ms-filter-label">Канал доставки</span>
+              <div className="ms-filter-tabs" role="group">
+                {[
+                  { id: '', label: 'Любой' },
+                  { id: 'telegram', label: 'Только Telegram' },
+                  { id: 'whatsapp', label: 'Только WhatsApp' }
+                ].map(opt => (
+                  <button
+                    className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
+                    key={opt.id || 'any'}
+                    onClick={() => syncDeliveryChannel(opt.id)}
+                    type="button"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="ms-filter-block">
+              <span className="ms-filter-label">Дополнительно</span>
+              <div className="ms-chips">
                 <button
-                  aria-label={`Удалить список ${seg.name}`}
-                  className="ms-segment-chip-remove"
-                  onClick={() => void removeSegment(seg)}
-                  title="Удалить список"
+                  className={`ms-chip${vipOnly ? ' is-active' : ''}`}
+                  onClick={() => setVipOnly(v => !v)}
                   type="button"
                 >
-                  ×
+                  VIP
                 </button>
-              </span>
-            ))}
+                <button
+                  className={`ms-chip${requirePhone ? ' is-active' : ''}`}
+                  onClick={() => setRequirePhone(v => !v)}
+                  type="button"
+                >
+                  Есть телефон
+                </button>
+                <button
+                  className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
+                  onClick={() => setRequireTelegram(v => !v)}
+                  type="button"
+                >
+                  Есть Telegram
+                </button>
+                <button
+                  className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
+                  onClick={() => setBirthdaySoon(v => !v)}
+                  type="button"
+                >
+                  ДР / события
+                </button>
+              </div>
+            </div>
+
+            <div className="ms-filter-block">
+              <span className="ms-filter-label">Даты события</span>
+              <EventCalendarPicker
+                dateFrom={eventDateFrom}
+                dateTo={eventDateTo}
+                leadDays={daysBeforeEvent}
+                onLeadDaysChange={n => {
+                  setDaysBeforeEvent(n)
+                  if (n > 0) {
+                    setBirthdaySoon(false)
+                  }
+                }}
+                onRangeChange={(from, to) => {
+                  setEventDateFrom(from)
+                  setEventDateTo(to)
+                  if (from || to) {
+                    setBirthdaySoon(false)
+                  }
+                }}
+              />
+            </div>
+
+            <div className="ms-filter-block ms-segments-block ms-filter-window-span">
+              <span className="ms-filter-label">Сохранённые списки</span>
+              <div className="ms-segments-row">
+                <input
+                  className="ms-input"
+                  onChange={e => setSegmentName(e.target.value)}
+                  placeholder="Имя списка, напр. «Не состоялся · Прямые»"
+                  value={segmentName}
+                />
+                <button
+                  className="ms-btn"
+                  disabled={segmentSaving || !segmentName.trim()}
+                  onClick={() => void saveCurrentSegment()}
+                  title="Сохранит текущие фильтры выше как именованный список (не снимок id, а рецепт фильтра)"
+                  type="button"
+                >
+                  {segmentSaving
+                    ? 'Сохраняю…'
+                    : activeSegmentId
+                      ? 'Обновить список'
+                      : 'Сохранить список'}
+                </button>
+              </div>
+              {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
+              <div className="ms-chips">
+                {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
+                {!segmentsLoading && segments.length === 0 ? (
+                  <span className="ms-muted">Списков пока нет</span>
+                ) : null}
+                {segments.map(seg => (
+                  <span
+                    className={`ms-chip ms-segment-chip${
+                      activeSegmentId === seg.id ? ' is-active' : ''
+                    }`}
+                    key={seg.id}
+                  >
+                    <button onClick={() => applySegment(seg)} type="button">
+                      {seg.name}
+                      {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
+                    </button>
+                    <button
+                      aria-label={`Удалить список ${seg.name}`}
+                      className="ms-segment-chip-remove"
+                      onClick={() => void removeSegment(seg)}
+                      title="Удалить список"
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="ms-filter-window-span">
+              <GroupCloudSection
+                activeGroup={group}
+                activeSource={groupSource}
+                emptyHint="Нет тегов МойСклад в текущей выборке"
+                items={groupOptionsMs}
+                limit={120}
+                onToggle={(name, source) => {
+                  if (group === name && groupSource === source) {
+                    setGroup('')
+                    setGroupSource('any')
+                  } else {
+                    setGroup(name)
+                    setGroupSource(source)
+                  }
+                }}
+                sourceKey="ms"
+                title="Группы: Мой склад"
+              />
+            </div>
+
+            <div className="ms-filter-window-span">
+              <GroupCloudSection
+                activeGroup={group}
+                activeSource={groupSource}
+                emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
+                items={groupOptionsAi}
+                limit={80}
+                onToggle={(name, source) => {
+                  if (group === name && groupSource === source) {
+                    setGroup('')
+                    setGroupSource('any')
+                  } else {
+                    setGroup(name)
+                    setGroupSource(source)
+                  }
+                }}
+                sourceKey="ai"
+                title="Группы: ИИ"
+              />
+            </div>
           </div>
         </div>
-                <GroupCloudSection
-          activeGroup={group}
-          activeSource={groupSource}
-          emptyHint="Нет тегов МойСклад в текущей выборке"
-          items={groupOptionsMs}
-          limit={120}
-          onToggle={(name, source) => {
-            if (group === name && groupSource === source) {
-              setGroup('')
-              setGroupSource('any')
-            } else {
-              setGroup(name)
-              setGroupSource(source)
-            }
-          }}
-          sourceKey="ms"
-          title="Группы: Мой склад"
-        />
-        <GroupCloudSection
-          activeGroup={group}
-          activeSource={groupSource}
-          emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
-          items={groupOptionsAi}
-          limit={80}
-          onToggle={(name, source) => {
-            if (group === name && groupSource === source) {
-              setGroup('')
-              setGroupSource('any')
-            } else {
-              setGroup(name)
-              setGroupSource(source)
-            }
-          }}
-          sourceKey="ai"
-          title="Группы: ИИ"
-        />
+
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
             <p className="ms-muted">
@@ -5651,9 +5729,13 @@ function CampaignsPage() {
                   onScroll={event => {
                     const el = event.currentTarget
 
-                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {return}
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {
+                      return
+                    }
 
-                    if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {return}
+                    if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {
+                      return
+                    }
                     void loadAudience({ append: true })
                   }}
                 >

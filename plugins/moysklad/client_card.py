@@ -929,9 +929,11 @@ def generate_ai_for_detail(
 ) -> dict[str, Any]:
     """Call auxiliary LLM; fall back to heuristic on any failure.
 
-    Optional ``provider`` / ``model`` let the UI experiment with different
-    models for summary + recommendation.
+    Default model is DeepSeek via OpenRouter (UI summary is DeepSeek-only).
+    Optional ``provider`` / ``model`` still allow overrides for tests.
     """
+    provider = (provider or "").strip() or "openrouter"
+    model = (model or "").strip() or "deepseek/deepseek-chat"
     client = detail.get("client") or {}
     orders = list(detail.get("orders") or [])
     vip = bool(client.get("vip"))
@@ -989,24 +991,28 @@ def generate_ai_for_detail(
             "max_tokens": 900,
             "temperature": 0.2,
             "timeout": 45.0,
+            "provider": provider,
+            "model": model,
         }
-        if provider:
-            kwargs["provider"] = provider
-        if model:
-            kwargs["model"] = model
         response = call_llm(**kwargs)
         text = (extract_content_or_reasoning(response) or "").strip()
         parsed = _parse_ai_json(text)
         if not parsed:
             log.warning("moysklad client AI: empty/unparsed response, using heuristic")
-            return fallback
+            return {**fallback, "provider": provider, "model": model}
         return {
             **parsed,
             "source": "llm",
             "data_thin": data_thin,
-            "provider": provider or "",
-            "model": model or "",
+            "provider": provider,
+            "model": model,
         }
     except Exception as exc:
         log.warning("moysklad client AI unavailable: %s", exc)
-        return {**fallback, "source": "heuristic", "error": str(exc)}
+        return {
+            **fallback,
+            "source": "heuristic",
+            "error": str(exc),
+            "provider": provider,
+            "model": model,
+        }

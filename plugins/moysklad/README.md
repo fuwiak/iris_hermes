@@ -87,8 +87,9 @@ Example prompts:
    Endpoint: `POST /clients/ai-fill` with `ids` for the visible set.
 10. Client card: **Sync Telegram** pulls gateway session history **and** the
    personal MTProto account thread (inbound replies), then regenerates AI
-   summary/recommendation. Model picker: ``provider``/``model`` on
-   ``POST /clients/{id}/ai`` and on sync.
+   summary/recommendation via **DeepSeek** by default
+   (`openrouter` + `deepseek/deepseek-chat`). «Саммари AI» shows DeepSeek LLM
+   output only (no experimental GPT/Haiku picker).
 11. Рассылки: same audience filters as Clients + event calendar
    (``event_date_from`` / ``event_date_to``) with optional lead window
    ``days_before_event`` (e.g. 5 days before 8 March / событие марта).
@@ -219,24 +220,22 @@ Applied when building/merging the catalog (`dedupe.py`):
 3. **Fuzzy name+phone** — same normalized name + phone stem in the batch
 4. **Cache merge** — never append duplicates; merge richer row into existing
 
-### Mass Рассылки filters
+### Рассылки (индивидуально)
 
-Рассылки filter builder uses the same cached + deduped catalog:
+Фильтр-билдер тот же (кэш + дедуп каталога):
 
 - Channel kind: только Telegram / только WhatsApp
-- Tags/occasions (chip cloud) + «ДР / события» — chips work on **Прямые** and
+- Tags/occasions (chip cloud) + «ДР / события» — chips work on **Прямые** и
   **Маркетплейс** (shared occasion allowlist; `букет от 10000` /
   `событие март` normalize to one key)
 - VIP / есть телефон / есть Telegram
-- Live `matched_total` as filters change; mass draft = shared template for the
-  group (`personalize` flag queues per-client personalization for later)
-- Audience picker: search + infinite scroll / «Ещё клиенты» (not a hard 12-row
-  cap) — any client in the filtered audience is reachable
-- **Выбрать всю аудиторию** paginates `/clients` and marks every id (cap 5000);
-  **Отправить пачками** chunks `POST /campaigns/mark-sent-batch` (≤50/request)
-  so hundreds/thousands stay under Bot API timeouts
-- Sticky **4-step rail** (Аудитория → Текст → Отправка → Ответы) highlights the
-  next click; draft save is secondary to send
+- Live `matched_total` as filters change
+- Все фильтры в одном окне (`ms-filter-window`): канал продаж, доставка,
+  VIP/телефон/TG, календарь событий, сегменты, группы MS/AI
+- Audience picker: search + infinite scroll / «Ещё клиенты» — клик по клиенту
+  открывает 1:1 текст + отправку (`POST /campaigns/mark-sent`)
+- Массовый select / пачки / personalize **пока скрыты** — сначала стабильный
+  individual flow; batch вернём отдельно
 - **Собрать ответы** → `POST /campaigns/replies/collect` syncs MTProto/gateway
   history and lists threads where the client spoke last (awaiting operator)
 
