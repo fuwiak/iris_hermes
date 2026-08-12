@@ -1,9 +1,11 @@
 import { useStore } from '@nanostores/react'
-import { useEffect } from 'react'
+import { type MouseEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
 
 import { KeybindSettings } from '@/app/settings/keybind-settings'
+import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
+import { resetLayoutTree } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
@@ -25,10 +27,13 @@ import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
 const FAB_CLASS =
   'pointer-events-auto size-9 rounded-full border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous'
 
+/** Four size-9 FABs + three gaps (2.25*4 + 0.5*3 = 10.5rem). */
+const CORNER_CHROME_WIDTH = '10.5rem'
+
 /**
  * Bottom-right chrome dock — FABs that used to live in the titlebar app-control
- * cluster (haptics, settings, keybinds). Keybinds expands into a slide-out panel
- * above the row; the other two are one-shot actions.
+ * cluster (layout, haptics, settings, keybinds). Keybinds expands into a
+ * slide-out panel above the row; the others are one-shot / toggle actions.
  *
  * Sets `--corner-chrome-width` on `:root` so sibling corner FABs (plugin AI test)
  * can sit to the left without overlapping.
@@ -41,6 +46,8 @@ export function CornerChrome() {
   const statusbarVisible = useStore($statusbarVisible)
   const capturing = useStore($capture)
   const hapticsMuted = useStore($hapticsMuted)
+  const layoutEditing = useStore($layoutEditMode)
+  const modHeld = useModifierHeld()
   const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
 
   useEffect(() => {
@@ -71,10 +78,9 @@ export function CornerChrome() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [capturing, open])
 
-  // Three size-9 FABs + two gaps — plugins offset left of this dock.
   useEffect(() => {
     const root = document.documentElement
-    root.style.setProperty('--corner-chrome-width', '7.75rem')
+    root.style.setProperty('--corner-chrome-width', CORNER_CHROME_WIDTH)
 
     return () => {
       root.style.removeProperty('--corner-chrome-width')
@@ -84,6 +90,18 @@ export function CornerChrome() {
   // Full-screen overlays own the window — same rule as TitlebarControls.
   if (!embed && isOverlayView(appViewForPath(location.pathname))) {
     return null
+  }
+
+  const onLayoutClick = (event: MouseEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      triggerHaptic('warning')
+      resetLayoutTree()
+
+      return
+    }
+
+    triggerHaptic('open')
+    toggleLayoutEditMode()
   }
 
   const toggleHaptics = () => {
@@ -185,10 +203,66 @@ export function CornerChrome() {
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
           </Button>
         </Tip>
+
+        <Tip label={t.titlebar.layoutEditorTitle}>
+          <Button
+            aria-label={t.titlebar.layoutEditor}
+            aria-pressed={layoutEditing}
+            className={cn('group/tool', FAB_CLASS, layoutEditing && 'bg-(--chrome-action-hover)')}
+            onClick={onLayoutClick}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <LayoutGlyph modHeld={modHeld} />
+          </Button>
+        </Tip>
       </div>
     </div>,
     document.body
   )
+}
+
+/**
+ * Layout glyph morphs into reset (layout + refresh badge) only while the
+ * pointer is on the button AND ⌘/Ctrl is held — hover gates via CSS, modifier
+ * via the window listener.
+ */
+function LayoutGlyph({ modHeld }: { modHeld: boolean }) {
+  return (
+    <>
+      <span className={cn('inline-flex', modHeld && 'group-hover/tool:hidden')}>
+        <Codicon name="layout" />
+      </span>
+      <span className={cn('relative hidden', modHeld && 'group-hover/tool:inline-flex')}>
+        <Codicon name="layout" />
+        <span className="absolute -bottom-1 -right-1.5 grid place-items-center rounded-full bg-(--ui-bg-chrome) p-px">
+          <Codicon className="-scale-x-100" name="refresh" size="0.5625rem" />
+        </span>
+      </span>
+    </>
+  )
+}
+
+function useModifierHeld(): boolean {
+  const [held, setHeld] = useState(false)
+
+  useEffect(() => {
+    const sync = (event: KeyboardEvent) => setHeld(event.metaKey || event.ctrlKey)
+    const clear = () => setHeld(false)
+
+    window.addEventListener('keydown', sync)
+    window.addEventListener('keyup', sync)
+    window.addEventListener('blur', clear)
+
+    return () => {
+      window.removeEventListener('keydown', sync)
+      window.removeEventListener('keyup', sync)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
+
+  return held
 }
 
 /** @deprecated Prefer CornerChrome — kept so older imports keep working. */
