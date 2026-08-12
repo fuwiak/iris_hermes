@@ -42,6 +42,13 @@
   gap: 0.75rem;
 }
 
+.ms-page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .ms-actions {
   display: flex;
   flex-wrap: wrap;
@@ -639,6 +646,65 @@
   margin: 0.55rem 0 0;
   white-space: pre-wrap;
   color: #f0daf5;
+}
+
+.ms-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(20, 6, 24, 0.55);
+  display: flex;
+  justify-content: flex-end;
+  animation: ms-drawer-fade 0.18s ease-out;
+}
+
+.ms-drawer {
+  width: min(420px, 100%);
+  height: 100%;
+  max-height: 100vh;
+  overflow: auto;
+  background: #2a0f2e;
+  color: #f4ede4;
+  border-left: 1px solid #592466;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
+  padding: 1rem 1.1rem 1.5rem;
+  animation: ms-drawer-slide 0.22s ease-out;
+}
+
+.ms-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #2a0f2e;
+  padding-bottom: 0.45rem;
+}
+
+.ms-drawer-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+@keyframes ms-drawer-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ms-drawer-slide {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .ms-link-btn {

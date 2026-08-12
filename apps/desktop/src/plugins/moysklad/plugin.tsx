@@ -3350,6 +3350,7 @@ function CampaignsPage() {
   const [addContactResolving, setAddContactResolving] = useState(false)
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
+  const [draftsOpen, setDraftsOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -5370,6 +5371,7 @@ function CampaignsPage() {
       }
 
       await refresh()
+      setDraftsOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -5412,9 +5414,18 @@ function CampaignsPage() {
             Фильтр → список → клик клиента → текст → отправить. Массовая позже.
           </p>
         </div>
-        <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
-          ← Клиенты
-        </button>
+        <div className="ms-page-header-actions">
+          <button
+            className="ms-btn"
+            onClick={() => setDraftsOpen(true)}
+            type="button"
+          >
+            Черновики{campaigns.length ? ` · ${campaigns.length}` : ''}
+          </button>
+          <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
+            ← Клиенты
+          </button>
+        </div>
       </div>
 
       <section aria-label="Индивидуальная отправка" className="ms-mass-rail ms-individual-rail">
@@ -6435,39 +6446,66 @@ function CampaignsPage() {
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
       {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
-      <h2 className="ms-section-title">Черновики</h2>
-      {!campaigns.length ? (
-        <p className="ms-muted">{loading ? 'Загрузка…' : 'Пока нет рассылок.'}</p>
-      ) : (
-        <ul className="ms-campaign-list">
-          {campaigns.map(c => (
-            <li className="ms-campaign-card" key={c.id}>
-              <div className="ms-campaign-card-head">
-                <strong>{c.title}</strong>
-                <button
-                  className="ms-btn"
-                  onClick={() =>
-                    void call(`/campaigns/${encodeURIComponent(c.id)}`, { method: 'DELETE' }).then(refresh)
-                  }
-                  type="button"
-                >
-                  Удалить
-                </button>
-              </div>
-              <div className="ms-muted">
-                {c.channel} · {c.mode} · аудитория {c.audience_count || 0}
-                {c.client_name ? ` · ${c.client_name}` : ''} · {c.status || 'draft'}
-                {c.ai_source ? ` · AI ${c.ai_source}` : ''}
-                {c.personalize_pending ? ' · персонализация в очереди' : ''}
-              </div>
-              {c.offer ? <p className="ms-campaign-offer">{c.offer}</p> : null}
-              {c.recommendation ? (
-                <p className="ms-muted">Контекст: {c.recommendation}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+      {draftsOpen ? (
+        <div
+          aria-hidden={!draftsOpen}
+          className="ms-drawer-backdrop"
+          onClick={() => setDraftsOpen(false)}
+        >
+          <aside
+            aria-label="Черновики рассылок"
+            className="ms-drawer ms-drafts-drawer"
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+          >
+            <div className="ms-drawer-head">
+              <h2>Черновики</h2>
+              <button
+                aria-label="Закрыть черновики"
+                className="ms-btn"
+                onClick={() => setDraftsOpen(false)}
+                type="button"
+              >
+                Закрыть
+              </button>
+            </div>
+            {!campaigns.length ? (
+              <p className="ms-muted">{loading ? 'Загрузка…' : 'Пока нет рассылок.'}</p>
+            ) : (
+              <ul className="ms-campaign-list">
+                {campaigns.map(c => (
+                  <li className="ms-campaign-card" key={c.id}>
+                    <div className="ms-campaign-card-head">
+                      <strong>{c.title}</strong>
+                      <button
+                        className="ms-btn"
+                        onClick={() =>
+                          void call(`/campaigns/${encodeURIComponent(c.id)}`, {
+                            method: 'DELETE'
+                          }).then(refresh)
+                        }
+                        type="button"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                    <div className="ms-muted">
+                      {c.channel} · {c.mode} · аудитория {c.audience_count || 0}
+                      {c.client_name ? ` · ${c.client_name}` : ''} · {c.status || 'draft'}
+                      {c.ai_source ? ` · AI ${c.ai_source}` : ''}
+                      {c.personalize_pending ? ' · персонализация в очереди' : ''}
+                    </div>
+                    {c.offer ? <p className="ms-campaign-offer">{c.offer}</p> : null}
+                    {c.recommendation ? (
+                      <p className="ms-muted">Контекст: {c.recommendation}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        </div>
+      ) : null}
       {tgProgress ? (
         <TgProgressModal detail={tgProgress.detail} title={tgProgress.title} />
       ) : null}
