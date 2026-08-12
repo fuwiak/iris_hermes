@@ -232,6 +232,11 @@ Applied when building/merging the catalog (`dedupe.py`):
   group (`personalize` flag queues per-client personalization for later)
 - Audience picker: search + infinite scroll / «Ещё клиенты» (not a hard 12-row
   cap) — any client in the filtered audience is reachable
+- **Выбрать всю аудиторию** paginates `/clients` and marks every id (cap 5000);
+  **Отправить пачками** chunks `POST /campaigns/mark-sent-batch` (≤50/request)
+  so hundreds/thousands stay under Bot API timeouts
+- **Собрать ответы** → `POST /campaigns/replies/collect` syncs MTProto/gateway
+  history and lists threads where the client spoke last (awaiting operator)
 
 ### Пересчитать группы (LLM)
 

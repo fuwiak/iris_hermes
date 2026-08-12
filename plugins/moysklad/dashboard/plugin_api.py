@@ -128,6 +128,7 @@ from plugins.moysklad.conversations import (
     append_message,
     enrich_clients,
     get_thread,
+    list_awaiting_replies,
     sync_client_conversation,
 )
 from plugins.moysklad.outreach import (
@@ -719,6 +720,10 @@ class MarkSentBody(BaseModel):
     via: str = ""
 
 
+# Per HTTP request — UI chunks larger audiences into several calls.
+MASS_SEND_BATCH_MAX = 50
+
+
 class MarkSentBatchBody(BaseModel):
     """Send one draft to many audience clients (same text, sequential deliver)."""
 
@@ -731,6 +736,15 @@ class MarkSentBatchBody(BaseModel):
     via: str = ""
     #: Stop the batch as soon as one send fails (default: keep going).
     stop_on_error: bool = False
+
+
+class CollectRepliesBody(BaseModel):
+    """Pull inbound replies for a mass-send cohort (TG conversation inbox)."""
+
+    client_ids: list[str] = Field(default_factory=list)
+    #: Live-sync gateway + personal MTProto before listing (default on).
+    sync: bool = True
+    limit: int = 200
 
 
 class OutreachContactBody(BaseModel):
@@ -1530,8 +1544,11 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail="message required")
         if not client_ids:
             raise HTTPException(status_code=400, detail="client_ids required")
-        if len(client_ids) > 50:
-            raise HTTPException(status_code=400, detail="max 50 clients per batch")
+        if len(client_ids) > MASS_SEND_BATCH_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max {MASS_SEND_BATCH_MAX} clients per batch — UI chunks larger sends",
+            )
 
         catalog, meta = _get_catalog(force=False)
         channel = (body.channel or "telegram").strip().lower()
@@ -1687,6 +1704,58 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent-batch failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/replies/collect")
+def post_campaign_replies_collect(body: CollectRepliesBody) -> dict[str, Any]:
+    """Sync + list clients who replied after a mass Рассылка (awaiting operator)."""
+    try:
+        ids = [str(x or "").strip() for x in (body.client_ids or []) if str(x or "").strip()]
+        seen: set[str] = set()
+        client_ids = [c for c in ids if not (c in seen or seen.add(c))]
+        synced = 0
+        inbound_imported = 0
+        if body.sync and client_ids:
+            catalog, _meta = _get_catalog(force=False)
+            # Cap live sync work per click — UI can re-run for the rest.
+            for client_id in client_ids[: min(len(client_ids), 200)]:
+                row = find_row_in_catalog(catalog, client_id) if catalog else None
+                phone = ""
+                tg_nick = ""
+                tg_chat_id = ""
+                client_name = ""
+                if row is not None:
+                    detail = build_client_detail(row)
+                    client = detail.get("client") or {}
+                    phone = str(client.get("phone") or "")
+                    tg_nick = str(client.get("tg_nick") or "")
+                    tg_chat_id = str(client.get("tg_chat_id") or "")
+                    client_name = str(client.get("name") or "")
+                thread = sync_client_conversation(
+                    client_id=client_id,
+                    phone=phone,
+                    tg_nick=tg_nick,
+                    tg_chat_id=tg_chat_id,
+                    client_name=client_name,
+                )
+                synced += 1
+                sync_meta = thread.get("sync") or {}
+                inbound_imported += int(sync_meta.get("inbound_imported") or 0)
+
+        replies = list_awaiting_replies(client_ids or None, limit=body.limit)
+        return {
+            "ok": True,
+            "synced": synced,
+            "inbound_imported": inbound_imported,
+            "awaiting": len(replies),
+            "replies": replies,
+            "batch_max": MASS_SEND_BATCH_MAX,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/replies/collect failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

@@ -282,3 +282,41 @@ def test_enrich_and_facts_include_conversation(tmp_path, monkeypatch):
     )
     assert public["tg_conversation_preview"]
     assert "Черновик" in public["tg_conversation"]
+
+
+def test_list_awaiting_replies_after_mass_send(tmp_path, monkeypatch):
+    """Mass-send cohort: only clients who spoke last show up for follow-up."""
+    from plugins.moysklad.conversations import list_awaiting_replies
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    append_message(
+        client_id="sent-ok",
+        text="Акция на букет",
+        direction="outbound",
+        client_name="Аня",
+        source="campaign_send_batch",
+    )
+    append_message(
+        client_id="replied",
+        text="Акция на букет",
+        direction="outbound",
+        client_name="Боря",
+        source="campaign_send_batch",
+    )
+    append_message(
+        client_id="replied",
+        text="Интересно, сколько стоит?",
+        direction="inbound",
+        client_name="Боря",
+        source="telegram_user",
+    )
+
+    waiting = list_awaiting_replies(["sent-ok", "replied", "ghost"])
+    assert [r["client_id"] for r in waiting] == ["replied"]
+    assert waiting[0]["awaiting_reply"] is True
+    assert "стоит" in (waiting[0]["preview"] or "").lower()
+
+    empty = list_awaiting_replies(["sent-ok"])
+    assert empty == []

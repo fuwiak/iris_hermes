@@ -978,3 +978,70 @@ def sync_client_conversation(
     if cid:
         _LIVE_PULL_AT[cid] = time.time()
     return thread
+
+
+def _last_human_direction(thread: dict[str, Any] | None) -> str:
+    """Last outbound/inbound direction — system noise ignored."""
+    if not isinstance(thread, dict):
+        return ""
+    for msg in reversed(list(thread.get("messages") or [])):
+        if not isinstance(msg, dict):
+            continue
+        direction = str(msg.get("direction") or "").strip().lower()
+        if direction in ("outbound", "inbound"):
+            return direction
+    return ""
+
+
+def list_awaiting_replies(
+    client_ids: list[str] | None = None,
+    *,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Threads where the client spoke last (needs operator follow-up).
+
+    Used after a mass Рассылка: collect inbound answers without opening
+    each card. Optional ``client_ids`` scopes to the last send cohort;
+    empty → scan the whole store (capped by ``limit``).
+    """
+    want: set[str] | None = None
+    if client_ids:
+        want = {str(x or "").strip() for x in client_ids if str(x or "").strip()}
+        if not want:
+            return []
+    try:
+        cap = max(1, min(int(limit), 2000))
+    except (TypeError, ValueError):
+        cap = 200
+
+    with _LOCK:
+        store = _load()
+        threads = store.get("threads") or {}
+        rows: list[dict[str, Any]] = []
+        for tid, thread in threads.items():
+            if not isinstance(thread, dict):
+                continue
+            cid = str(thread.get("client_id") or tid or "").strip()
+            if want is not None and cid not in want and str(tid) not in want:
+                continue
+            if _last_human_direction(thread) != "inbound":
+                continue
+            public = public_thread(thread)
+            rows.append(
+                {
+                    "client_id": cid,
+                    "client_name": public.get("client_name") or "",
+                    "tg_nick": public.get("tg_nick") or "",
+                    "phone": public.get("phone") or "",
+                    "preview": public.get("preview") or "",
+                    "message_count": public.get("message_count") or 0,
+                    "updated_at": public.get("updated_at"),
+                    "awaiting_reply": True,
+                }
+            )
+
+    def _sort_key(row: dict[str, Any]) -> str:
+        return str(row.get("updated_at") or "")
+
+    rows.sort(key=_sort_key, reverse=True)
+    return rows[:cap]

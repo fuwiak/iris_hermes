@@ -427,6 +427,40 @@
   gap: 0.75rem;
 }
 
+.ms-howto {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.75rem 0.75rem 1.5rem;
+  border: 1px solid #4a2a55;
+  border-radius: 0.75rem;
+  background: #2a142f;
+  color: #e8dcec;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.ms-howto li + li {
+  margin-top: 0.35rem;
+}
+
+.ms-replies-inbox {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px dashed #6b2d7a;
+  border-radius: 0.75rem;
+  background: #32143a;
+}
+
+.ms-replies-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
 .ms-campaign-form label {
   display: grid;
   gap: 0.35rem;

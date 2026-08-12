@@ -40,6 +40,15 @@ import {
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
 import { EventCalendarPicker } from './event-calendar'
+import {
+  chunkIds,
+  MASS_AUDIENCE_SELECT_CAP,
+  MASS_SEND_CHUNK,
+  massSendConfirmText,
+  massSendProgressLabel,
+  mergeUniqueIds,
+  needsMassSendConfirm
+} from './mass-send'
 
 interface GroupChipOption {
   name: string
@@ -4695,6 +4704,20 @@ function CampaignsPage() {
     recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
   } | null>(null)
   const [preflightBusy, setPreflightBusy] = useState(false)
+  const [selectingAudience, setSelectingAudience] = useState(false)
+  const [lastSentClientIds, setLastSentClientIds] = useState<string[]>([])
+  const [replies, setReplies] = useState<
+    Array<{
+      client_id?: string
+      client_name?: string
+      tg_nick?: string
+      preview?: string
+      message_count?: number
+      updated_at?: string
+    }>
+  >([])
+  const [repliesBusy, setRepliesBusy] = useState(false)
+  const [repliesMeta, setRepliesMeta] = useState('')
 
   const runPreflight = async () => {
     const multiIds =
@@ -4710,6 +4733,7 @@ function CampaignsPage() {
       return
     }
 
+    const probeIds = multiIds.slice(0, 200)
     setPreflightBusy(true)
     setError('')
     try {
@@ -4720,20 +4744,167 @@ function CampaignsPage() {
         recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
       }>('/campaigns/telegram/preflight', {
         method: 'POST',
-        body: { client_ids: multiIds }
+        timeoutMs: 180_000,
+        body: { client_ids: probeIds }
       })
       setPreflight(data)
+      const sampleNote =
+        multiIds.length > probeIds.length
+          ? ` (проба ${probeIds.length} из ${multiIds.length})`
+          : ''
       if (!data.account?.ok) {
         setError(`Business-бот не готов: ${data.account?.detail || data.account?.error || 'см. настройки'}`)
       } else if (data.blocked) {
-        setActionStatus(`Готовы к отправке: ${data.ready}/${multiIds.length}. Недостижимых: ${data.blocked}.`)
+        setActionStatus(
+          `Готовы к отправке: ${data.ready}/${probeIds.length}${sampleNote}. Недостижимых: ${data.blocked}.`
+        )
       } else {
-        setActionStatus(`Все ${data.ready} получателей достижимы через Business bot.`)
+        setActionStatus(
+          `Все ${data.ready} получателей достижимы через Business bot${sampleNote}.`
+        )
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPreflightBusy(false)
+    }
+  }
+
+  const selectLoadedAudience = () => {
+    const ids = audiencePreview
+      .map(row => String(row.id || '').trim())
+      .filter(Boolean)
+    if (!ids.length) {
+      setError('Сначала подгрузите контакты аудитории (или снимите фильтр).')
+      return
+    }
+    setPickMode('multi')
+    setSelectedClientIds(ids)
+    setActionStatus(`✓ Выбрано загруженных: ${ids.length} (из ${audience})`)
+    setError('')
+  }
+
+  const selectEntireAudience = async () => {
+    if (audience < 1) {
+      setError('Аудитория пуста — поправьте фильтры.')
+      return
+    }
+    setSelectingAudience(true)
+    setError('')
+    setActionStatus(`Собираю id всей аудитории (${audience})…`)
+    try {
+      const pageLimit = 500
+      let offset = 0
+      let ids: string[] = []
+      let matched = audience
+      let guard = 0
+      while (offset < matched && ids.length < MASS_AUDIENCE_SELECT_CAP && guard < 40) {
+        guard += 1
+        const page = await call<{
+          clients?: ClientRow[]
+          matched_total?: number
+          has_more?: boolean
+          next_offset?: number
+        }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
+          timeoutMs: 120_000
+        })
+        matched = page.matched_total ?? matched
+        const rows = page.clients || []
+        ids = mergeUniqueIds(
+          ids,
+          rows.map(r => String(r.id || '').trim())
+        )
+        const next =
+          typeof page.next_offset === 'number' ? page.next_offset : offset + rows.length
+        if (!rows.length || next <= offset) {
+          break
+        }
+        if (page.has_more === false && next >= matched) {
+          offset = next
+          break
+        }
+        offset = next
+        setActionStatus(`Собираю id… ${ids.length} / ${matched}`)
+      }
+      if (!ids.length) {
+        setError('Не удалось получить id клиентов — обновите кэш Клиентов.')
+        setActionStatus('')
+        return
+      }
+      setPickMode('multi')
+      setSelectedClientIds(ids)
+      const capped = ids.length >= MASS_AUDIENCE_SELECT_CAP && matched > ids.length
+      setActionStatus(
+        capped
+          ? `✓ Выбрано ${ids.length} (лимит ${MASS_AUDIENCE_SELECT_CAP}; в фильтре ${matched})`
+          : `✓ Выбрана вся аудитория: ${ids.length}`
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setActionStatus('')
+    } finally {
+      setSelectingAudience(false)
+    }
+  }
+
+  const collectReplies = async () => {
+    const cohort =
+      lastSentClientIds.length > 0
+        ? lastSentClientIds
+        : pickMode === 'multi'
+          ? selectedClientIds
+          : selectedClientId
+            ? [selectedClientId]
+            : []
+    if (!cohort.length) {
+      setError(
+        'Нет когорты для сбора — сначала отправьте рассылку или выберите контакты.'
+      )
+      return
+    }
+    setRepliesBusy(true)
+    setError('')
+    setRepliesMeta(`Синхронизирую ответы (${cohort.length})…`)
+    try {
+      const data = await call<{
+        awaiting?: number
+        synced?: number
+        inbound_imported?: number
+        replies?: Array<{
+          client_id?: string
+          client_name?: string
+          tg_nick?: string
+          preview?: string
+          message_count?: number
+          updated_at?: string
+        }>
+      }>('/campaigns/replies/collect', {
+        method: 'POST',
+        timeoutMs: 300_000,
+        body: {
+          client_ids: cohort.slice(0, 200),
+          sync: true,
+          limit: 200
+        }
+      })
+      setReplies(data.replies || [])
+      setRepliesMeta(
+        `Ждут ответа: ${data.awaiting ?? 0}` +
+          (data.inbound_imported
+            ? ` · новых входящих: ${data.inbound_imported}`
+            : '') +
+          (data.synced ? ` · sync ${data.synced}` : '')
+      )
+      setActionStatus(
+        (data.awaiting || 0) > 0
+          ? `✓ Собраны ответы: ${data.awaiting} клиентов ждут ответа`
+          : '✓ Sync готов — новых входящих в когорте пока нет'
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setRepliesMeta('')
+    } finally {
+      setRepliesBusy(false)
     }
   }
 
@@ -4758,57 +4929,84 @@ function CampaignsPage() {
       return
     }
 
+    if (
+      needsMassSendConfirm(multiIds.length) &&
+      !window.confirm(massSendConfirmText(multiIds.length))
+    ) {
+      return
+    }
+
     setCheckingSanity(true)
     setError('')
+    const chunks = chunkIds(multiIds, MASS_SEND_CHUNK)
     setActionStatus(
       channel.startsWith('telegram')
         ? multiIds.length > 1
-          ? `Отправка ${multiIds.length} контактам через Telegram Business…`
+          ? massSendProgressLabel(0, multiIds.length, chunks[0]?.length || MASS_SEND_CHUNK)
           : 'Отправка через Telegram Business bot…'
         : 'Пишем исходящее в историю…'
     )
 
     try {
-      if (multiIds.length > 1) {
-        const data = await call<{
-          sent_ok?: number
-          total?: number
-          results?: Array<{
-            client_id?: string
-            ok?: boolean
-            delivery?: { ok?: boolean; detail?: string; error?: string }
-            error?: string
-          }>
-        }>('/campaigns/mark-sent-batch', {
-          method: 'POST',
-          body: {
-            message: draft,
-            channel,
-            client_ids: multiIds,
-            open_deep_link: false,
-            deliver: true
-          }
-        })
-        const ok = data.sent_ok || 0
-        const total = data.total || multiIds.length
-        const failDetails = (data.results || [])
-          .filter(r => !r.delivery?.ok)
-          .slice(0, 3)
-          .map(
-            r =>
-              `${r.client_id}: ${r.delivery?.detail || r.delivery?.error || r.error || 'fail'}`
+      if (multiIds.length > 1 || chunks.length > 1) {
+        let sentOk = 0
+        let attempted = 0
+        const failDetails: string[] = []
+        let done = 0
+        for (const chunk of chunks) {
+          setActionStatus(massSendProgressLabel(done, multiIds.length, chunk.length))
+          setBatchProgress(
+            `Пачка ${Math.floor(done / MASS_SEND_CHUNK) + 1}/${chunks.length}`
           )
-          .join('; ')
-
+          const data = await call<{
+            sent_ok?: number
+            total?: number
+            results?: Array<{
+              client_id?: string
+              ok?: boolean
+              delivery?: { ok?: boolean; detail?: string; error?: string }
+              error?: string
+            }>
+          }>('/campaigns/mark-sent-batch', {
+            method: 'POST',
+            timeoutMs: 300_000,
+            body: {
+              message: draft,
+              channel,
+              client_ids: chunk,
+              open_deep_link: false,
+              deliver: true
+            }
+          })
+          sentOk += data.sent_ok || 0
+          attempted += data.total || chunk.length
+          for (const r of data.results || []) {
+            if (!r.delivery?.ok) {
+              failDetails.push(
+                `${r.client_id}: ${r.delivery?.detail || r.delivery?.error || r.error || 'fail'}`
+              )
+            }
+          }
+          done += chunk.length
+        }
+        setLastSentClientIds(multiIds)
+        setBatchProgress('')
         applyOfferText(
           draft,
-          `✓ Batch: ${ok}/${total} отправлено через Business bot`
+          `✓ Batch: ${sentOk}/${attempted} отправлено` +
+            (chunks.length > 1 ? ` (${chunks.length} пачек по ≤${MASS_SEND_CHUNK})` : '')
         )
-
-        if (ok < total) {
-          setError(`Часть не ушла (${total - ok}): ${failDetails || 'см. логи'}`)
+        if (sentOk < attempted) {
+          setError(
+            `Часть не ушла (${attempted - sentOk}): ${
+              failDetails.slice(0, 3).join('; ') || 'см. логи'
+            }`
+          )
+        } else {
+          setActionStatus(
+            `✓ Все ${sentOk} ушли. Дальше: «Собрать ответы» — входящие в TG conversation.`
+          )
         }
-
         return
       }
 
@@ -4827,6 +5025,8 @@ function CampaignsPage() {
           deliver: true
         }
       })
+
+      setLastSentClientIds(multiIds)
 
       if (data.facts) {
         setFacts(data.facts)
@@ -4853,6 +5053,7 @@ function CampaignsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setActionStatus('')
+      setBatchProgress('')
     } finally {
       setCheckingSanity(false)
     }
@@ -5381,12 +5582,31 @@ function CampaignsPage() {
       <div className="ms-page-header">
         <div>
           <h1>Рассылки</h1>
-          <p className="ms-muted">Массовые черновики · аудитория = дедуп-кэш Клиентов</p>
+          <p className="ms-muted">
+            Массовая отправка по дедуп-кэшу Клиентов · ответы → TG conversation
+          </p>
         </div>
         <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
           ← Клиенты
         </button>
       </div>
+      <ol className="ms-howto">
+        <li>
+          Фильтры аудитории → <strong>{audience}</strong> чел. после дедупа
+        </li>
+        <li>
+          Текст один на всех (или «Персонализировать») →{' '}
+          <strong>Выбрать всю аудиторию</strong>
+        </li>
+        <li>
+          <strong>Проверить получателей</strong> →{' '}
+          <strong>Отправить пачками</strong> (по {MASS_SEND_CHUNK}, сотни/тысячи)
+        </li>
+        <li>
+          <strong>Собрать ответы</strong> — входящие из личного TG / Business в
+          историю клиента
+        </li>
+      </ol>
       <FilterTabs
         counts={counts}
         disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
@@ -5627,6 +5847,26 @@ function CampaignsPage() {
                   Несколько
                 </button>
               </div>
+              <button
+                className="ms-btn"
+                disabled={selectingAudience || !audiencePreview.length}
+                onClick={() => selectLoadedAudience()}
+                title="Отметить всех уже загруженных в список (без догрузки)"
+                type="button"
+              >
+                Выбрать загруженных ({audiencePreview.length})
+              </button>
+              <button
+                className="ms-btn ms-btn-primary"
+                disabled={selectingAudience || audience < 1}
+                onClick={() => void selectEntireAudience()}
+                title={`Подтянуть id всей аудитории страницами (до ${MASS_AUDIENCE_SELECT_CAP}) и отметить для пачечной отправки`}
+                type="button"
+              >
+                {selectingAudience
+                  ? 'Собираю id…'
+                  : `Выбрать всю аудиторию (${audience})`}
+              </button>
               <button
                 className="ms-link-btn"
                 onClick={() => setContactsOpen(open => !open)}
@@ -6213,7 +6453,7 @@ function CampaignsPage() {
             ) : null}
             {selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0) ? (
               <button
-                className="ms-btn"
+                className="ms-btn ms-btn-primary"
                 disabled={
                   checkingSanity ||
                   generating ||
@@ -6227,11 +6467,25 @@ function CampaignsPage() {
               >
                 {channel.startsWith('telegram')
                   ? pickMode === 'multi' && selectedClientIds.length > 1
-                    ? `Отправить выбранным (${selectedClientIds.length})`
+                    ? `Отправить пачками (${selectedClientIds.length})`
                     : 'Отправить в Telegram'
                   : 'Отправить → в историю'}
               </button>
             ) : null}
+            <button
+              className="ms-btn"
+              disabled={
+                repliesBusy ||
+                (!lastSentClientIds.length &&
+                  !(pickMode === 'multi' && selectedClientIds.length) &&
+                  !selectedClientId)
+              }
+              onClick={() => void collectReplies()}
+              title="Sync входящих из личного Telegram / Business → список кто ждёт ответа"
+              type="button"
+            >
+              {repliesBusy ? 'Собираю…' : 'Собрать ответы'}
+            </button>
             {preflight ? (
               <p className="ms-muted ms-preflight-note">
                 Готовы: {preflight.ready ?? 0} · недостижимы: {preflight.blocked ?? 0}
@@ -6247,6 +6501,40 @@ function CampaignsPage() {
                 ) : null}
               </p>
             ) : null}
+            {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
+            {(repliesMeta || replies.length > 0) && (
+              <div className="ms-replies-inbox">
+                <p className="ms-ai-label">Ответы клиентов</p>
+                {repliesMeta ? <p className="ms-muted">{repliesMeta}</p> : null}
+                {replies.length ? (
+                  <ul className="ms-replies-list">
+                    {replies.map(row => (
+                      <li key={row.client_id || row.preview}>
+                        <button
+                          className="ms-link-btn"
+                          onClick={() => {
+                            if (!row.client_id) {
+                              return
+                            }
+                            setPickMode('single')
+                            setSelectedClientId(row.client_id)
+                            setSelectedClientName(row.client_name || '')
+                            setContactPickerId(row.client_id)
+                            void loadOutreach(row.client_id, channel)
+                          }}
+                          type="button"
+                        >
+                          {row.client_name || row.tg_nick || row.client_id}
+                        </button>
+                        {row.preview ? (
+                          <span className="ms-muted"> — {row.preview}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
             <button
               className="ms-btn ms-btn-primary"
               disabled={
