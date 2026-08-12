@@ -148,7 +148,7 @@ describe('pickLocalClientsSeed', () => {
 })
 
 describe('forEachRowProgressive', () => {
-  it('paints one row at a time and stops when cancelled', async () => {
+  it('paints rows and stops when cancelled', async () => {
     const seen: string[] = []
     const n = await forEachRowProgressive(
       [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
@@ -157,11 +157,21 @@ describe('forEachRowProgressive', () => {
       },
       {
         delayMs: 0,
+        chunkSize: 1,
         isCancelled: () => seen.length >= 2
       }
     )
     expect(seen).toEqual(['a', 'b'])
     expect(n).toBe(2)
+  })
+
+  it('paints the whole page in one chunk by default', async () => {
+    const seen: string[] = []
+    const n = await forEachRowProgressive([{ id: 'a' }, { id: 'b' }, { id: 'c' }], row => {
+      seen.push(String(row.id))
+    })
+    expect(seen).toEqual(['a', 'b', 'c'])
+    expect(n).toBe(3)
   })
 })
 

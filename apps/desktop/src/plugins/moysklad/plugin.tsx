@@ -35,7 +35,6 @@ import {
 import {
   clientSalesChannelTokens,
   filterClientRowsByAudience,
-  forEachRowProgressive,
   isBenignRequestAbort,
   pickLocalClientsSeed,
   rowMatchesSalesChannelColumnFilter
@@ -2007,10 +2006,16 @@ const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
 /** Catalog filter can exceed default 15s desktop REST timeout → Chromium abort modal. */
 const CLIENTS_FETCH_TIMEOUT_MS = 90_000
-/** First audience paint — keep modest so chips appear quickly. */
-const AUDIENCE_PAGE_SIZE = 24
-/** Scroll/load-more batches — small so «Подгружаем» shows progress often. */
-const AUDIENCE_APPEND_PAGE_SIZE = 8
+/** First audience paint — match backend PAGE_SNAPSHOT_ROWS (fast snapshot path). */
+const AUDIENCE_PAGE_SIZE = 100
+/**
+ * Scroll/load-more batches. Offset>0 skips the snapshot fast-path and rebuilds
+ * the filtered page server-side — large pages cut round-trips (8 was glacial
+ * for ~10k catalogs: «Подгружаем… 24 / 9507»).
+ */
+const AUDIENCE_APPEND_PAGE_SIZE = 250
+/** Cap localStorage audience cache growth after appends. */
+const AUDIENCE_LOCAL_CACHE_ROWS = 500
 
 interface ClientsLocalCachePayload {
   saved_at: number
@@ -4050,72 +4055,69 @@ function CampaignsPage() {
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
 
-        // Paint chips one-by-one so load-more never looks frozen on a blank spinner.
+        // One setState per page — per-row rAF paint made «Подгружаем» crawl.
+        let painted: ClientRow[]
         if (append) {
-          await forEachRowProgressive(
-            rows,
-            row => {
-              setAudiencePreview(prev => mergeClientPages(prev, [row]))
-            },
-            { isCancelled: () => gen !== audienceLoadGen.current }
-          )
-        } else if (!audiencePreviewRef.current.length) {
-          await forEachRowProgressive(
-            rows,
-            row => {
-              setAudiencePreview(prev => mergeClientPages(prev, [row]))
-            },
-            { isCancelled: () => gen !== audienceLoadGen.current }
-          )
+          painted = mergeClientPages(audiencePreviewRef.current, rows)
         } else {
-          setAudiencePreview(rows)
+          const prior = audiencePreviewRef.current
+          // Revalidate first page without wiping chips already painted from cache/scroll.
+          painted =
+            prior.length > rows.length ? mergeClientPages(rows, prior) : rows
         }
+        setAudiencePreview(painted)
 
         if (gen !== audienceLoadGen.current) {
           return
         }
 
-        if (!append) {
-          const { ms, ai } = resolveGroupOptionsBySource(page)
-          setGroupOptionsMs(ms)
-          setGroupOptionsAi(ai)
-          writeClientsLocalCache(
-            clientsLocalCacheKey({
-              salesFilter,
-              q: audienceQDebounced,
-              group,
-              groupSource
-            }),
-            {
-              saved_at: Date.now(),
-              sales_filter: salesFilter,
-              q: audienceQDebounced,
-              group,
-              group_source: groupSource,
-              clients: rows,
-              counts: page.counts || null,
-              matched_total: page.matched_total || 0,
-              has_more:
-                page.has_more != null
-                  ? Boolean(page.has_more)
-                  : (page.next_offset != null ? page.next_offset : offset + rows.length) <
-                    (page.matched_total || 0),
-              next_offset:
-                page.next_offset != null ? page.next_offset : offset + rows.length,
-              group_options_ms: ms,
-              group_options_ai: ai,
-              synced_at_label: '',
-              from_cache: false
-            }
-          )
+        let next = page.next_offset != null ? page.next_offset : offset + rows.length
+        if (!append && painted.length > next) {
+          next = painted.length
         }
-        const next = page.next_offset != null ? page.next_offset : offset + rows.length
         const more =
-          page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0)
+          page.has_more != null
+            ? Boolean(page.has_more) || painted.length < (page.matched_total || 0)
+            : next < (page.matched_total || 0)
         audienceNextOffsetRef.current = next
         audienceHasMoreRef.current = more
         setAudienceNextOffset(next)
         setAudienceHasMore(more)
+
+        const { ms, ai } = append
+          ? {
+              ms: groupOptionsMsRef.current,
+              ai: groupOptionsAiRef.current
+            }
+          : resolveGroupOptionsBySource(page)
+        if (!append) {
+          setGroupOptionsMs(ms)
+          setGroupOptionsAi(ai)
+        }
+        writeClientsLocalCache(
+          clientsLocalCacheKey({
+            salesFilter,
+            q: audienceQDebounced,
+            group,
+            groupSource
+          }),
+          {
+            saved_at: Date.now(),
+            sales_filter: salesFilter,
+            q: audienceQDebounced,
+            group,
+            group_source: groupSource,
+            clients: painted.slice(0, AUDIENCE_LOCAL_CACHE_ROWS),
+            counts: page.counts || null,
+            matched_total: page.matched_total || 0,
+            has_more: more,
+            next_offset: next,
+            group_options_ms: ms,
+            group_options_ai: ai,
+            synced_at_label: '',
+            from_cache: false
+          }
+        )
       } catch (err) {
         if (gen !== audienceLoadGen.current) {
           return

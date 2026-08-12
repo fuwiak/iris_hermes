@@ -211,19 +211,23 @@ export function filterClientRowsByAudience<T extends ClientQueryRow>(
 }
 
 /**
- * Yield rows one-by-one so the UI can paint chips progressively
- * instead of freezing on «Подгружаем клиентов…» until the whole page lands.
+ * Yield rows in chunks so the UI can paint progressively without freezing.
+ * Default: whole array in one chunk (one optional frame yield) — per-row rAF
+ * made large catalogs crawl («Подгружаем клиентов… 24 / 9507»).
  */
 export async function forEachRowProgressive<T>(
   rows: T[],
   onRow: (row: T, index: number) => void | Promise<void>,
   opts?: {
     isCancelled?: () => boolean
-    /** Frame gap between paints; 0 = next microtask only. */
+    /** Frame gap between chunks; 0 = next microtask / rAF only. */
     delayMs?: number
+    /** Rows per yield. Default = all rows (single paint burst). */
+    chunkSize?: number
   }
 ): Promise<number> {
   const delayMs = opts?.delayMs ?? 0
+  const chunkSize = Math.max(1, opts?.chunkSize ?? Math.max(rows.length, 1))
   let painted = 0
   for (let i = 0; i < rows.length; i++) {
     if (opts?.isCancelled?.()) {
@@ -231,6 +235,9 @@ export async function forEachRowProgressive<T>(
     }
     await onRow(rows[i], i)
     painted += 1
+    if (painted % chunkSize !== 0 && i + 1 < rows.length) {
+      continue
+    }
     if (delayMs > 0) {
       await new Promise<void>(resolve => {
         window.setTimeout(resolve, delayMs)
