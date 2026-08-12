@@ -3273,6 +3273,13 @@ function CampaignsPage() {
   const audienceLoadGen = useRef(0)
   const audiencePreviewRef = useRef<ClientRow[]>([])
   audiencePreviewRef.current = audiencePreview
+  /** Keep pagination out of loadAudience deps — else every append recreates the
+   * callback, the filter useEffect re-runs, and contacts reset to page 1 while
+   * «Подгружаем клиентов…» loops. */
+  const audienceNextOffsetRef = useRef(0)
+  const audienceHasMoreRef = useRef(false)
+  audienceNextOffsetRef.current = audienceNextOffset
+  audienceHasMoreRef.current = audienceHasMore
   const groupOptionsMsRef = useRef<GroupChipOption[]>([])
   const groupOptionsAiRef = useRef<GroupChipOption[]>([])
   groupOptionsMsRef.current = groupOptionsMs
@@ -3974,11 +3981,11 @@ function CampaignsPage() {
   const loadAudience = useCallback(
     async (opts?: { append?: boolean }) => {
       const append = Boolean(opts?.append)
-      const offset = append ? audienceNextOffset : 0
+      const offset = append ? audienceNextOffsetRef.current : 0
       const gen = append ? audienceLoadGen.current : ++audienceLoadGen.current
 
       if (append) {
-        if (audienceLoadMoreRef.current || !audienceHasMore) {return}
+        if (audienceLoadMoreRef.current || !audienceHasMoreRef.current) {return}
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
       } else {
@@ -4003,8 +4010,17 @@ function CampaignsPage() {
           if (local.counts) {
             setCounts(local.counts)
           }
-          setAudienceNextOffset(local.next_offset || local.clients.length)
-          setAudienceHasMore(Boolean(local.has_more) || (chipCount != null && chipCount > local.clients.length))
+          const nextOff = local.clients.length
+          const more =
+            Boolean(local.has_more) ||
+            (chipCount != null && chipCount > local.clients.length) ||
+            (local.matched_total || 0) > local.clients.length
+          // Offset = painted length — never trust stale snapshot next_offset
+          // (e.g. 100 while only 24 chips shown) or first «Ещё» skips a page.
+          audienceNextOffsetRef.current = nextOff
+          audienceHasMoreRef.current = more
+          setAudienceNextOffset(nextOff)
+          setAudienceHasMore(more)
           setLoading(true)
         } else {
           const painted = audiencePreviewRef.current
@@ -4016,12 +4032,18 @@ function CampaignsPage() {
             })
             setAudiencePreview(filtered)
             setAudience(chipCount != null ? chipCount : filtered.length)
-            setAudienceNextOffset(filtered.length)
-            setAudienceHasMore(chipCount != null ? chipCount > filtered.length : false)
+            const nextOff = filtered.length
+            const more = chipCount != null ? chipCount > filtered.length : false
+            audienceNextOffsetRef.current = nextOff
+            audienceHasMoreRef.current = more
+            setAudienceNextOffset(nextOff)
+            setAudienceHasMore(more)
           } else if (group || audienceQDebounced.trim()) {
             // Filter active but nothing paintable — clear stale «все 9504».
             setAudiencePreview([])
             setAudience(chipCount != null ? chipCount : 0)
+            audienceNextOffsetRef.current = 0
+            audienceHasMoreRef.current = Boolean(chipCount && chipCount > 0)
             setAudienceNextOffset(0)
             setAudienceHasMore(Boolean(chipCount && chipCount > 0))
           }
@@ -4112,10 +4134,12 @@ function CampaignsPage() {
           )
         }
         const next = page.next_offset != null ? page.next_offset : offset + rows.length
-        setAudienceNextOffset(next)
-        setAudienceHasMore(
+        const more =
           page.has_more != null ? Boolean(page.has_more) : next < (page.matched_total || 0)
-        )
+        audienceNextOffsetRef.current = next
+        audienceHasMoreRef.current = more
+        setAudienceNextOffset(next)
+        setAudienceHasMore(more)
       } catch (err) {
         if (gen !== audienceLoadGen.current) {
           return
@@ -4137,16 +4161,7 @@ function CampaignsPage() {
         }
       }
     },
-    [
-      audienceFilterParams,
-      audienceHasMore,
-      audienceNextOffset,
-      audienceQDebounced,
-      call,
-      group,
-      groupSource,
-      salesFilter
-    ]
+    [audienceFilterParams, audienceQDebounced, call, group, groupSource, salesFilter]
   )
 
   const refresh = useCallback(async () => {
@@ -5669,7 +5684,7 @@ function CampaignsPage() {
 
                     if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {return}
 
-                    if (!audienceHasMore || audienceLoadMoreRef.current) {return}
+                    if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {return}
                     void loadAudience({ append: true })
                   }}
                 >

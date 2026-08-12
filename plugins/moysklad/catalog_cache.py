@@ -449,11 +449,15 @@ def slice_page_snapshot(
     out = dict(page)
     out["clients"] = sliced
     out["returned"] = len(sliced)
-    out["has_more"] = bool(page.get("has_more")) or len(clients) > lim
-    if "next_offset" in page:
-        out["next_offset"] = int(page.get("next_offset") or lim)
-    else:
-        out["next_offset"] = lim
+    # next_offset must match the returned page, not the full snapshot's cursor
+    # (otherwise limit=24 still advertises next_offset=100 and UI skips rows).
+    matched_total = int(page.get("matched_total") or 0)
+    out["next_offset"] = len(sliced)
+    out["has_more"] = (
+        len(clients) > lim
+        or bool(page.get("has_more"))
+        or matched_total > len(sliced)
+    )
     return out
 
 

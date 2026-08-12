@@ -85,6 +85,13 @@ def test_page_snapshot_roundtrip_first_100(hermes_home: Path) -> None:
     assert sliced is not None
     assert len(sliced["clients"]) == 100
     assert sliced["has_more"] is True
+    assert sliced["next_offset"] == 100
+    # Smaller UI page must not inherit the full-snapshot cursor (was 100).
+    small = cc.slice_page_snapshot(hit, limit=24, offset=0)
+    assert small is not None
+    assert len(small["clients"]) == 24
+    assert small["next_offset"] == 24
+    assert small["has_more"] is True
     assert cc.slice_page_snapshot(hit, limit=50, offset=5) is None  # only offset 0
 
 
