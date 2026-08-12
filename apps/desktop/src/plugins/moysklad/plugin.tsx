@@ -4031,6 +4031,17 @@ function CampaignsPage() {
     [activeSegmentId, call, loadSegments]
   )
 
+  const audienceExtrasFilterActive = Boolean(
+    channelKind ||
+      requirePhone ||
+      requireTelegram ||
+      vipOnly ||
+      birthdaySoon ||
+      daysBeforeEvent > 0 ||
+      eventDateFrom ||
+      eventDateTo
+  )
+
   const loadAudience = useCallback(
     async (opts?: { append?: boolean }) => {
       const append = Boolean(opts?.append)
@@ -4041,6 +4052,16 @@ function CampaignsPage() {
         if (audienceLoadMoreRef.current || !audienceHasMoreRef.current) {return}
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
+      } else if (audienceExtrasFilterActive) {
+        // Local cache ignores phone/tg/VIP/event filters — don't paint stale chips.
+        setAudiencePreview([])
+        setAudience(0)
+        audienceNextOffsetRef.current = 0
+        audienceHasMoreRef.current = false
+        setAudienceNextOffset(0)
+        setAudienceHasMore(false)
+        setLoading(true)
+        setError('')
       } else {
         // Instant: filter local cache / painted chips by group+q while API revalidates.
         const local = seedClientsLocalPayload({
@@ -4164,6 +4185,9 @@ function CampaignsPage() {
         let painted: ClientRow[]
         if (append) {
           painted = mergeClientPages(audiencePreviewRef.current, rows)
+        } else if (audienceExtrasFilterActive) {
+          // Extras filters are server-only — never merge stale unfiltered chips.
+          painted = rows
         } else {
           const prior = audiencePreviewRef.current
           // Revalidate first page without wiping chips already painted from cache/scroll.
@@ -4244,7 +4268,15 @@ function CampaignsPage() {
         }
       }
     },
-    [audienceFilterParams, audienceQDebounced, call, group, groupSource, salesFilter]
+    [
+      audienceExtrasFilterActive,
+      audienceFilterParams,
+      audienceQDebounced,
+      call,
+      group,
+      groupSource,
+      salesFilter
+    ]
   )
 
   const refresh = useCallback(async () => {
@@ -5496,8 +5528,8 @@ function CampaignsPage() {
                 setRequireTelegram(false)
                 setBirthdaySoon(false)
                 setDaysBeforeEvent(0)
-                setEventDateFrom('')
-                setEventDateTo('')
+                setEventDateFrom(null)
+                setEventDateTo(null)
                 setGroup('')
                 setGroupSource('any')
                 setAudienceQ('')
@@ -5595,6 +5627,65 @@ function CampaignsPage() {
                   }
                 }}
               />
+              {eventDateFrom || eventDateTo || daysBeforeEvent > 0 ? (
+                <div className="ms-event-audience">
+                  <div className="ms-event-audience-head">
+                    <span className="ms-filter-label">
+                      Клиенты по событию
+                      {loading ? '…' : audience ? ` · ${audience}` : ''}
+                    </span>
+                    {audiencePreview.length ? (
+                      <button
+                        className="ms-link-btn"
+                        onClick={() => {
+                          setContactsOpen(true)
+                          const el = document.querySelector('.ms-audience-pick')
+                          el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                        }}
+                        type="button"
+                      >
+                        Весь список
+                      </button>
+                    ) : null}
+                  </div>
+                  {loading && !audiencePreview.length ? (
+                    <p className="ms-muted">Ищем клиентов по датам…</p>
+                  ) : audiencePreview.length ? (
+                    <div className="ms-chips ms-event-audience-chips">
+                      {audiencePreview.slice(0, 24).map(row => {
+                        const active = selectedClientId === row.id
+                        const nick = (row.tg_nick || '').replace(/^@/, '')
+
+                        return (
+                          <button
+                            className={`ms-chip${active ? ' is-active' : ''}`}
+                            key={`ev-${row.id || row.name}`}
+                            onClick={() => selectAudienceClient(row)}
+                            title={nick ? `@${nick}` : row.phone || row.id}
+                            type="button"
+                          >
+                            {row.name || row.phone || row.id}
+                            {nick ? <span>@{nick}</span> : null}
+                          </button>
+                        )
+                      })}
+                      {audience > audiencePreview.length || audiencePreview.length > 24 ? (
+                        <span className="ms-muted">
+                          +{Math.max(0, audience - Math.min(24, audiencePreview.length))} ещё
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="ms-muted">
+                      {daysBeforeEvent > 0 && (eventDateFrom || eventDateTo)
+                        ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
+                        : daysBeforeEvent > 0
+                          ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
+                          : 'Нет клиентов с событием в выбранных датах.'}
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <div className="ms-filter-block ms-segments-block ms-filter-window-span">
