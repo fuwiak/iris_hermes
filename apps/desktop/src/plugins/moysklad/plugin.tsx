@@ -2089,6 +2089,12 @@ const AUDIENCE_PAGE_SIZE = 100
 const AUDIENCE_APPEND_PAGE_SIZE = 250
 /** Cap localStorage audience cache growth after appends. */
 const AUDIENCE_LOCAL_CACHE_ROWS = 500
+/**
+ * Auto infinite-scroll stops here — rest only via «Ещё клиенты».
+ * Loading all ~9k chips is pointless for outreach (pick one client) and
+ * looks like a hung «Подгружаем… 500 / 8952» worker job.
+ */
+const AUDIENCE_AUTO_SCROLL_CAP = 400
 
 interface ClientsLocalCachePayload {
   saved_at: number
@@ -4185,6 +4191,11 @@ function CampaignsPage() {
         let painted: ClientRow[]
         if (append) {
           painted = mergeClientPages(audiencePreviewRef.current, rows)
+          // Empty append while catalog still warming → stop spinner thrash.
+          if (!rows.length && painted.length >= (page.matched_total || 0)) {
+            audienceHasMoreRef.current = false
+            setAudienceHasMore(false)
+          }
         } else if (audienceExtrasFilterActive) {
           // Extras filters are server-only — never merge stale unfiltered chips.
           painted = rows
@@ -5827,6 +5838,12 @@ function CampaignsPage() {
                     if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {
                       return
                     }
+
+                    // Don't auto-pull the entire catalog into the chip list.
+                    if (audiencePreviewRef.current.length >= AUDIENCE_AUTO_SCROLL_CAP) {
+                      return
+                    }
+
                     void loadAudience({ append: true })
                   }}
                 >
@@ -5852,7 +5869,7 @@ function CampaignsPage() {
                   </div>
                   {audienceLoadingMore ? (
                     <p className="ms-muted ms-load-more">
-                      Подгружаем клиентов… {audiencePreview.length}
+                      Подгружаем… {audiencePreview.length}
                       {audience ? ` / ${audience}` : ''}
                     </p>
                   ) : null}
@@ -5863,11 +5880,21 @@ function CampaignsPage() {
                       onClick={() => void loadAudience({ append: true })}
                       type="button"
                     >
-                      Ещё клиенты
+                      {audiencePreview.length >= AUDIENCE_AUTO_SCROLL_CAP
+                        ? `Ещё клиенты (${audiencePreview.length} / ${audience})`
+                        : 'Ещё клиенты'}
                     </button>
                   ) : audiencePreview.length ? (
                     <p className="ms-muted ms-load-more">
                       Показано {audiencePreview.length} из {audience}
+                    </p>
+                  ) : null}
+                  {audienceHasMore &&
+                  audiencePreview.length >= AUDIENCE_AUTO_SCROLL_CAP &&
+                  !audienceLoadingMore ? (
+                    <p className="ms-muted ms-load-more">
+                      Для рассылки хватит поиска / фильтра — все {audience} в чипы
+                      грузить не нужно.
                     </p>
                   ) : null}
                 </div>
