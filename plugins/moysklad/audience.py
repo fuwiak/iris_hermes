@@ -153,7 +153,14 @@ def _parse_birthdate(raw: Any) -> Optional[date]:
 
 
 def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) -> list[date]:
-    """Upcoming occasion dates derived from groups/tags/birthdate attrs."""
+    """Occasion + order dates for calendar / lead-window audience filters.
+
+    Sources:
+    - birthdate attrs, fixed occasion tags («8 марта», «событие марта» → mid-month)
+    - soft season from order months (March → 8 Mar, Aug → mid-month, …)
+    - **literal order ``moment`` / ``Дата``** so picking the order day in
+      Рассылки calendar finds that client (not only 8 Mar / mid-month proxy)
+    """
     today = today or date.today()
     found: list[date] = []
     seen: set[date] = set()
@@ -196,17 +203,20 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
 
     # Soft occasions from paid/any order months — so «N дней до события»
     # finds clients with seasonal history even without explicit tags.
+    # Also stamp the real order calendar day (seller picks that day in UI).
     for item in row.get("_orders_context") or []:
         if not isinstance(item, dict):
             continue
+        moment = str(item.get("moment") or item.get("Дата") or "")
+        order_day = parse_event_date(moment)
+        if order_day is not None:
+            _add(order_day)
         month = item.get("_month")
-        if month is None:
-            moment = str(item.get("moment") or item.get("Дата") or "")
-            if len(moment) >= 7 and moment[4] == "-":
-                try:
-                    month = int(moment[5:7])
-                except ValueError:
-                    month = None
+        if month is None and len(moment) >= 7 and moment[4] == "-":
+            try:
+                month = int(moment[5:7])
+            except ValueError:
+                month = None
         try:
             month_i = int(month) if month is not None else 0
         except (TypeError, ValueError):

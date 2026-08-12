@@ -39,6 +39,55 @@ def test_row_has_group_source_scoped(monkeypatch) -> None:
     assert row_has_group(row, "премиум", source="ms") is False
 
 
+def test_event_calendar_matches_literal_order_day() -> None:
+    """Seller picking the order day (not only 8 Mar / mid-month) must find client."""
+    today = date(2026, 8, 12)
+    # Same shape as card: March order + «событие марта» (mid-month proxy = 15).
+    row = {
+        "_moysklad_id": "viktor",
+        "_moysklad_tags": ["событие марта", "флаувау"],
+        "_orders_context": [
+            {
+                "moment": "2026-03-01 09:55:00",
+                "sum": 5732,
+                "_month": 3,
+                "channel": "Flow Wow Сокольники",
+            }
+        ],
+    }
+    dates = event_dates_for_row(row, today=today)
+    assert date(2026, 3, 1) in dates
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 1),
+        lead_days=0,
+        today=today,
+    ) is True
+    # Soft proxies still work.
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 8),
+        event_to=date(2026, 3, 8),
+        lead_days=0,
+        today=today,
+    ) is True
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 15),
+        event_to=date(2026, 3, 15),
+        lead_days=0,
+        today=today,
+    ) is True
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 4, 1),
+        event_to=date(2026, 4, 1),
+        lead_days=0,
+        today=today,
+    ) is False
+
+
 def test_event_calendar_august_tag_and_order_season() -> None:
     """August calendar pick must match «событие августа» and Aug order history."""
     today = date(2026, 8, 12)

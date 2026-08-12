@@ -223,7 +223,7 @@ export function EventCalendarPicker({
             ? leadDays > 0
               ? `Событие: ${summary} · связаться за ${leadDays} дн. до`
               : `Событие: ${summary}`
-            : 'Выберите день или диапазон дат события'}
+            : 'Выберите день заказа или события'}
         </span>
         {summary ? (
           <button className="ms-link-btn" onClick={clear} type="button">
