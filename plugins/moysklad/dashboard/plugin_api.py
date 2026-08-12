@@ -227,6 +227,8 @@ def _schedule_snapshot_refresh(
     vip_only: bool,
     birthday_soon: bool,
     days_before_event: int,
+    event_date_from: str,
+    event_date_to: str,
     stage: str,
     max_orders: int,
     max_counterparties: int,
@@ -264,6 +266,8 @@ def _schedule_snapshot_refresh(
                 birthday_soon=birthday_soon,
                 group_source=group_source,
                 days_before_event=days_before_event,
+                event_date_from=event_date_from,
+                event_date_to=event_date_to,
                 stage=stage,
                 limit=PAGE_SNAPSHOT_ROWS,
                 offset=0,
@@ -556,6 +560,8 @@ class RecalculateProposeBody(BaseModel):
     birthday_soon: bool = False
     group_source: str = "any"
     days_before_event: int = 0
+    event_date_from: str = ""
+    event_date_to: str = ""
     max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
@@ -573,6 +579,8 @@ class RecalculateApplyBody(BaseModel):
     birthday_soon: bool = False
     group_source: str = "any"
     days_before_event: int = 0
+    event_date_from: str = ""
+    event_date_to: str = ""
     dry_run: bool = True
     push: bool = False
     max_orders: int = 25000
@@ -595,6 +603,8 @@ class CampaignCreateBody(BaseModel):
     birthday_soon: bool = False
     group_source: str = "any"
     days_before_event: int = 0
+    event_date_from: str = ""
+    event_date_to: str = ""
     personalize: bool = False
     client_id: str = ""
     include_preview: bool = True
@@ -658,6 +668,8 @@ class OutreachPersonalizeBody(BaseModel):
     birthday_soon: bool = False
     group_source: str = "any"
     days_before_event: int = 0
+    event_date_from: str = ""
+    event_date_to: str = ""
     seller_name: str = ""
     seller_facts: str = ""
     provider: str = ""
@@ -969,6 +981,8 @@ def get_clients(
     birthday_soon: bool = Query(False),
     group_source: str = Query("any"),
     days_before_event: int = Query(0, ge=0, le=365),
+    event_date_from: str = Query(""),
+    event_date_to: str = Query(""),
     stage: str = Query("all"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -988,6 +1002,8 @@ def get_clients(
         vip_only=vip_only,
         birthday_soon=birthday_soon,
         days_before_event=days_before_event,
+        event_date_from=event_date_from,
+        event_date_to=event_date_to,
         stage=stage,
     )
     catalog_key = cache_key(
@@ -1040,6 +1056,8 @@ def get_clients(
                             vip_only=vip_only,
                             birthday_soon=birthday_soon,
                             days_before_event=days_before_event,
+                            event_date_from=event_date_from,
+                            event_date_to=event_date_to,
                             stage=stage,
                             max_orders=max_orders,
                             max_counterparties=max_counterparties,
@@ -1113,6 +1131,8 @@ def get_clients(
             birthday_soon=birthday_soon,
             group_source=group_source,
             days_before_event=days_before_event,
+            event_date_from=event_date_from,
+            event_date_to=event_date_to,
             stage=stage,
             limit=limit,
             offset=offset,
@@ -1141,6 +1161,8 @@ def get_clients(
                         birthday_soon=birthday_soon,
                         group_source=group_source,
                         days_before_event=days_before_event,
+                        event_date_from=event_date_from,
+                        event_date_to=event_date_to,
                         stage=stage,
                         limit=PAGE_SNAPSHOT_ROWS,
                         offset=0,
@@ -2131,6 +2153,8 @@ class SegmentBody(BaseModel):
     vip_only: bool = False
     birthday_soon: bool = False
     days_before_event: int = 0
+    event_date_from: str = ""
+    event_date_to: str = ""
     stage: str = "all"
 
 
@@ -2597,6 +2621,8 @@ def post_groups_recalculate_propose(body: RecalculateProposeBody) -> dict[str, A
             birthday_soon=body.birthday_soon,
             group_source=getattr(body, 'group_source', 'any') or 'any',
             days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
+            event_date_from=str(getattr(body, 'event_date_from', '') or ''),
+            event_date_to=str(getattr(body, 'event_date_to', '') or ''),
             limit=0,
             offset=0,
             catalog=catalog,
@@ -2640,6 +2666,8 @@ def post_groups_recalculate_apply(body: RecalculateApplyBody) -> dict[str, Any]:
             birthday_soon=body.birthday_soon,
             group_source=getattr(body, 'group_source', 'any') or 'any',
             days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
+            event_date_from=str(getattr(body, 'event_date_from', '') or ''),
+            event_date_to=str(getattr(body, 'event_date_to', '') or ''),
             limit=0,
             offset=0,
             catalog=catalog,
@@ -3254,6 +3282,8 @@ def post_campaign_personalize_stream(body: OutreachPersonalizeBody) -> Any:
             birthday_soon=bool(body.birthday_soon),
             group_source=getattr(body, 'group_source', 'any') or 'any',
             days_before_event=int(getattr(body, 'days_before_event', 0) or 0),
+            event_date_from=str(getattr(body, 'event_date_from', '') or ''),
+            event_date_to=str(getattr(body, 'event_date_to', '') or ''),
             limit=limit,
             offset=0,
             max_orders=body.max_orders,
@@ -3438,6 +3468,10 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                 require_telegram=body.require_telegram,
                 vip_only=body.vip_only,
                 birthday_soon=body.birthday_soon,
+                group_source=body.group_source or "any",
+                days_before_event=int(body.days_before_event or 0),
+                event_date_from=body.event_date_from or "",
+                event_date_to=body.event_date_to or "",
                 limit=20 if body.include_preview else 1,
                 offset=0,
                 catalog=catalog,
@@ -3500,6 +3534,10 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
             "require_telegram": bool(body.require_telegram),
             "vip_only": bool(body.vip_only),
             "birthday_soon": bool(body.birthday_soon),
+            "group_source": body.group_source or "any",
+            "days_before_event": int(body.days_before_event or 0),
+            "event_date_from": body.event_date_from or "",
+            "event_date_to": body.event_date_to or "",
             "personalize": bool(body.personalize),
         }
 

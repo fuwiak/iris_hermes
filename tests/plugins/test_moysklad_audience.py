@@ -9,6 +9,7 @@ from plugins.moysklad.audience import (
     normalize_group_source,
     row_matches_audience_extras,
     row_matches_days_before_event,
+    row_matches_event_calendar,
 )
 from plugins.moysklad.classify import catalog_integrity
 from plugins.moysklad.groups import row_has_group, split_group_options_by_source
@@ -36,6 +37,69 @@ def test_row_has_group_source_scoped(monkeypatch) -> None:
     assert row_has_group(row, "8 марта", source="ai") is False
     assert row_has_group(row, "премиум", source="ai") is True
     assert row_has_group(row, "премиум", source="ms") is False
+
+
+def test_event_calendar_single_day_no_lead() -> None:
+    today = date(2026, 3, 1)
+    row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 8),
+        event_to=date(2026, 3, 8),
+        lead_days=0,
+        today=today,
+    ) is True
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 9),
+        event_to=date(2026, 3, 9),
+        lead_days=0,
+        today=today,
+    ) is False
+
+
+def test_event_calendar_range_with_lead() -> None:
+    today = date(2026, 3, 4)
+    row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 15),
+        lead_days=5,
+        today=today,
+    ) is True
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 15),
+        lead_days=3,
+        today=today,
+    ) is False
+
+
+def test_audience_extras_event_calendar_params(monkeypatch) -> None:
+    fixed = date(2026, 3, 4)
+    monkeypatch.setattr(
+        "plugins.moysklad.audience.date",
+        type(
+            "FixedDate",
+            (date,),
+            {"today": classmethod(lambda cls: fixed)},
+        ),
+    )
+    row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}
+    assert row_matches_audience_extras(
+        row,
+        event_date_from="2026-03-08",
+        event_date_to="2026-03-08",
+        days_before_event=5,
+    )
+    assert not row_matches_audience_extras(
+        row,
+        event_date_from="2026-03-08",
+        event_date_to="2026-03-08",
+        days_before_event=1,
+    )
 
 
 def test_days_before_event_8_march() -> None:

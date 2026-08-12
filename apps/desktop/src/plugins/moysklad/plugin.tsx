@@ -24,6 +24,7 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
+import { EventCalendarPicker } from './event-calendar'
 import {
   filterClientRowsByAudience,
   forEachRowProgressive,
@@ -467,6 +468,8 @@ interface SavedSegment {
     vip_only?: boolean
     birthday_soon?: boolean
     days_before_event?: number
+    event_date_from?: string
+    event_date_to?: string
     stage?: string
   }
 }
@@ -3090,6 +3093,8 @@ function CampaignsPage() {
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
+  const [eventDateFrom, setEventDateFrom] = useState<string | null>(null)
+  const [eventDateTo, setEventDateTo] = useState<string | null>(null)
   const [segments, setSegments] = useState<SavedSegment[]>([])
   const [segmentsLoading, setSegmentsLoading] = useState(false)
   const [segmentName, setSegmentName] = useState('')
@@ -3772,6 +3777,14 @@ function CampaignsPage() {
         params.set('days_before_event', String(daysBeforeEvent))
       }
 
+      if (eventDateFrom) {
+        params.set('event_date_from', eventDateFrom)
+      }
+
+      if (eventDateTo) {
+        params.set('event_date_to', eventDateTo)
+      }
+
       return params
     },
     [
@@ -3779,6 +3792,8 @@ function CampaignsPage() {
       birthdaySoon,
       channelKind,
       daysBeforeEvent,
+      eventDateFrom,
+      eventDateTo,
       group,
       groupSource,
       requirePhone,
@@ -3826,7 +3841,9 @@ function CampaignsPage() {
           require_telegram: requireTelegram,
           vip_only: vipOnly,
           birthday_soon: birthdaySoon,
-          days_before_event: daysBeforeEvent
+          days_before_event: daysBeforeEvent,
+          event_date_from: eventDateFrom || '',
+          event_date_to: eventDateTo || ''
         }
       })
       if (data.segment) {
@@ -3843,6 +3860,7 @@ function CampaignsPage() {
     }
   }, [
     activeSegmentId, audienceQDebounced, birthdaySoon, call, channelKind, daysBeforeEvent,
+    eventDateFrom, eventDateTo,
     group, groupSource, loadSegments, requirePhone, requireTelegram, salesFilter,
     segmentName, vipOnly
   ])
@@ -3862,6 +3880,8 @@ function CampaignsPage() {
     setVipOnly(Boolean(f.vip_only))
     setBirthdaySoon(Boolean(f.birthday_soon))
     setDaysBeforeEvent(f.days_before_event || 0)
+    setEventDateFrom(f.event_date_from || null)
+    setEventDateTo(f.event_date_to || null)
     setSegmentStatus(`Загружен список «${segment.name}» — фильтры выше применены.`)
   }, [])
 
@@ -5100,6 +5120,8 @@ function CampaignsPage() {
             birthday_soon: birthdaySoon,
             group_source: groupSource,
             days_before_event: daysBeforeEvent,
+            event_date_from: eventDateFrom || '',
+            event_date_to: eventDateTo || '',
             seller_name: sellerName,
             seller_facts: sellerFacts,
             limit,
@@ -5161,6 +5183,8 @@ function CampaignsPage() {
                       birthday_soon: birthdaySoon,
             group_source: groupSource,
             days_before_event: daysBeforeEvent,
+                      event_date_from: eventDateFrom || '',
+                      event_date_to: eventDateTo || '',
                       personalize: false,
                       client_id: String(ev.client_id || ''),
                       generate_ai: false,
@@ -5209,6 +5233,8 @@ function CampaignsPage() {
           birthday_soon: birthdaySoon,
           group_source: groupSource,
           days_before_event: daysBeforeEvent,
+          event_date_from: eventDateFrom || '',
+          event_date_to: eventDateTo || '',
           personalize,
           client_id: selectedClientId || '',
           generate_ai: mode === 'auto' && !offer.trim(),
@@ -5350,25 +5376,25 @@ function CampaignsPage() {
           </div>
         </div>
         <div className="ms-filter-block">
-          <span className="ms-filter-label">
-            Связаться за N дней до события
-            {daysBeforeEvent > 0 ? ` · окно ${daysBeforeEvent}д` : ''}
-          </span>
-          <div className="ms-chips">
-            {[0, 3, 5, 7, 14].map(n => (
-              <button
-                className={`ms-chip${daysBeforeEvent === n ? ' is-active' : ''}`}
-                key={n}
-                onClick={() => {
-                  setDaysBeforeEvent(n)
-                  if (n > 0) {setBirthdaySoon(false)}
-                }}
-                type="button"
-              >
-                {n === 0 ? 'Выкл' : `${n} дн`}
-              </button>
-            ))}
-          </div>
+          <span className="ms-filter-label">Даты события</span>
+          <EventCalendarPicker
+            dateFrom={eventDateFrom}
+            dateTo={eventDateTo}
+            leadDays={daysBeforeEvent}
+            onLeadDaysChange={n => {
+              setDaysBeforeEvent(n)
+              if (n > 0) {
+                setBirthdaySoon(false)
+              }
+            }}
+            onRangeChange={(from, to) => {
+              setEventDateFrom(from)
+              setEventDateTo(to)
+              if (from || to) {
+                setBirthdaySoon(false)
+              }
+            }}
+          />
         </div>
         <div className="ms-filter-block ms-segments-block">
           <span className="ms-filter-label">Сохранённые списки</span>
@@ -5573,9 +5599,13 @@ function CampaignsPage() {
                 <p className="ms-muted">
                   {loading
                     ? 'Загрузка аудитории…'
-                    : daysBeforeEvent > 0
-                      ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события (даты из тегов / сезона заказов). Снимите фильтр или выберите другую группу.`
-                      : 'Нет клиентов под текущие фильтры / поиск.'}
+                    : eventDateFrom || eventDateTo
+                      ? daysBeforeEvent > 0
+                        ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до. Снимите фильтр или выберите другой диапазон.`
+                        : 'Нет клиентов с событием в выбранных датах. Снимите календарь или выберите другую группу.'
+                      : daysBeforeEvent > 0
+                        ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события (даты из тегов / сезона заказов). Снимите фильтр или выберите другую группу.`
+                        : 'Нет клиентов под текущие фильтры / поиск.'}
                 </p>
               )}
             </>

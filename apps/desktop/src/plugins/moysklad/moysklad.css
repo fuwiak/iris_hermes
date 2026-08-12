@@ -900,6 +900,94 @@
   color: #e4c8ea;
 }
 
+.ms-event-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #592466;
+  border-radius: 0.75rem;
+  background: #2d1233;
+}
+
+.ms-event-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ms-event-calendar-title {
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #f3e6f6;
+}
+
+.ms-cal-nav {
+  min-width: 2rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.ms-event-calendar-weekdays,
+.ms-event-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+}
+
+.ms-event-calendar-weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #c9a8d4;
+}
+
+.ms-event-calendar-day {
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #f3e6f6;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ms-event-calendar-day.is-outside {
+  color: #8a6a94;
+  opacity: 0.55;
+}
+
+.ms-event-calendar-day.is-today {
+  border-color: #d4a5e8;
+}
+
+.ms-event-calendar-day.is-in-range {
+  background: #592466;
+}
+
+.ms-event-calendar-day.is-edge {
+  background: #8b3fa0;
+  font-weight: 700;
+}
+
+.ms-event-calendar-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.ms-event-calendar-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #592466;
+}
+
 .ms-check {
   display: flex !important;
   flex-direction: row !important;

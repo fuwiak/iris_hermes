@@ -425,6 +425,8 @@ def clients_page(
     birthday_soon: bool = False,
     group_source: str = "any",
     days_before_event: int = 0,
+    event_date_from: str = "",
+    event_date_to: str = "",
     stage: str = "all",
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
@@ -463,6 +465,8 @@ def clients_page(
     except (TypeError, ValueError):
         days_window = 0
     stage_key = normalize_stage_filter(stage)
+    ev_from = str(event_date_from or "").strip()
+    ev_to = str(event_date_to or "").strip()
     matched = [
         r
         for r in base_rows
@@ -476,6 +480,8 @@ def clients_page(
             group=group,
             group_source=src,
             days_before_event=days_window,
+            event_date_from=ev_from,
+            event_date_to=ev_to,
             stage=stage_key,
         )
     ]
@@ -500,6 +506,8 @@ def clients_page(
         "vip_only": bool(vip_only),
         "birthday_soon": bool(birthday_soon),
         "days_before_event": days_window,
+        "event_date_from": ev_from,
+        "event_date_to": ev_to,
         "stage": stage_key,
         "stage_counts": stage_counts(base_rows),
         "counts": counts,

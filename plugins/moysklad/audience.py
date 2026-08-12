@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from plugins.moysklad.dedupe import normalize_phone, normalize_telegram
@@ -224,6 +224,59 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
     return found
 
 
+def parse_event_date(value: Any) -> Optional[date]:
+    """Parse ``YYYY-MM-DD`` (or ISO datetime prefix) into a date."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def row_matches_event_calendar(
+    row: dict[str, Any],
+    *,
+    event_from: Optional[date],
+    event_to: Optional[date],
+    lead_days: int = 0,
+    today: Optional[date] = None,
+) -> bool:
+    """Filter by explicit event date(s) and optional contact lead window.
+
+  - ``event_from`` / ``event_to``: inclusive calendar range for the event.
+  - ``lead_days > 0``: today must fall in ``[event - lead, event]``.
+  - ``lead_days == 0``: event must be today or later.
+    """
+    if event_from is None and event_to is None:
+        return True
+    today = today or date.today()
+    start = event_from or event_to
+    end = event_to or event_from
+    if start is None or end is None:
+        return True
+    if start > end:
+        start, end = end, start
+    try:
+        lead = max(0, int(lead_days or 0))
+    except (TypeError, ValueError):
+        lead = 0
+    dates = event_dates_for_row(row, today=today)
+    if not dates:
+        return False
+    for event_date in dates:
+        if not (start <= event_date <= end):
+            continue
+        if lead > 0:
+            contact_start = event_date - timedelta(days=lead)
+            if contact_start <= today <= event_date:
+                return True
+        elif event_date >= today:
+            return True
+    return False
+
+
 def row_matches_days_before_event(
     row: dict[str, Any],
     days: int,
@@ -323,6 +376,8 @@ def row_matches_audience_extras(
     group: str = "",
     group_source: str = "any",
     days_before_event: int = 0,
+    event_date_from: str = "",
+    event_date_to: str = "",
     stage: str = "all",
 ) -> bool:
     source = normalize_group_source(group_source)
@@ -348,7 +403,17 @@ def row_matches_audience_extras(
         window = int(days_before_event or 0)
     except (TypeError, ValueError):
         window = 0
-    if window > 0:
+    ef = parse_event_date(event_date_from)
+    et = parse_event_date(event_date_to)
+    if ef or et:
+        if not row_matches_event_calendar(
+            row,
+            event_from=ef,
+            event_to=et,
+            lead_days=window,
+        ):
+            return False
+    elif window > 0:
         if not row_matches_days_before_event(row, window):
             return False
     elif birthday_soon and not row_matches_birthday_occasion(row):
