@@ -139,6 +139,20 @@ _CONTACT_METHOD_GROUP_KEYS = frozenset({
     "tg",
 })
 
+# Bare WhatsApp-family labels often leak onto orders as contact noise.
+# Real MoySklad order channel is «WhatsApp/MAX» (keeps the slash).
+# «Telegram» is both a CRM group and a real salesChannel — keep on orders.
+_WHATSAPP_ORDER_NOISE_KEYS = frozenset({
+    "whatsapp",
+    "whatsappmax",
+    "watsapp",
+    "вотсап",
+    "ватсап",
+    "вотсапмакс",
+    "max",
+    "макс",
+})
+
 
 def _normalize_channel(channel: str) -> str:
     return channel.strip().lower().replace("ё", "е")
@@ -150,6 +164,23 @@ def is_contact_method_group_tag(tag: str | None) -> bool:
         return False
     compact = re.sub(r"[\s/_\-]+", "", _normalize_channel(str(tag)))
     return compact in _CONTACT_METHOD_GROUP_KEYS
+
+
+def is_real_order_sales_channel(label: str | None) -> bool:
+    """True for order ``salesChannel`` names that are not WhatsApp CRM noise.
+
+    Bare ``WhatsApp`` / ``watsapp`` (no slash) often leak into order context and
+    falsely mark marketplace clients as «прямые продажи». Real channel
+    ``WhatsApp/MAX`` keeps the slash and passes. ``Telegram`` stays — it is a
+    real MoySklad sales channel as well as a CRM group.
+    """
+    if not label or not str(label).strip():
+        return False
+    text = str(label).strip()
+    if "/" in text:
+        return True
+    compact = re.sub(r"[\s/_\-]+", "", _normalize_channel(text))
+    return compact not in _WHATSAPP_ORDER_NOISE_KEYS
 
 
 def matches_marketplace_channel_name(channel: str | None) -> bool:
@@ -400,13 +431,25 @@ def unique_sales_channels(row: dict[str, Any]) -> list[str]:
     stored_all = row.get("_order_channels_all")
     for order in row.get("_orders_context") or []:
         if isinstance(order, dict):
-            _add(order.get("Канал продаж") or order.get("channel"))
+            label = order.get("Канал продаж") or order.get("channel")
+            if not is_real_order_sales_channel(label):
+                continue
+            _add(label)
     if isinstance(stored_all, list):
         for ch in stored_all:
             label = str(ch or "").strip()
             # Drop bare messenger CRM groups left in cache; keep «WhatsApp/MAX».
-            if is_contact_method_group_tag(label) and "/" not in label:
+            # Telegram may be a real sales channel — only strip when it is a
+            # contact-method tag with no slash AND WhatsApp-family noise, or
+            # telegram when it never appeared on orders (handled below).
+            if not is_real_order_sales_channel(label):
                 continue
+            if is_contact_method_group_tag(label) and "/" not in label:
+                # Telegram on cached channel list without order proof → skip;
+                # order loop above already kept real Telegram order stamps.
+                compact = re.sub(r"[\s/_\-]+", "", _normalize_channel(label))
+                if compact in {"telegram", "телеграм", "телеграмм", "tg"}:
+                    continue
             _add(ch)
     # Prefer order-derived list; fall back to stored field only when empty,
     # and never treat a comma-joined type label as a channel.
@@ -415,6 +458,8 @@ def unique_sales_channels(row: dict[str, Any]) -> list[str]:
         if stored:
             for part in stored.split(","):
                 label = part.strip()
+                if not is_real_order_sales_channel(label):
+                    continue
                 if is_contact_method_group_tag(label) and "/" not in label:
                     continue
                 _add(label)
@@ -473,7 +518,7 @@ def _row_order_sales_channels(row: dict[str, Any]) -> list[str]:
         if not isinstance(order, dict):
             continue
         ch = str(order.get("Канал продаж") or order.get("channel") or "").strip()
-        if not ch:
+        if not is_real_order_sales_channel(ch):
             continue
         key = ch.lower()
         if key in seen:
@@ -557,6 +602,13 @@ def refresh_row_channel_fields(row: dict[str, Any]) -> dict[str, Any]:
     row["_order_channels_all"] = list(channels)
     row["Канал продаж"] = ", ".join(channels)
     label = sales_channel_type_from_channels(channels)
+    # Marker-only marketplace (FlowWow groups / «постоянный маркетплейсы») with
+    # no resolvable order channel must not keep the empty→«прямые продажи» default.
+    if label == SALES_CHANNEL_TYPE_DIRECT and not any(
+        is_direct_sales_channel(c) for c in channels
+    ):
+        if row_audience_bucket(row) == "marketplace":
+            label = SALES_CHANNEL_TYPE_MARKETPLACE
     row["Тип канала продаж"] = label
     row["Тип продаж"] = label
     return row

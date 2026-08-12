@@ -377,7 +377,10 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
     refresh_row_channel_fields(row)
     channels = unique_sales_channels(row)
     audience = row.get("_audience") or {}
-    sales_type = sales_channel_type_from_channels(channels)
+    sales_type = (
+        str(row.get("Тип канала продаж") or "").strip()
+        or sales_channel_type_from_channels(channels)
+    )
     channel_display = format_channels_display(channels)
     # Prefer live aggregates from order context when present.
     ctx = row.get("_orders_context") or []

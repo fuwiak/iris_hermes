@@ -32,9 +32,13 @@ from plugins.moysklad.assign_groups import heuristic_groups_for_row, merge_tags
 from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_DIRECT,
     SALES_CHANNEL_TYPE_HYBRID,
+    SALES_CHANNEL_TYPE_MARKETPLACE,
     is_direct_sales_channel,
+    is_real_order_sales_channel,
     moysklad_group_tokens,
+    row_audience_bucket,
     sales_channel_type_from_channels,
+    unique_sales_channels,
 )
 
 log = logging.getLogger(__name__)
@@ -476,14 +480,27 @@ def _tg_from_conversation(row: dict[str, Any]) -> str:
 
 
 def _order_channel_labels(row: dict[str, Any]) -> list[str]:
+    """Real order sales channels — bare WhatsApp/Telegram CRM noise excluded."""
     out: list[str] = []
     seen: set[str] = set()
+    for ch in unique_sales_channels(row):
+        if not is_real_order_sales_channel(ch):
+            continue
+        key = ch.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ch)
+    if out:
+        return out
     for order in row.get("_orders_context") or []:
         if not isinstance(order, dict):
             continue
         ch = str(order.get("Канал продаж") or order.get("channel") or "").strip()
+        if not is_real_order_sales_channel(ch):
+            continue
         key = ch.lower()
-        if not ch or key in seen:
+        if key in seen:
             continue
         seen.add(key)
         out.append(ch)
@@ -493,12 +510,15 @@ def _order_channel_labels(row: dict[str, Any]) -> list[str]:
 def sanitize_sales_type_groups(row: dict[str, Any], groups: list[str]) -> list[str]:
     """Drop AI «прямые продажи» when orders have no real direct sales channel.
 
-    WhatsApp/Telegram MoySklad *groups* are contact methods — they must not
-    justify a direct-sales label for marketplace-only clients.
+    WhatsApp/Telegram MoySklad *groups* (and bare names leaked onto orders) are
+    contact methods — they must not justify a direct-sales label for
+    marketplace-only clients. When the audience bucket is marketplace, ensure
+    «маркетплейс» survives even if the model only emitted «прямые продажи».
     """
     order_channels = _order_channel_labels(row)
     has_direct_order = any(is_direct_sales_channel(c) for c in order_channels)
     sales_type = sales_channel_type_from_channels(order_channels)
+    bucket = row_audience_bucket(row)
     out: list[str] = []
     seen: set[str] = set()
     for raw in groups or []:
@@ -506,15 +526,22 @@ def sanitize_sales_type_groups(row: dict[str, Any], groups: list[str]) -> list[s
         key = name.lower().replace("ё", "е")
         if not name or key in seen:
             continue
-        if key in ("прямые продажи", "прямые") and not has_direct_order:
-            continue
-        if key in ("прямые продажи", "прямые") and sales_type not in (
-            SALES_CHANNEL_TYPE_DIRECT,
-            SALES_CHANNEL_TYPE_HYBRID,
-        ):
-            continue
+        if key in ("прямые продажи", "прямые"):
+            if not has_direct_order:
+                continue
+            if sales_type not in (
+                SALES_CHANNEL_TYPE_DIRECT,
+                SALES_CHANNEL_TYPE_HYBRID,
+            ):
+                continue
+            # Marketplace-only (or marker-only MP) must not keep a direct tag.
+            if bucket == "marketplace" and sales_type == SALES_CHANNEL_TYPE_MARKETPLACE:
+                continue
         seen.add(key)
         out.append(name)
+    if bucket == "marketplace" and "маркетплейс" not in seen:
+        out.append("маркетплейс")
+        seen.add("маркетплейс")
     return out
 
 
@@ -774,6 +801,21 @@ def apply_ai_fill_to_public(client: dict[str, Any]) -> dict[str, Any]:
 def _merge_ai_groups_into_public(client: dict[str, Any], ai_list: list[str]) -> dict[str, Any]:
     """Append AI group labels onto MoySklad groups without dropping MS tags."""
     out = dict(client)
+    # Scrub stale cached «прямые продажи» when the live row is marketplace-only.
+    sanitize_row = {
+        "_orders_context": [
+            {"Канал продаж": c}
+            for c in (out.get("channels") or [])
+            if str(c or "").strip()
+        ],
+        "_order_channels_all": list(out.get("channels") or []),
+        "Канал продаж": str(out.get("channel") or ""),
+        "_moysklad_tags": list(out.get("tags") or []),
+        "_moysklad_state": str(out.get("state") or ""),
+        "Статус контрагента": str(out.get("state") or ""),
+        "Тип канала продаж": str(out.get("sales_type") or ""),
+    }
+    ai_list = sanitize_sales_type_groups(sanitize_row, list(ai_list or []))
     ms_raw = str(out.get("ms_groups") or out.get("groups") or "").strip()
     ms_parts = [p.strip() for p in re.split(r"[,;|/]", ms_raw) if p.strip()]
     if not ms_parts:

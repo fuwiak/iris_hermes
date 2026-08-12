@@ -145,25 +145,37 @@ def test_no_channel_defaults_to_direct() -> None:
     assert row_audience_bucket(row) == "direct"
 
 
-def test_whatsapp_group_is_not_sales_channel() -> None:
-    """MoySklad group «WhatsApp» must not invent a direct sales channel."""
+def test_whatsapp_leaked_into_orders_context_is_not_direct() -> None:
+    """Bare WhatsApp on order rows is contact noise — marketplace stays MP."""
     row = {
-        "_moysklad_id": "mp-wa",
+        "_moysklad_id": "79161424272",
         "_orders_context": [
-            {"id": "o1", "Канал продаж": "FlowWow Floday", "channel": "FlowWow Floday", "sum": 4000},
-            {"id": "o2", "Канал продаж": "Ozon", "channel": "Ozon", "sum": 2500},
+            {"Канал продаж": "FlowWow Floday", "sum": 4500},
+            {"Канал продаж": "WhatsApp", "sum": 0},
         ],
-        "_moysklad_tags": ["WhatsApp", "watsapp"],
-        "_moysklad_tags_display": "WhatsApp, watsapp",
-        "_order_channels_all": ["FlowWow Floday", "Ozon", "WhatsApp"],
-        "Канал продаж": "FlowWow Floday, Ozon, WhatsApp",
+        "_moysklad_tags": ["WhatsApp", "флау вау"],
+        "_order_channels_all": ["FlowWow Floday", "WhatsApp"],
+        "Канал продаж": "FlowWow Floday, WhatsApp",
     }
     refresh_row_channel_fields(row)
-    assert unique_sales_channels(row) == ["FlowWow Floday", "Ozon"]
-    assert "WhatsApp" not in unique_sales_channels(row)
-    assert sales_channel_type_from_channels(unique_sales_channels(row)) == "маркетплейс"
+    assert unique_sales_channels(row) == ["FlowWow Floday"]
+    assert row.get("Тип канала продаж") == "маркетплейс"
     assert row_audience_bucket(row) == "marketplace"
     assert row_matches_direct_audience(row) is False
+
+
+def test_whatsapp_only_order_noise_with_mp_markers() -> None:
+    """Marketplace markers win when the only «channel» is bare WhatsApp."""
+    row = {
+        "_orders_context": [{"Канал продаж": "WhatsApp"}],
+        "_moysklad_tags": ["флау вау"],
+        "_moysklad_state": "постоянный маркетплейсы",
+        "Статус контрагента": "постоянный маркетплейсы",
+    }
+    refresh_row_channel_fields(row)
+    assert unique_sales_channels(row) == ["флау вау"] or row_audience_bucket(row) == "marketplace"
+    assert row_audience_bucket(row) == "marketplace"
+    assert row.get("Тип канала продаж") == "маркетплейс"
 
 
 def test_whatsapp_group_alone_does_not_create_channel() -> None:

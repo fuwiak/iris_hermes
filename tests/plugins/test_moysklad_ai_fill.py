@@ -50,6 +50,27 @@ def test_sanitize_drops_direct_tag_for_marketplace_only_client():
     assert "новый" in cleaned
 
 
+def test_sanitize_strips_direct_when_whatsapp_leaked_onto_mp_orders():
+    from plugins.moysklad.ai_fill import sanitize_sales_type_groups
+    from plugins.moysklad.assign_groups import heuristic_groups_for_row
+
+    row = {
+        "_moysklad_id": "79161424272",
+        "_orders_context": [
+            {"Канал продаж": "FlowWow Skyloft", "sum": 5200},
+            {"Канал продаж": "WhatsApp"},
+        ],
+        "_moysklad_tags": ["WhatsApp"],
+    }
+    cleaned = sanitize_sales_type_groups(row, ["прямые продажи", "новый"])
+    assert "прямые продажи" not in cleaned
+    assert "маркетплейс" in cleaned
+
+    proposed = heuristic_groups_for_row(row)
+    assert "маркетплейс" in proposed
+    assert "прямые продажи" not in proposed
+
+
 def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_memory_for_tests()
