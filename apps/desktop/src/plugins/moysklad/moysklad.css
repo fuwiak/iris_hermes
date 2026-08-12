@@ -1199,6 +1199,7 @@
   border: 1px solid #6b2d7a;
   border-radius: 0.85rem;
   background: linear-gradient(180deg, #2f1436 0%, #26102c 100%);
+  min-width: 0;
 }
 
 .ms-filter-window-head {
@@ -1209,8 +1210,40 @@
 }
 
 .ms-filter-window-head strong {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: #f3e6f6;
+  font-weight: 600;
+}
+
+.ms-filter-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(15rem, 0.95fr);
+  gap: 0.85rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.ms-filter-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ms-audience-col {
+  min-width: 0;
+  position: sticky;
+  top: 0.5rem;
+  align-self: start;
+}
+
+.ms-audience-pick-side {
+  max-height: min(78vh, 640px);
+  overflow: hidden;
+}
+
+.ms-audience-pick-side .ms-audience-list {
+  max-height: min(58vh, 480px);
 }
 
 .ms-filter-window-body {
@@ -1221,6 +1254,36 @@
 
 .ms-filter-window-span {
   grid-column: 1 / -1;
+}
+
+.ms-segments-details {
+  border-top: 1px solid #592466;
+  padding-top: 0.5rem;
+}
+
+.ms-segments-details > summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0.45rem;
+}
+
+.ms-segments-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ms-group-cloud .ms-group-chips {
+  max-height: 9.5rem;
+  overflow: auto;
+}
+
+@media (max-width: 960px) {
+  .ms-filter-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ms-audience-col {
+    position: static;
+  }
 }
 
 @media (max-width: 720px) {

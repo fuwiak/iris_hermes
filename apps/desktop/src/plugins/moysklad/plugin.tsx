@@ -3349,7 +3349,6 @@ function CampaignsPage() {
   const [addContactSaving, setAddContactSaving] = useState(false)
   const [addContactResolving, setAddContactResolving] = useState(false)
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
-  const [contactsOpen, setContactsOpen] = useState(true)
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -4212,10 +4211,6 @@ function CampaignsPage() {
           return
         }
 
-        if (painted.length > 0) {
-          setContactsOpen(true)
-        }
-
         let next = page.next_offset != null ? page.next_offset : offset + rows.length
         if (!append && painted.length > next) {
           next = painted.length
@@ -4310,7 +4305,6 @@ function CampaignsPage() {
 
   useEffect(() => {
     void loadAudience()
-    setContactsOpen(true)
     // loadAudience identity tracks filter deps — include it so group chip clicks always refetch.
   }, [loadAudience])
 
@@ -5571,7 +5565,7 @@ function CampaignsPage() {
 
         <div aria-label="Фильтры аудитории" className="ms-filter-window">
           <div className="ms-filter-window-head">
-            <strong>Фильтры</strong>
+            <strong>Фильтры → аудитория справа → клик клиента → текст</strong>
             <button
               className="ms-link-btn"
               onClick={() => {
@@ -5596,345 +5590,100 @@ function CampaignsPage() {
             </button>
           </div>
 
-          <div className="ms-filter-window-body">
-            <div className="ms-filter-block">
-              <span className="ms-filter-label">Канал продаж</span>
-              <FilterTabs
-                counts={counts}
-                disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
-                onChange={setSalesFilter}
-                salesFilter={salesFilter}
-              />
-            </div>
+          <div className="ms-filter-workspace">
+            <div className="ms-filter-col">
+              <div className="ms-filter-block">
+                <span className="ms-filter-label">Канал продаж</span>
+                <FilterTabs
+                  counts={counts}
+                  disabled={salesFilterTabsDisabled({ loading, hasCounts: Boolean(counts) })}
+                  onChange={setSalesFilter}
+                  salesFilter={salesFilter}
+                />
+              </div>
 
-            <div className="ms-filter-block">
-              <span className="ms-filter-label">Канал доставки</span>
-              <div className="ms-filter-tabs" role="group">
-                {[
-                  { id: '', label: 'Любой' },
-                  { id: 'telegram', label: 'Только Telegram' },
-                  { id: 'whatsapp', label: 'Только WhatsApp' }
-                ].map(opt => (
+              <div className="ms-filter-block">
+                <span className="ms-filter-label">Канал доставки</span>
+                <div className="ms-filter-tabs" role="group">
+                  {[
+                    { id: '', label: 'Любой' },
+                    { id: 'telegram', label: 'Только Telegram' },
+                    { id: 'whatsapp', label: 'Только WhatsApp' }
+                  ].map(opt => (
+                    <button
+                      className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
+                      key={opt.id || 'any'}
+                      onClick={() => syncDeliveryChannel(opt.id)}
+                      type="button"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="ms-filter-block">
+                <span className="ms-filter-label">Дополнительно</span>
+                <div className="ms-chips">
                   <button
-                    className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
-                    key={opt.id || 'any'}
-                    onClick={() => syncDeliveryChannel(opt.id)}
+                    className={`ms-chip${vipOnly ? ' is-active' : ''}`}
+                    onClick={() => setVipOnly(v => !v)}
                     type="button"
                   >
-                    {opt.label}
+                    VIP
                   </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="ms-filter-block">
-              <span className="ms-filter-label">Дополнительно</span>
-              <div className="ms-chips">
-                <button
-                  className={`ms-chip${vipOnly ? ' is-active' : ''}`}
-                  onClick={() => setVipOnly(v => !v)}
-                  type="button"
-                >
-                  VIP
-                </button>
-                <button
-                  className={`ms-chip${requirePhone ? ' is-active' : ''}`}
-                  onClick={() => setRequirePhone(v => !v)}
-                  type="button"
-                >
-                  Есть телефон
-                </button>
-                <button
-                  className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
-                  onClick={() => setRequireTelegram(v => !v)}
-                  type="button"
-                >
-                  Есть Telegram
-                </button>
-                <button
-                  className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
-                  onClick={() => setBirthdaySoon(v => !v)}
-                  type="button"
-                >
-                  ДР / события
-                </button>
-              </div>
-            </div>
-
-            <div className="ms-filter-block">
-              <span className="ms-filter-label">Даты события</span>
-              <EventCalendarPicker
-                dateFrom={eventDateFrom}
-                dateTo={eventDateTo}
-                leadDays={daysBeforeEvent}
-                onLeadDaysChange={n => {
-                  setDaysBeforeEvent(n)
-                  if (n > 0) {
-                    setBirthdaySoon(false)
-                  }
-                }}
-                onRangeChange={(from, to) => {
-                  setEventDateFrom(from)
-                  setEventDateTo(to)
-                  if (from || to) {
-                    setBirthdaySoon(false)
-                  }
-                }}
-              />
-              {eventDateFrom || eventDateTo || daysBeforeEvent > 0 ? (
-                <div className="ms-event-audience">
-                  <div className="ms-event-audience-head">
-                    <span className="ms-filter-label">
-                      Клиенты по событию
-                      {loading ? '…' : audience ? ` · ${audience}` : ''}
-                    </span>
-                    {audiencePreview.length ? (
-                      <button
-                        className="ms-link-btn"
-                        onClick={() => {
-                          setContactsOpen(true)
-                          const el = document.querySelector('.ms-audience-pick')
-                          el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-                        }}
-                        type="button"
-                      >
-                        Весь список
-                      </button>
-                    ) : null}
-                  </div>
-                  {loading && !audiencePreview.length ? (
-                    <p className="ms-muted">Ищем клиентов по датам…</p>
-                  ) : audiencePreview.length ? (
-                    <div className="ms-chips ms-event-audience-chips">
-                      {audiencePreview.slice(0, 24).map(row => {
-                        const active = selectedClientId === row.id
-                        const nick = (row.tg_nick || '').replace(/^@/, '')
-
-                        return (
-                          <button
-                            className={`ms-chip${active ? ' is-active' : ''}`}
-                            key={`ev-${row.id || row.name}`}
-                            onClick={() => selectAudienceClient(row)}
-                            title={nick ? `@${nick}` : row.phone || row.id}
-                            type="button"
-                          >
-                            {row.name || row.phone || row.id}
-                            {nick ? <span>@{nick}</span> : null}
-                          </button>
-                        )
-                      })}
-                      {audience > audiencePreview.length || audiencePreview.length > 24 ? (
-                        <span className="ms-muted">
-                          +{Math.max(0, audience - Math.min(24, audiencePreview.length))} ещё
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="ms-muted">
-                      {daysBeforeEvent > 0 && (eventDateFrom || eventDateTo)
-                        ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
-                        : daysBeforeEvent > 0
-                          ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
-                          : 'Нет клиентов с событием в выбранных датах.'}
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="ms-filter-block ms-segments-block ms-filter-window-span">
-              <span className="ms-filter-label">Сохранённые списки</span>
-              <div className="ms-segments-row">
-                <input
-                  className="ms-input"
-                  onChange={e => setSegmentName(e.target.value)}
-                  placeholder="Имя списка, напр. «Не состоялся · Прямые»"
-                  value={segmentName}
-                />
-                <button
-                  className="ms-btn"
-                  disabled={segmentSaving || !segmentName.trim()}
-                  onClick={() => void saveCurrentSegment()}
-                  title="Сохранит текущие фильтры выше как именованный список (не снимок id, а рецепт фильтра)"
-                  type="button"
-                >
-                  {segmentSaving
-                    ? 'Сохраняю…'
-                    : activeSegmentId
-                      ? 'Обновить список'
-                      : 'Сохранить список'}
-                </button>
-              </div>
-              {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
-              <div className="ms-chips">
-                {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
-                {!segmentsLoading && segments.length === 0 ? (
-                  <span className="ms-muted">Списков пока нет</span>
-                ) : null}
-                {segments.map(seg => (
-                  <span
-                    className={`ms-chip ms-segment-chip${
-                      activeSegmentId === seg.id ? ' is-active' : ''
-                    }`}
-                    key={seg.id}
+                  <button
+                    className={`ms-chip${requirePhone ? ' is-active' : ''}`}
+                    onClick={() => setRequirePhone(v => !v)}
+                    type="button"
                   >
-                    <button onClick={() => applySegment(seg)} type="button">
-                      {seg.name}
-                      {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
-                    </button>
-                    <button
-                      aria-label={`Удалить список ${seg.name}`}
-                      className="ms-segment-chip-remove"
-                      onClick={() => void removeSegment(seg)}
-                      title="Удалить список"
-                      type="button"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
+                    Есть телефон
+                  </button>
+                  <button
+                    className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
+                    onClick={() => setRequireTelegram(v => !v)}
+                    type="button"
+                  >
+                    Есть Telegram
+                  </button>
+                  <button
+                    className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
+                    onClick={() => setBirthdaySoon(v => !v)}
+                    type="button"
+                  >
+                    ДР / события
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="ms-filter-window-span ms-audience-in-filters">
-        <div className="ms-audience-pick">
-          <div className="ms-audience-pick-head">
-            <p className="ms-muted">
-              Контакты аудитории (поиск / подгрузка — доступны все {audience})
-              {selectedClientId
-                ? ` · сейчас: ${selectedClientName || selectedClientId}`
-                : ''}
-            </p>
-            <div className="ms-audience-pick-actions">
-              <button
-                className="ms-link-btn"
-                onClick={() => setContactsOpen(open => !open)}
-                type="button"
-              >
-                {contactsOpen ? 'Скрыть список' : 'Показать список'}
-              </button>
-            </div>
-          </div>
-          {contactsOpen ? (
-            <>
-              <div className="ms-search">
-                <input
-                  onChange={e => setAudienceQ(e.target.value)}
-                  placeholder="Найти клиента в аудитории по имени / телефону / @tg…"
-                  type="search"
-                  value={audienceQ}
+              <div className="ms-filter-block">
+                <span className="ms-filter-label">Даты события / заказа</span>
+                <EventCalendarPicker
+                  dateFrom={eventDateFrom}
+                  dateTo={eventDateTo}
+                  leadDays={daysBeforeEvent}
+                  onLeadDaysChange={n => {
+                    setDaysBeforeEvent(n)
+                    if (n > 0) {
+                      setBirthdaySoon(false)
+                    }
+                  }}
+                  onRangeChange={(from, to) => {
+                    setEventDateFrom(from)
+                    setEventDateTo(to)
+                    if (from || to) {
+                      setBirthdaySoon(false)
+                    }
+                  }}
                 />
               </div>
-              {audiencePreview.length ? (
-                <div
-                  className="ms-audience-list"
-                  onScroll={event => {
-                    const el = event.currentTarget
 
-                    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {
-                      return
-                    }
-
-                    if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {
-                      return
-                    }
-
-                    // Don't auto-pull the entire catalog into the chip list.
-                    if (audiencePreviewRef.current.length >= AUDIENCE_AUTO_SCROLL_CAP) {
-                      return
-                    }
-
-                    void loadAudience({ append: true })
-                  }}
-                >
-                  <div className="ms-chips">
-                    {audiencePreview.map(row => {
-                      const active = selectedClientId === row.id
-                      const nick = (row.tg_nick || '').replace(/^@/, '')
-
-                      return (
-                        <button
-                          className={`ms-chip${active ? ' is-active' : ''}`}
-                          key={row.id || row.name}
-                          onClick={() => selectAudienceClient(row)}
-                          title={nick ? `@${nick}` : row.phone || row.id}
-                          type="button"
-                        >
-                          {row.name || row.phone || row.id}
-                          {nick ? <span>@{nick}</span> : null}
-                          {row.order_count != null ? <span>{row.order_count}</span> : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {audienceLoadingMore ? (
-                    <p className="ms-muted ms-load-more">
-                      Подгружаем… {audiencePreview.length}
-                      {audience ? ` / ${audience}` : ''}
-                    </p>
-                  ) : null}
-                  {audienceHasMore ? (
-                    <button
-                      className="ms-btn"
-                      disabled={audienceLoadingMore}
-                      onClick={() => void loadAudience({ append: true })}
-                      type="button"
-                    >
-                      {audiencePreview.length >= AUDIENCE_AUTO_SCROLL_CAP
-                        ? `Ещё клиенты (${audiencePreview.length} / ${audience})`
-                        : 'Ещё клиенты'}
-                    </button>
-                  ) : audiencePreview.length ? (
-                    <p className="ms-muted ms-load-more">
-                      Показано {audiencePreview.length} из {audience}
-                    </p>
-                  ) : null}
-                  {audienceHasMore &&
-                  audiencePreview.length >= AUDIENCE_AUTO_SCROLL_CAP &&
-                  !audienceLoadingMore ? (
-                    <p className="ms-muted ms-load-more">
-                      Для рассылки хватит поиска / фильтра — все {audience} в чипы
-                      грузить не нужно.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="ms-muted">
-                  {loading
-                    ? 'Загрузка аудитории…'
-                    : eventDateFrom || eventDateTo
-                      ? daysBeforeEvent > 0
-                        ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до. Снимите фильтр или выберите другой диапазон.`
-                        : 'Нет клиентов с событием в выбранных датах. Снимите календарь или выберите другую группу.'
-                      : daysBeforeEvent > 0
-                        ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события (даты из тегов / сезона заказов). Снимите фильтр или выберите другую группу.`
-                        : 'Нет клиентов под текущие фильтры / поиск.'}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="ms-muted">
-              Контакты скрыты
-              {audiencePreview.length
-                ? ` · загружено ${audiencePreview.length} из ${audience}`
-                : ''}
-              .
-            </p>
-          )}
-        </div>
-            </div>
-            <details className="ms-filter-window-span ms-groups-details" open={Boolean(group)}>
-              <summary className="ms-filter-label">
-                Группы (Мой склад / ИИ)
-                {group ? ` · выбрано: ${group}` : ''}
-              </summary>
-            <div className="ms-filter-window-span">
               <GroupCloudSection
                 activeGroup={group}
                 activeSource={groupSource}
                 emptyHint="Нет тегов МойСклад в текущей выборке"
                 items={groupOptionsMs}
-                limit={120}
+                limit={80}
                 onToggle={(name, source) => {
                   if (group === name && groupSource === source) {
                     setGroup('')
@@ -5945,17 +5694,15 @@ function CampaignsPage() {
                   }
                 }}
                 sourceKey="ms"
-                title="Группы: Мой склад"
+                title="Группы: МойСклад"
               />
-            </div>
 
-            <div className="ms-filter-window-span">
               <GroupCloudSection
                 activeGroup={group}
                 activeSource={groupSource}
-                emptyHint="ИИ-группы появятся после эвристик/AI fill (новый, премиум…)"
+                emptyHint="ИИ-группы появятся после эвристик/AI fill"
                 items={groupOptionsAi}
-                limit={80}
+                limit={60}
                 onToggle={(name, source) => {
                   if (group === name && groupSource === source) {
                     setGroup('')
@@ -5968,8 +5715,163 @@ function CampaignsPage() {
                 sourceKey="ai"
                 title="Группы: ИИ"
               />
+
+              <details className="ms-segments-details">
+                <summary className="ms-filter-label">
+                  Сохранённые списки
+                  {segments.length ? ` · ${segments.length}` : ''}
+                </summary>
+                <div className="ms-segments-row">
+                  <input
+                    className="ms-input"
+                    onChange={e => setSegmentName(e.target.value)}
+                    placeholder="Имя списка, напр. «Не состоялся · Прямые»"
+                    value={segmentName}
+                  />
+                  <button
+                    className="ms-btn"
+                    disabled={segmentSaving || !segmentName.trim()}
+                    onClick={() => void saveCurrentSegment()}
+                    title="Сохранит текущие фильтры как именованный список"
+                    type="button"
+                  >
+                    {segmentSaving
+                      ? 'Сохраняю…'
+                      : activeSegmentId
+                        ? 'Обновить список'
+                        : 'Сохранить список'}
+                  </button>
+                </div>
+                {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
+                <div className="ms-chips">
+                  {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
+                  {!segmentsLoading && segments.length === 0 ? (
+                    <span className="ms-muted">Списков пока нет</span>
+                  ) : null}
+                  {segments.map(seg => (
+                    <span
+                      className={`ms-chip ms-segment-chip${
+                        activeSegmentId === seg.id ? ' is-active' : ''
+                      }`}
+                      key={seg.id}
+                    >
+                      <button onClick={() => applySegment(seg)} type="button">
+                        {seg.name}
+                        {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
+                      </button>
+                      <button
+                        aria-label={`Удалить список ${seg.name}`}
+                        className="ms-segment-chip-remove"
+                        onClick={() => void removeSegment(seg)}
+                        title="Удалить список"
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </details>
             </div>
-            </details>
+
+            <aside aria-label="Аудитория" className="ms-audience-col">
+              <div className="ms-audience-pick ms-audience-pick-side">
+                <div className="ms-audience-pick-head">
+                  <p className="ms-muted">
+                    Аудитория · <strong>{audience}</strong>
+                    {loading ? ' · обновляем…' : ''}
+                    {selectedClientId
+                      ? ` · ${selectedClientName || selectedClientId}`
+                      : ' · кликните клиента'}
+                  </p>
+                </div>
+                <div className="ms-search">
+                  <input
+                    onChange={e => setAudienceQ(e.target.value)}
+                    placeholder="Поиск: имя / телефон / @tg…"
+                    type="search"
+                    value={audienceQ}
+                  />
+                </div>
+                {audiencePreview.length ? (
+                  <div
+                    className="ms-audience-list"
+                    onScroll={event => {
+                      const el = event.currentTarget
+
+                      if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) {
+                        return
+                      }
+
+                      if (!audienceHasMoreRef.current || audienceLoadMoreRef.current) {
+                        return
+                      }
+
+                      if (audiencePreviewRef.current.length >= AUDIENCE_AUTO_SCROLL_CAP) {
+                        return
+                      }
+
+                      void loadAudience({ append: true })
+                    }}
+                  >
+                    <div className="ms-chips">
+                      {audiencePreview.map(row => {
+                        const active = selectedClientId === row.id
+                        const nick = (row.tg_nick || '').replace(/^@/, '')
+
+                        return (
+                          <button
+                            className={`ms-chip${active ? ' is-active' : ''}`}
+                            key={row.id || row.name}
+                            onClick={() => selectAudienceClient(row)}
+                            title={nick ? `@${nick}` : row.phone || row.id}
+                            type="button"
+                          >
+                            {row.name || row.phone || row.id}
+                            {nick ? <span>@{nick}</span> : null}
+                            {row.order_count != null ? <span>{row.order_count}</span> : null}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {audienceLoadingMore ? (
+                      <p className="ms-muted ms-load-more">
+                        Подгружаем… {audiencePreview.length}
+                        {audience ? ` / ${audience}` : ''}
+                      </p>
+                    ) : null}
+                    {audienceHasMore ? (
+                      <button
+                        className="ms-btn"
+                        disabled={audienceLoadingMore}
+                        onClick={() => void loadAudience({ append: true })}
+                        type="button"
+                      >
+                        {audiencePreview.length >= AUDIENCE_AUTO_SCROLL_CAP
+                          ? `Ещё (${audiencePreview.length} / ${audience})`
+                          : 'Ещё клиенты'}
+                      </button>
+                    ) : audiencePreview.length ? (
+                      <p className="ms-muted ms-load-more">
+                        Показано {audiencePreview.length} из {audience}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="ms-muted">
+                    {loading
+                      ? 'Загрузка аудитории…'
+                      : eventDateFrom || eventDateTo
+                        ? daysBeforeEvent > 0
+                          ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
+                          : 'Нет клиентов с событием / заказом в выбранных датах.'
+                        : daysBeforeEvent > 0
+                          ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
+                          : 'Нет клиентов под текущие фильтры / поиск.'}
+                  </p>
+                )}
+              </div>
+            </aside>
           </div>
         </div>
 
