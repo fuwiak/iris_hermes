@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  addYears,
   applyCalendarDayClick,
   formatRuRange,
   parseIsoDate,
@@ -21,6 +22,11 @@ describe('event-calendar date helpers', () => {
     expect(formatRuRange('2026-08-15', '2026-08-15')).toMatch(/15/)
     expect(formatRuRange('2026-08-10', '2026-08-20')).toMatch(/—/)
     expect(formatRuRange(null, null)).toBe('')
+  })
+
+  it('addYears jumps whole years without changing month', () => {
+    expect(addYears(2026, 2, -1)).toEqual({ year: 2025, month: 2 })
+    expect(addYears(2025, 7, 1)).toEqual({ year: 2026, month: 7 })
   })
 })
 

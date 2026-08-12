@@ -23,6 +23,11 @@ function addMonths(year: number, month: number, delta: number): { year: number; 
   return { year: d.getFullYear(), month: d.getMonth() }
 }
 
+/** Jump calendar view by whole years (month stays). */
+export function addYears(year: number, month: number, delta: number): { year: number; month: number } {
+  return { year: year + delta, month }
+}
+
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate()
 }
@@ -160,29 +165,63 @@ export function EventCalendarPicker({
   return (
     <div className="ms-event-calendar">
       <div className="ms-event-calendar-head">
-        <button
-          className="ms-btn ms-btn-ghost ms-cal-nav"
-          onClick={() => {
-            const n = addMonths(viewYear, viewMonth, -1)
-            setViewYear(n.year)
-            setViewMonth(n.month)
-          }}
-          type="button"
-        >
-          ‹
-        </button>
+        <div className="ms-event-calendar-nav">
+          <button
+            aria-label="Предыдущий год"
+            className="ms-btn ms-btn-ghost ms-cal-nav"
+            onClick={() => {
+              const n = addYears(viewYear, viewMonth, -1)
+              setViewYear(n.year)
+              setViewMonth(n.month)
+            }}
+            title="Год назад"
+            type="button"
+          >
+            «
+          </button>
+          <button
+            aria-label="Предыдущий месяц"
+            className="ms-btn ms-btn-ghost ms-cal-nav"
+            onClick={() => {
+              const n = addMonths(viewYear, viewMonth, -1)
+              setViewYear(n.year)
+              setViewMonth(n.month)
+            }}
+            title="Месяц назад"
+            type="button"
+          >
+            ‹
+          </button>
+        </div>
         <span className="ms-event-calendar-title">{monthLabel}</span>
-        <button
-          className="ms-btn ms-btn-ghost ms-cal-nav"
-          onClick={() => {
-            const n = addMonths(viewYear, viewMonth, 1)
-            setViewYear(n.year)
-            setViewMonth(n.month)
-          }}
-          type="button"
-        >
-          ›
-        </button>
+        <div className="ms-event-calendar-nav">
+          <button
+            aria-label="Следующий месяц"
+            className="ms-btn ms-btn-ghost ms-cal-nav"
+            onClick={() => {
+              const n = addMonths(viewYear, viewMonth, 1)
+              setViewYear(n.year)
+              setViewMonth(n.month)
+            }}
+            title="Месяц вперёд"
+            type="button"
+          >
+            ›
+          </button>
+          <button
+            aria-label="Следующий год"
+            className="ms-btn ms-btn-ghost ms-cal-nav"
+            onClick={() => {
+              const n = addYears(viewYear, viewMonth, 1)
+              setViewYear(n.year)
+              setViewMonth(n.month)
+            }}
+            title="Год вперёд"
+            type="button"
+          >
+            »
+          </button>
+        </div>
       </div>
       <div className="ms-event-calendar-weekdays">
         {WEEKDAYS.map(w => (
