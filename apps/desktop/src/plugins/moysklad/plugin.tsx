@@ -3241,7 +3241,6 @@ function CampaignsPage() {
   const call = useMsRest()
   const callStream = useMsRestStream()
   const [salesFilter, setSalesFilter] = useState('all')
-  const [mode, setMode] = useState<'manual' | 'auto'>('manual')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
   const [channelKind, setChannelKind] = useState('')
@@ -3500,7 +3499,6 @@ function CampaignsPage() {
       if (prefill.channel) {setChannel(prefill.channel)}
 
       if (prefill.salesFilter) {setSalesFilter(prefill.salesFilter)}
-      setMode('auto')
       setTitle('Черновик · клиент')
     }
 
@@ -4730,7 +4728,6 @@ function CampaignsPage() {
     setChannel(plan.channel)
     setContactPickerId(plan.focusId)
     setSelectedClientIds(plan.selectedIds)
-    setMode('auto')
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
     factsGenRef.current += 1
@@ -4765,7 +4762,6 @@ function CampaignsPage() {
 
     setChannel(plan.channel)
     setSelectedClientIds(plan.selectedIds)
-    setMode('auto')
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
     factsGenRef.current += 1
@@ -5377,7 +5373,7 @@ function CampaignsPage() {
         body: {
           title,
           channel,
-          mode,
+          mode: 'manual',
           offer,
           sales_filter: salesFilter,
           group,
@@ -5392,7 +5388,7 @@ function CampaignsPage() {
           event_date_to: eventDateTo || '',
           personalize,
           client_id: selectedClientId || '',
-          generate_ai: mode === 'auto' && !offer.trim(),
+          generate_ai: false,
           seller_name: sellerName,
           seller_facts: sellerFacts
         }
@@ -6056,22 +6052,6 @@ function CampaignsPage() {
 
       </section>
 
-      <div className="ms-filter-tabs" role="tablist">
-        <button
-          className={`ms-filter-tab${mode === 'manual' ? ' is-active' : ''}`}
-          onClick={() => setMode('manual')}
-          type="button"
-        >
-          Ручная
-        </button>
-        <button
-          className={`ms-filter-tab${mode === 'auto' ? ' is-active' : ''}`}
-          onClick={() => setMode('auto')}
-          type="button"
-        >
-          Авто (AI)
-        </button>
-      </div>
       <h2 className="ms-section-title">2. Текст и отправка</h2>
       <div className="ms-compose-split">
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
