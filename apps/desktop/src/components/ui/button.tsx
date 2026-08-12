@@ -18,13 +18,13 @@ const buttonVariants = cva(
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
         // button-outline — aubergine surface, violet ring
-        outline: 'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#c084fc] hover:bg-[#481a54] hover:text-[#f4ede4]',
+        outline: 'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#d8b4fe] hover:bg-[#481a54] hover:text-[#f4ede4]',
         // button-secondary-pill — deep lavender + cream
-        secondary: 'bg-[#481a54] text-[#f4ede4] hover:bg-[color-mix(in_srgb,#c084fc_22%,#481a54)] hover:text-[#f4ede4]',
+        secondary: 'bg-[#481a54] text-[#f4ede4] hover:bg-[color-mix(in_srgb,#d8b4fe_22%,#481a54)] hover:text-[#f4ede4]',
         ghost: 'text-(--ui-text-secondary) hover:bg-[#481a54] hover:text-[#f4ede4]',
         link: `text-[#7dd3fc] underline-offset-4 decoration-current/20 hover:text-[#bae6fd] hover:underline ${TEXT_ACTION_ICON}`,
-        text: `text-[#e4c8ea] underline-offset-4 hover:text-[#f4ede4] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-semibold text-[#e4c8ea] underline underline-offset-4 hover:text-[#f4ede4] ${TEXT_ACTION_ICON}`
+        text: `text-[#f0daf5] underline-offset-4 hover:text-[#f4ede4] hover:underline ${TEXT_ACTION_ICON}`,
+        textStrong: `font-semibold text-[#f0daf5] underline underline-offset-4 hover:text-[#f4ede4] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill

@@ -143,11 +143,11 @@
     color-scheme: light;
 
     --theme-foreground: #f4ede4;
-    --theme-primary: #c084fc;
+    --theme-primary: #d8b4fe;
     --theme-secondary: #481a54;
     --theme-accent-soft: #611f69;
-    --theme-midground: #c084fc;
-    --theme-warm: #c084fc;
+    --theme-midground: #d8b4fe;
+    --theme-warm: #d8b4fe;
     --theme-background-seed: #2a0f2e;
     --theme-sidebar-seed: #220c26;
     --theme-card-seed: #3a1840;
@@ -548,10 +548,10 @@
     --ui-link: #7dd3fc;
     --ui-link-hover: #bae6fd;
     --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #e4c8ea;
+    --ui-text-secondary: #f0daf5;
     --ui-text-tertiary: #d9bdde;
     --ui-text-quaternary: #c9a8d0;
-    --conversation-scaffold-text: #e4c8ea;
+    --conversation-scaffold-text: #f0daf5;
     --conversation-scaffold-meta: #d9bdde;
     --conversation-text-font-size: 0.9375rem;
     --ui-bg-chrome: #2a0f2e;
@@ -560,15 +560,15 @@
     --ui-bg-elevated: #421c4a;
     --ui-bg-card: #3a1840;
     --ui-bg-input: #481a54;
-    --ui-bg-primary: color-mix(in srgb, #c084fc 22%, #3a1840);
+    --ui-bg-primary: color-mix(in srgb, #d8b4fe 22%, #3a1840);
     --ui-bg-secondary: #481a54;
     --ui-bg-tertiary: #3a1840;
     --ui-bg-quaternary: #481a54;
     --ui-bg-quinary: #3a1840;
-    --ui-row-hover-background: color-mix(in srgb, #c084fc 14%, #3a1840);
-    --ui-row-active-background: color-mix(in srgb, #c084fc 22%, #3a1840);
-    --ui-control-hover-background: color-mix(in srgb, #c084fc 18%, #3a1840);
-    --ui-control-active-background: color-mix(in srgb, #c084fc 26%, #3a1840);
+    --ui-row-hover-background: color-mix(in srgb, #d8b4fe 14%, #3a1840);
+    --ui-row-active-background: color-mix(in srgb, #d8b4fe 22%, #3a1840);
+    --ui-control-hover-background: color-mix(in srgb, #d8b4fe 18%, #3a1840);
+    --ui-control-active-background: color-mix(in srgb, #d8b4fe 26%, #3a1840);
     --ui-surface-background: #3a1840;
     --ui-sidebar-surface-background: #220c26;
     --ui-chat-surface-background: #2a0f2e;
@@ -586,15 +586,15 @@
     --dt-popover: #3a1840;
     --dt-popover-foreground: #f4ede4;
     --dt-muted: #481a54;
-    --dt-muted-foreground: #e4c8ea;
+    --dt-muted-foreground: #f0daf5;
     --dt-secondary: #481a54;
     --dt-secondary-foreground: #f4ede4;
     --dt-accent: #611f69;
     --dt-accent-foreground: #f9f0ff;
     --dt-primary-foreground: #1a0a1c;
     --dt-user-bubble: #481a54;
-    --muted-foreground: #e4c8ea;
-    --chrome-action-hover: color-mix(in srgb, #c084fc 18%, #3a1840);
+    --muted-foreground: #f0daf5;
+    --chrome-action-hover: color-mix(in srgb, #d8b4fe 18%, #3a1840);
     --slacc-mesh:
       radial-gradient(ellipse 70% 50% at 12% 8%, rgba(192, 132, 252, 0.28), transparent 55%),
       radial-gradient(ellipse 60% 45% at 88% 18%, rgba(97, 31, 105, 0.55), transparent 50%),
@@ -623,18 +623,18 @@
   }
 
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
-    color: #e4c8ea !important;
+    color: #f0daf5 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
     background: #481a54;
-    border-color: #c084fc;
+    border-color: #d8b4fe;
     color: #f4ede4 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:focus-visible {
-    background: #c084fc;
+    background: #d8b4fe;
     color: #1a0a1c !important;
   }
 
@@ -649,11 +649,11 @@
     --ui-surface-background: #3a1840;
     --ui-widget-surface-background: #3a1840;
     --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #e4c8ea;
+    --ui-text-secondary: #f0daf5;
     --ui-text-tertiary: #d9bdde;
     --dt-foreground: #f4ede4;
-    --dt-muted-foreground: #e4c8ea;
-    --muted-foreground: #e4c8ea;
+    --dt-muted-foreground: #f0daf5;
+    --muted-foreground: #f0daf5;
     color-scheme: dark;
   }
 
@@ -668,7 +668,7 @@
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
     opacity: 0.95;
-    color: #e4c8ea;
+    color: #f0daf5;
   }
 
   /* Ban white/cream panels on Iris — they wash out cream ink. */
@@ -728,7 +728,7 @@
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
     --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #e4c8ea;
+    --ui-text-secondary: #f0daf5;
     --ui-text-tertiary: #d9bdde;
   }
 
@@ -748,7 +748,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #e4c8ea !important;
+    color: #f0daf5 !important;
   }
 
   * {
@@ -1600,7 +1600,7 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--theme-primary, #c084fc);
+  background: var(--theme-primary, #d8b4fe);
   color: var(--dt-primary-foreground, #1a0a1c);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   line-height: 0.85;
@@ -1629,7 +1629,7 @@ text-* variant utilities. */ .btn-arc {
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--ui-text-secondary, #e4c8ea);
+  color: var(--ui-text-secondary, #f0daf5);
   font-size: 1.05rem;
   line-height: 1.55;
 }
@@ -1649,7 +1649,7 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   gap: 0.75rem;
   padding: 0.7rem 1.75rem;
-  border: 2px solid var(--theme-primary, #c084fc);
+  border: 2px solid var(--theme-primary, #d8b4fe);
   border-radius: 90px;
   background: var(--theme-accent-soft, #481a54);
   color: var(--ui-text-primary, #f4ede4);
@@ -1664,8 +1664,8 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-suggestions button:hover,
 .hermes-one-suggestions button:focus-visible {
-  border-color: var(--theme-primary, #c084fc);
-  background: var(--theme-primary, #c084fc);
+  border-color: var(--theme-primary, #d8b4fe);
+  background: var(--theme-primary, #d8b4fe);
   color: var(--dt-primary-foreground, #1a0a1c);
   outline: none;
 }

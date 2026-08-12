@@ -246,9 +246,9 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
       '--dt-card': '#3a1840',
       '--dt-popover': '#3a1840',
       '--dt-muted': '#481a54',
-      '--muted-foreground': '#e4c8ea',
+      '--muted-foreground': '#f0daf5',
       '--ui-text-primary': '#f4ede4',
-      '--ui-text-secondary': '#e4c8ea',
+      '--ui-text-secondary': '#f0daf5',
       '--ui-text-tertiary': '#d9bdde',
       '--ui-text-quaternary': '#c9a8d0',
       '--ui-bg-chrome': '#2a0f2e',
@@ -269,8 +269,8 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
       '--ui-chat-bubble-background': '#481a54',
       '--ui-chat-bubble-opaque-background': '#481a54',
       '--dt-user-bubble': '#481a54',
-      '--chrome-action-hover': 'color-mix(in srgb, #c084fc 18%, #3a1840)',
-      '--conversation-scaffold-text': '#e4c8ea',
+      '--chrome-action-hover': 'color-mix(in srgb, #d8b4fe 18%, #3a1840)',
+      '--conversation-scaffold-text': '#f0daf5',
       '--conversation-scaffold-meta': '#d9bdde'
     })
   }

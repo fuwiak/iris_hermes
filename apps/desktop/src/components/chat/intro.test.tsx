@@ -102,7 +102,7 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
     const block = css.slice(css.indexOf('.hermes-one-mark {'))
 
     expect(block).toContain('border-radius: 999px')
-    expect(block).toContain('background: var(--theme-primary, #c084fc)')
+    expect(block).toContain('background: var(--theme-primary, #d8b4fe)')
     expect(block).not.toContain('background: #050505')
   })
 

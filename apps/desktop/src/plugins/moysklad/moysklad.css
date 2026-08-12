@@ -50,7 +50,7 @@
 
 .ms-muted {
   margin: 0.25rem 0 0;
-  color: #e4c8ea;
+  color: #f0daf5;
   font-size: 0.9rem;
 }
 
@@ -96,7 +96,7 @@
 
 .ms-filter-tab {
   appearance: none;
-  border: 2px solid #c084fc;
+  border: 2px solid #d8b4fe;
   background: #481a54;
   color: #f4ede4;
   border-radius: 90px;
@@ -108,7 +108,7 @@
 
 .ms-filter-tab.is-active,
 .ms-filter-tab:hover {
-  background: #c084fc;
+  background: #d8b4fe;
   color: #1a0a1c;
 }
 
@@ -147,7 +147,7 @@
 }
 
 .ms-chip.is-active {
-  border-color: #c084fc;
+  border-color: #d8b4fe;
   background: #481a54;
   color: #f4ede4;
 }
@@ -170,8 +170,8 @@
 }
 
 .ms-btn-primary {
-  background: #c084fc;
-  border-color: #c084fc;
+  background: #d8b4fe;
+  border-color: #d8b4fe;
   color: #1a0a1c;
 }
 
@@ -211,7 +211,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #e4c8ea;
+  color: #f0daf5;
   background: #481a54;
 }
 
@@ -280,7 +280,7 @@
 .ms-th-filter-btn.is-on,
 .ms-th-filter-btn:hover {
   opacity: 1;
-  background: color-mix(in srgb, #c084fc 28%, transparent);
+  background: color-mix(in srgb, #d8b4fe 28%, transparent);
 }
 
 .ms-col-filter-menu {
@@ -318,13 +318,13 @@
 }
 
 .ms-col-filter-sorts button:hover {
-  background: color-mix(in srgb, #c084fc 22%, transparent);
+  background: color-mix(in srgb, #d8b4fe 22%, transparent);
 }
 
 .ms-col-filter-search {
   display: grid;
   gap: 0.25rem;
-  color: #e4c8ea;
+  color: #f0daf5;
 }
 
 .ms-col-filter-search input {
@@ -442,6 +442,106 @@
   margin-top: 0.35rem;
 }
 
+.ms-mass-rail {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #6b2d7a;
+  border-radius: 0.85rem;
+  background: linear-gradient(180deg, #3a1844 0%, #2a142f 100%);
+  position: sticky;
+  top: 0.5rem;
+  z-index: 5;
+}
+
+.ms-mass-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ms-mass-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #5a2a66;
+  color: #c9b4d0;
+  font-size: 0.8rem;
+}
+
+.ms-mass-step.is-done {
+  border-color: #3f7a55;
+  color: #b7e0c4;
+}
+
+.ms-mass-step.is-active {
+  border-color: #e8b4f0;
+  background: #4a2158;
+  color: #fff5ff;
+  font-weight: 650;
+}
+
+.ms-mass-step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: #231028;
+  font-size: 0.75rem;
+}
+
+.ms-mass-step.is-active .ms-mass-step-num {
+  background: #f0c6f8;
+  color: #3a1844;
+}
+
+.ms-mass-hint {
+  margin: 0;
+  color: #f4ede4;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.ms-mass-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.ms-mass-count,
+.ms-mass-inline-note,
+.ms-mass-status {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.ms-tg-account summary.ms-tg-account-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ms-tg-account summary.ms-tg-account-head::-webkit-details-marker {
+  display: none;
+}
+
+.ms-tg-account-body {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
 .ms-replies-inbox {
   display: grid;
   gap: 0.4rem;
@@ -513,14 +613,14 @@
 .ms-campaign-offer {
   margin: 0.55rem 0 0;
   white-space: pre-wrap;
-  color: #e4c8ea;
+  color: #f0daf5;
 }
 
 .ms-link-btn {
   appearance: none;
   border: 0;
   background: transparent;
-  color: #c084fc;
+  color: #d8b4fe;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -573,7 +673,7 @@
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 999px;
-  border: 3px solid color-mix(in srgb, #c084fc 35%, transparent);
+  border: 3px solid color-mix(in srgb, #d8b4fe 35%, transparent);
   border-top-color: #e9d5ff;
   animation: ms-tg-spin 0.8s linear infinite;
 }
@@ -732,7 +832,7 @@
   margin: 0.55rem 0 0;
   padding: 0.55rem 0.7rem;
   border-radius: 0.5rem;
-  background: color-mix(in srgb, #c084fc 18%, transparent);
+  background: color-mix(in srgb, #d8b4fe 18%, transparent);
   font-size: 0.85rem;
 }
 
@@ -931,7 +1031,7 @@
 .ms-filter-label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #e4c8ea;
+  color: #f0daf5;
 }
 
 .ms-event-calendar {
@@ -1378,7 +1478,7 @@ td.ms-ai-added {
   gap: 0.35rem;
 }
 .ms-group-chip.is-active {
-  outline: 2px solid #c084fc;
+  outline: 2px solid #d8b4fe;
   font-weight: 600;
 }
 .ms-group-chip.is-ms {
@@ -1389,7 +1489,7 @@ td.ms-ai-added {
   background: color-mix(in srgb, #5db872 14%, transparent);
 }
 .ms-group-chip.is-both {
-  border-color: color-mix(in srgb, #c084fc 55%, transparent);
+  border-color: color-mix(in srgb, #d8b4fe 55%, transparent);
 }
 .ms-chip-src {
   display: inline-flex;
@@ -1411,7 +1511,7 @@ td.ms-ai-added {
 }
 .ms-chip-src-both {
   color: #e9d5ff;
-  background: color-mix(in srgb, #c084fc 28%, transparent);
+  background: color-mix(in srgb, #d8b4fe 28%, transparent);
 }
 .ms-group-chip-count {
   font-variant-numeric: tabular-nums;
@@ -1480,11 +1580,11 @@ td.ms-ai-added {
 
 /* No MoySklad card behind this chat — the half that used to be invisible. */
 .ms-tg-archive-row.is-orphan {
-  border-left-color: #c084fc;
+  border-left-color: #d8b4fe;
 }
 
 .ms-tg-archive-row.is-active {
-  border-color: #c084fc;
+  border-color: #d8b4fe;
   background: #481a54;
 }
 
