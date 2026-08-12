@@ -5695,7 +5695,7 @@ function CampaignsPage() {
               Текст — в поле ниже. AI-кнопки там же.
             </p>
           ) : null}
-          {massStep === 3 || (massStep === 2 && massSelectedCount > 1) ? (
+          {massStep === 3 ? (
             <>
               {channel.startsWith('telegram') && massSelectedCount > 1 ? (
                 <button
@@ -6030,35 +6030,25 @@ function CampaignsPage() {
                   }}
                   type="button"
                 >
-                  Несколько
+                  Массово
                 </button>
               </div>
-              <button
-                className="ms-btn"
-                disabled={selectingAudience || !audiencePreview.length}
-                onClick={() => selectLoadedAudience()}
-                title="Отметить всех уже загруженных в список (без догрузки)"
-                type="button"
-              >
-                Выбрать загруженных ({audiencePreview.length})
-              </button>
-              <button
-                className="ms-btn ms-btn-primary"
-                disabled={selectingAudience || audience < 1}
-                onClick={() => void selectEntireAudience()}
-                title={`Подтянуть id всей аудитории страницами (до ${MASS_AUDIENCE_SELECT_CAP}) и отметить для пачечной отправки`}
-                type="button"
-              >
-                {selectingAudience
-                  ? 'Собираю id…'
-                  : `Выбрать всю аудиторию (${audience})`}
-              </button>
+              {massSelectedCount === 0 && audience > 0 ? (
+                <button
+                  className="ms-btn ms-btn-primary"
+                  disabled={selectingAudience}
+                  onClick={() => void selectEntireAudience()}
+                  type="button"
+                >
+                  {selectingAudience ? 'Собираю…' : `Выбрать всех (${audience})`}
+                </button>
+              ) : null}
               <button
                 className="ms-link-btn"
                 onClick={() => setContactsOpen(open => !open)}
                 type="button"
               >
-                {contactsOpen ? 'Скрыть контакты' : 'Показать контакты'}
+                {contactsOpen ? 'Скрыть список' : 'Показать список'}
               </button>
             </div>
           </div>
@@ -6170,11 +6160,23 @@ function CampaignsPage() {
           Авто (AI)
         </button>
       </div>
+      <h2 className="ms-section-title">2. Текст и отправка</h2>
       <div className="ms-compose-split">
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
-          <div className="ms-tg-account">
-            <div className="ms-tg-account-head">
-              <strong>Личный Telegram (мои контакты)</strong>
+          <details className="ms-tg-account" open={!tgUser?.authorized}>
+            <summary className="ms-tg-account-head">
+              <strong>Личный Telegram</strong>
+              <span className="ms-muted">
+                {tgUser?.authorized
+                  ? `✓ ${
+                      tgUser.user?.username
+                        ? `@${tgUser.user.username}`
+                        : tgUser.user?.name || tgUser.phone || 'аккаунт'
+                    }`
+                  : 'нужен для массовой отправки и сбора ответов'}
+              </span>
+            </summary>
+            <div className="ms-tg-account-body">
               <button
                 className="ms-link-btn"
                 disabled={tgBusy}
@@ -6183,8 +6185,7 @@ function CampaignsPage() {
               >
                 Проверить
               </button>
-            </div>
-            <div className="ms-muted ms-tg-account-status">
+              <div className="ms-muted ms-tg-account-status">
               {tgUser && tgUser.available === false ? (
                 <>
                   ⚠ Нет MTProto-движка (telethon) — вход невозможен.{' '}
@@ -6216,8 +6217,8 @@ function CampaignsPage() {
                 'Не подключён — Bot API не видит ваш список контактов и не пишет первым'
               )}
               {tgUser?.detail ? ` · ${tgUser.detail}` : ''}
-            </div>
-            <div className="ms-compose-actions">
+              </div>
+              <div className="ms-compose-actions">
               <button
                 className="ms-btn"
                 onClick={() => {
@@ -6253,7 +6254,7 @@ function CampaignsPage() {
                   </button>
                 </>
               ) : null}
-            </div>
+              </div>
             {tgOpen ? (
               <div className="ms-add-contact">
                 {tgStep === 'phone' ? (
@@ -6368,7 +6369,8 @@ function CampaignsPage() {
                 </p>
               </div>
             ) : null}
-          </div>
+            </div>
+          </details>
 
           {/* Telegram Business bot block hidden: личный MTProto-аккаунт
               покрывает login + send. Bot/connection id живут в env / Офис. */}
@@ -6623,106 +6625,22 @@ function CampaignsPage() {
             >
               {checkingSanity ? 'Проверяем…' : 'Проверить смысл'}
             </button>
-            {(selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0)) &&
-            channel.startsWith('telegram') &&
-            pickMode === 'multi' &&
-            selectedClientIds.length > 1 ? (
-              <button
-                className="ms-btn"
-                disabled={preflightBusy}
-                onClick={() => void runPreflight()}
-                title="Проверить, кого из выбранных Business bot реально может достать (numeric chat id)"
-                type="button"
-              >
-                {preflightBusy ? 'Проверяю…' : 'Проверить получателей'}
-              </button>
-            ) : null}
-            {selectedClientId || (pickMode === 'multi' && selectedClientIds.length > 0) ? (
+            {massSelectedCount > 0 && offer.trim() ? (
               <button
                 className="ms-btn ms-btn-primary"
-                disabled={
-                  checkingSanity ||
-                  generating ||
-                  rewriting ||
-                  suggestingBouquet ||
-                  paraphrasing ||
-                  !offer.trim()
-                }
+                disabled={!canMassSend}
                 onClick={() => void markSentToConversation()}
                 type="button"
               >
-                {channel.startsWith('telegram')
-                  ? pickMode === 'multi' && selectedClientIds.length > 1
-                    ? `Отправить пачками (${selectedClientIds.length})`
-                    : 'Отправить в Telegram'
-                  : 'Отправить → в историю'}
+                {checkingSanity
+                  ? 'Отправляю…'
+                  : massSelectedCount > 1
+                    ? `Отправить ${massSelectedCount}`
+                    : 'Отправить в Telegram'}
               </button>
             ) : null}
             <button
               className="ms-btn"
-              disabled={
-                repliesBusy ||
-                (!lastSentClientIds.length &&
-                  !(pickMode === 'multi' && selectedClientIds.length) &&
-                  !selectedClientId)
-              }
-              onClick={() => void collectReplies()}
-              title="Sync входящих из личного Telegram / Business → список кто ждёт ответа"
-              type="button"
-            >
-              {repliesBusy ? 'Собираю…' : 'Собрать ответы'}
-            </button>
-            {preflight ? (
-              <p className="ms-muted ms-preflight-note">
-                Готовы: {preflight.ready ?? 0} · недостижимы: {preflight.blocked ?? 0}
-                {preflight.recipients && preflight.blocked ? (
-                  <>
-                    {' — '}
-                    {preflight.recipients
-                      .filter(r => !r.ok)
-                      .slice(0, 5)
-                      .map(r => r.name || r.client_id)
-                      .join(', ')}
-                  </>
-                ) : null}
-              </p>
-            ) : null}
-            {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
-            {(repliesMeta || replies.length > 0) && (
-              <div className="ms-replies-inbox">
-                <p className="ms-ai-label">Ответы клиентов</p>
-                {repliesMeta ? <p className="ms-muted">{repliesMeta}</p> : null}
-                {replies.length ? (
-                  <ul className="ms-replies-list">
-                    {replies.map(row => (
-                      <li key={row.client_id || row.preview}>
-                        <button
-                          className="ms-link-btn"
-                          onClick={() => {
-                            if (!row.client_id) {
-                              return
-                            }
-                            setPickMode('single')
-                            setSelectedClientId(row.client_id)
-                            setSelectedClientName(row.client_name || '')
-                            setContactPickerId(row.client_id)
-                            void loadOutreach(row.client_id, channel)
-                          }}
-                          type="button"
-                        >
-                          {row.client_name || row.tg_nick || row.client_id}
-                        </button>
-                        {row.preview ? (
-                          <span className="ms-muted"> — {row.preview}</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            )}
-            <button
-              className="ms-btn ms-btn-primary"
               disabled={
                 saving ||
                 loading ||
@@ -6736,10 +6654,8 @@ function CampaignsPage() {
               type="submit"
             >
               {selectedClientId
-                ? 'Создать 1:1 черновик'
-                : mode === 'auto'
-                  ? `Черновик на ${audience}`
-                  : `Массовый черновик (${audience})`}
+                ? 'Сохранить 1:1 черновик'
+                : `Сохранить черновик (${audience})`}
             </button>
           </div>
           {genSource ? (

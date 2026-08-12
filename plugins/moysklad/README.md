@@ -235,6 +235,8 @@ Applied when building/merging the catalog (`dedupe.py`):
 - **Выбрать всю аудиторию** paginates `/clients` and marks every id (cap 5000);
   **Отправить пачками** chunks `POST /campaigns/mark-sent-batch` (≤50/request)
   so hundreds/thousands stay under Bot API timeouts
+- Sticky **4-step rail** (Аудитория → Текст → Отправка → Ответы) highlights the
+  next click; draft save is secondary to send
 - **Собрать ответы** → `POST /campaigns/replies/collect` syncs MTProto/gateway
   history and lists threads where the client spoke last (awaiting operator)
 
