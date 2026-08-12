@@ -6157,33 +6157,36 @@ function CampaignsPage() {
               <option value="whatsapp">WhatsApp</option>
             </select>
           </label>
-          <label>
-            Имя продавца / подпись
-            <input
-              disabled={!sellerLoaded}
-              onChange={e => {
-                const v = e.target.value
-                setSellerName(v)
-                persistSellerSettings(v, sellerFacts)
-              }}
-              placeholder='Напр. «Анна из Iris» или название магазина'
-              value={sellerName}
-            />
-          </label>
-          <label>
-            Факты о продавце / магазине
-            <textarea
-              disabled={!sellerLoaded}
-              onChange={e => {
-                const v = e.target.value
-                setSellerFacts(v)
-                persistSellerSettings(sellerName, v)
-              }}
-              placeholder="Адрес, специализация, спой тон, что можно упомянуть…"
-              rows={3}
-              value={sellerFacts}
-            />
-          </label>
+          <details className="ms-seller-settings">
+            <summary className="ms-muted">Подпись продавца</summary>
+            <label>
+              Кто пишет (имя / магазин)
+              <input
+                disabled={!sellerLoaded}
+                onChange={e => {
+                  const v = e.target.value
+                  setSellerName(v)
+                  persistSellerSettings(v, sellerFacts)
+                }}
+                placeholder="Анна · Iris"
+                value={sellerName}
+              />
+            </label>
+            <label>
+              Что можно упомянуть
+              <textarea
+                disabled={!sellerLoaded}
+                onChange={e => {
+                  const v = e.target.value
+                  setSellerFacts(v)
+                  persistSellerSettings(sellerName, v)
+                }}
+                placeholder="Тон, адрес, специализация…"
+                rows={2}
+                value={sellerFacts}
+              />
+            </label>
+          </details>
           <label>
             Текст сообщения
             <textarea

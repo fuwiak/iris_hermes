@@ -509,6 +509,31 @@
   line-height: 1.4;
 }
 
+.ms-seller-settings {
+  margin: 0;
+}
+
+.ms-seller-settings > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  list-style: none;
+}
+
+.ms-seller-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ms-seller-settings[open] > summary {
+  margin-bottom: 0.45rem;
+}
+
+.ms-seller-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.55rem;
+}
+
 .ms-mass-rail-actions {
   display: flex;
   flex-wrap: wrap;
