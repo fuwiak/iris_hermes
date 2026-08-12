@@ -39,7 +39,7 @@ import {
   pickLocalClientsSeed,
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
-import { EventCalendarPicker } from './event-calendar'
+import { EventCalendarPicker, formatRuRange } from './event-calendar'
 import { mergeUniqueIds } from './mass-send'
 
 interface GroupChipOption {
@@ -3253,6 +3253,10 @@ function CampaignsPage() {
   const [segmentSaving, setSegmentSaving] = useState(false)
   const [segmentStatus, setSegmentStatus] = useState('')
   const [activeSegmentId, setActiveSegmentId] = useState('')
+  const [filterDrawer, setFilterDrawer] = useState<'calendar' | 'groups-ms' | 'groups-ai' | null>(
+    null
+  )
+  const [saveFilterOpen, setSaveFilterOpen] = useState(false)
   const [personalize] = useState(false)
   const [, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
@@ -3957,7 +3961,7 @@ function CampaignsPage() {
     if (!name) {
       setSegmentStatus('Дайте списку имя.')
 
-      return
+      return false
     }
 
     setSegmentSaving(true)
@@ -3987,10 +3991,14 @@ function CampaignsPage() {
         setSegmentStatus(
           `✓ Список «${data.segment.name}» сохранён (${data.segment.matched_total ?? 0} клиентов)`
         )
+        loadSegments()
+        return true
       }
       loadSegments()
+      return false
     } catch (err) {
       setSegmentStatus(err instanceof Error ? err.message : String(err))
+      return false
     } finally {
       setSegmentSaving(false)
     }
@@ -5565,33 +5573,141 @@ function CampaignsPage() {
 
         <div aria-label="Фильтры аудитории" className="ms-filter-window">
           <div className="ms-filter-window-head">
-            <strong>Фильтры → аудитория справа → клик клиента → текст</strong>
-            <button
-              className="ms-link-btn"
-              onClick={() => {
-                setSalesFilter('all')
-                setChannelKind('')
-                setVipOnly(false)
-                setRequirePhone(false)
-                setRequireTelegram(false)
-                setBirthdaySoon(false)
-                setDaysBeforeEvent(0)
-                setEventDateFrom(null)
-                setEventDateTo(null)
-                setGroup('')
-                setGroupSource('any')
-                setAudienceQ('')
-                setActiveSegmentId('')
-                setSegmentStatus('')
-              }}
-              type="button"
-            >
-              Сбросить всё
-            </button>
+            <strong>Фильтры</strong>
+            <div className="ms-filter-head-actions">
+              <label className="ms-filter-presets">
+                <span className="ms-sr-only">Сохранённые фильтры</span>
+                <select
+                  aria-label="Сохранённые фильтры"
+                  className="ms-select"
+                  disabled={segmentsLoading}
+                  onChange={e => {
+                    const id = e.target.value
+                    if (!id) {
+                      setActiveSegmentId('')
+                      setSegmentName('')
+                      return
+                    }
+                    const seg = segments.find(s => s.id === id)
+                    if (seg) {
+                      applySegment(seg)
+                    }
+                  }}
+                  value={activeSegmentId}
+                >
+                  <option value="">
+                    {segmentsLoading
+                      ? 'Загрузка…'
+                      : segments.length
+                        ? 'Сохранённые фильтры…'
+                        : 'Нет сохранённых'}
+                  </option>
+                  {segments.map(seg => (
+                    <option key={seg.id} value={seg.id}>
+                      {seg.name}
+                      {seg.matched_total != null ? ` · ${seg.matched_total}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="ms-btn"
+                onClick={() => setSaveFilterOpen(v => !v)}
+                title="Сохранить текущие фильтры"
+                type="button"
+              >
+                Сохранить фильтр
+              </button>
+              <button
+                className="ms-link-btn"
+                onClick={() => {
+                  setSalesFilter('all')
+                  setChannelKind('')
+                  setVipOnly(false)
+                  setRequirePhone(false)
+                  setRequireTelegram(false)
+                  setBirthdaySoon(false)
+                  setDaysBeforeEvent(0)
+                  setEventDateFrom(null)
+                  setEventDateTo(null)
+                  setGroup('')
+                  setGroupSource('any')
+                  setAudienceQ('')
+                  setActiveSegmentId('')
+                  setSegmentName('')
+                  setSegmentStatus('')
+                  setFilterDrawer(null)
+                  setSaveFilterOpen(false)
+                }}
+                type="button"
+              >
+                Сбросить всё
+              </button>
+            </div>
           </div>
 
+          {saveFilterOpen ? (
+            <div className="ms-save-filter-bar">
+              <input
+                autoFocus
+                className="ms-input"
+                onChange={e => setSegmentName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && segmentName.trim()) {
+                    e.preventDefault()
+                    void saveCurrentSegment().then(ok => {
+                      if (ok) {
+                        setSaveFilterOpen(false)
+                      }
+                    })
+                  }
+                  if (e.key === 'Escape') {
+                    setSaveFilterOpen(false)
+                  }
+                }}
+                placeholder="Имя фильтра, напр. «Не состоялся · Прямые»"
+                value={segmentName}
+              />
+              <button
+                className="ms-btn"
+                disabled={segmentSaving || !segmentName.trim()}
+                onClick={() => {
+                  void saveCurrentSegment().then(ok => {
+                    if (ok) {
+                      setSaveFilterOpen(false)
+                    }
+                  })
+                }}
+                type="button"
+              >
+                {segmentSaving
+                  ? 'Сохраняю…'
+                  : activeSegmentId
+                    ? 'Обновить'
+                    : 'Сохранить'}
+              </button>
+              {activeSegmentId ? (
+                <button
+                  className="ms-link-btn"
+                  onClick={() => {
+                    const active = segments.find(s => s.id === activeSegmentId)
+                    if (active) {
+                      void removeSegment(active)
+                    }
+                  }}
+                  type="button"
+                >
+                  Удалить
+                </button>
+              ) : null}
+              {segmentStatus ? <span className="ms-muted">{segmentStatus}</span> : null}
+            </div>
+          ) : segmentStatus ? (
+            <p className="ms-muted ms-filter-status">{segmentStatus}</p>
+          ) : null}
+
           <div className="ms-filter-workspace">
-            <div className="ms-filter-col">
+            <div className="ms-filter-rail">
               <div className="ms-filter-block">
                 <span className="ms-filter-label">Канал продаж</span>
                 <FilterTabs
@@ -5604,11 +5720,11 @@ function CampaignsPage() {
 
               <div className="ms-filter-block">
                 <span className="ms-filter-label">Канал доставки</span>
-                <div className="ms-filter-tabs" role="group">
+                <div className="ms-filter-tabs ms-filter-tabs-wrap" role="group">
                   {[
                     { id: '', label: 'Любой' },
-                    { id: 'telegram', label: 'Только Telegram' },
-                    { id: 'whatsapp', label: 'Только WhatsApp' }
+                    { id: 'telegram', label: 'Telegram' },
+                    { id: 'whatsapp', label: 'WhatsApp' }
                   ].map(opt => (
                     <button
                       className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
@@ -5637,148 +5753,184 @@ function CampaignsPage() {
                     onClick={() => setRequirePhone(v => !v)}
                     type="button"
                   >
-                    Есть телефон
+                    Телефон
                   </button>
                   <button
                     className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
                     onClick={() => setRequireTelegram(v => !v)}
                     type="button"
                   >
-                    Есть Telegram
+                    Telegram
                   </button>
                   <button
                     className={`ms-chip${birthdaySoon ? ' is-active' : ''}`}
                     onClick={() => setBirthdaySoon(v => !v)}
                     type="button"
                   >
-                    ДР / события
+                    ДР
                   </button>
                 </div>
               </div>
 
               <div className="ms-filter-block">
-                <span className="ms-filter-label">Даты события / заказа</span>
-                <EventCalendarPicker
-                  dateFrom={eventDateFrom}
-                  dateTo={eventDateTo}
-                  leadDays={daysBeforeEvent}
-                  onLeadDaysChange={n => {
-                    setDaysBeforeEvent(n)
-                    if (n > 0) {
-                      setBirthdaySoon(false)
-                    }
-                  }}
-                  onRangeChange={(from, to) => {
-                    setEventDateFrom(from)
-                    setEventDateTo(to)
-                    if (from || to) {
-                      setBirthdaySoon(false)
-                    }
-                  }}
-                />
-              </div>
-
-              <GroupCloudSection
-                activeGroup={group}
-                activeSource={groupSource}
-                emptyHint="Нет тегов МойСклад в текущей выборке"
-                items={groupOptionsMs}
-                limit={80}
-                onToggle={(name, source) => {
-                  if (group === name && groupSource === source) {
-                    setGroup('')
-                    setGroupSource('any')
-                  } else {
-                    setGroup(name)
-                    setGroupSource(source)
-                  }
-                }}
-                sourceKey="ms"
-                title="Группы: МойСклад"
-              />
-
-              <GroupCloudSection
-                activeGroup={group}
-                activeSource={groupSource}
-                emptyHint="ИИ-группы появятся после эвристик/AI fill"
-                items={groupOptionsAi}
-                limit={60}
-                onToggle={(name, source) => {
-                  if (group === name && groupSource === source) {
-                    setGroup('')
-                    setGroupSource('any')
-                  } else {
-                    setGroup(name)
-                    setGroupSource(source)
-                  }
-                }}
-                sourceKey="ai"
-                title="Группы: ИИ"
-              />
-
-              <details className="ms-segments-details">
-                <summary className="ms-filter-label">
-                  Сохранённые списки
-                  {segments.length ? ` · ${segments.length}` : ''}
-                </summary>
-                <div className="ms-segments-row">
-                  <input
-                    className="ms-input"
-                    onChange={e => setSegmentName(e.target.value)}
-                    placeholder="Имя списка, напр. «Не состоялся · Прямые»"
-                    value={segmentName}
-                  />
+                <span className="ms-filter-label">Ещё</span>
+                <div className="ms-filter-rail-actions">
                   <button
-                    className="ms-btn"
-                    disabled={segmentSaving || !segmentName.trim()}
-                    onClick={() => void saveCurrentSegment()}
-                    title="Сохранит текущие фильтры как именованный список"
+                    className={`ms-filter-slide-btn${
+                      filterDrawer === 'calendar' || eventDateFrom || eventDateTo || daysBeforeEvent > 0
+                        ? ' is-active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setFilterDrawer(d => (d === 'calendar' ? null : 'calendar'))
+                    }
                     type="button"
                   >
-                    {segmentSaving
-                      ? 'Сохраняю…'
-                      : activeSegmentId
-                        ? 'Обновить список'
-                        : 'Сохранить список'}
+                    <span>Даты события</span>
+                    <span className="ms-muted">
+                      {formatRuRange(eventDateFrom, eventDateTo) ||
+                        (daysBeforeEvent > 0 ? `за ${daysBeforeEvent} дн.` : 'календарь')}
+                    </span>
+                  </button>
+                  <button
+                    className={`ms-filter-slide-btn${
+                      filterDrawer === 'groups-ms' || (group && groupSource === 'ms')
+                        ? ' is-active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setFilterDrawer(d => (d === 'groups-ms' ? null : 'groups-ms'))
+                    }
+                    type="button"
+                  >
+                    <span>Группы МойСклад</span>
+                    <span className="ms-muted">
+                      {group && groupSource === 'ms'
+                        ? group
+                        : `${groupOptionsMs.length || 0}`}
+                    </span>
+                  </button>
+                  <button
+                    className={`ms-filter-slide-btn${
+                      filterDrawer === 'groups-ai' || (group && groupSource === 'ai')
+                        ? ' is-active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setFilterDrawer(d => (d === 'groups-ai' ? null : 'groups-ai'))
+                    }
+                    type="button"
+                  >
+                    <span>Группы ИИ</span>
+                    <span className="ms-muted">
+                      {group && groupSource === 'ai'
+                        ? group
+                        : `${groupOptionsAi.length || 0}`}
+                    </span>
                   </button>
                 </div>
-                {segmentStatus ? <p className="ms-muted">{segmentStatus}</p> : null}
-                <div className="ms-chips">
-                  {segmentsLoading ? <span className="ms-muted">Загрузка…</span> : null}
-                  {!segmentsLoading && segments.length === 0 ? (
-                    <span className="ms-muted">Списков пока нет</span>
-                  ) : null}
-                  {segments.map(seg => (
-                    <span
-                      className={`ms-chip ms-segment-chip${
-                        activeSegmentId === seg.id ? ' is-active' : ''
-                      }`}
-                      key={seg.id}
-                    >
-                      <button onClick={() => applySegment(seg)} type="button">
-                        {seg.name}
-                        {seg.matched_total != null ? <span>{seg.matched_total}</span> : null}
-                      </button>
-                      <button
-                        aria-label={`Удалить список ${seg.name}`}
-                        className="ms-segment-chip-remove"
-                        onClick={() => void removeSegment(seg)}
-                        title="Удалить список"
-                        type="button"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </details>
+              </div>
             </div>
+
+            {filterDrawer ? (
+              <div
+                aria-label={
+                  filterDrawer === 'calendar'
+                    ? 'Календарь событий'
+                    : filterDrawer === 'groups-ms'
+                      ? 'Группы МойСклад'
+                      : 'Группы ИИ'
+                }
+                className="ms-filter-slide"
+                role="dialog"
+              >
+                <div className="ms-filter-slide-head">
+                  <strong>
+                    {filterDrawer === 'calendar'
+                      ? 'Даты события / заказа'
+                      : filterDrawer === 'groups-ms'
+                        ? 'Группы: МойСклад'
+                        : 'Группы: ИИ'}
+                  </strong>
+                  <button
+                    aria-label="Закрыть"
+                    className="ms-link-btn"
+                    onClick={() => setFilterDrawer(null)}
+                    type="button"
+                  >
+                    Закрыть
+                  </button>
+                </div>
+                <div className="ms-filter-slide-body">
+                  {filterDrawer === 'calendar' ? (
+                    <EventCalendarPicker
+                      dateFrom={eventDateFrom}
+                      dateTo={eventDateTo}
+                      leadDays={daysBeforeEvent}
+                      onLeadDaysChange={n => {
+                        setDaysBeforeEvent(n)
+                        if (n > 0) {
+                          setBirthdaySoon(false)
+                        }
+                      }}
+                      onRangeChange={(from, to) => {
+                        setEventDateFrom(from)
+                        setEventDateTo(to)
+                        if (from || to) {
+                          setBirthdaySoon(false)
+                        }
+                      }}
+                    />
+                  ) : null}
+                  {filterDrawer === 'groups-ms' ? (
+                    <GroupCloudSection
+                      activeGroup={group}
+                      activeSource={groupSource}
+                      emptyHint="Нет тегов МойСклад в текущей выборке"
+                      items={groupOptionsMs}
+                      limit={120}
+                      onToggle={(name, source) => {
+                        if (group === name && groupSource === source) {
+                          setGroup('')
+                          setGroupSource('any')
+                        } else {
+                          setGroup(name)
+                          setGroupSource(source)
+                        }
+                      }}
+                      sourceKey="ms"
+                      title="Группы: МойСклад"
+                    />
+                  ) : null}
+                  {filterDrawer === 'groups-ai' ? (
+                    <GroupCloudSection
+                      activeGroup={group}
+                      activeSource={groupSource}
+                      emptyHint="ИИ-группы появятся после эвристик/AI fill"
+                      items={groupOptionsAi}
+                      limit={100}
+                      onToggle={(name, source) => {
+                        if (group === name && groupSource === source) {
+                          setGroup('')
+                          setGroupSource('any')
+                        } else {
+                          setGroup(name)
+                          setGroupSource(source)
+                        }
+                      }}
+                      sourceKey="ai"
+                      title="Группы: ИИ"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <aside aria-label="Аудитория" className="ms-audience-col">
               <div className="ms-audience-pick ms-audience-pick-side">
                 <div className="ms-audience-pick-head">
                   <p className="ms-muted">
-                    Аудитория · <strong>{audience}</strong>
+                    Клиенты · <strong>{audience}</strong>
                     {loading ? ' · обновляем…' : ''}
                     {selectedClientId
                       ? ` · ${selectedClientName || selectedClientId}`
