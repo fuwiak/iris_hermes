@@ -152,14 +152,61 @@ def _parse_birthdate(raw: Any) -> Optional[date]:
     return None
 
 
+def parse_event_date(value: Any) -> Optional[date]:
+    """Parse order/event timestamps into a calendar date.
+
+    Accepts ISO ``YYYY-MM-DD``, MoySklad ``YYYY-MM-DD HH:MM:SS``,
+    ``YYYY-MM-DDTHH:MM:SS``, and RU ``DD.MM.YYYY``.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text or text.lower() in ("none", "null"):
+        return None
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%d.%m.%Y %H:%M:%S",
+        "%d.%m.%Y",
+        "%d/%m/%Y",
+    ):
+        try:
+            return datetime.strptime(text[:19], fmt).date()
+        except ValueError:
+            continue
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+    m = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})", text)
+    if m:
+        dd, mm = int(m.group(1)), int(m.group(2))
+        yy = int(m.group(3))
+        if yy < 100:
+            yy += 2000
+        if 1 <= mm <= 12 and 1 <= dd <= 31:
+            try:
+                return date(yy, mm, dd)
+            except ValueError:
+                return None
+    return None
+
+
 def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) -> list[date]:
     """Occasion + order dates for calendar / lead-window audience filters.
 
     Sources:
     - birthdate attrs, fixed occasion tags («8 марта», «событие марта» → mid-month)
     - soft season from order months (March → 8 Mar, Aug → mid-month, …)
-    - **literal order ``moment`` / ``Дата``** so picking the order day in
+    - **literal order ``moment`` / ``Дата`` / ``date``** so picking the order day in
       Рассылки calendar finds that client (not only 8 Mar / mid-month proxy)
+    - **annual recurrence of the order day** (2025-03-01 → also 2026-03-01 when
+      the seller picks that day next year)
+    - row-level ``last_order_at`` when ``_orders_context`` is stubbed / missing dates
     """
     today = today or date.today()
     found: list[date] = []
@@ -169,6 +216,11 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
         if d not in seen:
             seen.add(d)
             found.append(d)
+
+    def _add_order_day(order_day: date) -> None:
+        _add(order_day)
+        # Anniversary of the purchase day against the active ``today`` anchor.
+        _add(_next_annual(order_day.month, order_day.day, today=today))
 
     # Explicit birthdate attributes from MoySklad / AI fill.
     for key in (
@@ -207,16 +259,25 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
     for item in row.get("_orders_context") or []:
         if not isinstance(item, dict):
             continue
-        moment = str(item.get("moment") or item.get("Дата") or "")
+        moment = (
+            item.get("moment")
+            or item.get("Дата")
+            or item.get("date")
+            or ""
+        )
         order_day = parse_event_date(moment)
         if order_day is not None:
-            _add(order_day)
+            _add_order_day(order_day)
         month = item.get("_month")
-        if month is None and len(moment) >= 7 and moment[4] == "-":
-            try:
-                month = int(moment[5:7])
-            except ValueError:
-                month = None
+        if month is None:
+            moment_text = str(moment or "")
+            if len(moment_text) >= 7 and moment_text[4] == "-":
+                try:
+                    month = int(moment_text[5:7])
+                except ValueError:
+                    month = None
+            elif order_day is not None:
+                month = order_day.month
         try:
             month_i = int(month) if month is not None else 0
         except (TypeError, ValueError):
@@ -236,18 +297,15 @@ def event_dates_for_row(row: dict[str, Any], *, today: Optional[date] = None) ->
             # Lets the outreach calendar find seasonal clients when the seller
             # picks e.g. 10–20 Aug without an explicit occasion tag.
             _add(_next_annual(month_i, 15, today=today))
+
+    # Catalog stubs sometimes keep channel-only ``_orders_context`` but still
+    # stamp ``last_order_at`` — calendar must see that day too.
+    for key in ("last_order_at", "Дата последнего заказа"):
+        last_day = parse_event_date(row.get(key))
+        if last_day is not None:
+            _add_order_day(last_day)
+
     return found
-
-
-def parse_event_date(value: Any) -> Optional[date]:
-    """Parse ``YYYY-MM-DD`` (or ISO datetime prefix) into a date."""
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return date.fromisoformat(text[:10])
-    except ValueError:
-        return None
 
 
 def row_matches_event_calendar(

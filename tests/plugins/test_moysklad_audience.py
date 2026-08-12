@@ -7,6 +7,7 @@ from datetime import date
 from plugins.moysklad.audience import (
     event_dates_for_row,
     normalize_group_source,
+    parse_event_date,
     row_matches_audience_extras,
     row_matches_days_before_event,
     row_matches_event_calendar,
@@ -86,6 +87,48 @@ def test_event_calendar_matches_literal_order_day() -> None:
         lead_days=0,
         today=today,
     ) is False
+
+
+def test_event_calendar_matches_last_order_at_without_context_moment() -> None:
+    """Stub channel-only context + last_order_at must still match calendar day."""
+    today = date(2026, 8, 12)
+    row = {
+        "_moysklad_id": "viktor-stub",
+        "_orders_context": [{"Канал продаж": "Flow Wow Сокольники"}],
+        "last_order_at": "2026-03-01 09:55",
+        "Дата последнего заказа": "2026-03-01 09:55",
+    }
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 1),
+        lead_days=0,
+        today=today,
+    ) is True
+
+
+def test_event_calendar_matches_order_day_anniversary() -> None:
+    """Order on 2025-03-01 must match seller picking 2026-03-01."""
+    today = date(2026, 8, 12)
+    row = {
+        "_moysklad_id": "viktor-anniv",
+        "_orders_context": [
+            {"moment": "2025-03-01 09:55:00", "sum": 5732, "_month": 3}
+        ],
+    }
+    assert row_matches_event_calendar(
+        row,
+        event_from=date(2026, 3, 1),
+        event_to=date(2026, 3, 1),
+        lead_days=0,
+        today=today,
+    ) is True
+
+
+def test_parse_event_date_moysklad_and_ru_formats() -> None:
+    assert parse_event_date("2026-03-01 09:55:00") == date(2026, 3, 1)
+    assert parse_event_date("01.03.2026") == date(2026, 3, 1)
+    assert parse_event_date("2026-03-01T09:55:00") == date(2026, 3, 1)
 
 
 def test_event_calendar_august_tag_and_order_season() -> None:

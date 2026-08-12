@@ -1151,10 +1151,17 @@ def get_clients(
     )
     try:
         want_fast = (not refresh) and offset == 0
+        # Calendar / lead-window filters must recompute against live order dates —
+        # empty poisoned snapshots (pre-literal-order) stuck as «Клиенты · 0».
+        calendar_filter_active = bool(
+            (event_date_from or "").strip()
+            or (event_date_to or "").strip()
+            or int(days_before_event or 0) > 0
+        )
 
         # Instant paint / scroll: serve Redis/file page window when it covers
         # this offset (grows via extend_page_snapshot after each successful page).
-        if not refresh:
+        if not refresh and not calendar_filter_active:
             snap_env = get_page_snapshot(snap_key)
             if snap_env is not None:
                 sliced = slice_page_snapshot(
