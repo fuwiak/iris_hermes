@@ -69,6 +69,9 @@ def _OUTREACH_SYSTEM(seller_name: str, seller_facts: str) -> str:
 Опора на данные клиента (мягкий якорь, не смирительная рубашка):
 • Имя, заказы, букеты/составы, даты, суммы, теги, поводы, риски — только из JSON.
   Не выдумывай скидки, промокоды, акции, телефоны, VIP, баллы, адреса, долг.
+• Состав заказа — поле orders[].composition / orders[].line_items (позиции номенклатуры
+  из МойСклад). Если состав есть — обязательно опирайся на него в рекомендации
+  (назови цветы/букет словами из состава). Не подменяй состав кодом заказа.
 • Конкретные букеты/SKU называй, если они есть в истории заказов; иначе — мягко
   и общо, без фейкового наличия на складе.
 • Даты — по-человечески («в середине мая»), не сырой ISO и не внутренние коды
@@ -119,14 +122,15 @@ _SANITY_SYSTEM = """Ты — лёгкий контролёр смысла. НЕ 
 
 
 _BOUQUET_SYSTEM = """Ты — флорист в живом чате с клиентом.
-Предложи КОНКРЕТНЫЙ букет из ЕГО истории заказов (product_snippet в JSON) —
+Предложи КОНКРЕТНЫЙ букет из ЕГО истории заказов —
+смотри orders[].composition / orders[].line_items / product_snippet в JSON —
 тепло, свободно, по-человечески, без канцелярита. Отвечай на русском.
 
 Опора на данные:
 • Только факты из JSON orders/client/risks + подпись продавца.
   Не выдумывай названия букетов, скидки, акции, наличие на складе.
-• Обязательно назови исторический букет/состав словами из product_snippet
-  (падеж можно смягчить, суть не меняй).
+• Обязательно назови исторический букет/состав словами из composition
+  (или line_items / product_snippet, если composition пуст; падеж можно смягчить).
 • Мягко предложи повторить / собрать похожий; обращение по имени; 2–6 предложений.
 • Не хардкодь «Это Iris», если подпись другая; без ярлыка канала в конце.
 • При do_not_upsell / has_debt — НЕ предлагай букет, только сверка оплаты.
@@ -283,6 +287,8 @@ def facts_panel(detail: dict[str, Any]) -> dict[str, Any]:
                 "unpaid": o.get("unpaid"),
                 "channel": o.get("channel") or None,
                 "product_snippet": o.get("product_snippet") or None,
+                "composition": o.get("composition") or None,
+                "line_items": list(o.get("line_items") or [])[:8],
             }
             for o in orders[:8]
         ],
@@ -1073,15 +1079,24 @@ def _too_similar(a: str, b: str, *, threshold: float = 0.82) -> bool:
 
 
 def _historical_bouquet_candidates(detail: dict[str, Any]) -> list[dict[str, Any]]:
-    """Concrete bouquets from order history (natural product snippets only)."""
+    """Concrete bouquets from order history (composition / natural snippets)."""
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for order in list(detail.get("orders") or []):
         if not isinstance(order, dict):
             continue
-        snip = _natural_product_bit(
-            order.get("product_snippet") or order.get("name") or ""
+        raw = (
+            order.get("composition")
+            or (
+                "; ".join(str(x) for x in order.get("line_items") or [] if str(x).strip())
+                if order.get("line_items")
+                else ""
+            )
+            or order.get("product_snippet")
+            or order.get("name")
+            or ""
         )
+        snip = _natural_product_bit(raw)
         if not snip:
             continue
         key = snip.casefold()

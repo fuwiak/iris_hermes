@@ -266,6 +266,7 @@ Full agent procedure: `skills/productivity/moysklad-crm-tabs/SKILL.md` and coloc
 | `dedupe.py` / `audience.py` | Multi-stage dedupe + mass audience filters |
 | `groups.py` / `assign_groups.py` | Group cloud + heuristic assign |
 | `recalculate_groups.py` | LLM/heuristic taxonomy propose + reassign |
+| `order_compositions.py` | Lazy MoySklad positions → «состав заказа» for card/AI |
 | `dashboard/` | Tab UI + `plugin_api.py` |
 | `SKILL.md` | Agent usage guide |
 

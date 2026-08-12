@@ -792,6 +792,11 @@
   font-size: 0.82rem;
 }
 
+.ms-order-composition {
+  margin-top: 0.2rem;
+  line-height: 1.35;
+}
+
 .ms-order-row.is-cancelled {
   opacity: 0.78;
   border-style: dashed;

@@ -44,13 +44,10 @@ import {
   chunkIds,
   MASS_AUDIENCE_SELECT_CAP,
   MASS_SEND_CHUNK,
-  MASS_SEND_STEP_LABELS,
   massSendConfirmText,
   massSendProgressLabel,
-  massSendStepHint,
   mergeUniqueIds,
-  needsMassSendConfirm,
-  resolveMassSendStep
+  needsMassSendConfirm
 } from './mass-send'
 
 interface GroupChipOption {
@@ -285,6 +282,8 @@ interface ClientOrder {
   sum?: number
   channel?: string
   product_snippet?: string
+  composition?: string | null
+  line_items?: string[]
   state?: string | null
   payment_status?: string | null
   applicable?: boolean | null
@@ -1476,7 +1475,13 @@ function FactsPanel({
             {(last.date || '').slice(0, 16).replace('T', ' ')} · {money(last.sum)}
             {last.channel ? ` · ${last.channel}` : ''}
           </div>
-          {last.product_snippet ? <div>{last.product_snippet}</div> : null}
+          {last.product_snippet || last.composition || (last.line_items || []).length ? (
+            <OrderCompositionBits
+              composition={last.composition}
+              lineItems={last.line_items}
+              productSnippet={last.product_snippet}
+            />
+          ) : null}
         </div>
       ) : null}
       <TagPills className="ms-tag-row ms-tag-event" items={facts.event_tags || []} />
@@ -1489,7 +1494,13 @@ function FactsPanel({
                 {(o.date || '').slice(0, 16).replace('T', ' ')} · {money(o.sum)}
                 {o.channel ? ` · ${o.channel}` : ''}
               </div>
-              {o.product_snippet ? <div>{o.product_snippet}</div> : null}
+              {o.product_snippet || o.composition || (o.line_items || []).length ? (
+                <OrderCompositionBits
+                  composition={o.composition}
+                  lineItems={o.line_items}
+                  productSnippet={o.product_snippet}
+                />
+              ) : null}
             </div>
           ))}
         </div>
@@ -1509,6 +1520,30 @@ function FactsPanel({
       {facts.ai_source ? <p className="ms-muted">AI: {facts.ai_source}</p> : null}
     </aside>
   )
+}
+
+function OrderCompositionBits({
+  composition,
+  lineItems,
+  productSnippet,
+}: {
+  composition?: string | null
+  lineItems?: string[]
+  productSnippet?: string | null
+}) {
+  const lines = (lineItems || []).map(x => String(x || '').trim()).filter(Boolean)
+  const comp = String(composition || '').trim()
+  const snippet = String(productSnippet || '').trim()
+  if (comp || lines.length) {
+    return (
+      <div className="ms-order-composition">
+        <span className="ms-muted">Состав: </span>
+        {lines.length ? lines.join('; ') : comp}
+      </div>
+    )
+  }
+  if (snippet) return <div>{snippet}</div>
+  return null
 }
 
 function orderPaymentLabel(status?: string | null, state?: string | null): string {
@@ -1830,8 +1865,14 @@ function ClientCardModal({
                       ? ` · ${orderPaymentLabel(stats.last_order.payment_status, stats.last_order.state)}`
                       : ''}
                   </div>
-                  {stats.last_order.product_snippet ? (
-                    <div>{stats.last_order.product_snippet}</div>
+                  {stats.last_order.product_snippet ||
+                  stats.last_order.composition ||
+                  (stats.last_order.line_items || []).length ? (
+                    <OrderCompositionBits
+                      composition={stats.last_order.composition}
+                      lineItems={stats.last_order.line_items}
+                      productSnippet={stats.last_order.product_snippet}
+                    />
                   ) : null}
                 </div>
               ) : null}
@@ -1863,7 +1904,13 @@ function ClientCardModal({
                         {(o.date || '').slice(0, 16).replace('T', ' ')} · {money(o.sum)}
                         {o.channel ? ` · ${o.channel}` : ''}
                       </div>
-                      {o.product_snippet ? <div>{o.product_snippet}</div> : null}
+                      {o.product_snippet || o.composition || (o.line_items || []).length ? (
+                        <OrderCompositionBits
+                          composition={o.composition}
+                          lineItems={o.line_items}
+                          productSnippet={o.product_snippet}
+                        />
+                      ) : null}
                     </div>
                     )
                   })
@@ -3281,7 +3328,7 @@ function CampaignsPage() {
   const [addContactQuery, setAddContactQuery] = useState('')
   const [addContactSaving, setAddContactSaving] = useState(false)
   const [addContactResolving, setAddContactResolving] = useState(false)
-  const [pickMode, setPickMode] = useState<'single' | 'multi'>('multi')
+  const [pickMode] = useState<'single' | 'multi'>('single')
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -5613,24 +5660,8 @@ function CampaignsPage() {
     }
   }
 
-  const massSelectedCount =
-    pickMode === 'multi'
-      ? selectedClientIds.length
-      : selectedClientId
-        ? 1
-        : 0
-  const massStep = resolveMassSendStep({
-    selectedCount: massSelectedCount,
-    hasDraft: Boolean(offer.trim()),
-    sentCount: lastSentClientIds.length
-  })
-  const massHint = massSendStepHint(massStep, {
-    audience,
-    selectedCount: massSelectedCount,
-    chunk: MASS_SEND_CHUNK
-  })
-  const canMassSend =
-    massSelectedCount > 0 &&
+  const canSendOne =
+    Boolean(selectedClientId) &&
     Boolean(offer.trim()) &&
     !checkingSanity &&
     !generating &&
@@ -5644,7 +5675,7 @@ function CampaignsPage() {
         <div>
           <h1>Рассылки</h1>
           <p className="ms-muted">
-            4 шага: аудитория → текст → отправка → ответы
+            Фильтр → список → клик клиента → текст → отправить. Массовая позже.
           </p>
         </div>
         <button className="ms-btn" onClick={() => host.navigate('/clients')} type="button">
@@ -5652,78 +5683,28 @@ function CampaignsPage() {
         </button>
       </div>
 
-      <section className="ms-mass-rail" aria-label="Массовая рассылка">
-        <ol className="ms-mass-steps">
-          {([1, 2, 3, 4] as const).map(step => (
-            <li
-              className={`ms-mass-step${massStep === step ? ' is-active' : ''}${
-                massStep > step ? ' is-done' : ''
-              }`}
-              key={step}
-            >
-              <span className="ms-mass-step-num">{step}</span>
-              <span className="ms-mass-step-label">{MASS_SEND_STEP_LABELS[step]}</span>
-            </li>
-          ))}
-        </ol>
-        <p className="ms-mass-hint">{massHint}</p>
+      <section className="ms-mass-rail ms-individual-rail" aria-label="Индивидуальная отправка">
+        <p className="ms-mass-hint">
+          {selectedClientId
+            ? `Клиент: ${selectedClientName || facts?.name || selectedClientId}. Правьте текст ниже и жмите «Отправить».`
+            : audience > 0
+              ? `В фильтре ${audience} чел. Откройте список и нажмите на клиента.`
+              : 'Сузьте фильтры — пока matched = 0.'}
+        </p>
         <div className="ms-mass-rail-actions">
-          {massStep === 1 ? (
-            <>
-              <button
-                className="ms-btn ms-btn-primary"
-                disabled={selectingAudience || audience < 1}
-                onClick={() => void selectEntireAudience()}
-                type="button"
-              >
-                {selectingAudience
-                  ? 'Собираю id…'
-                  : `Выбрать всех (${audience})`}
-              </button>
-              <button
-                className="ms-btn"
-                disabled={selectingAudience || !audiencePreview.length}
-                onClick={() => selectLoadedAudience()}
-                type="button"
-              >
-                Только загруженных ({audiencePreview.length})
-              </button>
-            </>
-          ) : null}
-          {massStep === 2 ? (
-            <p className="ms-muted ms-mass-inline-note">
-              Текст — в поле ниже. AI-кнопки там же.
-            </p>
-          ) : null}
-          {massStep === 3 ? (
-            <>
-              {channel.startsWith('telegram') && massSelectedCount > 1 ? (
-                <button
-                  className="ms-btn"
-                  disabled={preflightBusy || massSelectedCount < 1}
-                  onClick={() => void runPreflight()}
-                  type="button"
-                >
-                  {preflightBusy ? 'Проверяю…' : 'Проверить получателей'}
-                </button>
-              ) : null}
-              <button
-                className="ms-btn ms-btn-primary"
-                disabled={!canMassSend}
-                onClick={() => void markSentToConversation()}
-                type="button"
-              >
-                {checkingSanity
-                  ? 'Отправляю…'
-                  : massSelectedCount > 1
-                    ? `Отправить ${massSelectedCount} пачками`
-                    : 'Отправить в Telegram'}
-              </button>
-            </>
-          ) : null}
-          {massStep === 4 || lastSentClientIds.length > 0 ? (
+          {selectedClientId && offer.trim() ? (
             <button
-              className={`ms-btn${massStep === 4 ? ' ms-btn-primary' : ''}`}
+              className="ms-btn ms-btn-primary"
+              disabled={!canSendOne}
+              onClick={() => void markSentToConversation()}
+              type="button"
+            >
+              {checkingSanity ? 'Отправляю…' : 'Отправить в Telegram'}
+            </button>
+          ) : null}
+          {selectedClientId || lastSentClientIds.length > 0 ? (
+            <button
+              className="ms-btn"
               disabled={repliesBusy}
               onClick={() => void collectReplies()}
               type="button"
@@ -5731,33 +5712,13 @@ function CampaignsPage() {
               {repliesBusy ? 'Собираю…' : 'Собрать ответы'}
             </button>
           ) : null}
-          {massSelectedCount > 0 ? (
+          {lastSentClientIds.length ? (
             <span className="ms-mass-count">
-              Выбрано <strong>{massSelectedCount}</strong>
-              {audience ? ` / ${audience}` : ''}
-              {lastSentClientIds.length
-                ? ` · отправлено ${lastSentClientIds.length}`
-                : ''}
+              Отправлено в этой сессии: <strong>{lastSentClientIds.length}</strong>
             </span>
           ) : null}
         </div>
         {actionStatus ? <p className="ms-muted ms-mass-status">{actionStatus}</p> : null}
-        {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
-        {preflight ? (
-          <p className="ms-muted ms-preflight-note">
-            Готовы: {preflight.ready ?? 0} · недостижимы: {preflight.blocked ?? 0}
-            {preflight.recipients && preflight.blocked ? (
-              <>
-                {' — '}
-                {preflight.recipients
-                  .filter(r => !r.ok)
-                  .slice(0, 5)
-                  .map(r => r.name || r.client_id)
-                  .join(', ')}
-              </>
-            ) : null}
-          </p>
-        ) : null}
         {(repliesMeta || replies.length > 0) && (
           <div className="ms-replies-inbox">
             <p className="ms-ai-label">Ответы клиентов</p>
@@ -5772,7 +5733,6 @@ function CampaignsPage() {
                         if (!row.client_id) {
                           return
                         }
-                        setPickMode('single')
                         setSelectedClientId(row.client_id)
                         setSelectedClientName(row.client_name || '')
                         setContactPickerId(row.client_id)
@@ -5834,7 +5794,9 @@ function CampaignsPage() {
                 сбросить клиента
               </button>
             </>
-          ) : null}
+          ) : (
+            <> · кликните клиента в списке</>
+          )}
         </p>
         <div className="ms-filter-block">
           <span className="ms-filter-label">Канал доставки</span>

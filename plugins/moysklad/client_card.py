@@ -65,6 +65,10 @@ _AI_SYSTEM = """Ты — помощник продавца цветочного 
    теги, VIP, долг — только из JSON. Не выдумывай телефон, email, Telegram,
    скидки, акции, адреса.
 2. Цитируй реальные даты/суммы/букеты из истории, когда они есть.
+   Состав заказа — поля orders[].composition / orders[].line_items
+   (позиции номенклатуры МойСклад). Если состав есть — ОБЯЗАТЕЛЬНО опирайся
+   на него в recommendation (назови цветы/букет словами из состава).
+   Не подменяй состав кодом заказа вроде «1605-02».
 3. Если в JSON есть conversation / conversation_preview / tg_conversation —
    ОБЯЗАТЕЛЬНО учти переписку Telegram: тон, просьбы, жалобы, договорённости.
    Не пиши «переписки нет», если message_count > 0 или preview непустой.
@@ -270,6 +274,19 @@ def build_fact_blocks(detail: dict[str, Any]) -> dict[str, Any]:
         history_lines.append({"label": "Заказов", "value": str(order_count)})
     if channels:
         history_lines.append({"label": "Каналы", "value": ", ".join(channels)})
+    compositions = []
+    for o in orders[:5]:
+        comp = str(o.get("composition") or "").strip()
+        if not comp:
+            items = o.get("line_items") or []
+            if isinstance(items, list) and items:
+                comp = "; ".join(str(x) for x in items if str(x).strip())
+        if not comp:
+            continue
+        bit = (str(o.get("date") or "")[:10] + " — " if o.get("date") else "") + comp
+        compositions.append(bit)
+    if compositions:
+        history_lines.append({"label": "Состав заказов", "value": " · ".join(compositions)})
     if avg > 0:
         history_lines.append({"label": "Средний чек", "value": f"{avg:.0f} ₽"})
     history_lines.append({"label": "VIP / статус", "value": "VIP" if vip else (str(client.get("state") or "").strip() or "не отмечен")})
@@ -406,8 +423,15 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
     name = str(item.get("name") or "").strip()
     desc = str(item.get("description") or "").strip()
     snippet = str(item.get("product_snippet") or "").strip()
+    composition = str(item.get("composition") or "").strip()
+    line_items_raw = item.get("line_items")
+    line_items: list[str] = []
+    if isinstance(line_items_raw, list):
+        line_items = [str(x).strip() for x in line_items_raw if str(x or "").strip()]
+    if not composition and line_items:
+        composition = "; ".join(line_items)
     if not snippet:
-        snippet = (desc or name)[:120]
+        snippet = composition or (desc or name)[:120]
     payed_raw = item.get("payed_sum")
     unpaid_raw = item.get("unpaid")
     payed_f: Optional[float] = None
@@ -437,6 +461,8 @@ def _order_public(item: dict[str, Any]) -> dict[str, Any]:
         ),
         "channel": channel_label,
         "product_snippet": snippet,
+        "composition": composition or None,
+        "line_items": line_items,
         "description": desc,
     }
 
@@ -511,8 +537,43 @@ def find_row_in_catalog(catalog: dict[str, Any], client_id: str) -> Optional[dic
     return None
 
 
-def build_client_detail(row: dict[str, Any]) -> dict[str, Any]:
-    """Map an enriched catalog row into the client-card API payload (no LLM)."""
+def build_client_detail(
+    row: dict[str, Any],
+    *,
+    ms_client: Any = None,
+    fetch_positions: Any = None,
+    enrich_compositions: bool = True,
+    max_composition_orders: int = 8,
+) -> dict[str, Any]:
+    """Map an enriched catalog row into the client-card API payload (no LLM).
+
+    Recent orders are enriched with MoySklad positions → ``composition`` /
+    ``line_items`` so the UI and AI recommendations can name real bouquet
+    составы. Pass ``ms_client`` / ``fetch_positions`` explicitly, or leave
+    both unset to auto-use ``MoySkladClient`` when a token is configured.
+    """
+    if enrich_compositions and ms_client is None and fetch_positions is None:
+        try:
+            from plugins.moysklad.client import MoySkladClient, token_configured
+
+            if token_configured():
+                ms_client = MoySkladClient()
+        except Exception:
+            log.debug("moysklad client for composition enrich unavailable", exc_info=True)
+
+    if enrich_compositions and (ms_client is not None or fetch_positions is not None):
+        try:
+            from plugins.moysklad.order_compositions import enrich_row_order_compositions
+
+            enrich_row_order_compositions(
+                row,
+                ms_client=ms_client,
+                fetch_positions=fetch_positions,
+                max_orders=max_composition_orders,
+            )
+        except Exception:
+            log.debug("order composition enrich failed", exc_info=True)
+
     public = _public_client(row)
     orders_raw = list(row.get("_orders_context") or [])
     orders = [_order_public(o) for o in orders_raw if isinstance(o, dict)]
@@ -628,6 +689,13 @@ def heuristic_ai(
                 bit += f" / {o['sum']:.0f} ₽"
             if o.get("channel"):
                 bit += f" ({o['channel']})"
+            comp = str(o.get("composition") or "").strip()
+            if not comp and isinstance(o.get("line_items"), list):
+                comp = "; ".join(str(x) for x in o["line_items"] if str(x).strip())
+            if comp:
+                bit += f" · состав: {comp[:80]}"
+            elif o.get("product_snippet"):
+                bit += f" · {str(o['product_snippet'])[:60]}"
             cites.append(bit)
         if cites:
             facts.append("примеры: " + "; ".join(cites))
@@ -700,18 +768,37 @@ def heuristic_ai(
             + ". Тон спокойный, без давления; скидки и суммы долга не выдумывать."
         )
     elif n and avg:
+        comps = [
+            str(o.get("composition") or o.get("product_snippet") or "").strip()
+            for o in orders[:3]
+        ]
+        comps = [c for c in comps if c]
+        bouquet_hint = (
+            f"Опираться на прошлый состав: {comps[0][:100]}. "
+            if comps
+            else "Предложить букет/композицию в духе прошлых позиций (см. состав заказов), без выдуманных SKU. "
+        )
         rec = (
             f"Связаться за ~5 дней до ожидаемого повода/доставки "
             f"(опираясь на даты последних заказов). "
             f"Ориентир чека из истории ≈ {avg:.0f} ₽. "
-            f"Предложить букет/композицию в духе прошлых позиций "
-            f"(см. сниппеты заказов), без выдуманных SKU. "
+            f"{bouquet_hint}"
         )
     elif n:
+        comps = [
+            str(o.get("composition") or o.get("product_snippet") or "").strip()
+            for o in orders[:3]
+        ]
+        comps = [c for c in comps if c]
+        bouquet_bit = (
+            f" Опираться на прошлый состав: {comps[0][:100]}."
+            if comps
+            else ""
+        )
         rec = (
             "Есть заказы, но средний чек не посчитан — уточнить бюджет у клиента, "
             "не называть сумму наугад. Связаться в окно ~5 дней до повода, "
-            "если повод подтверждён фактами."
+            f"если повод подтверждён фактами.{bouquet_bit}"
         )
     else:
         rec = (
@@ -772,6 +859,8 @@ def _facts_payload(detail: dict[str, Any]) -> dict[str, Any]:
                 "payment_status": o.get("payment_status") or None,
                 "channel": o.get("channel") or None,
                 "product_snippet": o.get("product_snippet") or None,
+                "composition": o.get("composition") or None,
+                "line_items": list(o.get("line_items") or [])[:12],
             }
             for o in orders[:40]
         ],
