@@ -5483,7 +5483,7 @@ function CampaignsPage() {
           )}
         </p>
 
-        <div className="ms-filter-window" aria-label="Фильтры аудитории">
+        <div aria-label="Фильтры аудитории" className="ms-filter-window">
           <div className="ms-filter-window-head">
             <strong>Фильтры</strong>
             <button
