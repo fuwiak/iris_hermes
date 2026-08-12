@@ -145,6 +145,50 @@ def test_no_channel_defaults_to_direct() -> None:
     assert row_audience_bucket(row) == "direct"
 
 
+def test_whatsapp_group_is_not_sales_channel() -> None:
+    """MoySklad group «WhatsApp» must not invent a direct sales channel."""
+    row = {
+        "_moysklad_id": "mp-wa",
+        "_orders_context": [
+            {"id": "o1", "Канал продаж": "FlowWow Floday", "channel": "FlowWow Floday", "sum": 4000},
+            {"id": "o2", "Канал продаж": "Ozon", "channel": "Ozon", "sum": 2500},
+        ],
+        "_moysklad_tags": ["WhatsApp", "watsapp"],
+        "_moysklad_tags_display": "WhatsApp, watsapp",
+        "_order_channels_all": ["FlowWow Floday", "Ozon", "WhatsApp"],
+        "Канал продаж": "FlowWow Floday, Ozon, WhatsApp",
+    }
+    refresh_row_channel_fields(row)
+    assert unique_sales_channels(row) == ["FlowWow Floday", "Ozon"]
+    assert "WhatsApp" not in unique_sales_channels(row)
+    assert sales_channel_type_from_channels(unique_sales_channels(row)) == "маркетплейс"
+    assert row_audience_bucket(row) == "marketplace"
+    assert row_matches_direct_audience(row) is False
+
+
+def test_whatsapp_group_alone_does_not_create_channel() -> None:
+    row = {
+        "_orders_context": [],
+        "_moysklad_tags": ["WhatsApp"],
+        "_moysklad_tags_display": "WhatsApp",
+        "Канал продаж": "WhatsApp",
+        "_order_channels_all": ["WhatsApp"],
+    }
+    refresh_row_channel_fields(row)
+    assert unique_sales_channels(row) == []
+    assert row.get("Канал продаж") == ""
+
+
+def test_real_whatsapp_max_order_channel_kept() -> None:
+    row = {
+        "_orders_context": [{"Канал продаж": "WhatsApp/MAX", "channel": "WhatsApp/MAX"}],
+        "_moysklad_tags": ["WhatsApp"],
+    }
+    refresh_row_channel_fields(row)
+    assert unique_sales_channels(row) == ["WhatsApp/MAX"]
+    assert row_matches_direct_audience(row) is True
+
+
 def test_vitrina_direct_despite_novy_status() -> None:
     """Витрина orders → direct tab; «новый» status must not override."""
     row = {

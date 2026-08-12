@@ -121,9 +121,35 @@ SALES_CHANNEL_TYPE_HYBRID = "маркетплейс/прямые продажи"
 
 NO_CHANNEL_LABEL = "Без канала"
 
+# MoySklad CRM *groups* for messenger contact — not ``salesChannel`` entities.
+# Promoting these into «Канал продаж» falsely marked marketplace clients as
+# «прямые продажи» (AI/heuristics then echoed «прямые продажи» tags).
+_CONTACT_METHOD_GROUP_KEYS = frozenset({
+    "whatsapp",
+    "whatsappmax",
+    "watsapp",
+    "вотсап",
+    "ватсап",
+    "вотсапмакс",
+    "max",
+    "макс",
+    "telegram",
+    "телеграм",
+    "телеграмм",
+    "tg",
+})
+
 
 def _normalize_channel(channel: str) -> str:
     return channel.strip().lower().replace("ё", "е")
+
+
+def is_contact_method_group_tag(tag: str | None) -> bool:
+    """True for WhatsApp/Telegram CRM groups — not real sales channels."""
+    if not tag or not str(tag).strip():
+        return False
+    compact = re.sub(r"[\s/_\-]+", "", _normalize_channel(str(tag)))
+    return compact in _CONTACT_METHOD_GROUP_KEYS
 
 
 def matches_marketplace_channel_name(channel: str | None) -> bool:
@@ -377,17 +403,34 @@ def unique_sales_channels(row: dict[str, Any]) -> list[str]:
             _add(order.get("Канал продаж") or order.get("channel"))
     if isinstance(stored_all, list):
         for ch in stored_all:
+            label = str(ch or "").strip()
+            # Drop bare messenger CRM groups left in cache; keep «WhatsApp/MAX».
+            if is_contact_method_group_tag(label) and "/" not in label:
+                continue
             _add(ch)
     # Prefer order-derived list; fall back to stored field only when empty,
     # and never treat a comma-joined type label as a channel.
     if not result:
-        _add(row.get("Канал продаж"))
-    # Channel names sometimes live only in MoySklad tags (витрина / watsapp / флау вау).
-    for tag in moysklad_group_tokens(row):
-        if _token_matches_any(tag, DIRECT_AUDIENCE_CHANNELS) or _token_matches_any(
-            tag, MARKETPLACE_AUDIENCE_CHANNELS
-        ):
-            _add(tag)
+        stored = str(row.get("Канал продаж") or "").strip()
+        if stored:
+            for part in stored.split(","):
+                label = part.strip()
+                if is_contact_method_group_tag(label) and "/" not in label:
+                    continue
+                _add(label)
+    # Tag fallback ONLY when orders/stored yielded nothing.
+    # Never promote WhatsApp/Telegram CRM groups into sales channels — that
+    # falsely marked marketplace-only clients as «прямые продажи».
+    # Marketplace-like tags (флау вау) and витрина/сайт may recover a channel
+    # when the API left salesChannel empty.
+    if not result:
+        for tag in moysklad_group_tokens(row):
+            if is_contact_method_group_tag(tag):
+                continue
+            if _token_matches_any(tag, MARKETPLACE_AUDIENCE_CHANNELS) or _token_matches_any(
+                tag, ("витрина", "сайт", "vereskflowers", "прямые продажи")
+            ):
+                _add(tag)
     return result
 
 

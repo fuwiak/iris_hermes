@@ -29,7 +29,13 @@ from typing import Any, Optional
 
 from hermes_constants import get_hermes_home
 from plugins.moysklad.assign_groups import heuristic_groups_for_row, merge_tags
-from plugins.moysklad.sales_channels import moysklad_group_tokens
+from plugins.moysklad.sales_channels import (
+    SALES_CHANNEL_TYPE_DIRECT,
+    SALES_CHANNEL_TYPE_HYBRID,
+    is_direct_sales_channel,
+    moysklad_group_tokens,
+    sales_channel_type_from_channels,
+)
 
 log = logging.getLogger(__name__)
 
@@ -151,6 +157,9 @@ _SYSTEM = """Ты — аналитик CRM цветочного магазина
 {"results":[{"id":"...","Группы":["тег1","тег2"],"Статус":"...","Пол":"Мужской|Женский","Заказчик или получатель":"...","ТГ ник":"@nick или пусто","Тип контрагента":"..."}]}
 Правила:
 - Группы: короткие теги (премиум, постоянный клиент, новый, событие марта, 8 марта, маркетплейс, прямые продажи…)
+- «прямые продажи» ставь ТОЛЬКО если в заказах есть реальный канал продаж Telegram / WhatsApp/MAX / Витрина / сайт.
+  Группа МойСклада «WhatsApp» / «watsapp» / «Telegram» — это способ связи, НЕ канал продаж.
+  Если заказы только с маркетплейсов (FlowWow, Ozon, WB и т.п.) — ставь «маркетплейс», не «прямые продажи».
 - Статус: активный / спящий / новый / архивный — по заказам
 - Пол: только если ясно из имени; иначе опусти поле
 - ТГ ник: только если есть в данных; иначе опусти
@@ -466,6 +475,49 @@ def _tg_from_conversation(row: dict[str, Any]) -> str:
     return nick
 
 
+def _order_channel_labels(row: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for order in row.get("_orders_context") or []:
+        if not isinstance(order, dict):
+            continue
+        ch = str(order.get("Канал продаж") or order.get("channel") or "").strip()
+        key = ch.lower()
+        if not ch or key in seen:
+            continue
+        seen.add(key)
+        out.append(ch)
+    return out
+
+
+def sanitize_sales_type_groups(row: dict[str, Any], groups: list[str]) -> list[str]:
+    """Drop AI «прямые продажи» when orders have no real direct sales channel.
+
+    WhatsApp/Telegram MoySklad *groups* are contact methods — they must not
+    justify a direct-sales label for marketplace-only clients.
+    """
+    order_channels = _order_channel_labels(row)
+    has_direct_order = any(is_direct_sales_channel(c) for c in order_channels)
+    sales_type = sales_channel_type_from_channels(order_channels)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in groups or []:
+        name = str(raw or "").strip()
+        key = name.lower().replace("ё", "е")
+        if not name or key in seen:
+            continue
+        if key in ("прямые продажи", "прямые") and not has_direct_order:
+            continue
+        if key in ("прямые продажи", "прямые") and sales_type not in (
+            SALES_CHANNEL_TYPE_DIRECT,
+            SALES_CHANNEL_TYPE_HYBRID,
+        ):
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
 def heuristic_fill_row(row: dict[str, Any]) -> dict[str, Any]:
     """Return public-key → value for empty fields only (heuristic)."""
     empty = set(empty_fillable_keys(row))
@@ -475,9 +527,9 @@ def heuristic_fill_row(row: dict[str, Any]) -> dict[str, Any]:
         proposed = heuristic_groups_for_row(row)
         merged = merge_tags(existing, proposed)
         if merged and is_empty_cell(existing):
-            out["groups"] = merged
+            out["groups"] = sanitize_sales_type_groups(row, merged)
         elif proposed and is_empty_cell(existing):
-            out["groups"] = proposed
+            out["groups"] = sanitize_sales_type_groups(row, list(proposed))
     if "state" in empty:
         out["state"] = _guess_state(row)
     if "sex" in empty:
@@ -807,6 +859,8 @@ def fill_empty_for_rows(
         # LLM wins when present; heuristic fills the rest
         merged = dict(heur)
         merged.update(llm)
+        if "groups" in merged and isinstance(merged["groups"], list):
+            merged["groups"] = sanitize_sales_type_groups(row, list(merged["groups"]))
         merged = {k: v for k, v in merged.items() if k in empty and not is_empty_cell(v)}
         row_source = "llm" if any(k in llm for k in merged) else "heuristic"
         if llm and heur and any(k not in llm for k in merged):

@@ -31,6 +31,25 @@ def test_is_empty_and_fillable_keys():
     assert "sex" in empty_fillable_keys(row)
 
 
+def test_sanitize_drops_direct_tag_for_marketplace_only_client():
+    from plugins.moysklad.ai_fill import sanitize_sales_type_groups
+
+    row = {
+        "_moysklad_id": "mp1",
+        "_orders_context": [
+            {"Канал продаж": "FlowWow Floday", "sum": 3000},
+            {"Канал продаж": "Ozon", "sum": 2000},
+        ],
+        "_moysklad_tags": ["WhatsApp"],
+    }
+    cleaned = sanitize_sales_type_groups(
+        row, ["маркетплейс", "прямые продажи", "новый"]
+    )
+    assert "прямые продажи" not in cleaned
+    assert "маркетплейс" in cleaned
+    assert "новый" in cleaned
+
+
 def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_memory_for_tests()

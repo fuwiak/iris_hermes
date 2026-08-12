@@ -10,6 +10,7 @@ from plugins.moysklad.sales_channels import (
     SALES_CHANNEL_TYPE_DIRECT,
     SALES_CHANNEL_TYPE_HYBRID,
     SALES_CHANNEL_TYPE_MARKETPLACE,
+    is_contact_method_group_tag,
     moysklad_group_tokens,
     sales_channel_type_from_channels,
 )
@@ -174,9 +175,12 @@ def heuristic_groups_for_row(row: dict[str, Any]) -> list[str]:
             for part in stored.split(","):
                 label = part.strip()
                 key = label.lower()
-                if label and key not in seen_ch:
-                    seen_ch.add(key)
-                    order_channels.append(label)
+                if not label or key in seen_ch:
+                    continue
+                if is_contact_method_group_tag(label) and "/" not in label:
+                    continue
+                seen_ch.add(key)
+                order_channels.append(label)
     sales_type = sales_channel_type_from_channels(order_channels)
     if sales_type in (SALES_CHANNEL_TYPE_MARKETPLACE, SALES_CHANNEL_TYPE_HYBRID):
         parts.append("маркетплейс")

@@ -123,6 +123,65 @@ def test_audience_extras_event_calendar_params(monkeypatch) -> None:
     )
 
 
+def test_clients_page_event_date_range_builds_audience() -> None:
+    """Outreach calendar range must filter clients by event dates."""
+    from plugins.moysklad.classify import clients_page
+    from plugins.moysklad.sales_channels import refresh_row_channel_fields
+
+    hit = {
+        "_moysklad_id": "e1",
+        "Наименование": "С 8 марта",
+        "Телефон": "+79001111111",
+        "_moysklad_tags": ["8 марта"],
+        "_moysklad_tags_display": "8 марта",
+        "_orders_context": [
+            {"id": "o1", "Канал продаж": "Telegram", "channel": "Telegram", "sum": 1000}
+        ],
+        "order_count": 1,
+    }
+    miss = {
+        "_moysklad_id": "e2",
+        "Наименование": "Без события",
+        "Телефон": "+79002222222",
+        "_moysklad_tags": [],
+        "_orders_context": [
+            {"id": "o2", "Канал продаж": "Ozon", "channel": "Ozon", "sum": 1000}
+        ],
+        "order_count": 1,
+    }
+    refresh_row_channel_fields(hit)
+    refresh_row_channel_fields(miss)
+    catalog = {
+        "rows": [hit, miss],
+        "counts": {"total": 2, "direct": 1, "marketplace": 1},
+        "orders_scanned": 2,
+        "counterparties_scanned": 2,
+        "counterparties_deduped": 2,
+    }
+
+    class _Dummy:
+        pass
+
+    page = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        event_date_from="2026-03-08",
+        event_date_to="2026-03-08",
+        catalog=catalog,
+    )
+    assert {c["id"] for c in page["clients"]} == {"e1"}
+    assert page["matched_total"] == 1
+
+    ranged = clients_page(
+        _Dummy(),  # type: ignore[arg-type]
+        sales_filter="all",
+        event_date_from="2026-03-01",
+        event_date_to="2026-03-15",
+        catalog=catalog,
+    )
+    assert {c["id"] for c in ranged["clients"]} == {"e1"}
+
+
 def test_days_before_event_8_march() -> None:
     today = date(2026, 3, 4)  # 4 days before 8 March
     row = {"_moysklad_tags": ["8 марта"], "_moysklad_id": "x"}
