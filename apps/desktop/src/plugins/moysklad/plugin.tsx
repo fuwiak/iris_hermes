@@ -40,15 +40,7 @@ import {
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
 import { EventCalendarPicker } from './event-calendar'
-import {
-  chunkIds,
-  MASS_AUDIENCE_SELECT_CAP,
-  MASS_SEND_CHUNK,
-  massSendConfirmText,
-  massSendProgressLabel,
-  mergeUniqueIds,
-  needsMassSendConfirm
-} from './mass-send'
+import { mergeUniqueIds } from './mass-send'
 
 interface GroupChipOption {
   name: string
@@ -1542,7 +1534,10 @@ function OrderCompositionBits({
       </div>
     )
   }
-  if (snippet) return <div>{snippet}</div>
+  if (snippet) {
+    return <div>{snippet}</div>
+  }
+
   return null
 }
 
@@ -3233,8 +3228,8 @@ function CampaignsPage() {
   const [segmentSaving, setSegmentSaving] = useState(false)
   const [segmentStatus, setSegmentStatus] = useState('')
   const [activeSegmentId, setActiveSegmentId] = useState('')
-  const [personalize, setPersonalize] = useState(false)
-  const [batchProgress, setBatchProgress] = useState('')
+  const [personalize] = useState(false)
+  const [, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
   const [offerTick, setOfferTick] = useState(0)
   const [actionStatus, setActionStatus] = useState('')
@@ -3328,7 +3323,6 @@ function CampaignsPage() {
   const [addContactQuery, setAddContactQuery] = useState('')
   const [addContactSaving, setAddContactSaving] = useState(false)
   const [addContactResolving, setAddContactResolving] = useState(false)
-  const [pickMode] = useState<'single' | 'multi'>('single')
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([])
   const [contactsOpen, setContactsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -4614,7 +4608,7 @@ function CampaignsPage() {
 
   const selectAudienceClient = (row: ClientRow) => {
     const plan = planAudienceChipClick({
-      pickMode,
+      pickMode: 'single',
       rowId: row.id || '',
       rowName: row.name || '',
       rowPhone: row.phone || '',
@@ -4653,7 +4647,7 @@ function CampaignsPage() {
     const contact = outreachContacts.find(c => c.id === contactId)
     const name = contact?.name || contact?.label || contactId
     const plan = planAudienceChipClick({
-      pickMode,
+      pickMode: 'single',
       rowId: contactId,
       rowName: name,
       rowPhone: contact?.phone || '',
@@ -4780,14 +4774,6 @@ function CampaignsPage() {
     }
   }
 
-  const [preflight, setPreflight] = useState<{
-    ready?: number
-    blocked?: number
-    account?: { ok?: boolean; detail?: string; error?: string }
-    recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
-  } | null>(null)
-  const [preflightBusy, setPreflightBusy] = useState(false)
-  const [selectingAudience, setSelectingAudience] = useState(false)
   const [lastSentClientIds, setLastSentClientIds] = useState<string[]>([])
   const [replies, setReplies] = useState<
     Array<{
@@ -4802,146 +4788,16 @@ function CampaignsPage() {
   const [repliesBusy, setRepliesBusy] = useState(false)
   const [repliesMeta, setRepliesMeta] = useState('')
 
-  const runPreflight = async () => {
-    const multiIds =
-      pickMode === 'multi'
-        ? selectedClientIds
-        : selectedClientId
-          ? [selectedClientId]
-          : []
-
-    if (!multiIds.length) {
-      setError('Выберите контакт(ы) в аудитории — сначала нужно кого проверять.')
-
-      return
-    }
-
-    const probeIds = multiIds.slice(0, 200)
-    setPreflightBusy(true)
-    setError('')
-    try {
-      const data = await call<{
-        ready?: number
-        blocked?: number
-        account?: { ok?: boolean; detail?: string; error?: string }
-        recipients?: { client_id?: string; name?: string; ok?: boolean; detail?: string; error?: string }[]
-      }>('/campaigns/telegram/preflight', {
-        method: 'POST',
-        timeoutMs: 180_000,
-        body: { client_ids: probeIds }
-      })
-      setPreflight(data)
-      const sampleNote =
-        multiIds.length > probeIds.length
-          ? ` (проба ${probeIds.length} из ${multiIds.length})`
-          : ''
-      if (!data.account?.ok) {
-        setError(`Business-бот не готов: ${data.account?.detail || data.account?.error || 'см. настройки'}`)
-      } else if (data.blocked) {
-        setActionStatus(
-          `Готовы к отправке: ${data.ready}/${probeIds.length}${sampleNote}. Недостижимых: ${data.blocked}.`
-        )
-      } else {
-        setActionStatus(
-          `Все ${data.ready} получателей достижимы через Business bot${sampleNote}.`
-        )
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setPreflightBusy(false)
-    }
-  }
-
-  const selectLoadedAudience = () => {
-    const ids = audiencePreview
-      .map(row => String(row.id || '').trim())
-      .filter(Boolean)
-    if (!ids.length) {
-      setError('Сначала подгрузите контакты аудитории (или снимите фильтр).')
-      return
-    }
-    setPickMode('multi')
-    setSelectedClientIds(ids)
-    setActionStatus(`✓ Выбрано загруженных: ${ids.length} (из ${audience})`)
-    setError('')
-  }
-
-  const selectEntireAudience = async () => {
-    if (audience < 1) {
-      setError('Аудитория пуста — поправьте фильтры.')
-      return
-    }
-    setSelectingAudience(true)
-    setError('')
-    setActionStatus(`Собираю id всей аудитории (${audience})…`)
-    try {
-      const pageLimit = 500
-      let offset = 0
-      let ids: string[] = []
-      let matched = audience
-      let guard = 0
-      while (offset < matched && ids.length < MASS_AUDIENCE_SELECT_CAP && guard < 40) {
-        guard += 1
-        const page = await call<{
-          clients?: ClientRow[]
-          matched_total?: number
-          has_more?: boolean
-          next_offset?: number
-        }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
-          timeoutMs: 120_000
-        })
-        matched = page.matched_total ?? matched
-        const rows = page.clients || []
-        ids = mergeUniqueIds(
-          ids,
-          rows.map(r => String(r.id || '').trim())
-        )
-        const next =
-          typeof page.next_offset === 'number' ? page.next_offset : offset + rows.length
-        if (!rows.length || next <= offset) {
-          break
-        }
-        if (page.has_more === false && next >= matched) {
-          offset = next
-          break
-        }
-        offset = next
-        setActionStatus(`Собираю id… ${ids.length} / ${matched}`)
-      }
-      if (!ids.length) {
-        setError('Не удалось получить id клиентов — обновите кэш Клиентов.')
-        setActionStatus('')
-        return
-      }
-      setPickMode('multi')
-      setSelectedClientIds(ids)
-      const capped = ids.length >= MASS_AUDIENCE_SELECT_CAP && matched > ids.length
-      setActionStatus(
-        capped
-          ? `✓ Выбрано ${ids.length} (лимит ${MASS_AUDIENCE_SELECT_CAP}; в фильтре ${matched})`
-          : `✓ Выбрана вся аудитория: ${ids.length}`
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setActionStatus('')
-    } finally {
-      setSelectingAudience(false)
-    }
-  }
-
   const collectReplies = async () => {
     const cohort =
       lastSentClientIds.length > 0
         ? lastSentClientIds
-        : pickMode === 'multi'
-          ? selectedClientIds
-          : selectedClientId
-            ? [selectedClientId]
-            : []
+        : selectedClientId
+          ? [selectedClientId]
+          : []
     if (!cohort.length) {
       setError(
-        'Нет когорты для сбора — сначала отправьте рассылку или выберите контакты.'
+        'Нет когорты для сбора — сначала отправьте сообщение клиенту или выберите его в списке.'
       )
       return
     }
@@ -4993,15 +4849,10 @@ function CampaignsPage() {
 
   const markSentToConversation = async () => {
     const draft = offerRef.current.trim()
-    const multiIds =
-      pickMode === 'multi'
-        ? selectedClientIds
-        : selectedClientId
-          ? [selectedClientId]
-          : []
+    const clientId = (selectedClientId || '').trim()
 
-    if (!multiIds.length) {
-      setError('Выберите контакт(ы) в аудитории — исходящее уйдёт в Telegram / историю.')
+    if (!clientId) {
+      setError('Выберите клиента в списке аудитории — исходящее уйдёт в Telegram / историю.')
 
       return
     }
@@ -5012,87 +4863,15 @@ function CampaignsPage() {
       return
     }
 
-    if (
-      needsMassSendConfirm(multiIds.length) &&
-      !window.confirm(massSendConfirmText(multiIds.length))
-    ) {
-      return
-    }
-
     setCheckingSanity(true)
     setError('')
-    const chunks = chunkIds(multiIds, MASS_SEND_CHUNK)
     setActionStatus(
       channel.startsWith('telegram')
-        ? multiIds.length > 1
-          ? massSendProgressLabel(0, multiIds.length, chunks[0]?.length || MASS_SEND_CHUNK)
-          : 'Отправка через Telegram Business bot…'
+        ? 'Отправка через Telegram…'
         : 'Пишем исходящее в историю…'
     )
 
     try {
-      if (multiIds.length > 1 || chunks.length > 1) {
-        let sentOk = 0
-        let attempted = 0
-        const failDetails: string[] = []
-        let done = 0
-        for (const chunk of chunks) {
-          setActionStatus(massSendProgressLabel(done, multiIds.length, chunk.length))
-          setBatchProgress(
-            `Пачка ${Math.floor(done / MASS_SEND_CHUNK) + 1}/${chunks.length}`
-          )
-          const data = await call<{
-            sent_ok?: number
-            total?: number
-            results?: Array<{
-              client_id?: string
-              ok?: boolean
-              delivery?: { ok?: boolean; detail?: string; error?: string }
-              error?: string
-            }>
-          }>('/campaigns/mark-sent-batch', {
-            method: 'POST',
-            timeoutMs: 300_000,
-            body: {
-              message: draft,
-              channel,
-              client_ids: chunk,
-              open_deep_link: false,
-              deliver: true
-            }
-          })
-          sentOk += data.sent_ok || 0
-          attempted += data.total || chunk.length
-          for (const r of data.results || []) {
-            if (!r.delivery?.ok) {
-              failDetails.push(
-                `${r.client_id}: ${r.delivery?.detail || r.delivery?.error || r.error || 'fail'}`
-              )
-            }
-          }
-          done += chunk.length
-        }
-        setLastSentClientIds(multiIds)
-        setBatchProgress('')
-        applyOfferText(
-          draft,
-          `✓ Batch: ${sentOk}/${attempted} отправлено` +
-            (chunks.length > 1 ? ` (${chunks.length} пачек по ≤${MASS_SEND_CHUNK})` : '')
-        )
-        if (sentOk < attempted) {
-          setError(
-            `Часть не ушла (${attempted - sentOk}): ${
-              failDetails.slice(0, 3).join('; ') || 'см. логи'
-            }`
-          )
-        } else {
-          setActionStatus(
-            `✓ Все ${sentOk} ушли. Дальше: «Собрать ответы» — входящие в TG conversation.`
-          )
-        }
-        return
-      }
-
       const data = await call<{
         conversation?: ClientConversation
         facts?: ClientFacts
@@ -5103,13 +4882,13 @@ function CampaignsPage() {
         body: {
           message: draft,
           channel,
-          client_id: multiIds[0],
+          client_id: clientId,
           open_deep_link: true,
           deliver: true
         }
       })
 
-      setLastSentClientIds(multiIds)
+      setLastSentClientIds(ids => mergeUniqueIds(ids, [clientId]))
 
       if (data.facts) {
         setFacts(data.facts)
@@ -5118,16 +4897,16 @@ function CampaignsPage() {
       }
 
       if (data.delivery?.ok) {
-        applyOfferText(draft, '✓ Отправлено в Telegram (Business bot) + история.')
+        applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
+        setActionStatus('✓ Ушло. Выберите другого клиента или соберите ответы.')
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
-        applyOfferText(
-          draft,
-          `⚠ В историю записано; Bot API: ${detail}`
-        )
+        applyOfferText(draft, `⚠ В историю записано; Bot API: ${detail}`)
         setError(`Telegram: ${detail}`)
+        setActionStatus('')
       } else {
         applyOfferText(draft, '✓ Исходящее добавлено в историю (лейбл исходящее).')
+        setActionStatus('✓ В истории. Можно выбрать следующего клиента.')
       }
 
       if (data.deep_link) {
@@ -5488,126 +5267,7 @@ function CampaignsPage() {
     setBatchProgress('')
 
     try {
-      // Batch personalize: stream per-client drafts as soon as each finishes.
-      if (personalize && !selectedClientId) {
-        const limit = Math.min(Math.max(audience || 0, 1), 20)
-        setActionStatus(`Персонализация 0/${limit}…`)
-        setBatchProgress(`Старт · до ${limit} клиентов`)
-        let firstMsg = ''
-        let okCount = 0
-        const pendingCreates: Promise<unknown>[] = []
-
-        await callStream('/campaigns/personalize/stream', {
-          method: 'POST',
-          timeoutMs: Math.max(OUTREACH_AI_TIMEOUT_MS, limit * 45_000),
-          body: {
-            channel,
-            sales_filter: salesFilter,
-            group,
-            channel_kind: channelKind,
-            require_phone: requirePhone,
-            require_telegram: requireTelegram,
-            vip_only: vipOnly,
-            birthday_soon: birthdaySoon,
-            group_source: groupSource,
-            days_before_event: daysBeforeEvent,
-            event_date_from: eventDateFrom || '',
-            event_date_to: eventDateTo || '',
-            seller_name: sellerName,
-            seller_facts: sellerFacts,
-            limit,
-            max_workers: 3
-          },
-          onEvent: raw => {
-            if (!raw || typeof raw !== 'object') {
-              return
-            }
-
-            const ev = raw as Record<string, unknown>
-            const type = String(ev.type || '')
-
-            if (type === 'batch_start') {
-              const total = Number(ev.total || limit)
-              setActionStatus(`Персонализация 0/${total}…`)
-              setBatchProgress(`Параллельно до 3 · всего ${total}`)
-            } else if (type === 'client_done') {
-              const done = Number(ev.done || 0)
-              const total = Number(ev.total || limit)
-              const name = String(ev.client_name || ev.client_id || 'клиент')
-              const msg = String(ev.message || '').trim()
-              const fromCache = Boolean(ev.from_cache)
-              setActionStatus(
-                `Персонализация ${done}/${total} · ${name}` +
-                  (fromCache ? ' · кэш' : '')
-              )
-              setBatchProgress(
-                `${done}/${total} · последний: ${name}` + (fromCache ? ' (кэш)' : '')
-              )
-
-              if (msg && ev.ok !== false) {
-                okCount += 1
-
-                if (!firstMsg) {
-                  firstMsg = msg
-                  applyOfferText(
-                    msg,
-                    fromCache
-                      ? `Из кэша · ${name}`
-                      : `Первый черновик · ${name}`
-                  )
-                }
-
-                pendingCreates.push(
-                  call('/campaigns', {
-                    method: 'POST',
-                    body: {
-                      title: `${title || 'Рассылка'} · ${name}`.slice(0, 120),
-                      channel,
-                      mode: 'auto',
-                      offer: msg,
-                      sales_filter: salesFilter,
-                      group,
-                      channel_kind: channelKind,
-                      require_phone: requirePhone,
-                      require_telegram: requireTelegram,
-                      vip_only: vipOnly,
-                      birthday_soon: birthdaySoon,
-            group_source: groupSource,
-            days_before_event: daysBeforeEvent,
-                      event_date_from: eventDateFrom || '',
-                      event_date_to: eventDateTo || '',
-                      personalize: false,
-                      client_id: String(ev.client_id || ''),
-                      generate_ai: false,
-                      seller_name: sellerName,
-                      seller_facts: sellerFacts
-                    }
-                  }).catch(() => undefined)
-                )
-              }
-            } else if (type === 'batch_done') {
-              const hits = Number(ev.cache_hits || 0)
-              setBatchProgress(
-                `Готово: ${Number(ev.ok_count ?? okCount)} из ${Number(ev.total || limit)}` +
-                  (hits ? ` · из кэша ${hits}` : '')
-              )
-            } else if (type === 'error') {
-              setError(String(ev.error || 'batch error'))
-            }
-          }
-        })
-
-        await Promise.all(pendingCreates)
-        setActionStatus(
-          okCount > 0
-            ? `Персонализация: сохранено ${okCount} черновиков.`
-            : 'Персонализация: нет готовых текстов.'
-        )
-        await refresh()
-
-        return
-      }
-
+      // Mass personalize paused — individual send / single campaign create only.
       await call('/campaigns', {
         method: 'POST',
         body: {
@@ -5634,7 +5294,10 @@ function CampaignsPage() {
         }
       })
 
-      if (!selectedClientId) {setOffer('')}
+      if (!selectedClientId) {
+        setOffer('')
+      }
+
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -5683,7 +5346,7 @@ function CampaignsPage() {
         </button>
       </div>
 
-      <section className="ms-mass-rail ms-individual-rail" aria-label="Индивидуальная отправка">
+      <section aria-label="Индивидуальная отправка" className="ms-mass-rail ms-individual-rail">
         <p className="ms-mass-hint">
           {selectedClientId
             ? `Клиент: ${selectedClientName || facts?.name || selectedClientId}. Правьте текст ниже и жмите «Отправить».`
@@ -5957,54 +5620,12 @@ function CampaignsPage() {
         <div className="ms-audience-pick">
           <div className="ms-audience-pick-head">
             <p className="ms-muted">
-              Контакты аудитории (поиск / подгрузка — доступны все {audience}):
-              {pickMode === 'multi' && selectedClientIds.length ? (
-                <>
-                  {' '}
-                  · выбрано <strong>{selectedClientIds.length}</strong>
-                  <button
-                    className="ms-link-btn"
-                    onClick={() => setSelectedClientIds([])}
-                    style={{ marginLeft: '0.5rem' }}
-                    type="button"
-                  >
-                    сбросить выбор
-                  </button>
-                </>
-              ) : null}
+              Контакты аудитории (поиск / подгрузка — доступны все {audience})
+              {selectedClientId
+                ? ` · сейчас: ${selectedClientName || selectedClientId}`
+                : ''}
             </p>
             <div className="ms-audience-pick-actions">
-              <div className="ms-filter-tabs" role="group">
-                <button
-                  className={`ms-filter-tab${pickMode === 'single' ? ' is-active' : ''}`}
-                  onClick={() => setPickMode('single')}
-                  type="button"
-                >
-                  1 контакт
-                </button>
-                <button
-                  className={`ms-filter-tab${pickMode === 'multi' ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setPickMode('multi')
-                    if (selectedClientId && !selectedClientIds.includes(selectedClientId)) {
-                      setSelectedClientIds([selectedClientId])
-                    }
-                  }}
-                  type="button"
-                >
-                  Массово
-                </button>
-              </div>
-              {massSelectedCount === 0 && audience > 0 ? (
-                <button
-                  className="ms-btn ms-btn-primary"
-                  disabled={selectingAudience}
-                  onClick={() => void selectEntireAudience()}
-                  type="button"
-                >
-                  {selectingAudience ? 'Собираю…' : `Выбрать всех (${audience})`}
-                </button>
-              ) : null}
               <button
                 className="ms-link-btn"
                 onClick={() => setContactsOpen(open => !open)}
@@ -6038,10 +5659,7 @@ function CampaignsPage() {
                 >
                   <div className="ms-chips">
                     {audiencePreview.map(row => {
-                      const active =
-                        pickMode === 'multi'
-                          ? Boolean(row.id && selectedClientIds.includes(row.id))
-                          : selectedClientId === row.id
+                      const active = selectedClientId === row.id
                       const nick = (row.tg_nick || '').replace(/^@/, '')
 
                       return (
@@ -6135,7 +5753,7 @@ function CampaignsPage() {
                         ? `@${tgUser.user.username}`
                         : tgUser.user?.name || tgUser.phone || 'аккаунт'
                     }`
-                  : 'нужен для массовой отправки и сбора ответов'}
+                  : 'нужен для отправки и сбора ответов'}
               </span>
             </summary>
             <div className="ms-tg-account-body">
@@ -6496,25 +6114,13 @@ function CampaignsPage() {
               placeholder={
                 selectedClientId
                   ? 'Нажмите «Сгенерировать AI» или введите текст…'
-                  : mode === 'auto'
-                    ? 'Оставьте пустым — общий шаблон для фильтрованной аудитории'
-                    : 'Общий текст массовой рассылки…'
+                  : 'Сначала выберите клиента в списке аудитории'
               }
               rows={8}
               value={offer}
             />
           </label>
           {actionStatus ? <p className="ms-action-status">{actionStatus}</p> : null}
-          <label className="ms-check">
-            <input
-              checked={personalize}
-              disabled={Boolean(selectedClientId)}
-              onChange={e => setPersonalize(e.target.checked)}
-              type="checkbox"
-            />
-            Персонализировать по клиентам (стрим, до 20, параллельно)
-          </label>
-          {batchProgress ? <p className="ms-muted">{batchProgress}</p> : null}
           <div className="ms-compose-actions">
             {selectedClientId ? (
               <button
@@ -6587,18 +6193,14 @@ function CampaignsPage() {
             >
               {checkingSanity ? 'Проверяем…' : 'Проверить смысл'}
             </button>
-            {massSelectedCount > 0 && offer.trim() ? (
+            {selectedClientId && offer.trim() ? (
               <button
                 className="ms-btn ms-btn-primary"
-                disabled={!canMassSend}
+                disabled={!canSendOne}
                 onClick={() => void markSentToConversation()}
                 type="button"
               >
-                {checkingSanity
-                  ? 'Отправляю…'
-                  : massSelectedCount > 1
-                    ? `Отправить ${massSelectedCount}`
-                    : 'Отправить в Telegram'}
+                {checkingSanity ? 'Отправляю…' : 'Отправить в Telegram'}
               </button>
             ) : null}
             <button
@@ -6611,13 +6213,12 @@ function CampaignsPage() {
                 checkingSanity ||
                 suggestingBouquet ||
                 paraphrasing ||
-                audience < 1
+                !selectedClientId ||
+                !offer.trim()
               }
               type="submit"
             >
-              {selectedClientId
-                ? 'Сохранить 1:1 черновик'
-                : `Сохранить черновик (${audience})`}
+              Сохранить 1:1 черновик
             </button>
           </div>
           {genSource ? (
