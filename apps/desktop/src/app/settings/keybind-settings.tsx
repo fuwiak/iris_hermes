@@ -30,9 +30,11 @@ import {
   resetBinding
 } from '@/store/keybinds'
 
+import { cn } from '@/lib/utils'
+
 import { SettingsContent } from './primitives'
 
-export function KeybindSettings() {
+export function KeybindSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useI18n()
   const bindings = useStore($bindings)
   const k = t.keybinds
@@ -93,12 +95,12 @@ export function KeybindSettings() {
     })
   }, [isSearching, query, k.actions])
 
-  return (
-    <SettingsContent>
-      <div className="flex items-center justify-between gap-3 pb-3">
+  const body = (
+    <>
+      <div className={cn('flex items-center justify-between gap-3', embedded ? 'px-3 pb-2 pt-3' : 'pb-3')}>
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">{k.title}</h2>
-          <p className="mt-0.5 text-[0.72rem] text-muted-foreground">
+          {!embedded && <h2 className="text-sm font-semibold text-foreground">{k.title}</h2>}
+          <p className={cn('text-[0.72rem] text-muted-foreground', !embedded && 'mt-0.5')}>
             {k.subtitle(openCombo ? formatCombo(openCombo) : '')}
           </p>
         </div>
@@ -112,7 +114,7 @@ export function KeybindSettings() {
         </button>
       </div>
 
-      <div className="pb-3">
+      <div className={cn(embedded ? 'px-3 pb-2' : 'pb-3')}>
         <SearchField
           aria-label={k.search}
           containerClassName="w-full"
@@ -166,8 +168,10 @@ export function KeybindSettings() {
           })}
         </div>
       )}
-    </SettingsContent>
+    </>
   )
+
+  return embedded ? body : <SettingsContent>{body}</SettingsContent>
 }
 
 function CategoryHeader({ label, onToggle, open }: { label: string; onToggle: () => void; open: boolean }) {

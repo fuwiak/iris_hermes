@@ -24,7 +24,7 @@ import {
   findPrevious as findPreviousMatch,
   openFindBar
 } from '@/store/find-in-page'
-import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
+import { $capture, $comboIndex, endCapture, setBinding, toggleKeybindsPanel } from '@/store/keybinds'
 import {
   requestSessionSearchFocus,
   setFileBrowserOpen,
@@ -138,7 +138,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
   }
 
   handlersRef.current = {
-    'keybinds.openPanel': () => navigate(`${SETTINGS_ROUTE}?tab=keybinds`),
+    'keybinds.openPanel': () => toggleKeybindsPanel(),
 
     'composer.focus': () => requestComposerFocus('active'),
     // Toggle the composer pill's live model dropdown (pane under the pointer,

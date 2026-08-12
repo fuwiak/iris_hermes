@@ -35,6 +35,7 @@ import { $billingSettingsRequest } from '@/store/billing-block'
 import { requestVoiceConversationStart } from '@/store/composer'
 import { setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
+import { openKeybindsPanel } from '@/store/keybinds'
 import { $previewTarget } from '@/store/preview'
 import {
   $activeGatewayProfile,
@@ -110,6 +111,7 @@ import { useSessionStateCache } from '../session/hooks/use-session-state-cache'
 import { startWorkspaceSession } from '../session/workspace-session-target'
 import { useOverlayRouting } from '../shell/hooks/use-overlay-routing'
 import { useWindowControlsOverlayWidth } from '../shell/hooks/use-window-controls-overlay-width'
+import { KeybindsPanel } from '../shell/keybinds-panel'
 import { titlebarControlsPosition } from '../shell/titlebar'
 import { TitlebarControls } from '../shell/titlebar-controls'
 import { UpdatesOverlay } from '../updates-overlay'
@@ -286,13 +288,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const openProviderSettings = useCallback(() => navigate(`${SETTINGS_ROUTE}?tab=providers`), [navigate])
 
   // Palette "Keyboard shortcuts" entry dispatches a custom event (contributions
-  // don't have router access); listen and navigate to the settings keybinds tab.
+  // don't have router access); listen and open the floating bottom-right panel.
   useEffect(() => {
-    const onOpenKeybinds = () => navigate(`${SETTINGS_ROUTE}?tab=keybinds`)
+    const onOpenKeybinds = () => openKeybindsPanel()
     window.addEventListener('hermes:open-keybinds', onOpenKeybinds)
 
     return () => window.removeEventListener('hermes:open-keybinds', onOpenKeybinds)
-  }, [navigate])
+  }, [])
 
   // Dev-only: install the credit-notice demo trigger (Ctrl+Shift+C / ⌘K palette
   // / window.__creditsDemo). Dynamic import inside the DEV guard so the module
@@ -1102,6 +1104,9 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
       {/* Toasts above everything. */}
       <NotificationStack />
+
+      {/* Bottom-right collapsible keybinds panel (titlebar keyboard tool moved here). */}
+      <KeybindsPanel />
 
       {/* Petdex floating mascot — renders nothing unless installed + enabled. */}
       <FloatingPet />

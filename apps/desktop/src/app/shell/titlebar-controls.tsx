@@ -99,16 +99,6 @@ export function useAppControlTools(onOpenSettings?: () => void): readonly Titleb
       onSelect: toggleHaptics
     },
     {
-      actionId: 'keybinds.openPanel',
-      icon: <Codicon name="keyboard" />,
-      id: 'keybinds',
-      label: t.titlebar.openKeybinds,
-      onSelect: () => {
-        triggerHaptic('open')
-        navigate(`${SETTINGS_ROUTE}?tab=keybinds`)
-      }
-    },
-    {
       actionId: 'nav.settings',
       icon: <Codicon name="settings-gear" />,
       id: 'settings',

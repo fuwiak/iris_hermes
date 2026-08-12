@@ -141,3 +141,26 @@ export function beginCapture(actionId: string): void {
 export function endCapture(): void {
   $capture.set(null)
 }
+
+// ── Floating panel (bottom-right) ────────────────────────────────────────────
+// Session-only open state. `keybinds.openPanel` / palette / the corner button
+// toggle this; the settings tab still hosts the same editor for deep links.
+
+export const $keybindsPanelOpen = atom(false)
+
+export function openKeybindsPanel(): void {
+  $keybindsPanelOpen.set(true)
+}
+
+export function closeKeybindsPanel(): void {
+  $keybindsPanelOpen.set(false)
+  endCapture()
+}
+
+export function toggleKeybindsPanel(): void {
+  if ($keybindsPanelOpen.get()) {
+    closeKeybindsPanel()
+  } else {
+    openKeybindsPanel()
+  }
+}
