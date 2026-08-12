@@ -73,3 +73,20 @@ def test_prefer_process_env_syncs_openrouter_base_url(
     text = env.read_text(encoding="utf-8")
     assert "OPENROUTER_BASE_URL=https://egress.example/t/secret/api/v1" in text
     assert "openrouter.ai" not in text
+
+
+def test_prefer_process_env_syncs_telegram_user_gateway_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Railway Telethon egress URL must reach compose + volume .env on Selectel."""
+    mod = _load_mod()
+    env = tmp_path / ".env"
+    env.write_text("", encoding="utf-8")
+    monkeypatch.setenv(
+        "TELEGRAM_USER_GATEWAY_URL",
+        "https://telegram-user-egress.example/t/secret",
+    )
+    monkeypatch.delenv("MOYSKLAD_API_TOKEN", raising=False)
+    assert mod.main(["--prefer-process-env", "--env-file", str(env)]) == 0
+    text = env.read_text(encoding="utf-8")
+    assert "TELEGRAM_USER_GATEWAY_URL=https://telegram-user-egress.example/t/secret" in text

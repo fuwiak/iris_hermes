@@ -3153,6 +3153,7 @@ function CampaignsPage() {
     contacts_cached?: number
     detail?: string
     error?: string
+    gateway_configured?: boolean
     send_mode?: string
   } | null>(null)
   const [tgOpen, setTgOpen] = useState(false)
@@ -3520,22 +3521,32 @@ function CampaignsPage() {
     })
   }
 
-  const tgLogin = async () => {
+  const tgLogin = async (opts?: { forceSms?: boolean }) => {
     if (!tgPhone.trim()) {
       setError('Укажите номер телефона в формате +79991234567')
       return
     }
+    const forceSms = Boolean(opts?.forceSms)
     await runTgBusy(
-      'Telethon: вход',
-      `Отправляем код на ${tgPhone.trim()}…`,
+      forceSms ? 'Telethon: SMS' : 'Telethon: вход',
+      forceSms
+        ? `Повторно запрашиваем код SMS на ${tgPhone.trim()}…`
+        : `Отправляем код на ${tgPhone.trim()}…`,
       async () => {
-        const body: { phone: string } = {
+        const body: { phone: string; force_sms?: boolean } = {
           phone: tgPhone.trim()
         }
-        const data = await call<{ authorized?: boolean; code_sent?: boolean; phone?: string }>(
-          '/campaigns/telegram-user/login',
-          { method: 'POST', body, timeoutMs: 35_000 }
-        )
+        if (forceSms) {
+          body.force_sms = true
+        }
+        const data = await call<{
+          authorized?: boolean
+          code_sent?: boolean
+          phone?: string
+          code_delivery?: string
+          code_delivery_hint?: string
+          gateway_configured?: boolean
+        }>('/campaigns/telegram-user/login', { method: 'POST', body, timeoutMs: 55_000 })
         if (data.phone) {
           setTgPhone(data.phone)
         }
@@ -3545,10 +3556,17 @@ function CampaignsPage() {
           await tgStartContactsSync()
         } else {
           setTgStep('code')
+          const hint =
+            data.code_delivery_hint ||
+            (data.code_delivery === 'telegram_app'
+              ? 'Код в приложении Telegram (чат «Login code»), не SMS.'
+              : data.code_delivery === 'sms'
+                ? 'Код отправлен SMS на этот номер.'
+                : 'Проверьте Telegram и SMS на этом номере.')
           setActionStatus(
             data.phone
-              ? `Код отправлен на ${data.phone} — введите его ниже`
-              : 'Код отправлен в Telegram — введите его ниже'
+              ? `Код для ${data.phone}: ${hint}`
+              : `Код отправлен. ${hint}`
           )
         }
       }
@@ -5696,9 +5714,17 @@ function CampaignsPage() {
                       </button>
                     </div>
                     <p className="ms-muted">
-                      Если код не приходит: с Selectel IP Telegram часто
-                      недоступен. Нужен TELEGRAM_USER_GATEWAY_URL (Railway
-                      egress), TELEGRAM_PROXY=socks5://… или StringSession ниже.
+                      Код обычно приходит в приложение Telegram (не SMS). Если
+                      Selectel не достучится до Telegram — нужен
+                      TELEGRAM_USER_GATEWAY_URL (Railway egress) или StringSession
+                      ниже.
+                      {tgUser?.gateway_configured === false ? (
+                        <>
+                          {' '}
+                          <strong>Сейчас gateway не настроен на сервере</strong> —
+                          запрос кода идёт с RU IP и часто не доходит.
+                        </>
+                      ) : null}
                     </p>
                     <label>
                       StringSession (обход блокировки)
@@ -5731,14 +5757,24 @@ function CampaignsPage() {
                         value={tgCode}
                       />
                     </label>
-                    <button
-                      className="ms-btn ms-btn-primary"
-                      disabled={tgBusy}
-                      onClick={() => void tgSubmitCode()}
-                      type="button"
-                    >
-                      {tgBusy ? 'Проверяем…' : 'Войти'}
-                    </button>
+                    <div className="ms-compose-actions">
+                      <button
+                        className="ms-btn ms-btn-primary"
+                        disabled={tgBusy}
+                        onClick={() => void tgSubmitCode()}
+                        type="button"
+                      >
+                        {tgBusy ? 'Проверяем…' : 'Войти'}
+                      </button>
+                      <button
+                        className="ms-link-btn"
+                        disabled={tgBusy}
+                        onClick={() => void tgLogin({ forceSms: true })}
+                        type="button"
+                      >
+                        Нет кода? Отправить SMS
+                      </button>
+                    </div>
                   </>
                 ) : null}
                 {tgStep === 'password' ? (

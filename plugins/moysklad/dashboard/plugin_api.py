@@ -734,6 +734,7 @@ class TelegramUserLoginBody(BaseModel):
     phone: str = ""
     api_id: str = ""
     api_hash: str = ""
+    force_sms: bool = False
 
 
 class TelegramUserCodeBody(BaseModel):
@@ -1761,6 +1762,7 @@ def post_telegram_user_login(body: TelegramUserLoginBody) -> dict[str, Any]:
         phone=body.phone,
         api_id=body.api_id,
         api_hash=body.api_hash,
+        force_sms=body.force_sms,
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=str(out.get("detail") or out.get("error")))

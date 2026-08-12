@@ -316,6 +316,46 @@ def test_telethon_missing_maps_to_friendly_error():
     assert out["error"] == "api_credentials_missing"
 
 
+def test_sent_code_meta_app_vs_sms():
+    class _AppType:
+        pass
+
+    class _SmsType:
+        pass
+
+    class _Sent:
+        def __init__(self, t):
+            self.type = t
+
+    app = tu._sent_code_meta(_Sent(_AppType()))
+    assert app["code_delivery"] == "telegram_app"
+    assert "не SMS" in app["code_delivery_hint"]
+
+    sms = tu._sent_code_meta(_Sent(_SmsType()))
+    assert sms["code_delivery"] == "sms"
+    assert "SMS" in sms["code_delivery_hint"]
+
+
+def test_gateway_start_login_forwards_force_sms(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    calls: list[dict] = []
+
+    def _fake(method, path, **kwargs):
+        calls.append(kwargs.get("json_body") or {})
+        return {
+            "ok": True,
+            "code_sent": True,
+            "code_delivery": "sms",
+            "via": "gateway",
+        }
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    out = tu.start_login(phone="+7 968 540 8368", force_sms=True)
+    assert out["ok"] is True
+    assert calls == [{"phone": "+79685408368", "api_id": "", "api_hash": "", "force_sms": True}]
+
+
 def test_gateway_start_login_forwards(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
@@ -330,7 +370,9 @@ def test_gateway_start_login_forwards(tmp_path, monkeypatch):
     assert out["ok"] is True
     assert out["code_sent"] is True
     assert out["phone"] == "+79685408368"
-    assert calls == [("POST", "login", {"phone": "+79685408368", "api_id": "", "api_hash": ""})]
+    assert calls == [
+        ("POST", "login", {"phone": "+79685408368", "api_id": "", "api_hash": "", "force_sms": False})
+    ]
     assert tu.load_config().get("phone") == "+79685408368"
 
 

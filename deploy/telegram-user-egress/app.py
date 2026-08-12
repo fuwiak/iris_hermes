@@ -135,6 +135,32 @@ def normalize_phone(value: str) -> str:
     return "+" + digits
 
 
+def _sent_code_meta(sent: Any) -> dict[str, Any]:
+    type_obj = getattr(sent, "type", None)
+    name = type(type_obj).__name__ if type_obj is not None else ""
+    low = name.lower()
+    if "app" in low:
+        delivery = "telegram_app"
+        hint = (
+            "Код в приложении Telegram (чат «Login code»), не SMS. "
+            "Откройте Telegram на этом номере или на другом устройстве с аккаунтом."
+        )
+    elif "sms" in low:
+        delivery = "sms"
+        hint = "Код отправлен SMS на этот номер."
+    elif "call" in low or "flash" in low:
+        delivery = "call"
+        hint = "Telegram позвонит — код в голосовом сообщении."
+    else:
+        delivery = "unknown"
+        hint = "Проверьте Telegram и SMS на этом номере."
+    return {
+        "code_delivery": delivery,
+        "code_type": name,
+        "code_delivery_hint": hint,
+    }
+
+
 def _err(error: str, detail: str, **extra: Any) -> dict[str, Any]:
     return {"ok": False, "error": error, "detail": detail, **extra}
 
@@ -314,6 +340,7 @@ class LoginBody(BaseModel):
     phone: str = ""
     api_id: str = ""
     api_hash: str = ""
+    force_sms: bool = False
 
 
 class CodeBody(BaseModel):
@@ -339,7 +366,7 @@ class SendBody(BaseModel):
     text: str = ""
 
 
-def start_login(*, phone: str, api_id: str = "", api_hash: str = "") -> dict[str, Any]:
+def start_login(*, phone: str, api_id: str = "", api_hash: str = "", force_sms: bool = False) -> dict[str, Any]:
     phone = normalize_phone(phone)
     if api_id.strip().isdigit() or api_hash.strip():
         cfg = load_config()
@@ -368,7 +395,7 @@ def start_login(*, phone: str, api_id: str = "", api_hash: str = "") -> dict[str
             me = await client.get_me()
             return {"ok": True, "authorized": True, "user": _me_dict(me)}
         try:
-            sent = await client.send_code_request(phone)
+            sent = await client.send_code_request(phone, force_sms=bool(force_sms))
         except FloodWaitError as exc:
             return _err("flood_wait", f"Подождите {int(getattr(exc, 'seconds', 0) or 0)}s")
         except PhoneNumberInvalidError:
@@ -384,6 +411,8 @@ def start_login(*, phone: str, api_id: str = "", api_hash: str = "") -> dict[str
             "authorized": False,
             "code_sent": True,
             "phone_code_hash": getattr(sent, "phone_code_hash", ""),
+            "force_sms": bool(force_sms),
+            **_sent_code_meta(sent),
         }
 
     res = _call(_start, timeout=_LOGIN_TIMEOUT)
@@ -392,6 +421,8 @@ def start_login(*, phone: str, api_id: str = "", api_hash: str = "") -> dict[str
         _RUNNER.phone_code_hash = str(res.pop("phone_code_hash", "") or "")
         cfg = load_config()
         cfg["phone"] = phone
+        if _RUNNER.phone_code_hash:
+            cfg["phone_code_hash"] = _RUNNER.phone_code_hash
         save_config(cfg)
     return res
 
@@ -403,6 +434,9 @@ def submit_code(code: str) -> dict[str, Any]:
     phone = _RUNNER.phone or str(load_config().get("phone") or "").strip()
     if not phone:
         return _err("login_not_started", "Сначала запросите код")
+    phone_code_hash = (
+        _RUNNER.phone_code_hash or str(load_config().get("phone_code_hash") or "").strip()
+    )
 
     async def _sign_in() -> dict[str, Any]:
         from telethon.errors import SessionPasswordNeededError
@@ -412,7 +446,7 @@ def submit_code(code: str) -> dict[str, Any]:
             me = await client.sign_in(
                 phone=phone,
                 code=code,
-                phone_code_hash=_RUNNER.phone_code_hash or None,
+                phone_code_hash=phone_code_hash or None,
             )
         except SessionPasswordNeededError:
             return {"ok": True, "authorized": False, "password_required": True}
@@ -707,6 +741,7 @@ async def gateway(
             phone=str(body.get("phone") or ""),
             api_id=str(body.get("api_id") or ""),
             api_hash=str(body.get("api_hash") or ""),
+            force_sms=bool(body.get("force_sms")),
         )
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 

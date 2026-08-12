@@ -245,6 +245,34 @@ def normalize_login_phone(value: str) -> str:
     return "+" + digits
 
 
+def _sent_code_meta(sent: Any) -> dict[str, Any]:
+    """Human + machine hints for where Telegram delivered the login code."""
+    type_obj = getattr(sent, "type", None)
+    name = type(type_obj).__name__ if type_obj is not None else ""
+    low = name.lower()
+    if "app" in low:
+        delivery = "telegram_app"
+        hint = (
+            "Код приходит в приложение Telegram (чат «Telegram» / «Login code»), "
+            "не SMS. Откройте Telegram на телефоне с этим номером или на другом "
+            "устройстве, где уже вошли в аккаунт."
+        )
+    elif "sms" in low:
+        delivery = "sms"
+        hint = "Код отправлен SMS на этот номер."
+    elif "call" in low or "flash" in low:
+        delivery = "call"
+        hint = "Telegram позвонит на номер — код в голосовом сообщении."
+    else:
+        delivery = "unknown"
+        hint = "Проверьте приложение Telegram и SMS на этом номере."
+    return {
+        "code_delivery": delivery,
+        "code_type": name,
+        "code_delivery_hint": hint,
+    }
+
+
 def _proxy_url() -> str:
     try:
         from gateway.platforms.base import resolve_proxy_url  # noqa: PLC0415
@@ -794,6 +822,7 @@ def start_login(
     phone: str,
     api_id: str = "",
     api_hash: str = "",
+    force_sms: bool = False,
 ) -> dict[str, Any]:
     """Send the Telegram login code to ``phone`` (Telethon MTProto)."""
     phone = normalize_login_phone(phone)
@@ -801,7 +830,12 @@ def start_login(
         res = _gateway_request(
             "POST",
             "login",
-            json_body={"phone": phone, "api_id": api_id, "api_hash": api_hash},
+            json_body={
+                "phone": phone,
+                "api_id": api_id,
+                "api_hash": api_hash,
+                "force_sms": bool(force_sms),
+            },
             timeout=_LOGIN_TIMEOUT + 30.0,
         )
         if res.get("ok") and phone:
@@ -845,7 +879,7 @@ def start_login(
             me = await client.get_me()
             return {"ok": True, "authorized": True, "user": _me_dict(me)}
         try:
-            sent = await client.send_code_request(phone)
+            sent = await client.send_code_request(phone, force_sms=bool(force_sms))
         except FloodWaitError as exc:
             wait = int(getattr(exc, "seconds", 0) or 0)
             return _err(
@@ -873,6 +907,8 @@ def start_login(
             "code_sent": True,
             "phone_code_hash": getattr(sent, "phone_code_hash", ""),
             "proxy_configured": bool(_proxy_url()),
+            "force_sms": bool(force_sms),
+            **_sent_code_meta(sent),
         }
 
     res = _call(_start, timeout=_LOGIN_TIMEOUT)
@@ -882,6 +918,8 @@ def start_login(
         with _LOCK:
             cfg = load_config()
             cfg["phone"] = phone
+            if _RUNNER.phone_code_hash:
+                cfg["phone_code_hash"] = _RUNNER.phone_code_hash
             _save_config(cfg)
         res.setdefault("phone", phone)
     return res
@@ -956,6 +994,9 @@ def submit_code(code: str) -> dict[str, Any]:
     phone = _RUNNER.phone or str(load_config().get("phone") or "").strip()
     if not phone:
         return _err("login_not_started", "Сначала запросите код (шаг с телефоном)")
+    phone_code_hash = (
+        _RUNNER.phone_code_hash or str(load_config().get("phone_code_hash") or "").strip()
+    )
 
     async def _sign_in() -> dict[str, Any]:
         from telethon.errors import SessionPasswordNeededError  # noqa: PLC0415
@@ -965,7 +1006,7 @@ def submit_code(code: str) -> dict[str, Any]:
             me = await client.sign_in(
                 phone=phone,
                 code=code,
-                phone_code_hash=_RUNNER.phone_code_hash or None,
+                phone_code_hash=phone_code_hash or None,
             )
         except SessionPasswordNeededError:
             return {"ok": True, "authorized": False, "password_required": True}
@@ -1020,6 +1061,10 @@ def _persist_after_login(res: dict[str, Any]) -> None:
             cfg["phone"] = normalize_login_phone(phone)
         _save_config(cfg)
     _RUNNER.phone_code_hash = ""
+    with _LOCK:
+        cfg = load_config()
+        cfg.pop("phone_code_hash", None)
+        _save_config(cfg)
     _invalidate_auth_cache()
     # First contact sync right after login — in the background, so the
     # login response returns as soon as the session is saved.

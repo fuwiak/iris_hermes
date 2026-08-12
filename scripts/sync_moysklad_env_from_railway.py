@@ -51,6 +51,9 @@ LLM_KEYS = (
 TELEGRAM_USER_KEYS = (
     "TELEGRAM_API_ID",
     "TELEGRAM_API_HASH",
+    "TELEGRAM_USER_GATEWAY_URL",
+    "TELEGRAM_USER_GATEWAY_TOKEN",
+    "TELEGRAM_PROXY",
 )
 
 # Back-compat alias for importers / older call sites.
@@ -185,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         "DEEPSEEK_API_KEY",
         "TELEGRAM_API_ID",
         "TELEGRAM_API_HASH",
+        "TELEGRAM_USER_GATEWAY_URL",
     ):
         if key in mapping:
             bits.append(f"{key}_len={len(mapping[key])}")
