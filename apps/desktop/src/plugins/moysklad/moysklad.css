@@ -16,7 +16,11 @@
   gap: 1rem;
   padding: 1.25rem 1.5rem 2rem;
   min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
+  overflow-x: clip;
   background: #2a0f2e;
   color: #f4ede4;
 }
@@ -383,16 +387,23 @@
 .ms-campaign-form {
   display: grid;
   gap: 0.75rem;
+  width: 100%;
   max-width: 40rem;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 1rem;
   border: 1px solid #592466;
   border-radius: 1rem;
   background: #3a1840;
+  overflow-x: clip;
 }
 
 .ms-tg-account {
   display: grid;
   gap: 0.45rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 0.75rem;
   border: 1px solid #6b2d7a;
   border-radius: 0.75rem;
@@ -416,6 +427,9 @@
 .ms-contact-picker {
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 0.75rem;
   border: 1px dashed #6b2d7a;
   border-radius: 0.75rem;
@@ -596,6 +610,8 @@
 .ms-campaign-form label {
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
   font-size: 0.85rem;
   font-weight: 600;
   color: #f4ede4;
@@ -604,6 +620,10 @@
 .ms-campaign-form input,
 .ms-campaign-form select,
 .ms-campaign-form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   font: inherit;
   font-weight: 400;
   padding: 0.55rem 0.7rem;
@@ -611,6 +631,12 @@
   border-radius: 0.4rem;
   background: #481a54;
   color: #f4ede4;
+}
+
+/* Native <select> with long option labels expands past the form otherwise. */
+.ms-campaign-form select {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ms-section-title {
@@ -934,14 +960,17 @@
 
 .ms-compose-split {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(16rem, 0.85fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 0.85rem;
   align-items: start;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 @media (max-width: 900px) {
   .ms-compose-split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -949,6 +978,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ms-facts-panel {
@@ -960,6 +991,10 @@
   flex-direction: column;
   gap: 0.55rem;
   min-height: 12rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
 }
 
 .ms-facts-panel h3 {
