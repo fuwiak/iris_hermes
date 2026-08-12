@@ -32,7 +32,6 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
-import { EventCalendarPicker } from './event-calendar'
 import {
   clientSalesChannelTokens,
   filterClientRowsByAudience,
@@ -41,6 +40,7 @@ import {
   pickLocalClientsSeed,
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
+import { EventCalendarPicker } from './event-calendar'
 
 interface GroupChipOption {
   name: string
@@ -52,9 +52,26 @@ interface GroupChipOption {
   hue?: number
 }
 
+/** Campaigns outreach picker row — catalog / export / custom contacts. */
+interface OutreachContact {
+  id: string
+  name?: string
+  phone?: string
+  tg_nick?: string
+  tg_chat_id?: string
+  label?: string
+  source?: string
+}
+
 function groupChipSrcLabel(source?: string): string {
-  if (source === 'ai') return 'AI'
-  if (source === 'both') return 'МС+AI'
+  if (source === 'ai') {
+    return 'AI'
+  }
+
+  if (source === 'both') {
+    return 'МС+AI'
+  }
+
   return 'МС'
 }
 
@@ -182,8 +199,8 @@ function resolveGroupOptionsBySource(data: {
 }
 
 function groupChipSrcClass(source?: string): string {
-  if (source === 'ai') return 'is-ai'
-  if (source === 'both') return 'is-both'
+  if (source === 'ai') {return 'is-ai'}
+  if (source === 'both') {return 'is-both'}
   return 'is-ms'
 }
 
@@ -526,7 +543,7 @@ function AiCell({
 
   return (
     <span className="ms-ai-cell" title="Заполнено AI (кэш Redis/файл)">
-      <span className="ms-ai-badge" aria-hidden="true">
+      <span aria-hidden="true" className="ms-ai-badge">
         AI
       </span>
       <span className="ms-ai-value">{value}</span>
@@ -697,15 +714,15 @@ const CLIENT_COLUMNS: Array<{
     sortValue: r => {
       const ms = String(r.ms_groups || '').trim()
       const ai = (r.ai_groups || []).filter(Boolean)
-      if (ms && ai.length) return `МС: ${ms} · AI: ${ai.join(', ')}`
-      if (ai.length) return `AI: ${ai.join(', ')}`
+      if (ms && ai.length) {return `МС: ${ms} · AI: ${ai.join(', ')}`}
+      if (ai.length) {return `AI: ${ai.join(', ')}`}
       return r.groups || (r.tags || []).join(', ')
     },
     render: r => {
       const ms = String(r.ms_groups || '').trim()
       const ai = (r.ai_groups || []).filter(Boolean)
-      if (ms && ai.length) return `МС: ${ms} · AI: ${ai.join(', ')}`
-      if (ai.length) return `AI: ${ai.join(', ')}`
+      if (ms && ai.length) {return `МС: ${ms} · AI: ${ai.join(', ')}`}
+      if (ai.length) {return `AI: ${ai.join(', ')}`}
       return r.groups || (r.tags || []).join(', ')
     }
   },
@@ -784,7 +801,7 @@ function columnDisplayValue(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow
 function columnSortRaw(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow): string | number | null {
   if (col.sortValue) {
     const v = col.sortValue(row)
-    if (v == null || v === '') return null
+    if (v == null || v === '') {return null}
     return v
   }
   const s = columnDisplayValue(col, row)
@@ -797,9 +814,9 @@ function compareColumnValues(
   dir: SortDir
 ): number {
   const mul = dir === 'asc' ? 1 : -1
-  if (a == null && b == null) return 0
-  if (a == null) return 1
-  if (b == null) return -1
+  if (a == null && b == null) {return 0}
+  if (a == null) {return 1}
+  if (b == null) {return -1}
   if (typeof a === 'number' && typeof b === 'number') {
     return (a - b) * mul
   }
@@ -902,13 +919,13 @@ function ClientsColumnHeader({
   const [draftSelected, setDraftSelected] = useState<string[] | null>(filter.selected)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {return}
     setDraftQuery(filter.query)
     setDraftSelected(filter.selected)
   }, [open, filter.query, filter.selected])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {return}
     const onDoc = (event: MouseEvent) => {
       const el = menuRef.current
       if (el && !el.contains(event.target as Node)) {
@@ -920,18 +937,18 @@ function ClientsColumnHeader({
   }, [open, onToggleOpen])
 
   const cycleHeaderSort = () => {
-    if (activeSort === 'asc') onSort('desc')
-    else if (activeSort === 'desc') onSort(null)
-    else onSort('asc')
+    if (activeSort === 'asc') {onSort('desc')}
+    else if (activeSort === 'desc') {onSort(null)}
+    else {onSort('asc')}
   }
 
   const toggleValue = (label: string) => {
     const base = draftSelected == null ? [...uniqueValues] : [...draftSelected]
     const idx = base.indexOf(label)
-    if (idx >= 0) base.splice(idx, 1)
-    else base.push(label)
-    if (base.length === uniqueValues.length) setDraftSelected(null)
-    else setDraftSelected(base)
+    if (idx >= 0) {base.splice(idx, 1)}
+    else {base.push(label)}
+    if (base.length === uniqueValues.length) {setDraftSelected(null)}
+    else {setDraftSelected(base)}
   }
 
   return (
@@ -944,7 +961,7 @@ function ClientsColumnHeader({
           type="button"
         >
           <span className="ms-th-label">{col.label}</span>
-          <span className="ms-th-sort-mark" aria-hidden="true">
+          <span aria-hidden="true" className="ms-th-sort-mark">
             {activeSort === 'asc' ? '▲' : activeSort === 'desc' ? '▼' : '↕'}
           </span>
         </button>
@@ -3236,16 +3253,7 @@ function CampaignsPage() {
     }
   }
 
-  const [outreachContacts, setOutreachContacts] = useState<
-    Array<{
-      id: string
-      name?: string
-      tg_nick?: string
-      tg_chat_id?: string
-      label?: string
-      source?: string
-    }>
-  >([])
+  const [outreachContacts, setOutreachContacts] = useState<OutreachContact[]>([])
   const [contactPickerId, setContactPickerId] = useState('')
   const [contactsError, setContactsError] = useState('')
   const [contactsLoading, setContactsLoading] = useState(false)
@@ -3299,41 +3307,16 @@ function CampaignsPage() {
   const genSourceRef = useRef('')
   const sanityRef = useRef<SanityResult | null>(null)
 
-  useEffect(() => {
-    offerRef.current = offer
-  }, [offer])
-
-  useEffect(() => {
-    selectedClientNameRef.current = selectedClientName
-  }, [selectedClientName])
-
-  useEffect(() => {
-    selectedClientIdRef.current = selectedClientId
-  }, [selectedClientId])
-
-  useEffect(() => {
-    channelRef.current = channel
-  }, [channel])
-
-  useEffect(() => {
-    titleRef.current = title
-  }, [title])
-
-  useEffect(() => {
-    factsRef.current = facts
-  }, [facts])
-
-  useEffect(() => {
-    groundingNotesRef.current = groundingNotes
-  }, [groundingNotes])
-
-  useEffect(() => {
-    genSourceRef.current = genSource
-  }, [genSource])
-
-  useEffect(() => {
-    sanityRef.current = sanity
-  }, [sanity])
+  // Keep latest values for async/stream callbacks without lagging a useEffect tick.
+  offerRef.current = offer
+  selectedClientNameRef.current = selectedClientName
+  selectedClientIdRef.current = selectedClientId
+  channelRef.current = channel
+  titleRef.current = title
+  factsRef.current = facts
+  groundingNotesRef.current = groundingNotes
+  genSourceRef.current = genSource
+  sanityRef.current = sanity
 
   const applyOfferText = useCallback((next: string, status: string) => {
     const text = (next || '').trim() ? next : ''
@@ -3481,14 +3464,7 @@ function CampaignsPage() {
     setContactsLoading(true)
     try {
       const data = await call<{
-        contacts?: Array<{
-          id: string
-          name?: string
-          tg_nick?: string
-          tg_chat_id?: string
-          label?: string
-          source?: string
-        }>
+        contacts?: OutreachContact[]
       }>('/campaigns/telegram-contacts?limit=300', { timeoutMs: 45_000 })
       setOutreachContacts(data.contacts || [])
       setContactsError('')
@@ -4668,15 +4644,7 @@ function CampaignsPage() {
     setError('')
     try {
       const data = await call<{
-        contact?: {
-          id: string
-          name?: string
-          tg_nick?: string
-          tg_chat_id?: string
-          label?: string
-          source?: string
-          resolved_via?: string
-        }
+        contact?: OutreachContact & { resolved_via?: string }
       }>('/campaigns/telegram-contacts', {
         method: 'POST',
         body: {
@@ -6774,7 +6742,7 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
 
       {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
 
-      <section className="ms-playground-quality" aria-label="Качество генерации">
+      <section aria-label="Качество генерации" className="ms-playground-quality">
         <div className="ms-playground-quality-head">
           <h2 className="ms-section-title">Выход AI — монитор качества</h2>
           <p className="ms-muted">
@@ -6811,7 +6779,7 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
       </section>
 
-      <section className="ms-playground-control" aria-label="Управление входом">
+      <section aria-label="Управление входом" className="ms-playground-control">
         <button
           className="ms-playground-fold"
           onClick={() => setInputOpen(v => !v)}
@@ -6834,7 +6802,7 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
         ) : null}
       </section>
 
-      <section className="ms-playground-debug" aria-label="Сравнение и отладка">
+      <section aria-label="Сравнение и отладка" className="ms-playground-debug">
         <button
           className="ms-playground-fold"
           onClick={() => setCompareOpen(v => !v)}
