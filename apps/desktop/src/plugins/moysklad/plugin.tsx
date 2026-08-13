@@ -7082,6 +7082,51 @@ function CampaignsPage() {
                 ) : null}
               </select>
             </label>
+            <label>
+              Аудитория из фильтра{audience ? ` · ${audience}` : ''}
+              <select
+                onChange={e => {
+                  const row = audiencePreview.find(
+                    r => (r.id || '') === e.target.value
+                  )
+                  if (row) {
+                    selectAudienceClient(row)
+                  }
+                }}
+                value={
+                  selectedClientId &&
+                  audiencePreview.some(r => r.id === selectedClientId)
+                    ? selectedClientId
+                    : ''
+                }
+              >
+                <option value="">
+                  {audiencePreview.length
+                    ? '— выберите из отфильтрованных —'
+                    : audience > 0
+                      ? 'Список аудитории ещё грузится…'
+                      : 'Фильтр пуст — настройте аудиторию выше'}
+                </option>
+                {audiencePreview
+                  .filter(r => r.id)
+                  .map(row => {
+                    const nick = (row.tg_nick || '').replace(/^@/, '')
+                    return (
+                      <option key={`aud-${row.id}`} value={row.id}>
+                        {row.name || row.phone || row.id}
+                        {nick ? ` · @${nick}` : ''}
+                        {row.order_count != null ? ` · ${row.order_count}` : ''}
+                      </option>
+                    )
+                  })}
+              </select>
+              {audience > audiencePreview.length ? (
+                <span className="ms-muted ms-picker-hint">
+                  Загружено {audiencePreview.length} из {audience} — остальные
+                  подгружаются прокруткой списка аудитории выше.
+                </span>
+              ) : null}
+            </label>
             {contactsError ? (
               <p className="ms-error">
                 Список контактов не загрузился: {contactsError} — нажмите

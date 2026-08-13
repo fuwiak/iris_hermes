@@ -2447,3 +2447,9 @@ td.ms-ai-added {
   font-size: 0.78rem;
   opacity: 0.8;
 }
+
+.ms-picker-hint {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+}
