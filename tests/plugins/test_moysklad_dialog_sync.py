@@ -121,3 +121,36 @@ def test_max_peers_caps_work_and_reports_backlog(
     stats = conv.sync_telegram_dialogs_into_threads(ROWS, max_peers=1)
     assert stats["attempted"] == 1
     assert stats["pending_left"] == 1
+
+
+def test_hot_thread_resyncs_before_bulk_min_age(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fresh traffic (outreach awaiting an answer) re-syncs on the next pass;
+    quiet threads keep the 6h bulk cadence."""
+    monkeypatch.setattr(tg_user, "cached_contacts", lambda: CONTACTS)
+    monkeypatch.setattr(conv, "sync_from_telegram_user", _fake_sync_ok)
+    monkeypatch.setattr(conv.time, "sleep", lambda *_: None)
+
+    first = conv.sync_telegram_dialogs_into_threads(ROWS)
+    assert first["synced"] == 2
+
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    stale_stamp = conv.time.time() - 3600  # 1h ago — inside the 6h window
+    with conv._LOCK:
+        store = conv._load()
+        for tid, thread in store["threads"].items():
+            thread["dialog_synced_at"] = stale_stamp
+            hours_ago = 100 if tid == "ms-2" else 0  # ms-2 quiet, ms-1 hot
+            ts = (now - timedelta(hours=hours_ago, minutes=5)).isoformat()
+            for m in thread["messages"]:
+                m["ts"] = ts
+        conv._save(store)
+
+    second = conv.sync_telegram_dialogs_into_threads(ROWS)
+    assert second["attempted"] == 1
+    assert second["synced"] == 1
+    hot = conv.get_thread(client_id="ms-1")
+    assert hot["message_count"] == 2  # re-sync merged the new inbound

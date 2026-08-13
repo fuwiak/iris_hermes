@@ -96,45 +96,60 @@ def _is_fresh(envelope: dict[str, Any], *, now: float | None = None) -> bool:
     return saved_at > 0 and (now - saved_at) < ttl
 
 
-def get_outreach_draft(client_id: str, channel: str = "telegram") -> Optional[dict[str, Any]]:
-    """Return draft dict or None if missing/expired."""
+def get_outreach_draft(
+    client_id: str,
+    channel: str = "telegram",
+    *,
+    facts_fingerprint: str | None = None,
+) -> Optional[dict[str, Any]]:
+    """Return draft dict or None if missing/expired/fingerprint mismatch."""
     cid = (client_id or "").strip()
     if not cid:
         return None
     key = draft_cache_key(cid, channel)
     now = time.time()
+    envelope: dict[str, Any] | None = None
     with _LOCK:
         mem = _MEMORY.get(key)
         if mem and _is_fresh(mem, now=now):
-            draft = mem.get("draft")
-            return dict(draft) if isinstance(draft, dict) else None
+            envelope = mem
 
-    client = _redis_client()
-    if client is not None:
+    if envelope is None:
+        client = _redis_client()
+        if client is not None:
+            try:
+                raw = client.get(key)
+                if raw:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and _is_fresh(parsed, now=now):
+                        envelope = parsed
+                        with _LOCK:
+                            _MEMORY[key] = parsed
+            except Exception as exc:
+                log.warning("MoySklad outreach Redis get failed: %s", exc)
+
+    if envelope is None:
+        path = _file_path(key)
         try:
-            raw = client.get(key)
-            if raw:
-                envelope = json.loads(raw)
-                if isinstance(envelope, dict) and _is_fresh(envelope, now=now):
+            if path.is_file():
+                parsed = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict) and _is_fresh(parsed, now=now):
+                    envelope = parsed
                     with _LOCK:
-                        _MEMORY[key] = envelope
-                    draft = envelope.get("draft")
-                    return dict(draft) if isinstance(draft, dict) else None
+                        _MEMORY[key] = parsed
         except Exception as exc:
-            log.warning("MoySklad outreach Redis get failed: %s", exc)
+            log.warning("MoySklad outreach file cache read failed: %s", exc)
 
-    path = _file_path(key)
-    try:
-        if path.is_file():
-            envelope = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(envelope, dict) and _is_fresh(envelope, now=now):
-                with _LOCK:
-                    _MEMORY[key] = envelope
-                draft = envelope.get("draft")
-                return dict(draft) if isinstance(draft, dict) else None
-    except Exception as exc:
-        log.warning("MoySklad outreach file cache read failed: %s", exc)
-    return None
+    if not envelope:
+        return None
+    draft = envelope.get("draft")
+    if not isinstance(draft, dict):
+        return None
+    if facts_fingerprint is not None:
+        cached_fp = str(draft.get("facts_fingerprint") or "")
+        if cached_fp and cached_fp != facts_fingerprint:
+            return None
+    return dict(draft)
 
 
 def set_outreach_draft(
@@ -164,6 +179,7 @@ def set_outreach_draft(
         "title": str(draft.get("title") or ""),
         "facts": draft.get("facts") if isinstance(draft.get("facts"), dict) else {},
         "sanity": draft.get("sanity") if isinstance(draft.get("sanity"), dict) else None,
+        "facts_fingerprint": str(draft.get("facts_fingerprint") or ""),
     }
     key = draft_cache_key(cid, ch)
     envelope = _envelope(payload, saved_at=saved_at or time.time())
@@ -210,6 +226,32 @@ def invalidate_outreach_draft(client_id: str, channel: str = "telegram") -> None
             path.unlink()
     except Exception as exc:
         log.warning("MoySklad outreach file cache delete failed: %s", exc)
+
+
+def invalidate_all_outreach_drafts() -> dict[str, Any]:
+    """Drop every outreach draft (memory + Redis pattern + file dir)."""
+    removed = 0
+    with _LOCK:
+        removed += len(_MEMORY)
+        _MEMORY.clear()
+    client = _redis_client()
+    if client is not None:
+        try:
+            pattern = f"moysklad:outreach-draft:v1:{_account_fingerprint()}:*"
+            for key in client.scan_iter(match=pattern, count=200):
+                client.delete(key)
+                removed += 1
+        except Exception as exc:
+            log.warning("MoySklad outreach Redis clear-all failed: %s", exc)
+    cache_root = get_hermes_home() / "moysklad" / "outreach_cache"
+    if cache_root.is_dir():
+        for path in cache_root.glob("*.json"):
+            try:
+                path.unlink()
+                removed += 1
+            except Exception:
+                pass
+    return {"ok": True, "cleared": "all", "removed": removed}
 
 
 def cache_backend_name() -> str:

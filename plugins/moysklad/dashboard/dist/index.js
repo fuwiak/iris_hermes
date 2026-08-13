@@ -371,6 +371,23 @@
         api("/clients/" + encodeURIComponent(clientId))
           .then(function (payload) {
             setDetail(payload);
+            var src = payload && payload.ai && payload.ai.source;
+            if (src !== "llm") {
+              setAiLoading(true);
+              api("/clients/" + encodeURIComponent(clientId) + "/ai", { method: "POST" })
+                .then(function (aiPayload) {
+                  setDetail(function (prev) {
+                    if (!prev) return prev;
+                    return Object.assign({}, prev, { ai: aiPayload.ai || aiPayload });
+                  });
+                })
+                .catch(function (err) {
+                  setError(String((err && err.message) || err));
+                })
+                .finally(function () {
+                  setAiLoading(false);
+                });
+            }
           })
           .catch(function (err) {
             setError(String((err && err.message) || err));
@@ -378,6 +395,33 @@
           .finally(function () {
             setLoading(false);
           });
+      },
+      [open, clientId],
+    );
+
+    // Keep «TG conversation» live while the card is open — inbound replies
+    // appear without pressing Sync (30s cadence, no AI regen).
+    useEffect(
+      function () {
+        if (!open || !clientId) return;
+        var timer = setInterval(function () {
+          api(
+            "/clients/" + encodeURIComponent(clientId) + "/conversation/sync?refresh_ai=false",
+            { method: "POST" },
+          )
+            .then(function (data) {
+              if (data && data.conversation) {
+                setDetail(function (prev) {
+                  if (!prev) return prev;
+                  return Object.assign({}, prev, { conversation: data.conversation });
+                });
+              }
+            })
+            .catch(function () {});
+        }, 30000);
+        return function () {
+          clearInterval(timer);
+        };
       },
       [open, clientId],
     );
@@ -2368,6 +2412,32 @@
       function () {
         if (!prefillReady || !selectedClientId) return;
         loadOutreach(selectedClientId, channel);
+      },
+      [prefillReady, selectedClientId],
+    );
+
+    // Poll the selected client's TG thread so inbound replies land in the
+    // Facts «TG conversation» block without re-clicking (30s, no AI regen).
+    useEffect(
+      function () {
+        if (!prefillReady || !selectedClientId) return;
+        var cid = selectedClientId;
+        var timer = setInterval(function () {
+          api(
+            "/clients/" + encodeURIComponent(cid) + "/conversation/sync?refresh_ai=false",
+            { method: "POST" },
+          )
+            .then(function (data) {
+              if (!data || !data.conversation) return;
+              setFacts(function (prev) {
+                return prev ? Object.assign({}, prev, { conversation: data.conversation }) : prev;
+              });
+            })
+            .catch(function () {});
+        }, 30000);
+        return function () {
+          clearInterval(timer);
+        };
       },
       [prefillReady, selectedClientId],
     );

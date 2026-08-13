@@ -156,12 +156,21 @@ from plugins.moysklad.outreach import (
 from plugins.moysklad.outreach_cache import (
     cache_backend_name as outreach_cache_backend_name,
     get_outreach_draft,
+    invalidate_all_outreach_drafts,
     set_outreach_draft,
 )
 from plugins.moysklad import mass_send_jobs
 from plugins.moysklad.ai_fill import (
     cache_backend_name as ai_fill_cache_backend_name,
     fill_empty_for_rows,
+)
+from plugins.moysklad.client_ai_cache import (
+    cache_backend_name as client_ai_cache_backend_name,
+    facts_fingerprint as client_ai_facts_fingerprint,
+    get_client_ai,
+    invalidate_client_ai,
+    list_cached_client_ids,
+    set_client_ai,
 )
 
 log = logging.getLogger(__name__)
@@ -1480,6 +1489,15 @@ def get_clients(
             refresh_counts=False if offset > 0 else (not want_fast),
         )
 
+        # Explicit Sync (?refresh=true) drops stale DeepSeek summaries so the
+        # next card open regenerates from fresh order facts — not old cache.
+        if refresh and offset == 0:
+            try:
+                invalidate_client_ai("")
+                invalidate_all_outreach_drafts()
+            except Exception:
+                log.debug("AI cache clear on clients refresh failed", exc_info=True)
+
         if catalog is None and want_fast:
             # True cold start — must block once to seed catalog + snapshot.
             catalog, meta = _get_catalog(
@@ -1754,8 +1772,9 @@ def get_client_detail(
 ) -> dict[str, Any]:
     """Client card from durable catalog cache (orders + stats + messaging).
 
-    Pass ``ai=true`` to also run the guarded LLM summary/recommendation.
-    Without it, a deterministic heuristic AI block is always included.
+    Pass ``ai=true`` to run a fresh DeepSeek summary/recommendation.
+    Without it: serve fingerprint-fresh cached DeepSeek if present, else
+    deterministic heuristic (never a stale cached summary).
     """
     try:
         catalog, meta = _get_catalog(
@@ -1768,8 +1787,20 @@ def get_client_detail(
         if row is None:
             raise HTTPException(status_code=404, detail="client not found in catalog")
         detail = build_client_detail(row)
+        fp = client_ai_facts_fingerprint(detail)
         if ai:
             detail["ai"] = generate_ai_for_detail(detail)
+            try:
+                set_client_ai(client_id, detail["ai"], fingerprint=fp)
+            except Exception:
+                log.debug("client AI cache write failed", exc_info=True)
+        else:
+            cached = get_client_ai(client_id, fingerprint=fp)
+            if cached:
+                detail["ai"] = {**cached, "from_cache": True}
+            # else keep heuristic from build_client_detail
+        detail["ai_facts_fingerprint"] = fp
+        detail["ai_cache_backend"] = client_ai_cache_backend_name()
         return _attach_cache_meta(detail, meta)
     except HTTPException:
         raise
@@ -2818,6 +2849,14 @@ def post_client_ai(
             provider=provider or None,
             model=model or None,
         )
+        try:
+            set_client_ai(
+                client_id,
+                ai_block,
+                fingerprint=client_ai_facts_fingerprint(detail),
+            )
+        except Exception:
+            log.debug("client AI cache write failed", exc_info=True)
         return _attach_cache_meta(
             {
                 "ok": True,
@@ -2826,6 +2865,7 @@ def post_client_ai(
                 "data_thin": detail.get("data_thin"),
                 "provider": provider,
                 "model": model,
+                "ai_cache_backend": client_ai_cache_backend_name(),
             },
             meta,
         )
@@ -2903,6 +2943,14 @@ def post_client_conversation_sync(
                     provider=provider_name or None,
                     model=model_name or None,
                 )
+                try:
+                    set_client_ai(
+                        client_id,
+                        payload["ai"],
+                        fingerprint=client_ai_facts_fingerprint(detail),
+                    )
+                except Exception:
+                    log.debug("client AI cache write after sync failed", exc_info=True)
                 payload["ai_refreshed"] = True
                 payload["ai_reason"] = (
                     "inbound"
@@ -3262,8 +3310,16 @@ def post_sync(
     max_orders: int = Query(25000, ge=0, le=100_000),
     max_counterparties: int = Query(0, ge=0, le=100_000),
     include_archived: bool = Query(False),
+    clear_ai: bool = Query(
+        True,
+        description="Also drop stale DeepSeek card summaries + outreach draft AI facts.",
+    ),
 ) -> dict[str, Any]:
-    """Force re-download from MoySklad and refresh durable cache."""
+    """Force re-download from MoySklad and refresh durable cache.
+
+    By default also clears client-card DeepSeek summaries and outreach draft
+    AI caches so «Саммари AI · DeepSeek» is regenerated from fresh facts.
+    """
     try:
         catalog, meta = _get_catalog(
             max_orders=max_orders,
@@ -3271,12 +3327,19 @@ def post_sync(
             include_archived=include_archived,
             force=True,
         )
+        ai_cleared: dict[str, Any] = {}
+        if clear_ai:
+            ai_cleared = {
+                "client_ai": invalidate_client_ai(""),
+                "outreach_drafts": invalidate_all_outreach_drafts(),
+            }
         return {
             "ok": True,
             "synced": True,
             "counterparties_scanned": catalog.get("counterparties_scanned", 0),
             "orders_scanned": catalog.get("orders_scanned", 0),
             "counts": catalog.get("counts") or {},
+            "ai_cleared": ai_cleared,
             **meta,
         }
     except HTTPException:
@@ -3288,6 +3351,96 @@ def post_sync(
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /sync failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class AiRefreshAllBody(BaseModel):
+    """Invalidate and optionally regenerate DeepSeek card summaries."""
+
+    regenerate: bool = False
+    ids: list[str] = Field(default_factory=list)
+    limit: int = 50
+    provider: str = ""
+    model: str = ""
+    max_orders: int = 25000
+    max_counterparties: int = 0
+    include_archived: bool = False
+
+
+@router.post("/clients/ai/refresh-all")
+def post_clients_ai_refresh_all(body: AiRefreshAllBody | None = None) -> dict[str, Any]:
+    """Drop all cached «Саммари AI · DeepSeek»; optionally regenerate a batch.
+
+    Default: invalidate only (next card open / Обновить AI rebuilds).
+    With ``regenerate=true``, re-runs DeepSeek for ``ids`` or previously
+    cached client ids (capped by ``limit``) — not the full 9k catalog.
+    """
+    body = body or AiRefreshAllBody()
+    # Capture ids before wipe — invalidate clears the file layer.
+    prior_ids = list_cached_client_ids()
+    cleared = {
+        "client_ai": invalidate_client_ai(""),
+        "outreach_drafts": invalidate_all_outreach_drafts(),
+    }
+    regenerated: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    if body.regenerate:
+        catalog, meta = _get_catalog(
+            max_orders=body.max_orders,
+            max_counterparties=body.max_counterparties,
+            include_archived=body.include_archived,
+            force=False,
+        )
+        id_filter = [str(i).strip() for i in (body.ids or []) if str(i).strip()]
+        targets = id_filter or prior_ids
+        # Cap to avoid surprise OpenRouter bills on full-catalog oops.
+        cap = max(1, min(int(body.limit or 50), 200))
+        provider = (body.provider or "").strip() or "openrouter"
+        model = (body.model or "").strip() or "deepseek/deepseek-chat"
+        for cid in targets[:cap]:
+            row = _row_or_contact(catalog, cid)
+            if row is None:
+                errors.append({"id": cid, "error": "not_found"})
+                continue
+            try:
+                detail = build_client_detail(row)
+                ai_block = generate_ai_for_detail(
+                    detail, provider=provider, model=model
+                )
+                set_client_ai(
+                    cid,
+                    ai_block,
+                    fingerprint=client_ai_facts_fingerprint(detail),
+                )
+                regenerated.append(
+                    {
+                        "id": cid,
+                        "source": ai_block.get("source"),
+                        "model": ai_block.get("model"),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover
+                log.warning("AI refresh-all failed for %s: %s", cid, exc)
+                errors.append({"id": cid, "error": str(exc)})
+        return {
+            "ok": True,
+            "cleared": cleared,
+            "regenerated": regenerated,
+            "regenerated_count": len(regenerated),
+            "errors": errors,
+            "cache_backend": client_ai_cache_backend_name(),
+            **{
+                k: meta.get(k)
+                for k in ("cached", "synced_at", "synced_at_label")
+                if k in meta
+            },
+        }
+    return {
+        "ok": True,
+        "cleared": cleared,
+        "regenerated": [],
+        "regenerated_count": 0,
+        "cache_backend": client_ai_cache_backend_name(),
+    }
 
 
 @router.post("/groups/assign")
@@ -3691,7 +3844,12 @@ def post_campaign_generate(body: OutreachGenerateBody) -> dict[str, Any]:
             save_seller_settings(seller_name=seller_name, seller_facts=seller_facts)
         force = bool(body.refresh_ai)
         if not force:
-            cached = get_outreach_draft(client_id, body.channel)
+            # Fingerprint against live catalog facts so stale DeepSeek
+            # history_profile from an old draft is never served.
+            live_fp = client_ai_facts_fingerprint(build_client_detail(row))
+            cached = get_outreach_draft(
+                client_id, body.channel, facts_fingerprint=live_fp
+            )
             msg = str((cached or {}).get("message") or "").strip()
             if cached and msg:
                 return _attach_cache_meta(

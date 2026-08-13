@@ -320,3 +320,103 @@ def test_list_awaiting_replies_after_mass_send(tmp_path, monkeypatch):
 
     empty = list_awaiting_replies(["sent-ok"])
     assert empty == []
+
+
+def test_history_import_adds_answer_without_duplicating_sends(tmp_path, monkeypatch):
+    """send() stamps _now(); Telegram history carries msg.date seconds later —
+    the first successful history pull must add ONLY the client's answer."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    from datetime import datetime, timedelta, timezone
+
+    sent_at = datetime.now(timezone.utc)
+    thread = append_message(
+        client_id="cp-dup",
+        text="Привет, Hans! Какой у вас любимый цветок?",
+        direction="outbound",
+        channel="telegram",
+        tg_nick="@pawels2137",
+        client_name="Hans",
+        source="campaign_send",
+    )
+    assert thread["message_count"] == 1
+
+    def _fake_history(*, peer: str, limit: int = 40):
+        return {
+            "ok": True,
+            "tg_chat_id": "777",
+            "tg_nick": "pawels2137",
+            "messages": [
+                {
+                    # Same send, Telegram-stamped a few seconds later.
+                    "direction": "outbound",
+                    "text": "Привет, Hans! Какой у вас любимый цветок?",
+                    "ts": (sent_at + timedelta(seconds=7)).isoformat(),
+                    "message_id": 101,
+                },
+                {
+                    "direction": "inbound",
+                    "text": "сиски",
+                    "ts": (sent_at + timedelta(seconds=40)).isoformat(),
+                    "message_id": 102,
+                },
+            ],
+            "via": "stub",
+        }
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(tg_user, "fetch_history", _fake_history)
+
+    from plugins.moysklad.conversations import sync_from_telegram_user
+
+    synced = sync_from_telegram_user(client_id="cp-dup", tg_nick="@pawels2137")
+    assert synced["sync"]["imported"] == 1
+    assert synced["sync"]["inbound_imported"] == 1
+    assert synced["message_count"] == 2
+    assert synced["messages"][-1]["direction"] == "inbound"
+    assert synced["messages"][-1]["text"] == "сиски"
+
+    # Repeat pull stays idempotent (message_id + fuzzy window both hold).
+    again = sync_from_telegram_user(client_id="cp-dup", tg_nick="@pawels2137")
+    assert again["sync"]["imported"] == 0
+    assert again["message_count"] == 2
+
+
+def test_history_import_keeps_genuine_rapid_repeats(tmp_path, monkeypatch):
+    """Two identical client messages with distinct message_id both survive."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    def _fake_history(*, peer: str, limit: int = 40):
+        return {
+            "ok": True,
+            "tg_chat_id": "778",
+            "tg_nick": "maria",
+            "messages": [
+                {
+                    "direction": "inbound",
+                    "text": "да",
+                    "ts": "2026-08-13T09:51:00+00:00",
+                    "message_id": 201,
+                },
+                {
+                    "direction": "inbound",
+                    "text": "да",
+                    "ts": "2026-08-13T09:51:30+00:00",
+                    "message_id": 202,
+                },
+            ],
+            "via": "stub",
+        }
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(tg_user, "fetch_history", _fake_history)
+
+    from plugins.moysklad.conversations import sync_from_telegram_user
+
+    synced = sync_from_telegram_user(client_id="cp-rep", tg_nick="@maria")
+    assert synced["sync"]["imported"] == 2
+    assert synced["message_count"] == 2

@@ -44,6 +44,42 @@ _MAX_MESSAGES = 200
 _LIVE_PULL_TTL_SECONDS = 90.0
 _LIVE_PULL_AT: dict[str, float] = {}
 
+# History rows and locally-stamped sends carry timestamps a few seconds apart
+# (send() stamps _now(), Telegram stamps msg.date) — same direction + text
+# inside this window is the same message, not a new one.
+_DEDUP_WINDOW_SECONDS = 300.0
+
+# Threads with recent traffic (fresh outreach awaiting an answer, live chat)
+# re-sync far sooner than the 6h bulk default so inbound replies land in
+# «TG conversation» within one keep-warm tick instead of hours later.
+_HOT_THREAD_WINDOW_SECONDS = 72 * 3600.0
+_DEFAULT_HOT_MIN_AGE_SECONDS = 300.0
+
+
+def _hot_min_age_seconds() -> float:
+    raw = (os.environ.get("MOYSKLAD_TG_DIALOG_HOT_MIN_AGE_SECONDS") or "").strip()
+    if not raw:
+        return _DEFAULT_HOT_MIN_AGE_SECONDS
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return _DEFAULT_HOT_MIN_AGE_SECONDS
+
+
+def _ts_epoch(ts: Any) -> Optional[float]:
+    raw = str(ts or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
 
 def cache_ttl_seconds() -> int:
     raw = (os.environ.get("MOYSKLAD_CONVERSATIONS_TTL_SECONDS") or "").strip()
@@ -810,6 +846,31 @@ def _merge_history_messages(
             )
             for m in existing
         }
+        existing_ids = {
+            str(m.get("message_id"))
+            for m in existing
+            if m.get("message_id") not in (None, "")
+        }
+        # (direction, text) → timestamps of messages WITHOUT a Telegram
+        # message_id (locally-stamped sends, MoySklad imports): send() stamps
+        # _now() while history rows carry msg.date — near-identical times mean
+        # the same message, so exact-ts dedup alone would duplicate every
+        # outbound on the first successful history import. Rows that carry a
+        # message_id are unique by id and skip this window.
+        fuzzy_keys: dict[tuple[str, str], list[float]] = {}
+        for m in existing:
+            if m.get("message_id") not in (None, ""):
+                continue
+            epoch = _ts_epoch(m.get("ts"))
+            if epoch is None:
+                continue
+            fuzzy_keys.setdefault(
+                (
+                    str(m.get("direction") or ""),
+                    str(m.get("text") or "").strip()[:200],
+                ),
+                [],
+            ).append(epoch)
         for raw in rows or []:
             text = str(raw.get("text") or "").strip()
             if not text:
@@ -821,7 +882,21 @@ def _merge_history_messages(
             key = (direction, text[:200], ts[:19])
             if key in existing_keys:
                 continue
+            mid = raw.get("message_id")
+            if mid not in (None, "") and str(mid) in existing_ids:
+                continue
+            row_epoch = _ts_epoch(ts)
+            fuzzy_key = (direction, text[:200])
+            if row_epoch is not None and any(
+                abs(row_epoch - seen) <= _DEDUP_WINDOW_SECONDS
+                for seen in fuzzy_keys.get(fuzzy_key, ())
+            ):
+                continue
             existing_keys.add(key)
+            if mid not in (None, ""):
+                existing_ids.add(str(mid))
+            elif row_epoch is not None:
+                fuzzy_keys.setdefault(fuzzy_key, []).append(row_epoch)
             existing.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -935,6 +1010,25 @@ def sync_from_telegram_user(
 _DIALOG_FAILED_AT: dict[str, float] = {}
 
 
+def _thread_is_hot(thread: dict[str, Any] | None, now: float) -> bool:
+    """Recent human traffic (≤72h) — an active dialog likely awaiting a reply."""
+    if not isinstance(thread, dict):
+        return False
+    for msg in reversed(list(thread.get("messages") or [])):
+        if not isinstance(msg, dict):
+            continue
+        if str(msg.get("direction") or "").strip().lower() not in (
+            "outbound",
+            "inbound",
+        ):
+            continue
+        epoch = _ts_epoch(msg.get("ts"))
+        if epoch is None:
+            return False
+        return (now - epoch) <= _HOT_THREAD_WINDOW_SECONDS
+    return False
+
+
 def _dialog_sync_fresh(
     store: dict[str, Any],
     *,
@@ -952,7 +1046,12 @@ def _dialog_sync_fresh(
     if not isinstance(thread, dict):
         return False
     stamped = float(thread.get("dialog_synced_at") or 0)
-    return stamped > 0 and (now - stamped) < min_age_seconds
+    if stamped <= 0:
+        return False
+    threshold = min_age_seconds
+    if _thread_is_hot(thread, now):
+        threshold = min(threshold, _hot_min_age_seconds())
+    return (now - stamped) < threshold
 
 
 def _stamp_dialog_synced(*, client_id: str, phone: str, tg_nick: str) -> None:
@@ -1054,22 +1153,31 @@ def sync_telegram_dialogs_into_threads(
     now = time.time()
     with _LOCK:
         store = _load()
-        pending = [
-            (info, peer)
-            for info, peer in candidates
-            if not _dialog_sync_fresh(
+        scored: list[tuple[dict[str, str], dict[str, str], bool]] = []
+        for info, peer in candidates:
+            if _dialog_sync_fresh(
                 store,
                 client_id=info["client_id"],
                 phone=info["phone"],
                 tg_nick=peer["tg_nick"] or info["tg_nick"],
                 now=now,
                 min_age_seconds=min_age_seconds,
+            ):
+                continue
+            keys = _index_keys(
+                client_id=info["client_id"],
+                phone=info["phone"],
+                tg_nick=peer["tg_nick"] or info["tg_nick"],
             )
-        ]
+            tid = _resolve_thread_id(store, keys)
+            thread = (store.get("threads") or {}).get(tid) if tid else None
+            scored.append((info, peer, _thread_is_hot(thread, now)))
+    # Hot dialogs first — the max_peers cap must not starve fresh replies.
+    scored.sort(key=lambda item: not item[2])
     pending = [
-        p
-        for p in pending
-        if (now - _DIALOG_FAILED_AT.get(p[0]["client_id"], 0.0)) >= min_age_seconds
+        (info, peer)
+        for info, peer, _hot in scored
+        if (now - _DIALOG_FAILED_AT.get(info["client_id"], 0.0)) >= min_age_seconds
     ]
 
     stats: dict[str, Any] = {

@@ -2067,7 +2067,45 @@ function ClientCardModal({
     setNote('')
     void call<ClientDetail>(`/clients/${encodeURIComponent(clientId)}`)
       .then(payload => {
-        if (!cancelled) {setDetail(payload)}
+        if (cancelled) {return}
+        setDetail(payload)
+        // Auto-renew DeepSeek when card has only heuristic / no LLM cache.
+        const src = String(payload?.ai?.source || '')
+        if (src !== 'llm') {
+          void (async () => {
+            setAiLoading(true)
+            try {
+              try {
+                await call(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
+                  method: 'POST'
+                })
+              } catch {
+                /* best-effort */
+              }
+              const aiPayload = await call<{ ai?: ClientDetail['ai'] }>(
+                `/clients/${encodeURIComponent(clientId)}/ai`,
+                {
+                  method: 'POST',
+                  body: {
+                    provider: MS_AI_DEFAULT_PROVIDER,
+                    model: MS_AI_DEFAULT_MODEL
+                  }
+                }
+              )
+              if (!cancelled) {
+                setDetail(prev =>
+                  prev ? { ...prev, ai: aiPayload.ai || prev.ai } : prev
+                )
+              }
+            } catch (err) {
+              if (!cancelled) {
+                setError(err instanceof Error ? err.message : String(err))
+              }
+            } finally {
+              if (!cancelled) {setAiLoading(false)}
+            }
+          })()
+        }
       })
       .catch(err => {
         if (!cancelled) {setError(err instanceof Error ? err.message : String(err))}
@@ -2079,6 +2117,28 @@ function ClientCardModal({
     return () => {
       cancelled = true
     }
+  }, [call, clientId])
+
+  // Keep «TG conversation» live while the card is open — inbound replies
+  // appear without pressing Sync (same 30s cadence as ClientDialogModal).
+  useEffect(() => {
+    if (!clientId) {return}
+    const timer = setInterval(() => {
+      void call<{ conversation?: ClientConversation }>(
+        `/clients/${encodeURIComponent(clientId)}/conversation/sync?refresh_ai=false`,
+        { method: 'POST', timeoutMs: 90_000 }
+      )
+        .then(data => {
+          if (data.conversation) {
+            setDetail(prev =>
+              prev ? { ...prev, conversation: data.conversation } : prev
+            )
+          }
+        })
+        .catch(() => undefined)
+    }, 30_000)
+
+    return () => clearInterval(timer)
   }, [call, clientId])
 
   if (!clientId) {return null}
@@ -3269,10 +3329,42 @@ function ClientsPage() {
             className="ms-btn ms-btn-primary"
             disabled={loading}
             onClick={() => void load({ refresh: true })}
-            title="Принудительно скачать данные из МойСклад и обновить кэш"
+            title="Принудительно скачать данные из МойСклад и сбросить кэш Саммари AI · DeepSeek"
             type="button"
           >
             Синхронизация
+          </button>
+          <button
+            className="ms-btn"
+            disabled={loading}
+            onClick={() => {
+              setAiFillStatus('Сбрасываю кэш Саммари AI · DeepSeek…')
+              void call<{
+                ok?: boolean
+                cleared?: unknown
+                regenerated_count?: number
+              }>('/clients/ai/refresh-all', {
+                method: 'POST',
+                body: { regenerate: false },
+                timeoutMs: 60_000
+              })
+                .then(data => {
+                  setAiFillStatus(
+                    data.ok
+                      ? '✓ Кэш Саммари AI сброшен — откройте карточку для нового DeepSeek'
+                      : 'Сброс AI не подтверждён'
+                  )
+                })
+                .catch(err =>
+                  setAiFillStatus(
+                    `AI refresh: ${err instanceof Error ? err.message : String(err)}`
+                  )
+                )
+            }}
+            title="Сбросить все кэшированные Саммари AI · DeepSeek (без полной синхронизации МойСклад)"
+            type="button"
+          >
+            Обновить все AI
           </button>
           <button
             className="ms-btn"
@@ -3982,9 +4074,15 @@ function CampaignsPage() {
             prev?.recommendation &&
             (!next.recommendation || prevCount > nextCount)
           ) {
+            // Keep recommendation only when live pull is thinner — never keep
+            // a stale history_profile after facts fingerprint moved on.
             next.recommendation = prev.recommendation
-            next.history_profile = prev.history_profile || next.history_profile
-            next.occasion_intent = prev.occasion_intent || next.occasion_intent
+            if (!next.history_profile) {
+              next.history_profile = prev.history_profile
+            }
+            if (!next.occasion_intent) {
+              next.occasion_intent = prev.occasion_intent
+            }
             next.ai_source = prev.ai_source || next.ai_source
           }
           return next
@@ -5234,6 +5332,32 @@ function CampaignsPage() {
     void loadClientFacts(selectedClientId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillReady, selectedClientId, channel])
+
+  // Poll the selected client's TG thread so inbound replies land in the Facts
+  // «TG conversation» block without re-clicking the chip (30s, no AI regen).
+  useEffect(() => {
+    if (!prefillReady || !selectedClientId) {
+      return
+    }
+    const cid = selectedClientId
+    const timer = setInterval(() => {
+      void call<{ conversation?: ClientConversation }>(
+        `/clients/${encodeURIComponent(cid)}/conversation/sync?refresh_ai=false`,
+        { method: 'POST', timeoutMs: 90_000 }
+      )
+        .then(data => {
+          if (selectedClientIdRef.current !== cid || !data.conversation) {
+            return
+          }
+          setFacts(prev =>
+            prev ? { ...prev, conversation: data.conversation } : prev
+          )
+        })
+        .catch(() => undefined)
+    }, 30_000)
+
+    return () => clearInterval(timer)
+  }, [call, prefillReady, selectedClientId])
 
   // Persist manual edits / button results to Redis/file so reopen skips LLM.
   useEffect(() => {

@@ -767,28 +767,33 @@ def generate_outreach_message(
     """
     channel = (channel or "telegram").strip().lower()
     seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
-    if not (detail.get("ai") or {}).get("recommendation"):
-        # Heuristic card AI is enough for the prompt payload. Full LLM card
-        # summary is a separate «Обновить AI» action — do not block outreach.
-        client = detail.get("client") or {}
-        orders = list(detail.get("orders") or [])
-        data_thin = bool(detail.get("data_thin"))
-        risks = detail.get("risks") or compute_risks(
-            client, orders, data_thin=data_thin
-        )
-        detail = {
-            **detail,
-            "ai": heuristic_ai(
-                client,
-                orders,
-                vip=bool(client.get("vip")),
-                loyalty=client.get("loyalty_points"),
-                data_thin=data_thin,
-                risks=risks,
-            ),
-        }
-    # refresh_ai only means "new creative message" — ignore for card LLM.
-    _ = refresh_ai
+    need_card_ai = refresh_ai or not (detail.get("ai") or {}).get("recommendation")
+    if need_card_ai:
+        if refresh_ai:
+            # Force a fresh DeepSeek card summary when caller asks to renew AI.
+            from plugins.moysklad.client_card import generate_ai_for_detail
+
+            detail = {**detail, "ai": generate_ai_for_detail(detail)}
+        else:
+            # Heuristic card AI is enough for the prompt payload. Full LLM card
+            # summary is a separate «Обновить AI» action — do not block outreach.
+            client = detail.get("client") or {}
+            orders = list(detail.get("orders") or [])
+            data_thin = bool(detail.get("data_thin"))
+            risks = detail.get("risks") or compute_risks(
+                client, orders, data_thin=data_thin
+            )
+            detail = {
+                **detail,
+                "ai": heuristic_ai(
+                    client,
+                    orders,
+                    vip=bool(client.get("vip")),
+                    loyalty=client.get("loyalty_points"),
+                    data_thin=data_thin,
+                    risks=risks,
+                ),
+            }
 
     fallback = heuristic_outreach_message(
         detail,
@@ -1495,6 +1500,7 @@ def build_outreach_for_row(
     if present (avoids re-LLM on personalize / re-open). Fresh LLM results are
     written back to the same cache.
     """
+    from plugins.moysklad.client_ai_cache import facts_fingerprint
     from plugins.moysklad.outreach_cache import get_outreach_draft, set_outreach_draft
 
     detail = build_client_detail(row)
@@ -1502,9 +1508,10 @@ def build_outreach_for_row(
     cid = str(client.get("id") or "").strip()
     cname = str(client.get("name") or "").strip()
     channel = (channel or "telegram").strip().lower() or "telegram"
+    fp = facts_fingerprint(detail)
 
     if use_draft_cache and not force_refresh and cid:
-        cached = get_outreach_draft(cid, channel)
+        cached = get_outreach_draft(cid, channel, facts_fingerprint=fp)
         msg = str((cached or {}).get("message") or "").strip()
         if cached and msg:
             panel = cached.get("facts") if isinstance(cached.get("facts"), dict) else None
@@ -1529,7 +1536,7 @@ def build_outreach_for_row(
     result = generate_outreach_message(
         detail,
         channel=channel,
-        refresh_ai=refresh_ai,
+        refresh_ai=refresh_ai or force_refresh,
         seller_name=seller_name,
         seller_facts=seller_facts,
     )
@@ -1556,6 +1563,7 @@ def build_outreach_for_row(
                     "sanity": result.get("sanity")
                     if isinstance(result.get("sanity"), dict)
                     else None,
+                    "facts_fingerprint": fp,
                 },
             )
             result["cached"] = True
