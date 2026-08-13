@@ -38,8 +38,14 @@ def canonical_id(row: dict[str, Any]) -> str:
 
 
 def normalize_phone(value: Any) -> str:
-    """Normalize phone to a stable digit key (RU 11-digit → last 10)."""
-    digits = _PHONE_DIGITS.sub("", str(value or ""))
+    """Normalize phone to a stable digit key (RU 11-digit → last 10).
+
+    Multi-number fields («+7 982…, +7 977…») key on the FIRST number —
+    slicing the concatenated digits used to key on the second one and
+    merge the row into whoever owns that number.
+    """
+    first = re.split(r"[,;]", str(value or ""), maxsplit=1)[0]
+    digits = _PHONE_DIGITS.sub("", first)
     if not digits:
         return ""
     if len(digits) >= 11 and digits[0] in ("7", "8"):
@@ -56,6 +62,9 @@ def normalize_email(value: Any) -> str:
     return text
 
 
+_TG_HANDLE_RE = re.compile(r"^[a-z0-9_]{3,32}$")
+
+
 def normalize_telegram(value: Any) -> str:
     text = str(value or "").strip().lower().replace("ё", "е")
     if not text:
@@ -67,6 +76,12 @@ def normalize_telegram(value: Any) -> str:
         return ""
     # Digits-only chat ids are weak merge keys — skip.
     if text.isdigit():
+        return ""
+    # Only real handle shapes survive: message previews / free text stamped
+    # into «TG conversation» must never become an identity key — an identical
+    # рассылка preview on two counterparties would merge them (and their
+    # orders) into one row.
+    if not _TG_HANDLE_RE.match(text):
         return ""
     return text
 
@@ -87,12 +102,9 @@ def contact_keys(row: dict[str, Any]) -> list[str]:
     )
     if email:
         keys.append(f"email:{email}")
-    tg = normalize_telegram(
-        row.get("ТГ ник")
-        or row.get("tg_nick")
-        or row.get("TG conversation")
-        or row.get("tg_conversation")
-    )
+    # Identity comes from the nick fields ONLY. «TG conversation» holds a
+    # deep-link or a message preview — never a handle to merge on.
+    tg = normalize_telegram(row.get("ТГ ник") or row.get("tg_nick"))
     if tg:
         keys.append(f"tg:{tg}")
     return keys

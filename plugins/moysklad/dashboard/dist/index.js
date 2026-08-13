@@ -359,6 +359,32 @@
     const [aiLoading, setAiLoading] = useState(false);
     const [ordersOpen, setOrdersOpen] = useState(true);
     const [note, setNote] = useState("");
+    const [tgCheck, setTgCheck] = useState(null);
+
+    useEffect(
+      function () {
+        setTgCheck(null);
+      },
+      [clientId],
+    );
+
+    function runTgCheck() {
+      if (!clientId) return;
+      setTgCheck({ busy: true });
+      api("/clients/" + encodeURIComponent(clientId) + "/telegram-check", {
+        method: "POST",
+      })
+        .then(function (data) {
+          setTgCheck(Object.assign({}, data, { busy: false }));
+        })
+        .catch(function (err) {
+          setTgCheck({
+            busy: false,
+            checked: false,
+            detail: String((err && err.message) || err),
+          });
+        });
+    }
 
     useEffect(
       function () {
@@ -595,6 +621,34 @@
                     "span",
                     null,
                     client.primary_channel || msg.primary_channel || "—",
+                  ),
+                  h("span", { className: "ms-muted" }, "Есть в TG"),
+                  h(
+                    "span",
+                    null,
+                    tgCheck && tgCheck.busy
+                      ? "проверяем…"
+                      : tgCheck && tgCheck.checked
+                        ? tgCheck.exists
+                          ? "да" +
+                            (tgCheck.tg_nick
+                              ? " · @" + String(tgCheck.tg_nick).replace(/^@/, "")
+                              : "") +
+                            (tgCheck.via ? " (" + tgCheck.via + ")" : "")
+                          : "нет — " + (tgCheck.detail || "не найден")
+                        : tgCheck && tgCheck.detail
+                          ? tgCheck.detail
+                          : h(
+                              "button",
+                              {
+                                className: "ms-link-btn",
+                                type: "button",
+                                title:
+                                  "Резолв @ника / телефона через личный Telegram (MTProto), fallback — Business bot",
+                                onClick: runTgCheck,
+                              },
+                              "Проверить",
+                            ),
                   ),
                 ),
               ),
@@ -910,6 +964,7 @@
 
   function ClientsPage() {
     const [salesFilter, setSalesFilter] = useState("all");
+    const [entityType, setEntityType] = useState("all");
     const [group, setGroup] = useState("");
     const [qInput, setQInput] = useState("");
     const [q, setQ] = useState("");
@@ -972,6 +1027,7 @@
           sales_filter: salesFilter,
           group: group || "",
           q: q || "",
+          entity_type: entityType,
           limit: String(PAGE_SIZE),
           offset: String(offset),
         });
@@ -1018,7 +1074,7 @@
             }
           });
       },
-      [salesFilter, group, q, nextOffset, hasMore, mergePages],
+      [salesFilter, entityType, group, q, nextOffset, hasMore, mergePages],
     );
 
     useEffect(
@@ -1026,7 +1082,7 @@
         load({ offset: 0 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
       },
-      [salesFilter, group, q],
+      [salesFilter, entityType, group, q],
     );
 
     useEffect(
@@ -1320,6 +1376,20 @@
             setQInput(e.target.value);
           },
         }),
+        h(
+          "select",
+          {
+            className: "ms-select",
+            title: "Физические / юридические лица (юрлица + ИП)",
+            value: entityType,
+            onChange: function (e) {
+              setEntityType(e.target.value);
+            },
+          },
+          h("option", { value: "all" }, "Все лица"),
+          h("option", { value: "individual" }, "Физ. лица"),
+          h("option", { value: "legal" }, "Юр. лица + ИП"),
+        ),
       ),
       h(GroupCloud, {
         options: groupOptions || [],
@@ -1524,7 +1594,7 @@
         ),
       );
     }
-    var shown = compact ? messages.slice(-6) : messages;
+    var shown = messages; // full history; compact only shrinks the scroll box
     return h(
       "div",
       { className: "ms-conversation" },

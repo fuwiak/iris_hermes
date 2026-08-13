@@ -894,12 +894,14 @@ def counterparty_row_from_api(
             balance_rub = None
     tg_nick = attrs.get("tg_nick") or ""
     if not tg_nick:
-        # Fallback: @nick in description / name
+        # Fallback: standalone @nick in description / name. The @ must not be
+        # part of an e-mail — «rostislav@mail.ru» used to yield «@mail», a
+        # shared fake nick that merged every mail.ru client in dedupe.
         blob = " ".join(
             str(x or "")
             for x in (cp.get("description"), cp.get("name"), cp.get("email"))
         )
-        m = re.search(r"@([A-Za-z0-9_]{4,})", blob)
+        m = re.search(r"(?<![A-Za-z0-9._%+-])@([A-Za-z0-9_]{4,32})\b", blob)
         if m:
             tg_nick = "@" + m.group(1)
     sales_type = sales_channel_type_from_channels(channels)

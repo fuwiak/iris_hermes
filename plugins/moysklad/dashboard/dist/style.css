@@ -739,12 +739,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  max-height: 280px;
+  max-height: 420px;
   overflow: auto;
 }
 
 .ms-conversation-list.is-compact {
-  max-height: 180px;
+  max-height: 320px;
 }
 
 .ms-conversation-msg {
@@ -965,4 +965,13 @@ td.ms-ai-added {
 .ms-add-contact {
   display: grid;
   gap: 0.45rem;
+}
+
+.ms-select {
+  background: var(--ms-card-bg, rgba(255, 255, 255, 0.06));
+  color: inherit;
+  border: 1px solid var(--ms-border, rgba(148, 163, 184, 0.35));
+  border-radius: 8px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
 }

@@ -421,10 +421,11 @@ def page_snapshot_key(
     event_date_from: str = "",
     event_date_to: str = "",
     stage: str = "all",
+    entity_type: str = "all",
 ) -> str:
     """Stable key for the clients page window snapshot (filter dims only)."""
     parts = (
-        "moysklad:clients:page:v4",
+        "moysklad:clients:page:v5",
         _account_fingerprint(),
         f"sf={(sales_filter or 'all').strip().lower()}",
         f"g={(group or '').strip().lower()}",
@@ -439,6 +440,7 @@ def page_snapshot_key(
         f"edf={(event_date_from or '').strip()}",
         f"edt={(event_date_to or '').strip()}",
         f"st={(stage or 'all').strip().lower()}",
+        f"et={(entity_type or 'all').strip().lower()}",
     )
     return ":".join(parts)
 

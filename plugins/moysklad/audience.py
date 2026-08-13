@@ -488,6 +488,30 @@ def stage_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def row_matches_entity_type(row: dict[str, Any], entity_type: str = "all") -> bool:
+    """Физ/юр фильтр: individual | legal (юрлицо + ИП) | all.
+
+    Rows without a known «Тип контрагента» only show under «all».
+    """
+    kind = (entity_type or "all").strip().lower()
+    if kind in ("", "all", "any"):
+        return True
+    label = (
+        str(row.get("Тип контрагента") or row.get("company_type") or "")
+        .strip()
+        .lower()
+    )
+    if kind == "individual":
+        return label.startswith("физ") or label == "individual"
+    if kind == "legal":
+        return (
+            label.startswith("юр")
+            or label.startswith("инд")
+            or label in ("legal", "entrepreneur")
+        )
+    return True
+
+
 def row_matches_audience_extras(
     row: dict[str, Any],
     *,
@@ -502,6 +526,7 @@ def row_matches_audience_extras(
     event_date_from: str = "",
     event_date_to: str = "",
     stage: str = "all",
+    entity_type: str = "all",
 ) -> bool:
     source = normalize_group_source(group_source)
     if group and not row_has_group(row, group, source=source):
@@ -519,6 +544,8 @@ def row_matches_audience_extras(
     if require_telegram and not row_has_telegram(row):
         return False
     if vip_only and not row_is_vip(row):
+        return False
+    if not row_matches_entity_type(row, entity_type):
         return False
     if not row_matches_stage(row, stage):
         return False

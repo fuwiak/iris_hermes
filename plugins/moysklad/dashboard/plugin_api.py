@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any, Iterator
@@ -264,6 +265,7 @@ def _schedule_snapshot_refresh(
     max_orders: int,
     max_counterparties: int,
     include_archived: bool,
+    entity_type: str = "all",
 ) -> bool:
     """Rebuild first-100 snapshot + telegram export in a daemon thread."""
     if catalog is None or not isinstance(catalog, dict):
@@ -300,6 +302,7 @@ def _schedule_snapshot_refresh(
                 event_date_from=event_date_from,
                 event_date_to=event_date_to,
                 stage=stage,
+                entity_type=entity_type,
                 limit=PAGE_SNAPSHOT_ROWS,
                 offset=0,
                 max_orders=max_orders,
@@ -1364,6 +1367,7 @@ def get_clients(
     event_date_from: str = Query(""),
     event_date_to: str = Query(""),
     stage: str = Query("all"),
+    entity_type: str = Query("all"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -1385,6 +1389,7 @@ def get_clients(
         event_date_from=event_date_from,
         event_date_to=event_date_to,
         stage=stage,
+        entity_type=entity_type,
     )
     catalog_key = cache_key(
         max_orders=max_orders,
@@ -1451,6 +1456,7 @@ def get_clients(
                                 event_date_from=event_date_from,
                                 event_date_to=event_date_to,
                                 stage=stage,
+                                entity_type=entity_type,
                                 max_orders=max_orders,
                                 max_counterparties=max_counterparties,
                                 include_archived=include_archived,
@@ -1549,6 +1555,7 @@ def get_clients(
             event_date_from=event_date_from,
             event_date_to=event_date_to,
             stage=stage,
+            entity_type=entity_type,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -1597,6 +1604,7 @@ def get_clients(
                         event_date_from=event_date_from,
                         event_date_to=event_date_to,
                         stage=stage,
+                        entity_type=entity_type,
                         max_orders=max_orders,
                         max_counterparties=max_counterparties,
                         include_archived=include_archived,
@@ -1647,6 +1655,7 @@ def get_clients_ids(
     event_date_from: str = Query(""),
     event_date_to: str = Query(""),
     stage: str = Query("all"),
+    entity_type: str = Query("all"),
     limit: int = Query(MASS_AUDIENCE_IDS_MAX, ge=1, le=MASS_AUDIENCE_IDS_MAX),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -1684,6 +1693,7 @@ def get_clients_ids(
             event_date_from=event_date_from,
             event_date_to=event_date_to,
             stage=stage,
+            entity_type=entity_type,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -2394,6 +2404,20 @@ def get_campaign_mass_send_latest() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+# NOTE: literal routes must stay above /campaigns/mass-send/{job_id}.
+@router.get("/campaigns/mass-send/history")
+def get_campaign_mass_send_history(
+    limit: int = Query(20, ge=1, le=20),
+) -> dict[str, Any]:
+    """История отправок: newest-first job summaries (message preview, counts,
+    status). Per-recipient log — GET /campaigns/mass-send/{job_id}."""
+    try:
+        return {"ok": True, "jobs": mass_send_jobs.list_jobs(limit=limit)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mass-send/history failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/campaigns/mass-send/{job_id}")
 def get_campaign_mass_send_job(
     job_id: str,
@@ -2801,6 +2825,102 @@ def post_campaign_telegram_contact_resolve(body: OutreachResolveBody) -> dict[st
         raise
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad POST /campaigns/telegram-contacts/resolve failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/{client_id}/telegram-check")
+def post_client_telegram_check(client_id: str) -> dict[str, Any]:
+    """Есть ли клиент в Telegram — независимо от истории переписки и ника.
+
+    Личный MTProto резолвит @ник / chat id / телефон; fallback — Business
+    bot getChat. Возвращает exists + резолвнутый peer.
+    """
+    try:
+        phone = ""
+        tg_nick = ""
+        tg_chat_id = ""
+        tg_conversation = ""
+        catalog, _meta = _get_catalog(force=False)
+        row = find_row_in_catalog(catalog, client_id) if catalog else None
+        if row is not None:
+            detail = build_client_detail(row)
+            client = detail.get("client") or {}
+            phone = str(client.get("phone") or "")
+            tg_nick = str(client.get("tg_nick") or "")
+            tg_chat_id = str(client.get("tg_chat_id") or "")
+            tg_conversation = str(client.get("tg_conversation") or "")
+        else:
+            contact = get_contact(client_id)
+            if contact is None:
+                raise HTTPException(status_code=404, detail="client not found")
+            phone = str(contact.get("phone") or "")
+            tg_nick = str(contact.get("tg_nick") or "")
+            tg_chat_id = str(contact.get("tg_chat_id") or "")
+
+        nick = tg_nick.strip().lstrip("@")
+        peers = [
+            p
+            for p in (
+                f"@{nick}" if nick else "",
+                tg_chat_id.strip(),
+                re.sub(r"\D+", "", phone),
+            )
+            if p
+        ]
+        if not peers:
+            return {
+                "ok": True,
+                "exists": False,
+                "checked": False,
+                "detail": "Нет ни ТГ ника, ни chat id, ни телефона — проверить нечего.",
+            }
+
+        last_error: dict[str, Any] = {}
+        try:
+            if tg_user.is_authorized():
+                for peer in peers:
+                    res = tg_user.resolve_peer(peer)
+                    if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
+                        return {
+                            "ok": True,
+                            "exists": True,
+                            "checked": True,
+                            "chat_id": str(res.get("tg_chat_id") or res.get("id")),
+                            "tg_nick": res.get("tg_nick") or nick or None,
+                            "name": res.get("name") or None,
+                            "via": res.get("resolved_via") or "mtproto",
+                        }
+                    last_error = res
+        except Exception as exc:
+            last_error = {"error": "telegram_user_error", "detail": str(exc)}
+
+        check = preflight_recipient(
+            tg_nick=tg_nick,
+            tg_conversation=tg_conversation,
+            tg_chat_id=tg_chat_id,
+        )
+        if check.get("ok"):
+            return {
+                "ok": True,
+                "exists": True,
+                "checked": True,
+                "chat_id": str(check.get("chat_id") or ""),
+                "tg_nick": nick or None,
+                "via": check.get("resolved_via") or "business_bot",
+            }
+        return {
+            "ok": True,
+            "exists": False,
+            "checked": True,
+            "error": last_error.get("error") or check.get("error"),
+            "detail": last_error.get("detail")
+            or check.get("detail")
+            or "Telegram не нашёл пользователя по нику / телефону.",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/{id}/telegram-check failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

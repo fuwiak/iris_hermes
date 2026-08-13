@@ -259,3 +259,55 @@ def test_clients_page_search_spans_sales_tabs() -> None:
     ids = {c["id"] for c in page["clients"]}
     assert "m1" in ids
     assert page["matched_total"] >= 1
+
+
+def test_tg_conversation_preview_is_not_a_merge_key() -> None:
+    """Two counterparties stamped with the SAME рассылка preview in «TG
+    conversation» must stay two clients (prod: Патерюхин absorbed another
+    client's order via `tg:[исходящее · telegram · export] благодарим…`)."""
+    from plugins.moysklad.dedupe import contact_keys, dedupe_catalog_rows
+
+    preview = "[исходящее · Telegram · export] Благодарим вас за заказ 🌿"
+    row_a = {
+        "_moysklad_id": "cp-a",
+        "Наименование": "Ростислав Патерюхин",
+        "Телефон": "+7 977 575-80-58",
+        "TG conversation": preview,
+        "_orders_context": [{"id": "order-a"}],
+    }
+    row_b = {
+        "_moysklad_id": "cp-b",
+        "Наименование": "Ростислав Патерюхин",
+        "Телефон": "+7 982 235-21-88",
+        "TG conversation": preview,
+        "_orders_context": [{"id": "order-b"}],
+    }
+    assert not any(k.startswith("tg:") for k in contact_keys(row_a))
+    merged = dedupe_catalog_rows([row_a, row_b])
+    assert len(merged) == 2
+    counts = sorted(len(r.get("_orders_context") or []) for r in merged)
+    assert counts == [1, 1]
+
+
+def test_email_domain_never_becomes_fake_tg_nick() -> None:
+    """`rostislav@mail.ru` must not produce nick `@mail` (merged all mail.ru
+    clients); a standalone @nick in description still counts."""
+    from plugins.moysklad.sales_channels import counterparty_row_from_api
+
+    with_email = counterparty_row_from_api(
+        {"id": "cp-1", "name": "Ростислав", "email": "rostislav@mail.ru"}
+    )
+    assert not str(with_email.get("ТГ ник") or with_email.get("tg_nick") or "")
+
+    with_nick = counterparty_row_from_api(
+        {"id": "cp-2", "name": "Мария", "description": "тг: @maria_flowers"}
+    )
+    nick = str(with_nick.get("ТГ ник") or with_nick.get("tg_nick") or "")
+    assert nick == "@maria_flowers"
+
+
+def test_multi_number_phone_keys_on_first_number() -> None:
+    from plugins.moysklad.dedupe import normalize_phone
+
+    assert normalize_phone("+7 982 235-21-88, +7 977 575-80-58") == "9822352188"
+    assert normalize_phone("+7 977 575-80-58") == "9775758058"

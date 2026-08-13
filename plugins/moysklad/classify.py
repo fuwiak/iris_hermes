@@ -521,6 +521,7 @@ def clients_page(
     event_date_from: str = "",
     event_date_to: str = "",
     stage: str = "all",
+    entity_type: str = "all",
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
 
@@ -577,6 +578,7 @@ def clients_page(
             event_date_from=ev_from,
             event_date_to=ev_to,
             stage=stage_key,
+            entity_type=entity_type,
         )
     ]
 
@@ -603,6 +605,7 @@ def clients_page(
         "event_date_from": ev_from,
         "event_date_to": ev_to,
         "stage": stage_key,
+        "entity_type": (entity_type or "all").strip().lower() or "all",
         "stage_counts": stage_counts(base_rows),
         "counts": counts,
         "groups_total": len(base_rows),

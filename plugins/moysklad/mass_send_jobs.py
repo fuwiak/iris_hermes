@@ -354,6 +354,41 @@ def latest_job_summary() -> Optional[dict[str, Any]]:
     return None
 
 
+def list_jobs(limit: int = 20) -> list[dict[str, Any]]:
+    """Send history: newest-first job summaries (memory ∪ disk, deduped).
+
+    Disk keeps the last ``_KEEP_JOBS_ON_DISK`` jobs — that is the history
+    depth. Summaries only; per-recipient log stays behind ``job_snapshot``.
+    """
+    cap = max(1, min(int(limit or 20), _KEEP_JOBS_ON_DISK))
+    by_id: dict[str, dict[str, Any]] = {}
+    with _LOCK:
+        # Newest-inserted first so the stable sort below keeps insertion
+        # recency when created_at collides within the same second.
+        for job_id, job in reversed(list(_JOBS.items())):
+            by_id[str(job_id)] = summary(job)
+    try:
+        files = sorted(
+            _jobs_dir().glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        files = []
+    for path in files:
+        if path.stem in by_id:
+            continue
+        job = _load_from_disk(path.stem)
+        if job is not None:
+            by_id[path.stem] = summary(job)
+    rows = sorted(
+        by_id.values(),
+        key=lambda j: str(j.get("created_at") or ""),
+        reverse=True,
+    )
+    return rows[:cap]
+
+
 def clear_for_tests() -> None:
     global _RUNNING_ID
     with _LOCK:

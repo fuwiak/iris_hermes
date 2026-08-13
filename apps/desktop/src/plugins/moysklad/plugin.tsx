@@ -1754,7 +1754,9 @@ function ConversationThread({
     )
   }
 
-  const shown = compact ? messages.slice(-6) : messages
+  // Full history always — compact only shrinks the scroll box, hiding
+  // messages made «видна только часть переписки».
+  const shown = messages
 
   return (
     <div className="ms-conversation">
@@ -2052,6 +2054,44 @@ function ClientCardModal({
   const [error, setError] = useState('')
   const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
+  const [tgCheck, setTgCheck] = useState<{
+    busy?: boolean
+    exists?: boolean
+    checked?: boolean
+    chat_id?: string
+    tg_nick?: string | null
+    via?: string
+    detail?: string
+  } | null>(null)
+
+  useEffect(() => {
+    setTgCheck(null)
+  }, [clientId])
+
+  const runTgCheck = useCallback(async () => {
+    if (!clientId) {return}
+    setTgCheck({ busy: true })
+    try {
+      const data = await call<{
+        exists?: boolean
+        checked?: boolean
+        chat_id?: string
+        tg_nick?: string | null
+        via?: string
+        detail?: string
+      }>(`/clients/${encodeURIComponent(clientId)}/telegram-check`, {
+        method: 'POST',
+        timeoutMs: 60_000
+      })
+      setTgCheck({ ...data, busy: false })
+    } catch (err) {
+      setTgCheck({
+        busy: false,
+        checked: false,
+        detail: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }, [call, clientId])
 
   useEffect(() => {
     readMsAiChoice() // migrate stale localStorage → DeepSeek default
@@ -2338,6 +2378,29 @@ function ClientCardModal({
                 <span>{client.company_type || '—'}</span>
                 <span className="ms-muted">Осн. канал</span>
                 <span>{client.primary_channel || msg.primary_channel || '—'}</span>
+                <span className="ms-muted">Есть в TG</span>
+                <span>
+                  {tgCheck?.busy ? (
+                    'проверяем…'
+                  ) : tgCheck?.checked ? (
+                    tgCheck.exists ? (
+                      `да${tgCheck.tg_nick ? ` · @${String(tgCheck.tg_nick).replace(/^@/, '')}` : ''}${tgCheck.via ? ` (${tgCheck.via})` : ''}`
+                    ) : (
+                      `нет — ${tgCheck.detail || 'не найден'}`
+                    )
+                  ) : tgCheck?.detail ? (
+                    tgCheck.detail
+                  ) : (
+                    <button
+                      className="ms-link-btn"
+                      onClick={() => void runTgCheck()}
+                      title="Резолв @ника / телефона через личный Telegram (MTProto), fallback — Business bot"
+                      type="button"
+                    >
+                      Проверить
+                    </button>
+                  )}
+                </span>
               </div>
             </section>
             <section className="ms-card-section">
@@ -2784,6 +2847,7 @@ function ClientsPage() {
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [stage, setStage] = useState<StageKey>('all')
+  const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal'>('all')
   const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
   const [stageTagStatus, setStageTagStatus] = useState('')
   const [stageTagBusy, setStageTagBusy] = useState(false)
@@ -3060,6 +3124,7 @@ function ClientsPage() {
           group,
           group_source: groupSource,
           stage,
+          entity_type: entityType,
           limit: String(CLIENTS_PAGE_SIZE),
           offset: String(offset)
         })
@@ -3192,7 +3257,7 @@ function ClientsPage() {
         }
       }
     },
-    [call, group, groupSource, hasMore, nextOffset, qDebounced, salesFilter, stage]
+    [call, entityType, group, groupSource, hasMore, nextOffset, qDebounced, salesFilter, stage]
   )
 
   /** Two steps on purpose: dry-run first, write only on a second, armed click. */
@@ -3247,14 +3312,14 @@ function ClientsPage() {
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, groupSource, qDebounced, stage]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, qDebounced, stage, entityType]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Drop Excel column filters when the main audience filter changes.
   useEffect(() => {
     setColumnFilters({})
     setColumnSort(null)
     setOpenFilterKey(null)
-  }, [salesFilter, group, groupSource, qDebounced, stage])
+  }, [salesFilter, group, groupSource, qDebounced, stage, entityType])
 
   // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
   useEffect(() => {
@@ -3510,6 +3575,19 @@ function ClientsPage() {
           </button>
         ) : null}
         {stageTagStatus ? <span className="ms-muted">{stageTagStatus}</span> : null}
+        <select
+          aria-label="Тип контрагента"
+          className="ms-select"
+          onChange={e =>
+            setEntityType(e.target.value as 'all' | 'individual' | 'legal')
+          }
+          title="Физические / юридические лица (юрлица + ИП)"
+          value={entityType}
+        >
+          <option value="all">Все лица</option>
+          <option value="individual">Физ. лица</option>
+          <option value="legal">Юр. лица + ИП</option>
+        </select>
       </div>
       <div className="ms-search">
         <input
@@ -5599,6 +5677,53 @@ function CampaignsPage() {
   const [massModalOpen, setMassModalOpen] = useState(false)
   const [massConfirmOpen, setMassConfirmOpen] = useState(false)
   const [massRowFilter, setMassRowFilter] = useState<'all' | 'failed' | 'ok'>('all')
+  const [historyJobs, setHistoryJobs] = useState<MassJobSummary[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyOpenJobId, setHistoryOpenJobId] = useState<string | null>(null)
+  const [historyRows, setHistoryRows] = useState<MassRecipientRow[]>([])
+  const [historyRowsLoading, setHistoryRowsLoading] = useState(false)
+
+  const loadSendHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const data = await call<{ jobs?: MassJobSummary[] }>(
+        '/campaigns/mass-send/history?limit=20'
+      )
+      setHistoryJobs(data.jobs || [])
+    } catch {
+      /* history is best-effort — never block the send form */
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [call])
+
+  useEffect(() => {
+    void loadSendHistory()
+  }, [loadSendHistory])
+
+  const toggleHistoryJob = useCallback(
+    async (jobId: string) => {
+      if (historyOpenJobId === jobId) {
+        setHistoryOpenJobId(null)
+        setHistoryRows([])
+        return
+      }
+      setHistoryOpenJobId(jobId)
+      setHistoryRows([])
+      setHistoryRowsLoading(true)
+      try {
+        const data = await call<{
+          job?: MassJobSummary & { recipients?: MassRecipientRow[] }
+        }>(`/campaigns/mass-send/${encodeURIComponent(jobId)}?limit=2000`)
+        setHistoryRows(data.job?.recipients || [])
+      } catch {
+        setHistoryRows([])
+      } finally {
+        setHistoryRowsLoading(false)
+      }
+    },
+    [call, historyOpenJobId]
+  )
   const [dialogClient, setDialogClient] = useState<{ id: string; name?: string } | null>(
     null
   )
@@ -6959,6 +7084,11 @@ function CampaignsPage() {
             одно сообщение всей отфильтрованной аудитории · отправка идёт на
             сервере и не блокирует интерфейс
           </span>
+          <span className="ms-muted">
+            {tgUser?.authorized
+              ? 'Канал: личный Telegram (по умолчанию), Business bot — запасной'
+              : 'Канал: Business bot — подключите личный Telegram ниже, чтобы слать от своего имени'}
+          </span>
         </div>
         <div className="ms-compose-actions">
           <button
@@ -7592,6 +7722,69 @@ function CampaignsPage() {
         </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
+      <h2 className="ms-section-title">3. История отправок</h2>
+      <section aria-label="История отправок" className="ms-mass-panel ms-history-panel">
+        <div className="ms-card-head">
+          <p className="ms-muted">
+            Последние рассылки: кому, что и с каким статусом (доставлено / ошибка).
+          </p>
+          <button
+            className="ms-link-btn"
+            disabled={historyLoading}
+            onClick={() => void loadSendHistory()}
+            type="button"
+          >
+            {historyLoading ? 'Обновляем…' : 'Обновить'}
+          </button>
+        </div>
+        {!historyJobs.length ? (
+          <p className="ms-muted">Рассылок пока не было.</p>
+        ) : (
+          historyJobs.map(job => (
+            <div className="ms-history-job" key={job.id}>
+              <button
+                className="ms-history-job-head"
+                onClick={() => {
+                  if (job.id) {void toggleHistoryJob(job.id)}
+                }}
+                type="button"
+              >
+                <span className="ms-muted">
+                  {(job.created_at || '').slice(0, 16).replace('T', ' ')}
+                </span>
+                <span className="ms-history-job-msg">{job.message_preview || '—'}</span>
+                <span className="ms-muted">
+                  {massJobStatusLabel(job.status)} · {job.total ?? 0} получ. · ✓
+                  {job.sent_ok ?? 0} · ✕{job.sent_failed ?? 0}
+                </span>
+              </button>
+              {historyOpenJobId === job.id ? (
+                <div className="ms-mass-log">
+                  {historyRowsLoading ? (
+                    <p className="ms-muted">Загружаем получателей…</p>
+                  ) : (
+                    historyRows.map((row, idx) => (
+                      <div
+                        className={`ms-mass-log-row is-${row.status || 'pending'}`}
+                        key={`${row.client_id || idx}`}
+                      >
+                        <span>{massRecipientDisplay(row)}</span>
+                        <span className="ms-muted">
+                          {massRowStatusLabel(row.status)}
+                          {row.detail || row.error
+                            ? ` · ${row.detail || row.error}`
+                            : ''}
+                          {row.ts ? ` · ${String(row.ts).slice(11, 16)}` : ''}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ))
+        )}
+      </section>
       {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
       {massConfirmOpen ? (
         <MassConfirmModal

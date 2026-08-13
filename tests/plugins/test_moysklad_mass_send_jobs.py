@@ -141,3 +141,24 @@ def test_stop_on_error_halts_run():
     assert calls == ["1", "2"]
     assert done["sent_failed"] == 1
     assert done["recipients"][2]["status"] == "pending"
+
+
+def test_list_jobs_newest_first_with_summaries(tmp_path, monkeypatch):
+    """История отправок: newest-first summaries, no recipient payloads."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from plugins.moysklad import mass_send_jobs as msj
+
+    msj.clear_for_tests()
+    first = msj.create_job(
+        message="Первая рассылка", channel="telegram", client_ids=["c1"]
+    )
+    second = msj.create_job(
+        message="Вторая рассылка", channel="telegram", client_ids=["c2"]
+    )
+    jobs = msj.list_jobs()
+    ids = [j.get("id") for j in jobs]
+    assert ids[0] == second["id"]
+    assert first["id"] in ids
+    assert all("recipients" not in j for j in jobs)
+    assert jobs[0].get("message_preview")
+    msj.clear_for_tests()

@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Iterator, Optional
 
@@ -50,6 +50,75 @@ _ORDER_CODE_RE = re.compile(
 _DEFAULT_SELLER_NAME = "цветочный магазин"
 
 
+def _days_ago_label(days: int) -> str:
+    if days <= 1:
+        return "сегодня-вчера"
+    if days < 7:
+        return f"{days} дн. назад"
+    if days < 30:
+        return f"{days // 7} нед. назад"
+    if days < 365:
+        return f"~{max(1, round(days / 30))} мес. назад"
+    return f"больше {days // 365} г. назад"
+
+
+def _time_grounding(detail: dict[str, Any]) -> dict[str, Any]:
+    """Anchor «now» for the LLM.
+
+    Raw order dates alone let the model invent recency — a bouquet delivered
+    two months ago gets described as «до сих пор радует». Give it today's
+    date and the elapsed time explicitly.
+    """
+    today = datetime.now(timezone.utc).date()
+    out: dict[str, Any] = {"today": today.isoformat()}
+    latest: Optional[date] = None
+    for order in detail.get("orders") or []:
+        raw = str((order or {}).get("date") or "")[:10]
+        try:
+            parsed = date.fromisoformat(raw)
+        except ValueError:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+    if latest is not None:
+        days = max(0, (today - latest).days)
+        out["last_order_date"] = latest.isoformat()
+        out["days_since_last_order"] = days
+        out["last_order_ago"] = _days_ago_label(days)
+    return out
+
+
+def _card_ai_for_prompt(detail: dict[str, Any]) -> dict[str, Any]:
+    """Card AI block for the outreach prompt: cached DeepSeek summary when
+    fresh (the «good» card text), heuristic otherwise — never an extra LLM
+    call on the generate path."""
+    client = detail.get("client") or {}
+    cid = str(client.get("id") or "").strip()
+    if cid:
+        try:
+            from plugins.moysklad.client_ai_cache import (
+                facts_fingerprint,
+                get_client_ai,
+            )
+
+            cached = get_client_ai(cid, fingerprint=facts_fingerprint(detail))
+            if cached and str(cached.get("recommendation") or "").strip():
+                return cached
+        except Exception:
+            log.debug("outreach: client_ai cache read failed", exc_info=True)
+    orders = list(detail.get("orders") or [])
+    data_thin = bool(detail.get("data_thin"))
+    risks = detail.get("risks") or compute_risks(client, orders, data_thin=data_thin)
+    return heuristic_ai(
+        client,
+        orders,
+        vip=bool(client.get("vip")),
+        loyalty=client.get("loyalty_points"),
+        data_thin=data_thin,
+        risks=risks,
+    )
+
+
 def _OUTREACH_SYSTEM(seller_name: str, seller_facts: str) -> str:
     sig = (seller_name or "").strip() or _DEFAULT_SELLER_NAME
     facts = (seller_facts or "").strip()
@@ -76,6 +145,10 @@ def _OUTREACH_SYSTEM(seller_name: str, seller_facts: str) -> str:
   и общо, без фейкового наличия на складе.
 • Даты — по-человечески («в середине мая»), не сырой ISO и не внутренние коды
   вроде «1605-02», если это не название букета.
+• Время: time.today — сегодняшняя дата, time.days_since_last_order — сколько дней
+  прошло с последнего заказа. Сверяйся с этим: если прошли недели или месяцы,
+  НЕ пиши, будто заказ был «на днях», букет «ещё свежий» или «до сих пор радует» —
+  говори честно («пару месяцев назад», «этим летом») либо просто предлагай новое.
 • Представься через подпись выше (не хардкодь «Это Iris», если подпись другая).
 • Канал уже известен — не дописывай в конец «(WhatsApp)» / «(Telegram)».
 • Не пиши мета-фразы вроде «без навязанных скидок», «только по вашей истории».
@@ -767,33 +840,15 @@ def generate_outreach_message(
     """
     channel = (channel or "telegram").strip().lower()
     seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
-    need_card_ai = refresh_ai or not (detail.get("ai") or {}).get("recommendation")
-    if need_card_ai:
-        if refresh_ai:
-            # Force a fresh DeepSeek card summary when caller asks to renew AI.
-            from plugins.moysklad.client_card import generate_ai_for_detail
+    if refresh_ai:
+        # Force a fresh DeepSeek card summary when caller asks to renew AI.
+        from plugins.moysklad.client_card import generate_ai_for_detail
 
-            detail = {**detail, "ai": generate_ai_for_detail(detail)}
-        else:
-            # Heuristic card AI is enough for the prompt payload. Full LLM card
-            # summary is a separate «Обновить AI» action — do not block outreach.
-            client = detail.get("client") or {}
-            orders = list(detail.get("orders") or [])
-            data_thin = bool(detail.get("data_thin"))
-            risks = detail.get("risks") or compute_risks(
-                client, orders, data_thin=data_thin
-            )
-            detail = {
-                **detail,
-                "ai": heuristic_ai(
-                    client,
-                    orders,
-                    vip=bool(client.get("vip")),
-                    loyalty=client.get("loyalty_points"),
-                    data_thin=data_thin,
-                    risks=risks,
-                ),
-            }
+        detail = {**detail, "ai": generate_ai_for_detail(detail)}
+    elif str((detail.get("ai") or {}).get("source") or "") != "llm":
+        # Cached DeepSeek card summary when fresh, heuristic otherwise —
+        # full LLM card regen stays a separate «Обновить AI» action.
+        detail = {**detail, "ai": _card_ai_for_prompt(detail)}
 
     fallback = heuristic_outreach_message(
         detail,
@@ -812,6 +867,7 @@ def generate_outreach_message(
         "risks": facts.get("risks"),
         "conversation": _conversation_facts(detail),
         "data_thin": facts.get("data_thin"),
+        "time": _time_grounding(detail),
         "ai": {
             "history_profile": (detail.get("ai") or {}).get("history_profile"),
             "occasion_intent": (detail.get("ai") or {}).get("occasion_intent"),
@@ -1691,24 +1747,11 @@ def _iter_chat_completion_text(stream_or_response: Any) -> Iterator[str]:
 
 
 def _prepare_generate_detail(detail: dict[str, Any]) -> dict[str, Any]:
-    """Same heuristic card AI prep as ``generate_outreach_message``."""
-    if (detail.get("ai") or {}).get("recommendation"):
+    """Same card AI prep as ``generate_outreach_message`` (cache → heuristic)."""
+    ai = detail.get("ai") or {}
+    if ai.get("recommendation") and str(ai.get("source") or "") == "llm":
         return detail
-    client = detail.get("client") or {}
-    orders = list(detail.get("orders") or [])
-    data_thin = bool(detail.get("data_thin"))
-    risks = detail.get("risks") or compute_risks(client, orders, data_thin=data_thin)
-    return {
-        **detail,
-        "ai": heuristic_ai(
-            client,
-            orders,
-            vip=bool(client.get("vip")),
-            loyalty=client.get("loyalty_points"),
-            data_thin=data_thin,
-            risks=risks,
-        ),
-    }
+    return {**detail, "ai": _card_ai_for_prompt(detail)}
 
 
 def _generate_user_prompt(
@@ -1729,6 +1772,7 @@ def _generate_user_prompt(
         "risks": facts.get("risks"),
         "conversation": _conversation_facts(detail),
         "data_thin": facts.get("data_thin"),
+        "time": _time_grounding(detail),
         "ai": {
             "history_profile": (detail.get("ai") or {}).get("history_profile"),
             "occasion_intent": (detail.get("ai") or {}).get("occasion_intent"),

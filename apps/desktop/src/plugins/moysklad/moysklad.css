@@ -1080,12 +1080,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  max-height: 280px;
+  max-height: 420px;
   overflow: auto;
 }
 
 .ms-conversation-list.is-compact {
-  max-height: 180px;
+  max-height: 320px;
 }
 
 .ms-conversation-msg {
@@ -2461,4 +2461,39 @@ td.ms-ai-added {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+/* История отправок (Рассылки, bottom section) */
+.ms-history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ms-history-job {
+  border: 1px solid var(--ms-border, rgba(148, 163, 184, 0.25));
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ms-history-job-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.ms-history-job-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
