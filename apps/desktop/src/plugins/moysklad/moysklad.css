@@ -2453,3 +2453,12 @@ td.ms-ai-added {
   margin-top: 0.2rem;
   font-size: 0.75rem;
 }
+
+.ms-tg-cell-btn {
+  display: block;
+  max-width: 26rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}

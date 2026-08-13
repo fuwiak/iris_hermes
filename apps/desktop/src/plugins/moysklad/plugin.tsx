@@ -2817,6 +2817,8 @@ function ClientsPage() {
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
   const [staleHint, setStaleHint] = useState(false)
   const [cardClientId, setCardClientId] = useState<string | null>(null)
+  /** Click on «TG conversation» cell → in-app dialog (history + reply). */
+  const [tgDialog, setTgDialog] = useState<{ id: string; name?: string } | null>(null)
   const [recalcOpen, setRecalcOpen] = useState(false)
   const [recalcLoading, setRecalcLoading] = useState(false)
   const [recalcGroups, setRecalcGroups] = useState('')
@@ -3708,6 +3710,30 @@ function ClientsPage() {
                       )
                     }
 
+                    if (
+                      col.key === 'tg_conversation' &&
+                      row.id &&
+                      (value || row.tg_nick)
+                    ) {
+                      return (
+                        <td key={col.key}>
+                          <button
+                            className="ms-link-btn ms-tg-cell-btn"
+                            onClick={() =>
+                              setTgDialog({
+                                id: row.id!,
+                                name: row.name || row.tg_nick || ''
+                              })
+                            }
+                            title="Открыть диалог: история + ответ прямо здесь"
+                            type="button"
+                          >
+                            {value || 'открыть диалог'}
+                          </button>
+                        </td>
+                      )
+                    }
+
                     return (
                       <td className={isAi ? 'ms-ai-added' : undefined} key={col.key}>
                         <AiCell ai={isAi} value={value} />
@@ -3725,6 +3751,13 @@ function ClientsPage() {
         </div>
       )}
       <ClientCardModal call={call} clientId={cardClientId} onClose={() => setCardClientId(null)} />
+      {tgDialog ? (
+        <ClientDialogModal
+          clientId={tgDialog.id}
+          clientName={tgDialog.name}
+          onClose={() => setTgDialog(null)}
+        />
+      ) : null}
     </div>
   )
 }
