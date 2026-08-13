@@ -20,6 +20,25 @@ export function isBenignRequestAbort(err: unknown): boolean {
   return /abort/i.test(String(err))
 }
 
+/** Server catalog is rebuilding (cold start after deploy) — retry, not a dead end. */
+export function isCatalogWarmingError(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err ?? '')
+  return /503|rebuilding|retry shortly|catalog unavailable/i.test(text)
+}
+
+/**
+ * Backoff for audience reload attempts while the server catalog warms.
+ * Append pages stay snappy; the first (replace) load stretches to ~4s steps
+ * so a full post-deploy rebuild (≈1–2 min) is survivable without a dead UI.
+ */
+export function audienceRetryDelayMs(attempt: number, append: boolean): number {
+  const step = Math.max(0, Math.floor(attempt) || 0)
+  if (append) {
+    return 400 + step * 200
+  }
+  return Math.min(1000 + step * 500, 4000)
+}
+
 /** Digits-only phone blob — mirrors plugins/moysklad/dedupe.normalize_phone loosely. */
 export function digitsPhone(raw: string): string {
   const digits = String(raw || '').replace(/\D+/g, '')

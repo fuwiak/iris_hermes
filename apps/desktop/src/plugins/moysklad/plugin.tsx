@@ -33,9 +33,11 @@ import {
   seedFactsFromAudienceRow
 } from './audience-pick'
 import {
+  audienceRetryDelayMs,
   clientSalesChannelTokens,
   filterClientRowsByAudience,
   isBenignRequestAbort,
+  isCatalogWarmingError,
   pickLocalClientsSeed,
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
@@ -4608,13 +4610,11 @@ function CampaignsPage() {
             timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
           })
 
-        const isCatalogWarming = (err: unknown) => {
-          const text = err instanceof Error ? err.message : String(err)
-          return /503|rebuilding|retry shortly|catalog unavailable/i.test(text)
-        }
-
         let page: Awaited<ReturnType<typeof fetchPage>> | null = null
-        const maxAttempts = append ? 10 : 1
+        // First (replace) loads must survive a post-deploy catalog rebuild:
+        // the server 503s «rebuilding» for ~1–2 min after restart, and with a
+        // single attempt the UI died at «0 · обновляем…» until a manual click.
+        const maxAttempts = append ? 10 : 30
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           try {
             page = await fetchPage()
@@ -4626,11 +4626,13 @@ function CampaignsPage() {
               break
             }
           } catch (err) {
-            if (!append || !isCatalogWarming(err) || attempt >= maxAttempts - 1) {
+            if (!isCatalogWarmingError(err) || attempt >= maxAttempts - 1) {
               throw err
             }
           }
-          await new Promise(r => setTimeout(r, 400 + attempt * 200))
+          await new Promise(r =>
+            setTimeout(r, audienceRetryDelayMs(attempt, append))
+          )
           if (gen !== audienceLoadGen.current) {
             return
           }
@@ -4718,7 +4720,13 @@ function CampaignsPage() {
         if (isBenignRequestAbort(err)) {
           return
         }
-        setError(err instanceof Error ? err.message : String(err))
+        setError(
+          isCatalogWarmingError(err)
+            ? 'Каталог клиентов пересобирается на сервере (обычно 1–2 минуты после обновления). Нажмите любой фильтр чуть позже — список вернётся.'
+            : err instanceof Error
+              ? err.message
+              : String(err)
+        )
 
         if (!append && !audiencePreviewRef.current.length) {
           setAudiencePreview([])

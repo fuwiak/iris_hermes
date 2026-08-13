@@ -1,18 +1,40 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  audienceRetryDelayMs,
   clientSalesChannelTokens,
   digitsPhone,
   filterClientRowsByAudience,
   filterClientRowsByQuery,
   forEachRowProgressive,
   isBenignRequestAbort,
+  isCatalogWarmingError,
   normalizeGroupKey,
   pickLocalClientsSeed,
   rowMatchesClientQuery,
   rowMatchesGroupFilter,
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
+
+describe('catalog warming retry helpers', () => {
+  it('recognizes catalog-rebuild errors in any shape', () => {
+    expect(isCatalogWarmingError(new Error('503: catalog rebuilding; retry shortly'))).toBe(
+      true
+    )
+    expect(isCatalogWarmingError(new Error('catalog unavailable'))).toBe(true)
+    expect(isCatalogWarmingError('HTTP 503')).toBe(true)
+    expect(isCatalogWarmingError(new Error('network down'))).toBe(false)
+    expect(isCatalogWarmingError(null)).toBe(false)
+  })
+
+  it('append pages back off fast, replace loads stretch and cap at 4s', () => {
+    expect(audienceRetryDelayMs(0, true)).toBe(400)
+    expect(audienceRetryDelayMs(3, true)).toBe(1000)
+    expect(audienceRetryDelayMs(0, false)).toBe(1000)
+    expect(audienceRetryDelayMs(2, false)).toBe(2000)
+    expect(audienceRetryDelayMs(50, false)).toBe(4000)
+  })
+})
 
 describe('clientSalesChannelTokens', () => {
   it('lists every channel, not only the joined display string', () => {
@@ -170,7 +192,7 @@ describe('pickLocalClientsSeed', () => {
       readUnfilteredBases: () => [unfiltered],
       filterRows: (s, q, group, groupSource) => {
         const clients = filterClientRowsByAudience(s.clients, { q, group, groupSource })
-        if (!clients.length) return null
+        if (!clients.length) {return null}
         return { ...s, group, clients, matched_total: clients.length }
       }
     })
