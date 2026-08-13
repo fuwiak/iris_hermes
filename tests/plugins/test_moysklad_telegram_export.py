@@ -124,30 +124,52 @@ def test_import_export_maps_phone_and_nick(tmp_path, monkeypatch):
     assert public.get("tg_chat_id") == "999001"
 
 
-def test_import_matches_unique_first_name(tmp_path, monkeypatch):
-    """Chat «Ольга» maps when MoySklad has one unique first-name card."""
+def test_import_rejects_first_name_only_and_substring(tmp_path, monkeypatch):
+    """Chat «Александр Семин» must not land on catalog card «Александр»."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_import_memory_for_tests()
     clear_memory_for_tests()
     payload = {
         "personal_information": {"user_id": 111, "first_name": "Studio"},
-        "contacts": {"list": []},
+        "contacts": {
+            "list": [
+                {
+                    "first_name": "Александр",
+                    "last_name": "Семин",
+                    "phone_number": "0079160887169",
+                }
+            ]
+        },
         "chats": {
             "list": [
+                {
+                    "name": "Александр Семин",
+                    "type": "personal_chat",
+                    "id": 65001,
+                    "messages": [
+                        {
+                            "id": 1,
+                            "type": "message",
+                            "date": "2026-03-01T10:00:00",
+                            "from_id": "user65001",
+                            "text": "Оформили возврат",
+                        }
+                    ],
+                },
                 {
                     "name": "Ольга",
                     "type": "personal_chat",
                     "id": 555001,
                     "messages": [
                         {
-                            "id": 1,
+                            "id": 2,
                             "type": "message",
-                            "date": "2026-03-01T10:00:00",
+                            "date": "2026-03-01T11:00:00",
                             "from_id": "user555001",
-                            "text": "Нужен букет на пятницу",
+                            "text": "Нужен букет",
                         }
                     ],
-                }
+                },
             ]
         },
     }
@@ -155,23 +177,31 @@ def test_import_matches_unique_first_name(tmp_path, monkeypatch):
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     rows = [
         {
+            "_moysklad_id": "cp-alex-plain",
+            "Наименование": "Александр",
+            "Телефон": "+79686889933",
+            "ТГ ник": "",
+        },
+        {
+            "_moysklad_id": "cp-semin",
+            "Наименование": "Александр Семин",
+            "Телефон": "9160887169",
+            "ТГ ник": "",
+        },
+        {
             "_moysklad_id": "cp-olga",
             "Наименование": "Ольга Заказчица",
             "Телефон": "",
             "ТГ ник": "",
         },
-        {
-            "_moysklad_id": "cp-other",
-            "Наименование": "Мария",
-            "Телефон": "",
-        },
     ]
     result = import_export_into_catalog(rows, export_path=path, force=True)
     assert result["ok"] is True
+    # Exact name + contact phone → Семин only. Plain Александр / first-name Ольга → no.
+    assert get_thread(client_id="cp-semin")["message_count"] >= 1
+    assert get_thread(client_id="cp-alex-plain")["empty"] is True
+    assert get_thread(client_id="cp-olga")["empty"] is True
     assert result["matched"] == 1
-    assert "букет" in str(rows[0].get("TG conversation") or "").lower()
-    thread = get_thread(client_id="cp-olga")
-    assert thread["message_count"] >= 1
 
 
 def test_stamp_from_cached_overlay_without_export(tmp_path, monkeypatch):

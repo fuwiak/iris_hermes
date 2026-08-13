@@ -524,14 +524,13 @@ class TestAiUsesTelegramConversation:
         assert "conversation_preview" in blob or "нужен букет" in blob
         assert "telegram" in blob or "tg_nick" in blob or "@anatoly" in blob
 
-    def test_get_thread_soft_matches_client_name(self, tmp_path, monkeypatch) -> None:
-        """«анатолий» with empty nick/phone still finds export thread by name."""
+    def test_get_thread_does_not_soft_match_client_name(self, tmp_path, monkeypatch) -> None:
+        """Common first names must not steal another client's TG thread."""
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         from plugins.moysklad import conversations as conv
 
         conv._MEMORY_STORE = None
         conv._MEMORY_FP = None
-        # Seed a thread indexed only by synthetic id + client_name.
         with conv._LOCK:
             store = conv._empty_store()
             store["threads"]["orphan-anatoly"] = {
@@ -555,9 +554,8 @@ class TestAiUsesTelegramConversation:
             conv._save(store)
 
         thread = conv.get_thread(client_id="other-id", client_name="Анатолий")
-        assert thread.get("empty") is not True
-        texts = " ".join(m.get("text") or "" for m in (thread.get("messages") or []))
-        assert "привет из тг" in texts
+        assert thread.get("empty") is True
+        assert not thread.get("messages")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

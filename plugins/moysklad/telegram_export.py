@@ -375,15 +375,13 @@ def _norm_phone_export(value: Any) -> str:
 
 
 def _contact_phone_by_name(export: dict[str, Any]) -> dict[str, str]:
-    """Folded contact name → phone key. Also indexes the first name alone.
+    """Folded full contact name → phone key.
 
-    Chat titles carry whatever the peer set as their display name, so the saved
-    address-book entry «Мария Букет» has to be findable from a chat called just
-    «Мария» — the single-name key is only kept when it is unambiguous.
+    First-name-only keys are intentionally omitted: «Александр» must not inherit
+    the phone of «Александр Семин» and then steal that chat onto every plain
+    Александр card in the catalog.
     """
     out: dict[str, str] = {}
-    first_only: dict[str, str] = {}
-    ambiguous: set[str] = set()
     contacts = (export.get("contacts") or {}).get("list") or []
     if not isinstance(contacts, list):
         return out
@@ -394,20 +392,10 @@ def _contact_phone_by_name(export: dict[str, Any]) -> dict[str, str]:
         last = str(c.get("last_name") or "").strip()
         name = fold_name(" ".join(x for x in (first, last) if x))
         phone = _norm_phone_export(c.get("phone_number"))
-        if not phone:
+        if not phone or not name:
             continue
-        if name and name not in out:
+        if name not in out:
             out[name] = phone
-        short = fold_name(first)
-        if not short or short == name:
-            continue
-        if short in first_only and first_only[short] != phone:
-            ambiguous.add(short)
-        else:
-            first_only[short] = phone
-    for short, phone in first_only.items():
-        if short not in ambiguous and short not in out:
-            out[short] = phone
     return out
 
 
@@ -530,14 +518,9 @@ def _chat_messages_for_store(
 
 def _index_catalog_rows(
     rows: list[dict[str, Any]],
-) -> tuple[
-    dict[str, dict[str, Any]],
-    dict[str, list[dict[str, Any]]],
-    dict[str, dict[str, Any]],
-]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     by_phone: dict[str, dict[str, Any]] = {}
     by_name: dict[str, list[dict[str, Any]]] = {}
-    by_first: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -550,14 +533,7 @@ def _index_catalog_rows(
         name = fold_name(row.get("Наименование") or row.get("name"))
         if name:
             by_name.setdefault(name, []).append(row)
-            first = name.split(" ", 1)[0]
-            if first and len(first) >= 3:
-                by_first.setdefault(first, []).append(row)
-    # Keep only unambiguous first-name keys (one catalog card).
-    by_first_unique = {
-        key: rows[0] for key, rows in by_first.items() if len(rows) == 1
-    }
-    return by_phone, by_name, by_first_unique
+    return by_phone, by_name
 
 
 def _index_catalog_nicks(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -595,13 +571,13 @@ def _match_row(
     text_phones: list[str] | None = None,
     peer_id: str = "",
     by_chat_id: dict[str, dict[str, Any]] | None = None,
-    by_first: dict[str, dict[str, Any]] | None = None,
 ) -> Optional[dict[str, Any]]:
     """Attach one export chat to a catalog row. Strongest signal wins.
 
     Order: existing tg_chat_id → address-book phone → @nick on the card →
-    phone the peer typed into the chat → exact folded name → unique first
-    name → unambiguous substring of a folded name.
+    phone typed in chat → exact folded name.
+
+    Never match on first-name-only or substring («Александр» ↛ «Александр Семин»).
     """
     peer = str(peer_id or "").strip()
     if peer and by_chat_id and peer in by_chat_id:
@@ -629,17 +605,6 @@ def _match_row(
     if hits:
         # Same name on several cards — ambiguous, never guess.
         return None
-
-    first = name.split(" ", 1)[0]
-    if by_first and first and first in by_first:
-        return by_first[first]
-
-    soft: list[dict[str, Any]] = []
-    for key, rows in by_name.items():
-        if name in key or key in name:
-            soft.extend(rows)
-    if len(soft) == 1:
-        return soft[0]
     return None
 
 
@@ -688,7 +653,7 @@ def import_export_into_catalog(
 
         studio_id = _studio_user_id(export)
         phone_by_name = _contact_phone_by_name(export)
-        by_phone, by_name, by_first = _index_catalog_rows(rows)
+        by_phone, by_name = _index_catalog_rows(rows)
         by_nick = _index_catalog_nicks(rows)
         by_chat_id = _index_catalog_chat_ids(rows)
         chats = (export.get("chats") or {}).get("list") or []
@@ -724,7 +689,6 @@ def import_export_into_catalog(
                     text_phones=_phones_in_messages(messages),
                     peer_id=peer_id,
                     by_chat_id=by_chat_id,
-                    by_first=by_first,
                 )
                 if row is None:
                     unmatched += 1
@@ -862,13 +826,28 @@ def ensure_export_imported(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def apply_export_overlay_to_public(client: dict[str, Any]) -> dict[str, Any]:
-    """Merge overlay tg_nick / tg_chat_id / preview into a public client dict."""
+    """Merge overlay tg_nick / tg_chat_id / preview into a public client dict.
+
+    Refuses overlays whose phone/nick contradict the card — soft-name theft used
+    to stamp «Александр Семин» history onto every plain «Александр».
+    """
     if not isinstance(client, dict):
         return client
     cid = str(client.get("id") or "").strip()
     entry = overlay_for_client(cid)
     if not entry:
         return client
+
+    client_phone = dedupe_phone(client.get("phone"))
+    entry_phone = dedupe_phone(entry.get("phone"))
+    if client_phone and entry_phone and client_phone != entry_phone:
+        return client
+
+    client_nick = normalize_tg_nick(client.get("tg_nick") or "")
+    entry_nick = normalize_tg_nick(entry.get("tg_nick") or "")
+    if client_nick and entry_nick and client_nick != entry_nick:
+        return client
+
     out = dict(client)
     if not str(out.get("tg_nick") or "").strip() and entry.get("tg_nick"):
         out["tg_nick"] = entry["tg_nick"]
