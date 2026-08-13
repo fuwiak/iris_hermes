@@ -91,6 +91,18 @@ def cache_key(
     return ":".join(parts)
 
 
+def partial_cache_key(key: str) -> str:
+    """Side-channel key for progressive rebuild flushes.
+
+    Partial catalogs must NEVER overwrite the last complete one on the main
+    key: a deploy restart mid-rebuild used to leave the durable cache
+    poisoned with ``partial=True`` (UI saw 15 of 152 matches until the next
+    full rebuild). Flushes land here; readers fall back to this key only
+    when the main key has nothing.
+    """
+    return f"{key}:partial"
+
+
 def refresh_audience_counts(catalog: dict[str, Any]) -> dict[str, int]:
     """Recompute exclusive tab counts + channel/sales-type fields (mutates catalog).
 

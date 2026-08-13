@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from typing import Any, Iterator
@@ -27,6 +28,9 @@ except Exception:  # pragma: no cover — unit tests without fastapi
             return lambda fn: fn
 
         def delete(self, *_a, **_k):
+            return lambda fn: fn
+
+        def on_event(self, *_a, **_k):
             return lambda fn: fn
 
     class HTTPException(Exception):  # type: ignore[no-redef]
@@ -102,6 +106,7 @@ from plugins.moysklad.catalog_cache import (
     get_page_snapshot,
     invalidate,
     page_snapshot_key,
+    partial_cache_key,
     peek_cached,
     refresh_audience_counts,
     set_cached,
@@ -209,7 +214,9 @@ def _apply_telegram_export_and_recache(
         or stamped > 0
         or int((result or {}).get("stamped_rows") or 0) > 0
     )
-    if changed:
+    # Never persist a partial catalog to the main key — it would clobber the
+    # last complete one (partials live on partial_cache_key).
+    if changed and not _catalog_is_partial(catalog):
         key = cache_key(
             max_orders=max_orders,
             max_counterparties=max_counterparties,
@@ -335,6 +342,15 @@ def _catalog_is_partial(catalog: dict[str, Any] | None) -> bool:
     return bool(isinstance(catalog, dict) and catalog.get("partial"))
 
 
+def _peek_partial_env(key: str) -> dict[str, Any] | None:
+    """Progressive rebuild bytes from the side-channel partial key (if any)."""
+    pkey = partial_cache_key(key)
+    env = get_cached(pkey) or peek_cached(pkey)
+    if env is not None and isinstance(env.get("catalog"), dict):
+        return env
+    return None
+
+
 def _envelope_catalog_complete(envelope: dict[str, Any] | None) -> bool:
     if not isinstance(envelope, dict):
         return False
@@ -357,8 +373,11 @@ def _rebuild_catalog(
     client = _client()
 
     def _on_partial(partial: dict[str, Any]) -> None:
+        # Side-channel key: the last COMPLETE catalog on the main key stays
+        # intact, so a restart mid-rebuild serves full (stale) data instantly
+        # instead of a 15-of-152 partial.
         try:
-            set_cached(key, dict(partial), merge=False)
+            set_cached(partial_cache_key(key), dict(partial), merge=False)
             log.info(
                 "moysklad catalog partial flush key=%s rows=%s",
                 key[-24:],
@@ -377,7 +396,85 @@ def _rebuild_catalog(
     )
     catalog["partial"] = False
     envelope = set_cached(key, catalog, merge=False)
+    try:
+        invalidate(partial_cache_key(key))
+    except Exception:
+        log.debug("moysklad partial key cleanup failed", exc_info=True)
     return catalog, _catalog_meta(envelope, cached=False)
+
+
+_KEEPWARM_LOCK = threading.Lock()
+_KEEPWARM_THREAD: threading.Thread | None = None
+_KEEPWARM_BOOT_DELAY_SECONDS = 5.0
+
+
+def _keepwarm_interval_seconds() -> int:
+    """Keep-warm cadence; ``0`` disables the thread entirely."""
+    raw = (os.environ.get("MOYSKLAD_CATALOG_KEEPWARM_SECONDS") or "").strip()
+    if not raw:
+        return 30 * 60
+    try:
+        value = int(raw)
+    except ValueError:
+        return 30 * 60
+    if value <= 0:
+        return 0
+    return max(300, value)
+
+
+def catalog_keepwarm_tick() -> str:
+    """One keep-warm pass: rebuild in background unless a fresh full catalog
+    is already durable. Returns the action taken (for logs/tests)."""
+    if not token_configured():
+        return "no-token"
+    key = cache_key(max_orders=25000, max_counterparties=0, include_archived=False)
+    if _envelope_catalog_complete(get_cached(key)):
+        return "fresh"
+    scheduled = _schedule_catalog_revalidate(
+        key, max_orders=25000, max_counterparties=0, include_archived=False
+    )
+    return "scheduled" if scheduled else "in-flight"
+
+
+def _catalog_keepwarm_loop() -> None:
+    # Let the web server finish booting before the first MoySklad pull.
+    time.sleep(_KEEPWARM_BOOT_DELAY_SECONDS)
+    while True:
+        try:
+            action = catalog_keepwarm_tick()
+            if action != "fresh":
+                log.info("moysklad catalog keepwarm: %s", action)
+        except Exception:
+            log.warning("moysklad catalog keepwarm tick failed", exc_info=True)
+        interval = _keepwarm_interval_seconds()
+        if interval <= 0:
+            return
+        time.sleep(interval)
+
+
+def start_catalog_keepwarm() -> bool:
+    """Boot-time warmer + periodic refresher (no Celery needed: daemon thread
+    + the existing Redis/file cache). Post-deploy restarts rebuild the catalog
+    BEFORE the first operator click instead of during it."""
+    global _KEEPWARM_THREAD
+    if _keepwarm_interval_seconds() <= 0:
+        return False
+    with _KEEPWARM_LOCK:
+        if _KEEPWARM_THREAD is not None and _KEEPWARM_THREAD.is_alive():
+            return False
+        _KEEPWARM_THREAD = threading.Thread(
+            target=_catalog_keepwarm_loop,
+            name="moysklad-catalog-keepwarm",
+            daemon=True,
+        )
+        _KEEPWARM_THREAD.start()
+    return True
+
+
+@router.on_event("startup")
+def _keepwarm_on_startup() -> None:  # pragma: no cover — exercised by the app
+    # Runs only when the dashboard app actually starts (never on test import).
+    start_catalog_keepwarm()
 
 
 def _schedule_catalog_revalidate(
@@ -499,6 +596,17 @@ def _get_catalog(
                 max_counterparties=max_counterparties,
                 include_archived=include_archived,
             )
+            # No full catalog at all — progressive rebuild bytes are better
+            # than nothing for scroll/load-more.
+            partial_env = _peek_partial_env(key)
+            if partial_env is not None:
+                return partial_env["catalog"], _catalog_meta(
+                    partial_env,
+                    cached=True,
+                    stale=True,
+                    revalidating=scheduled or key in _REVALIDATE_IN_FLIGHT,
+                    counts_refreshed=False,
+                )
             return None, {
                 "cached": False,
                 "stale": True,
@@ -564,8 +672,13 @@ def _get_catalog(
                     max_counterparties=max_counterparties,
                     include_archived=include_archived,
                 )
-                # Prefer any partial already flushed to Redis.
+                # Prefer any bytes already flushed — full first, then the
+                # progressive partial side-channel.
                 partial_env = get_cached(key) or peek_cached(key)
+                if partial_env is None or not isinstance(
+                    partial_env.get("catalog"), dict
+                ):
+                    partial_env = _peek_partial_env(key)
                 if partial_env is not None and isinstance(
                     partial_env.get("catalog"), dict
                 ):
@@ -592,6 +705,8 @@ def _get_catalog(
         # by scheduling when another rebuild is already in flight.
         if key in _REVALIDATE_IN_FLIGHT:
             partial_env = get_cached(key) or peek_cached(key)
+            if partial_env is None or not isinstance(partial_env.get("catalog"), dict):
+                partial_env = _peek_partial_env(key)
             if partial_env is not None and isinstance(partial_env.get("catalog"), dict):
                 return partial_env["catalog"], _catalog_meta(
                     partial_env,
@@ -612,6 +727,8 @@ def _get_catalog(
             for _ in range(40):
                 time.sleep(0.25)
                 env = get_cached(key)
+                if env is None or not isinstance(env.get("catalog"), dict):
+                    env = _peek_partial_env(key)
                 if env is not None and isinstance(env.get("catalog"), dict):
                     return env["catalog"], _catalog_meta(
                         env,
