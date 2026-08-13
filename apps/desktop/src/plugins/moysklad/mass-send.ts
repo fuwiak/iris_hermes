@@ -80,6 +80,122 @@ export function mergeUniqueIds(existing: string[], next: string[]): string[] {
   return out
 }
 
+/** One recipient row of a background mass-send job (server snapshot). */
+export interface MassRecipientRow {
+  client_id?: string
+  client_name?: string
+  tg_nick?: string
+  status?: string
+  error?: string | null
+  detail?: string | null
+  ts?: string | null
+}
+
+/** Poll summary of a background mass-send job. */
+export interface MassJobSummary {
+  id?: string
+  status?: string
+  channel?: string
+  total?: number
+  attempted?: number
+  sent_ok?: number
+  sent_failed?: number
+  created_at?: string
+  started_at?: string | null
+  finished_at?: string | null
+  cancel_requested?: boolean
+  error?: string | null
+  message_preview?: string
+}
+
+export const MASS_TERMINAL_ROW_STATUSES = new Set(['ok', 'failed', 'skipped'])
+
+export function isMassJobActive(status?: string): boolean {
+  return status === 'running' || status === 'queued'
+}
+
+/** Rows finalize in send order — poll offset = length of the terminal prefix. */
+export function terminalPrefixLength(rows: MassRecipientRow[]): number {
+  let n = 0
+  for (const row of rows) {
+    if (!MASS_TERMINAL_ROW_STATUSES.has(String(row?.status || ''))) {
+      break
+    }
+    n += 1
+  }
+  return n
+}
+
+/** Overlay a freshly polled slice at `offset` onto the locally cached rows. */
+export function overlayMassRows(
+  prev: MassRecipientRow[],
+  incoming: MassRecipientRow[],
+  offset: number
+): MassRecipientRow[] {
+  if (!incoming.length) {
+    return prev
+  }
+  const at = Math.max(0, Math.min(Math.floor(offset) || 0, prev.length))
+  const out = prev.slice(0, at)
+  out.push(...incoming)
+  const tailStart = at + incoming.length
+  if (prev.length > tailStart) {
+    out.push(...prev.slice(tailStart))
+  }
+  return out
+}
+
+export function massJobPercent(attempted: number, total: number): number {
+  if (!total || total <= 0) {
+    return 0
+  }
+  return Math.max(0, Math.min(100, Math.round((attempted / total) * 100)))
+}
+
+export function massRecipientDisplay(row: MassRecipientRow): string {
+  const nick = String(row.tg_nick || '').replace(/^@/, '')
+  return (
+    String(row.client_name || '').trim() ||
+    (nick ? `@${nick}` : '') ||
+    String(row.client_id || '').trim() ||
+    '—'
+  )
+}
+
+export function massRowStatusLabel(status?: string): string {
+  switch (String(status || '')) {
+    case 'ok':
+      return '✓ отправлено'
+    case 'failed':
+      return '✕ ошибка'
+    case 'sending':
+      return '→ отправляем…'
+    case 'skipped':
+      return '– пропущен'
+    default:
+      return '⏳ в очереди'
+  }
+}
+
+export function massJobStatusLabel(status?: string): string {
+  switch (String(status || '')) {
+    case 'queued':
+      return 'в очереди'
+    case 'running':
+      return 'идёт'
+    case 'done':
+      return 'завершена'
+    case 'cancelled':
+      return 'остановлена'
+    case 'failed':
+      return 'упала с ошибкой'
+    case 'interrupted':
+      return 'прервана (сервер перезапускался)'
+    default:
+      return String(status || '—')
+  }
+}
+
 /** Which mass-mail step the operator should do next. */
 export function resolveMassSendStep(input: {
   selectedCount: number

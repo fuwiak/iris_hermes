@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MASS_SEND_CHUNK,
   chunkIds,
+  isMassJobActive,
+  MASS_SEND_CHUNK,
+  massJobPercent,
+  massRecipientDisplay,
+  massRowStatusLabel,
   massSendConfirmText,
   massSendProgressLabel,
   massSendStepHint,
   mergeUniqueIds,
   needsMassSendConfirm,
-  resolveMassSendStep
+  overlayMassRows,
+  resolveMassSendStep,
+  terminalPrefixLength
 } from './mass-send'
 
 describe('mass-send helpers', () => {
@@ -54,5 +60,42 @@ describe('mass-send helpers', () => {
       'Выбрать всех'
     )
     expect(massSendStepHint(3, { audience: 90, selectedCount: 90, chunk: 50 })).toContain('90')
+  })
+
+  it('terminalPrefixLength counts only the finalized head', () => {
+    expect(terminalPrefixLength([])).toBe(0)
+    expect(
+      terminalPrefixLength([
+        { status: 'ok' },
+        { status: 'failed' },
+        { status: 'sending' },
+        { status: 'ok' }
+      ])
+    ).toBe(2)
+    expect(terminalPrefixLength([{ status: 'pending' }])).toBe(0)
+  })
+
+  it('overlayMassRows replaces the polled window and keeps the tail', () => {
+    const prev = [{ status: 'ok' }, { status: 'sending' }, { status: 'pending' }]
+    const next = overlayMassRows(prev, [{ status: 'ok' }, { status: 'failed' }], 1)
+    expect(next.map(r => r.status)).toEqual(['ok', 'ok', 'failed'])
+
+    const grown = overlayMassRows([], [{ status: 'ok' }], 0)
+    expect(grown).toHaveLength(1)
+    expect(overlayMassRows(prev, [], 1)).toBe(prev)
+  })
+
+  it('job/row status helpers cover the lifecycle', () => {
+    expect(isMassJobActive('running')).toBe(true)
+    expect(isMassJobActive('queued')).toBe(true)
+    expect(isMassJobActive('done')).toBe(false)
+    expect(massJobPercent(50, 200)).toBe(25)
+    expect(massJobPercent(3, 0)).toBe(0)
+    expect(massRowStatusLabel('ok')).toContain('отправлено')
+    expect(massRowStatusLabel('failed')).toContain('ошибка')
+    expect(massRecipientDisplay({ client_name: 'Петр' })).toBe('Петр')
+    expect(massRecipientDisplay({ tg_nick: '@petr' })).toBe('@petr')
+    expect(massRecipientDisplay({ client_id: 'x1' })).toBe('x1')
+    expect(massRecipientDisplay({})).toBe('—')
   })
 })

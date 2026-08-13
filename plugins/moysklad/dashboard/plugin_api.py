@@ -152,6 +152,7 @@ from plugins.moysklad.outreach_cache import (
     get_outreach_draft,
     set_outreach_draft,
 )
+from plugins.moysklad import mass_send_jobs
 from plugins.moysklad.ai_fill import (
     cache_backend_name as ai_fill_cache_backend_name,
     fill_empty_for_rows,
@@ -873,6 +874,19 @@ class CollectRepliesBody(BaseModel):
     #: Live-sync gateway + personal MTProto before listing (default on).
     sync: bool = True
     limit: int = 200
+
+
+class MassSendStartBody(BaseModel):
+    """Start a background mass send — the whole audience in one job."""
+
+    message: str = ""
+    channel: str = "telegram"
+    client_ids: list[str] = Field(default_factory=list)
+    deliver: bool = True
+    #: ``bot`` | ``user`` | ``auto`` — overrides MOYSKLAD_TELEGRAM_SEND_VIA.
+    via: str = ""
+    #: Stop the job as soon as one send fails (default: keep going).
+    stop_on_error: bool = False
 
 
 class OutreachContactBody(BaseModel):
@@ -1971,6 +1985,202 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent-batch failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _resolve_mass_send_target(
+    catalog: dict[str, Any] | None, client_id: str
+) -> dict[str, Any] | None:
+    """Contact / catalog row → TG coordinates for one mass-send recipient."""
+    if _is_contact_id(client_id):
+        contact = get_contact(client_id)
+        if contact is None:
+            return None
+        return {
+            "tg_nick": str(contact.get("tg_nick") or ""),
+            "tg_conversation": "",
+            "tg_chat_id": str(contact.get("tg_chat_id") or ""),
+            "client_name": str(contact.get("name") or ""),
+            "phone": "",
+        }
+    row = find_row_in_catalog(catalog, client_id) if catalog else None
+    if row is None:
+        contact = get_contact(client_id)
+        if contact is None:
+            return None
+        return {
+            "tg_nick": str(contact.get("tg_nick") or ""),
+            "tg_conversation": "",
+            "tg_chat_id": str(contact.get("tg_chat_id") or ""),
+            "client_name": str(contact.get("name") or ""),
+            "phone": "",
+        }
+    detail = build_client_detail(row)
+    client = detail.get("client") or {}
+    return {
+        "tg_nick": str(client.get("tg_nick") or ""),
+        "tg_conversation": str(client.get("tg_conversation") or ""),
+        "tg_chat_id": str(
+            client.get("tg_chat_id")
+            or row.get("ТГ chat id")
+            or row.get("tg_chat_id")
+            or ""
+        ),
+        "client_name": str(client.get("name") or ""),
+        "phone": str(client.get("phone") or ""),
+    }
+
+
+@router.post("/campaigns/mass-send")
+def post_campaign_mass_send(body: MassSendStartBody) -> dict[str, Any]:
+    """Fire a mass Рассылка as a background job — the request returns at once.
+
+    The worker walks recipients sequentially (anti-flood delay between
+    sends), records each thread, and the UI polls
+    ``GET /campaigns/mass-send/{id}`` for per-recipient statuses.
+    """
+    try:
+        text = (body.message or "").strip()
+        ids = [str(x or "").strip() for x in (body.client_ids or []) if str(x or "").strip()]
+        seen: set[str] = set()
+        client_ids = [c for c in ids if not (c in seen or seen.add(c))]
+        if not text:
+            raise HTTPException(status_code=400, detail="message required")
+        if not client_ids:
+            raise HTTPException(status_code=400, detail="client_ids required")
+        if len(client_ids) > MASS_AUDIENCE_IDS_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max {MASS_AUDIENCE_IDS_MAX} clients per mass send",
+            )
+        running = mass_send_jobs.running_job_id()
+        if running:
+            raise HTTPException(
+                status_code=409,
+                detail=f"mass send {running} already running — wait or cancel it",
+            )
+
+        channel = (body.channel or "telegram").strip().lower()
+        deliver_telegram = bool(body.deliver) and channel.startswith("telegram")
+        if deliver_telegram and (body.via or telegram_send_mode()) != "user":
+            account = business_preflight()
+            if not account.get("ok") and telegram_send_mode() == "bot":
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(account.get("detail") or account.get("error")),
+                )
+
+        catalog, _meta = _get_catalog(force=False)
+        via = body.via
+
+        def _send_one(client_id: str) -> dict[str, Any]:
+            target = _resolve_mass_send_target(catalog, client_id)
+            if target is None:
+                return {"ok": False, "error": "client_not_found"}
+            delivery: dict[str, Any] = {"ok": False, "skipped": True}
+            if deliver_telegram:
+                delivery = send_outreach_to_client(
+                    text=text,
+                    tg_nick=target["tg_nick"],
+                    tg_conversation=target["tg_conversation"],
+                    tg_chat_id=target["tg_chat_id"],
+                    via=via,
+                )
+            source = "campaign_send_mass"
+            if delivery.get("ok"):
+                source = "campaign_telegram_bot"
+            append_message(
+                client_id=client_id,
+                text=text,
+                direction="outbound",
+                channel=channel,
+                label="",
+                phone=target["phone"],
+                tg_nick=target["tg_nick"],
+                tg_chat_id=str(delivery.get("chat_id") or target["tg_chat_id"] or ""),
+                client_name=target["client_name"],
+                source=source,
+            )
+            return {
+                # ok = the message actually left, not merely «row processed».
+                "ok": bool(delivery.get("ok")) if deliver_telegram else True,
+                "client_name": target["client_name"],
+                "tg_nick": target["tg_nick"],
+                "error": None if delivery.get("ok") else delivery.get("error"),
+                "detail": None if delivery.get("ok") else delivery.get("detail"),
+            }
+
+        job = mass_send_jobs.create_job(
+            message=text,
+            client_ids=client_ids,
+            channel=channel,
+            via=via,
+            deliver=body.deliver,
+            stop_on_error=body.stop_on_error,
+        )
+        delay = send_delay_seconds() if deliver_telegram else 0.0
+        if not mass_send_jobs.start_job(job["id"], _send_one, delay=delay):
+            mass_send_jobs.abort_queued(job["id"])
+            raise HTTPException(status_code=409, detail="mass send already running")
+        return {
+            "ok": True,
+            "job": mass_send_jobs.summary(job),
+            "telegram": telegram_send_status(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mass-send failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/mass-send/latest")
+def get_campaign_mass_send_latest() -> dict[str, Any]:
+    """Most recent job — lets a reloaded UI reattach to a running blast."""
+    try:
+        return {"ok": True, "job": mass_send_jobs.latest_job_summary()}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mass-send/latest failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/mass-send/{job_id}")
+def get_campaign_mass_send_job(
+    job_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=2000),
+    status: str = Query("all"),
+) -> dict[str, Any]:
+    """Job summary + recipient slice (statuses finalize in send order)."""
+    try:
+        snap = mass_send_jobs.job_snapshot(
+            job_id, offset=offset, limit=limit, status=status
+        )
+        if snap is None:
+            raise HTTPException(status_code=404, detail="mass send job not found")
+        return {"ok": True, "job": snap}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mass-send/{id} failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/mass-send/{job_id}/cancel")
+def post_campaign_mass_send_cancel(job_id: str) -> dict[str, Any]:
+    """Ask the worker to stop after the current recipient."""
+    try:
+        ok = mass_send_jobs.cancel_job(job_id)
+        if not ok:
+            raise HTTPException(
+                status_code=409, detail="job is not running (already finished?)"
+            )
+        snap = mass_send_jobs.job_snapshot(job_id, offset=0, limit=1)
+        return {"ok": True, "job": snap}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/mass-send/{id}/cancel failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

@@ -2273,3 +2273,177 @@ td.ms-ai-added {
 .ms-segment-chip-remove:hover {
   opacity: 1;
 }
+
+/* ── Массовая рассылка: panel, status modal, in-app dialog ── */
+
+.ms-mass-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #6b2d7a;
+  border-radius: 0.85rem;
+  background: linear-gradient(180deg, #3a1844 0%, #2a142f 100%);
+}
+
+.ms-mass-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.ms-mass-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.ms-mass-panel textarea {
+  resize: vertical;
+}
+
+.ms-mass-confirm-modal {
+  width: min(560px, 100%);
+}
+
+.ms-mass-confirm-text {
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
+.ms-mass-status-modal {
+  width: min(720px, 100%);
+  display: grid;
+  gap: 0.65rem;
+  align-content: start;
+}
+
+.ms-mass-progress {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.ms-mass-progress-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #231028;
+  border: 1px solid #5a2a66;
+  overflow: hidden;
+}
+
+.ms-mass-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #b7e0c4;
+  transition: width 0.4s ease;
+}
+
+.ms-mass-progress-fill.is-active {
+  background: linear-gradient(90deg, #b7e0c4, #e8b4f0);
+}
+
+.ms-mass-row-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ms-mass-log {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 44vh;
+  overflow: auto;
+  border: 1px solid #5a2a66;
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  background: #2a142f;
+  font-size: 0.85rem;
+}
+
+.ms-mass-log-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  border-bottom: 1px dotted rgba(214, 178, 224, 0.15);
+}
+
+.ms-mass-log-row:last-child {
+  border-bottom: none;
+}
+
+.ms-mass-log-status {
+  min-width: 8.5rem;
+  color: #c9b4d0;
+}
+
+.ms-mass-log-row.is-ok .ms-mass-log-status {
+  color: #b7e0c4;
+}
+
+.ms-mass-log-row.is-failed .ms-mass-log-status {
+  color: #f2b8c6;
+}
+
+.ms-mass-log-row.is-sending .ms-mass-log-status {
+  color: #e8b4f0;
+}
+
+.ms-mass-log-name {
+  font-weight: 600;
+}
+
+.ms-mass-log-error {
+  color: #f2b8c6;
+  font-size: 0.8rem;
+}
+
+.ms-dialog-modal {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.ms-dialog-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.ms-dialog-thread .ms-conversation-list {
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.ms-dialog-note {
+  margin: 0;
+}
+
+.ms-dialog-reply {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.ms-dialog-reply textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.ms-dialog-reply .ms-btn {
+  justify-self: end;
+}
+
+.ms-dialog-hint {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.ms-replies-to-draft {
+  margin-left: 0.5rem;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}

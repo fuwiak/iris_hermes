@@ -40,7 +40,21 @@ import {
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
 import { EventCalendarPicker, formatRuRange } from './event-calendar'
-import { mergeUniqueIds } from './mass-send'
+import {
+  isMassJobActive,
+  MASS_AUDIENCE_SELECT_CAP,
+  massJobPercent,
+  massJobStatusLabel,
+  type MassJobSummary,
+  massRecipientDisplay,
+  type MassRecipientRow,
+  massRowStatusLabel,
+  massSendConfirmText,
+  mergeUniqueIds,
+  needsMassSendConfirm,
+  overlayMassRows,
+  terminalPrefixLength
+} from './mass-send'
 
 interface GroupChipOption {
   name: string
@@ -120,6 +134,420 @@ function TgProgressModal({ title, detail }: { title: string; detail: string }) {
         <h3>{title}</h3>
         <p className="ms-muted">{detail}</p>
         <p className="ms-muted">Не закрывайте вкладку — ждём ответ Telegram / Telethon.</p>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function MassConfirmModal({
+  count,
+  starting,
+  onConfirm,
+  onClose
+}: {
+  count: number
+  starting: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  if (typeof document === 'undefined') {return null}
+  return createPortal(
+    <div
+      className="ms-modal-backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) {onClose()}
+      }}
+      role="presentation"
+    >
+      <div
+        aria-labelledby="ms-mass-confirm-title"
+        aria-modal="true"
+        className="ms-modal ms-mass-confirm-modal"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+      >
+        <div className="ms-card-head">
+          <h3 id="ms-mass-confirm-title">Массовая рассылка</h3>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Отмена
+          </button>
+        </div>
+        <p className="ms-mass-confirm-text">{massSendConfirmText(count)}</p>
+        <div className="ms-compose-actions">
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={starting}
+            onClick={onConfirm}
+            type="button"
+          >
+            {starting ? 'Запускаем…' : `Отправить ${count} клиентам`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+const MASS_ROW_FILTER_TABS: Array<{ id: 'all' | 'failed' | 'ok'; label: string }> = [
+  { id: 'all', label: 'Все' },
+  { id: 'failed', label: 'Ошибки' },
+  { id: 'ok', label: 'Отправлено' }
+]
+
+function MassSendStatusModal({
+  job,
+  rows,
+  rowFilter,
+  cancelling,
+  repliesBusy,
+  onRowFilter,
+  onCancel,
+  onClose,
+  onOpenDialog,
+  onCollectReplies
+}: {
+  job: MassJobSummary
+  rows: MassRecipientRow[]
+  rowFilter: 'all' | 'failed' | 'ok'
+  cancelling: boolean
+  repliesBusy: boolean
+  onRowFilter: (next: 'all' | 'failed' | 'ok') => void
+  onCancel: () => void
+  onClose: () => void
+  onOpenDialog: (row: MassRecipientRow) => void
+  onCollectReplies: () => void
+}) {
+  if (typeof document === 'undefined') {return null}
+  const active = isMassJobActive(job.status)
+  const total = job.total || 0
+  const attempted = job.attempted || 0
+  const percent = massJobPercent(attempted, total)
+  const shown =
+    rowFilter === 'all' ? rows : rows.filter(r => String(r.status) === rowFilter)
+  const unseen = Math.max(0, total - rows.length)
+  return createPortal(
+    <div
+      className="ms-modal-backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) {onClose()}
+      }}
+      role="presentation"
+    >
+      <div
+        aria-labelledby="ms-mass-status-title"
+        aria-modal="true"
+        className="ms-modal ms-mass-status-modal"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+      >
+        <div className="ms-card-head">
+          <h3 id="ms-mass-status-title">
+            Рассылка · {massJobStatusLabel(job.status)}
+          </h3>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        <div className="ms-mass-progress">
+          <div className="ms-mass-progress-track" role="presentation">
+            <div
+              className={`ms-mass-progress-fill${active ? ' is-active' : ''}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="ms-muted">
+            {attempted}/{total} · ✓ {job.sent_ok || 0}
+            {job.sent_failed ? ` · ✕ ${job.sent_failed}` : ''}
+            {job.cancel_requested && active ? ' · останавливаем…' : ''}
+          </p>
+        </div>
+        <p className="ms-muted">
+          {active
+            ? 'Окно можно закрыть — рассылка продолжится на сервере, статус доступен по кнопке «Статус рассылки».'
+            : job.error
+              ? `Ошибка: ${job.error}`
+              : 'Рассылка завершена. Соберите ответы — кто написал в ответ, появится в списке диалогов.'}
+        </p>
+        <div className="ms-mass-row-tabs" role="tablist">
+          {MASS_ROW_FILTER_TABS.map(tab => (
+            <button
+              aria-selected={rowFilter === tab.id}
+              className={`ms-chip${rowFilter === tab.id ? ' is-active' : ''}`}
+              key={tab.id}
+              onClick={() => onRowFilter(tab.id)}
+              role="tab"
+              type="button"
+            >
+              {tab.label}
+              {tab.id === 'failed' && job.sent_failed ? ` · ${job.sent_failed}` : ''}
+            </button>
+          ))}
+        </div>
+        <div className="ms-mass-log" role="log">
+          {shown.length ? (
+            shown.map((row, idx) => (
+              <div
+                className={`ms-mass-log-row is-${row.status || 'pending'}`}
+                key={row.client_id || idx}
+              >
+                <span className="ms-mass-log-status">
+                  {massRowStatusLabel(row.status)}
+                </span>
+                <button
+                  className="ms-link-btn ms-mass-log-name"
+                  disabled={!row.client_id}
+                  onClick={() => onOpenDialog(row)}
+                  title="Открыть диалог с клиентом"
+                  type="button"
+                >
+                  {massRecipientDisplay(row)}
+                </button>
+                {row.error ? (
+                  <span className="ms-mass-log-error">
+                    {row.detail || row.error}
+                  </span>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <p className="ms-muted">
+              {rowFilter === 'failed'
+                ? 'Ошибок нет.'
+                : rowFilter === 'ok'
+                  ? 'Пока ничего не отправлено.'
+                  : 'Очередь формируется…'}
+            </p>
+          )}
+          {rowFilter === 'all' && unseen > 0 ? (
+            <p className="ms-muted">+{unseen} ещё в очереди…</p>
+          ) : null}
+        </div>
+        <div className="ms-compose-actions">
+          {active ? (
+            <button
+              className="ms-btn"
+              disabled={cancelling || Boolean(job.cancel_requested)}
+              onClick={onCancel}
+              type="button"
+            >
+              {cancelling || job.cancel_requested
+                ? 'Останавливаем…'
+                : 'Остановить рассылку'}
+            </button>
+          ) : (
+            <button
+              className="ms-btn ms-btn-primary"
+              disabled={repliesBusy}
+              onClick={onCollectReplies}
+              type="button"
+            >
+              {repliesBusy ? 'Собираю…' : 'Собрать ответы'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/** In-app TG dialog: full local thread + reply box, live-synced with Telegram. */
+function ClientDialogModal({
+  clientId,
+  clientName,
+  onClose
+}: {
+  clientId: string
+  clientName?: string
+  onClose: () => void
+}) {
+  const call = useMsRest()
+  const [conversation, setConversation] = useState<ClientConversation | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [text, setText] = useState('')
+  const [note, setNote] = useState('')
+  const [dialogError, setDialogError] = useState('')
+  const threadRef = useRef<HTMLDivElement | null>(null)
+
+  const refresh = useCallback(
+    async (opts?: { sync?: boolean }) => {
+      if (opts?.sync) {
+        setSyncing(true)
+      }
+      try {
+        const data = opts?.sync
+          ? await call<{
+              conversation?: ClientConversation & {
+                sync?: { inbound_imported?: number; imported?: number }
+              }
+            }>(
+              `/clients/${encodeURIComponent(clientId)}/conversation/sync?refresh_ai=false`,
+              { method: 'POST', timeoutMs: 120_000 }
+            )
+          : await call<{ conversation?: ClientConversation }>(
+              `/clients/${encodeURIComponent(clientId)}/conversation`
+            )
+        setConversation(data.conversation || null)
+        if (opts?.sync) {
+          const sync = (data.conversation as { sync?: { inbound_imported?: number } })
+            ?.sync
+          setNote(
+            sync?.inbound_imported
+              ? `+${sync.inbound_imported} новых входящих из Telegram`
+              : 'Синхронизировано с Telegram'
+          )
+        }
+        setDialogError('')
+      } catch (err) {
+        setDialogError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+        if (opts?.sync) {
+          setSyncing(false)
+        }
+      }
+    },
+    [call, clientId]
+  )
+
+  useEffect(() => {
+    setLoading(true)
+    setConversation(null)
+    setText('')
+    setNote('')
+    setDialogError('')
+    // Local thread paints instantly; live TG pull follows right after.
+    void refresh().then(() => refresh({ sync: true }))
+    const timer = setInterval(() => {
+      void refresh({ sync: true })
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [refresh])
+
+  useEffect(() => {
+    const box = threadRef.current?.querySelector('.ms-conversation-list')
+    if (box) {
+      box.scrollTop = box.scrollHeight
+    }
+  }, [conversation])
+
+  const send = async () => {
+    const msg = text.trim()
+    if (!msg || sending) {
+      return
+    }
+    setSending(true)
+    setDialogError('')
+    try {
+      const data = await call<{
+        conversation?: ClientConversation
+        delivery?: { ok?: boolean; skipped?: boolean; error?: string; detail?: string }
+      }>(`/clients/${encodeURIComponent(clientId)}/conversation`, {
+        method: 'POST',
+        body: {
+          text: msg,
+          direction: 'outbound',
+          channel: 'telegram',
+          source: 'client_card_send',
+          open_deep_link: false
+        }
+      })
+      if (data.conversation) {
+        setConversation(data.conversation)
+      }
+      setText('')
+      if (data.delivery?.ok) {
+        setNote('✓ Отправлено в Telegram')
+      } else if (data.delivery && !data.delivery.skipped) {
+        setNote('')
+        setDialogError(
+          `Telegram: ${data.delivery.detail || data.delivery.error || 'ошибка'} — сообщение записано в историю`
+        )
+      } else {
+        setNote('Записано в историю (доставка не настроена)')
+      }
+    } catch (err) {
+      setDialogError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (typeof document === 'undefined') {return null}
+  return createPortal(
+    <div
+      className="ms-modal-backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) {onClose()}
+      }}
+      role="presentation"
+    >
+      <div
+        aria-labelledby="ms-dialog-title"
+        aria-modal="true"
+        className="ms-modal ms-dialog-modal"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+      >
+        <div className="ms-card-head">
+          <h3 id="ms-dialog-title">
+            Диалог · {clientName || conversation?.client_id || clientId}
+          </h3>
+          <div className="ms-dialog-head-actions">
+            <button
+              className="ms-link-btn"
+              disabled={syncing}
+              onClick={() => void refresh({ sync: true })}
+              title="Подтянуть свежие сообщения из Telegram"
+              type="button"
+            >
+              {syncing ? 'Синхронизируем…' : 'Обновить из Telegram'}
+            </button>
+            <button className="ms-btn" onClick={onClose} type="button">
+              Закрыть
+            </button>
+          </div>
+        </div>
+        <div className="ms-dialog-thread" ref={threadRef}>
+          {loading ? (
+            <p className="ms-muted">Загружаем историю…</p>
+          ) : (
+            <ConversationThread conversation={conversation} title="Диалог (TG)" />
+          )}
+        </div>
+        {note ? <p className="ms-muted ms-dialog-note">{note}</p> : null}
+        {dialogError ? <p className="ms-error">{dialogError}</p> : null}
+        <div className="ms-dialog-reply">
+          <textarea
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+            placeholder="Ответ клиенту… (Ctrl+Enter — отправить)"
+            rows={3}
+            value={text}
+          />
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={sending || !text.trim()}
+            onClick={() => void send()}
+            type="button"
+          >
+            {sending ? 'Отправляю…' : 'Отправить'}
+          </button>
+        </div>
+        <p className="ms-muted ms-dialog-hint">
+          Ответ уходит через ваш Telegram и остаётся в истории. Диалог
+          автообновляется каждые 30 сек — можно продолжать и отсюда, и из
+          Telegram.
+        </p>
       </div>
     </div>,
     document.body
@@ -4888,6 +5316,182 @@ function CampaignsPage() {
   const [repliesBusy, setRepliesBusy] = useState(false)
   const [repliesMeta, setRepliesMeta] = useState('')
 
+  // ── Массовая рассылка: background job + per-recipient status ──
+  const [massText, setMassText] = useState('')
+  const [massIds, setMassIds] = useState<string[]>([])
+  const [massPicking, setMassPicking] = useState(false)
+  const [massStarting, setMassStarting] = useState(false)
+  const [massCancelling, setMassCancelling] = useState(false)
+  const [massJob, setMassJob] = useState<MassJobSummary | null>(null)
+  const [massRows, setMassRows] = useState<MassRecipientRow[]>([])
+  const [massModalOpen, setMassModalOpen] = useState(false)
+  const [massConfirmOpen, setMassConfirmOpen] = useState(false)
+  const [massRowFilter, setMassRowFilter] = useState<'all' | 'failed' | 'ok'>('all')
+  const [dialogClient, setDialogClient] = useState<{ id: string; name?: string } | null>(
+    null
+  )
+  const massJobRef = useRef<MassJobSummary | null>(null)
+  massJobRef.current = massJob
+  const massRowsRef = useRef<MassRecipientRow[]>([])
+  massRowsRef.current = massRows
+  /** Prevents overlapping polls when a slice request outlives the interval. */
+  const massPollBusyRef = useRef(false)
+
+  const pollMassJob = useCallback(async () => {
+    const jobId = massJobRef.current?.id
+    if (!jobId || massPollBusyRef.current) {
+      return
+    }
+    massPollBusyRef.current = true
+    try {
+      // Terminal rows never change — poll from the first live index. When the
+      // job is finished, keep paging until the local log holds every row.
+      for (let hop = 0; hop < 20; hop += 1) {
+        const offset = terminalPrefixLength(massRowsRef.current)
+        const data = await call<{
+          job?: MassJobSummary & {
+            recipients?: MassRecipientRow[]
+            results_offset?: number
+          }
+        }>(
+          `/campaigns/mass-send/${encodeURIComponent(jobId)}?offset=${offset}&limit=500`
+        )
+        const next = data.job
+        if (!next?.id || next.id !== massJobRef.current?.id) {
+          return
+        }
+        const { recipients, results_offset, ...summary } = next
+        setMassJob(summary)
+        massJobRef.current = summary
+        const merged = overlayMassRows(
+          massRowsRef.current,
+          recipients || [],
+          results_offset ?? offset
+        )
+        massRowsRef.current = merged
+        setMassRows(merged)
+        const done = !isMassJobActive(summary.status)
+        const complete = terminalPrefixLength(merged) >= (summary.total || 0)
+        if (!done || complete || !(recipients || []).length) {
+          return
+        }
+      }
+    } catch {
+      // Stale snapshot is fine — next tick retries.
+    } finally {
+      massPollBusyRef.current = false
+    }
+  }, [call])
+
+  useEffect(() => {
+    if (!massJob?.id || !isMassJobActive(massJob.status)) {
+      return
+    }
+    void pollMassJob()
+    const timer = setInterval(() => {
+      void pollMassJob()
+    }, 2000)
+    return () => clearInterval(timer)
+    // Re-arm only on job switch / lifecycle edge — not every counter tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [massJob?.id, isMassJobActive(massJob?.status), pollMassJob])
+
+  // Reattach after a UI reload: a blast may still be running server-side.
+  useEffect(() => {
+    void call<{ job?: MassJobSummary | null }>('/campaigns/mass-send/latest')
+      .then(data => {
+        const job = data.job
+        if (job?.id && isMassJobActive(job.status)) {
+          setMassJob(job)
+          setMassModalOpen(true)
+        }
+      })
+      .catch(() => undefined)
+  }, [call])
+
+  const massSelectAudience = async () => {
+    setMassPicking(true)
+    setError('')
+    try {
+      const params = audienceFilterParams({
+        limit: MASS_AUDIENCE_SELECT_CAP,
+        offset: 0
+      })
+      const data = await call<{ ids?: string[]; matched_total?: number }>(
+        `/clients/ids?${params}`,
+        { timeoutMs: 180_000 }
+      )
+      const ids = data.ids || []
+      setMassIds(ids)
+      setActionStatus(
+        ids.length
+          ? `✓ В массовую рассылку взято ${ids.length}` +
+              ((data.matched_total || 0) > ids.length
+                ? ` из ${data.matched_total} (потолок ${MASS_AUDIENCE_SELECT_CAP})`
+                : ' — вся текущая аудитория')
+          : 'Фильтр пуст — сузьте аудиторию выше.'
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMassPicking(false)
+    }
+  }
+
+  const massStart = async () => {
+    const text = massText.trim()
+    if (!text || !massIds.length || massStarting) {
+      return
+    }
+    setMassConfirmOpen(false)
+    setMassStarting(true)
+    setError('')
+    try {
+      const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
+        method: 'POST',
+        body: {
+          message: text,
+          client_ids: massIds,
+          channel,
+          deliver: true,
+          stop_on_error: false
+        }
+      })
+      if (data.job?.id) {
+        setMassRows([])
+        massRowsRef.current = []
+        setMassRowFilter('all')
+        setMassJob(data.job)
+        setMassModalOpen(true)
+        // «Собрать ответы» works off this cohort after the blast.
+        setLastSentClientIds(ids => mergeUniqueIds(ids, massIds))
+        setActionStatus(`Рассылка запущена: ${data.job.total || massIds.length} получателей`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMassStarting(false)
+    }
+  }
+
+  const massCancel = async () => {
+    const jobId = massJobRef.current?.id
+    if (!jobId || massCancelling) {
+      return
+    }
+    setMassCancelling(true)
+    try {
+      await call(`/campaigns/mass-send/${encodeURIComponent(jobId)}/cancel`, {
+        method: 'POST'
+      })
+      await pollMassJob()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMassCancelling(false)
+    }
+  }
+
   const collectReplies = async () => {
     const cohort =
       lastSentClientIds.length > 0
@@ -5534,17 +6138,33 @@ function CampaignsPage() {
                         if (!row.client_id) {
                           return
                         }
-                        setSelectedClientId(row.client_id)
-                        setSelectedClientName(row.client_name || '')
-                        setContactPickerId(row.client_id)
-                        void loadOutreach(row.client_id, channel)
+                        setDialogClient({
+                          id: row.client_id,
+                          name: row.client_name || row.tg_nick || ''
+                        })
                       }}
+                      title="Открыть диалог и ответить прямо здесь"
                       type="button"
                     >
                       {row.client_name || row.tg_nick || row.client_id}
                     </button>
                     {row.preview ? (
                       <span className="ms-muted"> — {row.preview}</span>
+                    ) : null}
+                    {row.client_id ? (
+                      <button
+                        className="ms-link-btn ms-replies-to-draft"
+                        onClick={() => {
+                          setSelectedClientId(row.client_id!)
+                          setSelectedClientName(row.client_name || '')
+                          setContactPickerId(row.client_id!)
+                          void loadOutreach(row.client_id!, channel)
+                        }}
+                        title="Выбрать клиента в блоке 1:1 (AI-черновик)"
+                        type="button"
+                      >
+                        в черновик
+                      </button>
                     ) : null}
                   </li>
                 ))}
@@ -6053,6 +6673,109 @@ function CampaignsPage() {
       </section>
 
       <h2 className="ms-section-title">2. Текст и отправка</h2>
+
+      <section aria-label="Массовая рассылка" className="ms-mass-panel">
+        <div className="ms-mass-panel-head">
+          <strong>Массовая рассылка</strong>
+          <span className="ms-muted">
+            одно сообщение всей отфильтрованной аудитории · отправка идёт на
+            сервере и не блокирует интерфейс
+          </span>
+        </div>
+        <div className="ms-compose-actions">
+          <button
+            className="ms-btn"
+            disabled={massPicking || isMassJobActive(massJob?.status)}
+            onClick={() => void massSelectAudience()}
+            title="Забрать все id из текущего фильтра аудитории (шаг 1)"
+            type="button"
+          >
+            {massPicking
+              ? 'Собираем аудиторию…'
+              : `Взять аудиторию из фильтра${audience ? ` (${audience})` : ''}`}
+          </button>
+          {massIds.length ? (
+            <span className="ms-mass-count">
+              Получателей: <strong>{massIds.length}</strong>
+            </span>
+          ) : null}
+          {massIds.length ? (
+            <button
+              className="ms-link-btn"
+              onClick={() => setMassIds([])}
+              type="button"
+            >
+              сбросить
+            </button>
+          ) : null}
+        </div>
+        <label>
+          Текст для всех получателей
+          <textarea
+            onChange={e => setMassText(e.target.value)}
+            placeholder="Одно сообщение для всей выборки… (возьмите текст из черновика или напишите здесь)"
+            rows={5}
+            value={massText}
+          />
+        </label>
+        <div className="ms-compose-actions">
+          {offer.trim() ? (
+            <button
+              className="ms-btn"
+              onClick={() => setMassText(offer)}
+              title="Скопировать текст из блока 1:1 ниже"
+              type="button"
+            >
+              Взять текст из черновика
+            </button>
+          ) : null}
+          <button
+            className="ms-btn ms-btn-primary"
+            disabled={
+              !massText.trim() ||
+              !massIds.length ||
+              massStarting ||
+              isMassJobActive(massJob?.status)
+            }
+            onClick={() => {
+              if (needsMassSendConfirm(massIds.length)) {
+                setMassConfirmOpen(true)
+              } else {
+                void massStart()
+              }
+            }}
+            type="button"
+          >
+            {massStarting
+              ? 'Запускаем…'
+              : `Отправить всем${massIds.length ? ` (${massIds.length})` : ''}`}
+          </button>
+          {massJob ? (
+            <button
+              className="ms-btn"
+              onClick={() => {
+                setMassModalOpen(true)
+                void pollMassJob()
+              }}
+              type="button"
+            >
+              Статус рассылки
+              {isMassJobActive(massJob.status)
+                ? ` · ${massJob.attempted || 0}/${massJob.total || 0}`
+                : ''}
+            </button>
+          ) : null}
+        </div>
+        {isMassJobActive(massJob?.status) ? (
+          <p className="ms-muted">
+            Идёт рассылка: {massJob?.attempted || 0}/{massJob?.total || 0} · ✓{' '}
+            {massJob?.sent_ok || 0}
+            {massJob?.sent_failed ? ` · ✕ ${massJob.sent_failed}` : ''} — окно
+            статуса можно закрывать, отправка продолжится.
+          </p>
+        ) : null}
+      </section>
+
       <div className="ms-compose-split">
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
           <details className="ms-tg-account" open={!tgUser?.authorized}>
@@ -6547,6 +7270,39 @@ function CampaignsPage() {
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
       {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
+      {massConfirmOpen ? (
+        <MassConfirmModal
+          count={massIds.length}
+          onClose={() => setMassConfirmOpen(false)}
+          onConfirm={() => void massStart()}
+          starting={massStarting}
+        />
+      ) : null}
+      {massModalOpen && massJob ? (
+        <MassSendStatusModal
+          cancelling={massCancelling}
+          job={massJob}
+          onCancel={() => void massCancel()}
+          onClose={() => setMassModalOpen(false)}
+          onCollectReplies={() => void collectReplies()}
+          onOpenDialog={row => {
+            if (row.client_id) {
+              setDialogClient({ id: row.client_id, name: row.client_name })
+            }
+          }}
+          onRowFilter={setMassRowFilter}
+          repliesBusy={repliesBusy}
+          rowFilter={massRowFilter}
+          rows={massRows}
+        />
+      ) : null}
+      {dialogClient ? (
+        <ClientDialogModal
+          clientId={dialogClient.id}
+          clientName={dialogClient.name}
+          onClose={() => setDialogClient(null)}
+        />
+      ) : null}
       {draftsOpen ? (
         <div
           aria-hidden={!draftsOpen}
