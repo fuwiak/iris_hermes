@@ -32,6 +32,27 @@ log = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 _PHONE_RE = re.compile(r"\D+")
 _URL_RE = re.compile(r"^https?://|^tg:", re.IGNORECASE)
+# Our own export/overlay stamps leak into MoySklad «TG conversation» and then
+# get re-seeded as fake history. Never treat those echoes as a real chat.
+_EXPORT_PREVIEW_RE = re.compile(
+    r"(Telegram\s*·\s*export|исходящее\s*·\s*Telegram|входящее\s*·\s*Telegram|"
+    r"импорт\s*·\s*MoySklad|\[исходящее|\[входящее)",
+    re.IGNORECASE,
+)
+_REAL_TG_SOURCES = frozenset(
+    {
+        "telegram_export",
+        "telegram_user",
+        "telegram_user_history",
+        "gateway",
+        "gateway_sync",
+        "client_card_send",
+        "client_card_telegram_bot",
+        "campaign",
+        "manual",
+        "mass_send",
+    }
+)
 _MEMORY_STORE: dict[str, Any] | None = None
 _MEMORY_FP: str | None = None
 _CONV_REDIS_KEY = "moysklad:conversations:v1"
@@ -344,11 +365,55 @@ def _channel_label(channel: str, direction: str) -> str:
     return f"исходящее · {ch_label}"
 
 
+def _is_export_preview_text(value: str) -> bool:
+    raw = (value or "").strip()
+    return bool(raw) and bool(_EXPORT_PREVIEW_RE.search(raw))
+
+
+def _thread_has_real_tg_messages(thread: dict[str, Any] | None) -> bool:
+    """True when the thread has at least one non-attr / non-system ghost message."""
+    if not isinstance(thread, dict):
+        return False
+    for msg in thread.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        source = str(msg.get("source") or "").strip().lower()
+        if source == "moysklad_attr":
+            continue
+        if source in _REAL_TG_SOURCES or source.startswith("telegram"):
+            return True
+        # Unknown non-attr sources still count (manual notes, etc.).
+        if source and source not in {"system", "moysklad_attr"}:
+            return True
+        direction = str(msg.get("direction") or "").strip().lower()
+        if direction in {"inbound", "outbound"} and source != "moysklad_attr":
+            return True
+    return False
+
+
+def _strip_attr_only_messages(thread: dict[str, Any]) -> dict[str, Any]:
+    """Drop ghost moysklad_attr seeds so UI does not claim a TG chat exists."""
+    messages = [
+        m
+        for m in (thread.get("messages") or [])
+        if isinstance(m, dict) and str(m.get("source") or "") != "moysklad_attr"
+    ]
+    out = dict(thread)
+    out["messages"] = messages
+    return out
+
+
 def preview_text(thread: dict[str, Any] | None, *, max_chars: int = 96) -> str:
     """One-line preview for the Clients table column."""
     if not thread:
         return ""
-    messages = list(thread.get("messages") or [])
+    if not _thread_has_real_tg_messages(thread):
+        return ""
+    messages = [
+        m
+        for m in (thread.get("messages") or [])
+        if isinstance(m, dict) and str(m.get("source") or "") != "moysklad_attr"
+    ]
     if not messages:
         return ""
     last = messages[-1]
@@ -373,7 +438,13 @@ def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
             "updated_at": None,
             "empty": True,
         }
-    messages = list(thread.get("messages") or [])
+    # Attr-only ghosts are not a Telegram conversation — hide them.
+    view = (
+        _strip_attr_only_messages(thread)
+        if not _thread_has_real_tg_messages(thread)
+        else thread
+    )
+    messages = list(view.get("messages") or [])
     return {
         "client_id": thread.get("client_id") or "",
         "client_name": thread.get("client_name") or "",
@@ -382,9 +453,10 @@ def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
         "tg_chat_id": thread.get("tg_chat_id") or "",
         "messages": messages,
         "message_count": len(messages),
-        "preview": preview_text(thread),
+        "preview": preview_text(view if messages else None),
         "updated_at": thread.get("updated_at"),
         "empty": not messages,
+        "attr_only_ghost": bool(thread.get("messages")) and not messages,
     }
 
 
@@ -473,9 +545,14 @@ def seed_from_moysklad_attr(
     tg_nick: str = "",
     client_name: str = "",
 ) -> dict[str, Any]:
-    """If local thread empty and MoySklad attr has non-URL text, import once."""
+    """If local thread empty and MoySklad attr has non-URL text, import once.
+
+    Export-style snippets (``[исходящее · Telegram · export] …``) are NOT
+    seeded — they often leak across cards after soft name-matching and are
+    not real chat history.
+    """
     raw = (attr_value or "").strip()
-    if not raw or _URL_RE.match(raw):
+    if not raw or _URL_RE.match(raw) or _is_export_preview_text(raw):
         return get_thread(
             client_id=client_id,
             phone=phone,
@@ -515,6 +592,52 @@ def seed_from_moysklad_attr(
         return public_thread(thread)
 
 
+def purge_attr_only_ghost_threads() -> dict[str, Any]:
+    """Delete threads that only contain MoySklad-attr / export-preview ghosts.
+
+    Real telegram_* / gateway / campaign messages are kept. Returns counts.
+    """
+    removed = 0
+    cleared_msgs = 0
+    with _LOCK:
+        store = _load()
+        threads = store.get("threads") or {}
+        index = store.get("index") or {}
+        drop_ids: list[str] = []
+        for tid, thread in list(threads.items()):
+            if not isinstance(thread, dict):
+                drop_ids.append(tid)
+                continue
+            messages = [m for m in (thread.get("messages") or []) if isinstance(m, dict)]
+            if not messages:
+                continue
+            if _thread_has_real_tg_messages(thread):
+                kept = [
+                    m
+                    for m in messages
+                    if str(m.get("source") or "") != "moysklad_attr"
+                    and not _is_export_preview_text(str(m.get("text") or ""))
+                ]
+                if len(kept) < len(messages):
+                    cleared_msgs += len(messages) - len(kept)
+                    thread["messages"] = kept
+                    thread["updated_at"] = _now()
+                continue
+            drop_ids.append(tid)
+            cleared_msgs += len(messages)
+        for tid in drop_ids:
+            threads.pop(tid, None)
+            removed += 1
+        if drop_ids:
+            drop_set = set(drop_ids)
+            store["index"] = {
+                k: v for k, v in index.items() if str(v) not in drop_set
+            }
+        if removed or cleared_msgs:
+            _save(store)
+    return {"ok": True, "threads_removed": removed, "messages_cleared": cleared_msgs}
+
+
 def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     """Attach conversation preview onto a public client dict (table row)."""
     if not isinstance(client, dict):
@@ -541,16 +664,23 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     out["tg_conversation_attr"] = attr
     out["tg_conversation_preview"] = preview
     out["conversation_count"] = int(thread.get("message_count") or 0)
-    if not out.get("tg_chat_id"):
+    if thread.get("attr_only_ghost") or thread.get("empty"):
+        # Never promote ghost attr seeds / empty threads as a live TG chat.
+        if not str(client.get("tg_chat_id") or "").strip():
+            out.pop("tg_chat_id", None)
+        out["conversation_count"] = int(thread.get("message_count") or 0)
+        out["tg_conversation_preview"] = preview
+    elif not out.get("tg_chat_id"):
         tid_chat = thread.get("tg_chat_id") if isinstance(thread, dict) else None
         if tid_chat:
             out["tg_chat_id"] = tid_chat
     # Column «TG conversation»: prefer live/local history preview.
+    # Export-style MoySklad attr echoes are not real chat history.
     if preview:
         out["tg_conversation"] = preview
-    elif attr and not _URL_RE.match(attr):
+    elif attr and not _URL_RE.match(attr) and not _is_export_preview_text(attr):
         out["tg_conversation"] = attr[:96] + ("…" if len(attr) > 96 else "")
-    elif attr:
+    elif attr and _URL_RE.match(attr):
         out["tg_conversation"] = attr  # deep-link fallback
     else:
         out["tg_conversation"] = ""
@@ -925,8 +1055,16 @@ def sync_from_telegram_user(
     nick = normalize_tg_nick(tg_nick)
     digits = normalize_phone(phone)
     chat_id = str(tg_chat_id or "").strip()
-    peer = chat_id or (f"@{nick}" if nick else "") or digits
-    if not peer:
+    # Telethon resolves a bare numeric id only when the entity is already in
+    # the session cache («Could not find the input entity for PeerUser»);
+    # @nick resolves cold. Try chat_id first (survives nick changes), then
+    # fall back through the remaining peer spellings.
+    peers = [
+        p
+        for p in (chat_id, f"@{nick}" if nick else "", digits)
+        if p
+    ]
+    if not peers:
         public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
         public["sync"] = {
             "ok": False,
@@ -940,7 +1078,11 @@ def sync_from_telegram_user(
     try:
         from plugins.platforms.telegram_user import client as tg_user
 
-        hist = tg_user.fetch_history(peer=peer, limit=limit)
+        hist: dict[str, Any] = {}
+        for peer in peers:
+            hist = tg_user.fetch_history(peer=peer, limit=limit)
+            if hist.get("ok"):
+                break
     except Exception as exc:
         public = get_thread(client_id=cid, phone=phone, tg_nick=tg_nick)
         public["sync"] = {

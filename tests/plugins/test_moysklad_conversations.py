@@ -219,14 +219,23 @@ def test_seed_from_attr_once(tmp_path, monkeypatch):
         attr_value="Клиент писал: нужна доставка к пятнице",
         phone="79001110000",
     )
-    assert first["message_count"] == 1
-    assert first["messages"][0]["source"] == "moysklad_attr"
+    # Attr-only notes are not a Telegram chat — public view stays empty.
+    assert first["empty"] is True
+    assert first.get("attr_only_ghost") is True
     second = seed_from_moysklad_attr(
         client_id="cp-3",
         attr_value="другой текст не должен дублировать",
         phone="79001110000",
     )
-    assert second["message_count"] == 1
+    assert second["empty"] is True
+    from plugins.moysklad import conversations as conv
+
+    with conv._LOCK:
+        store = conv._load()
+        raw = store["threads"]["cp-3"]["messages"]
+    assert len(raw) == 1
+    assert raw[0]["source"] == "moysklad_attr"
+    assert "доставка" in raw[0]["text"]
 
 
 def test_url_attr_not_seeded_as_message(tmp_path, monkeypatch):
@@ -237,6 +246,72 @@ def test_url_attr_not_seeded_as_message(tmp_path, monkeypatch):
         attr_value="https://t.me/c/1/2",
     )
     assert thread["empty"] is True
+
+
+def test_export_preview_attr_not_seeded_or_shown(tmp_path, monkeypatch):
+    """Stolen export snippets must not become fake TG history on another card."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    ghost = (
+        "[исходящее · Telegram · export] Оформили возврат по заказу, "
+        "деньги вернутся в течение 3–10 дней"
+    )
+    thread = seed_from_moysklad_attr(
+        client_id="0095f2bc-ghost",
+        attr_value=ghost,
+        phone="+79686889933",
+        client_name="Александр",
+    )
+    assert thread["empty"] is True
+    assert thread["message_count"] == 0
+
+    # Pre-existing attr-only store entry is hidden from public API.
+    from plugins.moysklad import conversations as conv
+
+    with conv._LOCK:
+        store = conv._load()
+        store["threads"]["0095f2bc-ghost"] = {
+            "client_id": "0095f2bc-ghost",
+            "client_name": "Александр",
+            "phone": "79686889933",
+            "tg_nick": "",
+            "messages": [
+                {
+                    "id": "g1",
+                    "direction": "system",
+                    "channel": "telegram",
+                    "text": ghost,
+                    "ts": "2026-08-01T00:00:00Z",
+                    "source": "moysklad_attr",
+                }
+            ],
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+        }
+        store["index"]["id:0095f2bc-ghost"] = "0095f2bc-ghost"
+        store["index"]["phone:79686889933"] = "0095f2bc-ghost"
+        conv._save(store)
+
+    public = get_thread(client_id="0095f2bc-ghost", phone="+79686889933")
+    assert public["empty"] is True
+    assert public.get("attr_only_ghost") is True
+    assert public["preview"] == ""
+
+    row = enrich_client_row(
+        {
+            "id": "0095f2bc-ghost",
+            "name": "Александр",
+            "phone": "+79686889933",
+            "tg_conversation": ghost,
+        }
+    )
+    assert row["conversation_count"] == 0
+    assert row["tg_conversation_preview"] == ""
+    assert row["tg_conversation"] == ""
+
+    purged = conv.purge_attr_only_ghost_threads()
+    assert purged["threads_removed"] >= 1
+    assert get_thread(client_id="0095f2bc-ghost")["empty"] is True
 
 
 def test_enrich_and_facts_include_conversation(tmp_path, monkeypatch):
@@ -472,3 +547,52 @@ def test_sync_client_conversation_falls_back_to_thread_peer(tmp_path, monkeypatc
     assert thread["sync"]["inbound_imported"] == 1
     assert thread["message_count"] == 2
     assert any(m["direction"] == "inbound" for m in thread["messages"])
+
+
+def test_sync_falls_back_to_nick_when_chat_id_entity_unknown(tmp_path, monkeypatch):
+    """Telethon can't resolve a bare numeric id until the entity is cached —
+    retry with @nick instead of giving up (prod: PeerUser(796461007))."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+
+    tried = []
+
+    def _fake_history(*, peer: str, limit: int = 40):
+        tried.append(peer)
+        if peer == "796461007":
+            return {
+                "ok": False,
+                "error": "history_failed",
+                "detail": "Could not find the input entity for PeerUser(796461007)",
+            }
+        assert peer == "@pawels2137"
+        return {
+            "ok": True,
+            "tg_chat_id": "796461007",
+            "tg_nick": "pawels2137",
+            "messages": [
+                {
+                    "direction": "inbound",
+                    "text": "сиски",
+                    "ts": "2026-08-13T06:52:00+00:00",
+                    "message_id": 601,
+                },
+            ],
+            "via": "stub",
+        }
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(tg_user, "fetch_history", _fake_history)
+
+    from plugins.moysklad.conversations import sync_from_telegram_user
+
+    thread = sync_from_telegram_user(
+        client_id="cp-fallback",
+        tg_nick="pawels2137",
+        tg_chat_id="796461007",
+        client_name="Hans",
+    )
+    assert tried == ["796461007", "@pawels2137"]
+    assert thread["sync"]["ok"] is True
+    assert thread["sync"]["inbound_imported"] == 1
