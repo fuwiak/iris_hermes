@@ -2760,6 +2760,59 @@ function ClientsPage() {
   const [audit, setAudit] = useState<AuditReport | null>(null)
   const [tgImportBusy, setTgImportBusy] = useState(false)
   const [tgImportNote, setTgImportNote] = useState('')
+  const [tgDialogSyncBusy, setTgDialogSyncBusy] = useState(false)
+
+  /** Bulk-sync personal TG dialogs → «TG conversation»; poll until done. */
+  const runTgDialogSync = async () => {
+    setTgDialogSyncBusy(true)
+    setTgImportNote('Синхронизация личных TG-диалогов запущена…')
+    try {
+      await call('/clients/conversations/telegram-sync?limit=150', {
+        method: 'POST'
+      })
+      for (let i = 0; i < 120; i += 1) {
+        await new Promise(r => setTimeout(r, 5000))
+        const data = await call<{
+          state?: {
+            running?: boolean
+            error?: string | null
+            stats?: {
+              matched?: number
+              synced?: number
+              imported?: number
+              inbound_imported?: number
+              skipped_fresh?: number
+              pending_left?: number
+            } | null
+          }
+        }>('/clients/conversations/telegram-sync')
+        const state = data.state
+        if (state?.running) {
+          continue
+        }
+        if (state?.error) {
+          setTgImportNote(`TG диалоги: ${state.error}`)
+        } else {
+          const s = state?.stats || {}
+          setTgImportNote(
+            `TG диалоги: совпало ${s.matched ?? 0} · синхронизировано ${s.synced ?? 0}` +
+              ` · сообщений ${s.imported ?? 0}` +
+              ((s.inbound_imported ?? 0) > 0 ? ` (входящих ${s.inbound_imported})` : '') +
+              ((s.pending_left ?? 0) > 0 ? ` · в очереди ещё ${s.pending_left}` : '') +
+              ((s.skipped_fresh ?? 0) > 0 ? ` · свежих пропущено ${s.skipped_fresh}` : '')
+          )
+          await load({ refresh: false })
+        }
+        break
+      }
+    } catch (err) {
+      setTgImportNote(
+        `TG диалоги: ${err instanceof Error ? err.message : String(err)}`
+      )
+    } finally {
+      setTgDialogSyncBusy(false)
+    }
+  }
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
   const [staleHint, setStaleHint] = useState(false)
@@ -3301,6 +3354,15 @@ function ClientsPage() {
             type="button"
           >
             {tgImportBusy ? 'Импорт TG…' : 'Импорт Telegram'}
+          </button>
+          <button
+            className="ms-btn"
+            disabled={loading || tgDialogSyncBusy}
+            onClick={() => void runTgDialogSync()}
+            title="Подтянуть переписки из вашего личного Telegram (подключён в Рассылках) в колонку TG conversation"
+            type="button"
+          >
+            {tgDialogSyncBusy ? 'Синхр. TG…' : 'Синхр. TG-диалоги'}
           </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка

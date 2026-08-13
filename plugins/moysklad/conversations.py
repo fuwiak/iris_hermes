@@ -930,6 +930,200 @@ def sync_from_telegram_user(
     return public
 
 
+# Peers that errored recently (privacy, deleted account) — skip until backoff
+# expires so bulk runs do not re-hammer the same dead targets. Process-local.
+_DIALOG_FAILED_AT: dict[str, float] = {}
+
+
+def _dialog_sync_fresh(
+    store: dict[str, Any],
+    *,
+    client_id: str,
+    phone: str,
+    tg_nick: str,
+    now: float,
+    min_age_seconds: float,
+) -> bool:
+    keys = _index_keys(client_id=client_id, phone=phone, tg_nick=tg_nick)
+    tid = _resolve_thread_id(store, keys)
+    if not tid:
+        return False
+    thread = (store.get("threads") or {}).get(tid)
+    if not isinstance(thread, dict):
+        return False
+    stamped = float(thread.get("dialog_synced_at") or 0)
+    return stamped > 0 and (now - stamped) < min_age_seconds
+
+
+def _stamp_dialog_synced(*, client_id: str, phone: str, tg_nick: str) -> None:
+    with _LOCK:
+        store = _load()
+        keys = _index_keys(client_id=client_id, phone=phone, tg_nick=tg_nick)
+        tid = _resolve_thread_id(store, keys)
+        if not tid:
+            return
+        thread = (store.get("threads") or {}).get(tid)
+        if isinstance(thread, dict):
+            thread["dialog_synced_at"] = time.time()
+            _save(store)
+
+
+def sync_telegram_dialogs_into_threads(
+    rows: list[dict[str, Any]],
+    *,
+    max_peers: int = 40,
+    per_chat_limit: int = 20,
+    min_age_seconds: float = 6 * 3600.0,
+) -> dict[str, Any]:
+    """Bulk-sync the operator's personal Telegram into the «TG conversation»
+    column: match cached TG peers (address book + dialogs) against catalog
+    rows by chat id / @nick / phone, pull recent history for matches into
+    local threads. Per-card Sync stays the live path; this keeps the Клиенты
+    column populated without opening each card.
+
+    Threads stamp ``dialog_synced_at`` so repeat runs skip fresh peers —
+    successive keep-warm passes walk further down the match list.
+    """
+    try:
+        from plugins.platforms.telegram_user import client as tg_user
+    except Exception as exc:  # pragma: no cover — import env issue
+        return {"ok": False, "error": f"telegram_user unavailable: {exc}"}
+
+    try:
+        contacts = list(tg_user.cached_contacts() or [])
+    except Exception:
+        contacts = []
+    if not contacts:
+        return {
+            "ok": False,
+            "error": "no_cached_contacts",
+            "detail": "Сначала подключите личный Telegram и синхронизируйте контакты (Рассылки).",
+        }
+
+    by_chat: dict[str, dict[str, str]] = {}
+    by_nick: dict[str, dict[str, str]] = {}
+    by_phone: dict[str, dict[str, str]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        rid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if not rid:
+            continue
+        info = {
+            "client_id": rid,
+            "name": str(row.get("Наименование") or row.get("name") or ""),
+            "phone": str(row.get("Телефон") or row.get("phone") or ""),
+            "tg_nick": str(row.get("ТГ ник") or row.get("tg_nick") or ""),
+            "tg_chat_id": str(row.get("ТГ chat id") or row.get("tg_chat_id") or ""),
+        }
+        chat = info["tg_chat_id"].strip()
+        nick = normalize_tg_nick(info["tg_nick"])
+        digits = normalize_phone(info["phone"])
+        if chat:
+            by_chat.setdefault(chat, info)
+        if nick:
+            by_nick.setdefault(nick, info)
+        if digits:
+            by_phone.setdefault(digits, info)
+
+    # Dialog peers first — people the operator actually talks to.
+    ordered = sorted(
+        contacts,
+        key=lambda c: 0
+        if str(c.get("peer_source") or c.get("source") or "") == "dialog"
+        else 1,
+    )
+    seen: set[str] = set()
+    candidates: list[tuple[dict[str, str], dict[str, str]]] = []
+    for contact in ordered:
+        if not isinstance(contact, dict):
+            continue
+        chat = str(contact.get("tg_chat_id") or contact.get("id") or "").strip()
+        nick = normalize_tg_nick(str(contact.get("tg_nick") or ""))
+        digits = normalize_phone(str(contact.get("phone") or ""))
+        info = (
+            (by_chat.get(chat) if chat else None)
+            or (by_nick.get(nick) if nick else None)
+            or (by_phone.get(digits) if digits else None)
+        )
+        if not info or info["client_id"] in seen:
+            continue
+        seen.add(info["client_id"])
+        candidates.append((info, {"tg_chat_id": chat, "tg_nick": nick}))
+
+    now = time.time()
+    with _LOCK:
+        store = _load()
+        pending = [
+            (info, peer)
+            for info, peer in candidates
+            if not _dialog_sync_fresh(
+                store,
+                client_id=info["client_id"],
+                phone=info["phone"],
+                tg_nick=peer["tg_nick"] or info["tg_nick"],
+                now=now,
+                min_age_seconds=min_age_seconds,
+            )
+        ]
+    pending = [
+        p
+        for p in pending
+        if (now - _DIALOG_FAILED_AT.get(p[0]["client_id"], 0.0)) >= min_age_seconds
+    ]
+
+    stats: dict[str, Any] = {
+        "ok": True,
+        "contacts": len(contacts),
+        "matched": len(candidates),
+        "skipped_fresh": len(candidates) - len(pending),
+        "attempted": 0,
+        "synced": 0,
+        "imported": 0,
+        "inbound_imported": 0,
+        "errors": 0,
+    }
+    cap = max(0, int(max_peers))
+    for info, peer in pending[:cap]:
+        stats["attempted"] += 1
+        try:
+            thread = sync_from_telegram_user(
+                client_id=info["client_id"],
+                phone=info["phone"],
+                tg_nick=peer["tg_nick"] or info["tg_nick"],
+                tg_chat_id=peer["tg_chat_id"] or info["tg_chat_id"],
+                client_name=info["name"],
+                limit=per_chat_limit,
+            )
+            sync_meta = thread.get("sync") or {}
+            if sync_meta.get("ok"):
+                stats["synced"] += 1
+                stats["imported"] += int(sync_meta.get("imported") or 0)
+                stats["inbound_imported"] += int(sync_meta.get("inbound_imported") or 0)
+                _stamp_dialog_synced(
+                    client_id=info["client_id"],
+                    phone=info["phone"],
+                    tg_nick=peer["tg_nick"] or info["tg_nick"],
+                )
+            else:
+                stats["errors"] += 1
+                _DIALOG_FAILED_AT[info["client_id"]] = time.time()
+        except Exception:
+            log.warning(
+                "telegram dialog sync failed for %s", info["client_id"], exc_info=True
+            )
+            stats["errors"] += 1
+            _DIALOG_FAILED_AT[info["client_id"]] = time.time()
+        # Gentle pacing — MTProto/gateway flood control.
+        time.sleep(0.2)
+    stats["pending_left"] = max(0, len(pending) - stats["attempted"])
+    return stats
+
+
+def clear_dialog_sync_backoff_for_tests() -> None:
+    _DIALOG_FAILED_AT.clear()
+
+
 def sync_client_conversation(
     *,
     client_id: str,

@@ -136,6 +136,7 @@ from plugins.moysklad.conversations import (
     get_thread,
     list_awaiting_replies,
     sync_client_conversation,
+    sync_telegram_dialogs_into_threads,
 )
 from plugins.moysklad.outreach import (
     build_outreach_for_row,
@@ -436,6 +437,90 @@ def catalog_keepwarm_tick() -> str:
     return "scheduled" if scheduled else "in-flight"
 
 
+_TG_DIALOG_SYNC_LOCK = threading.Lock()
+_TG_DIALOG_SYNC_STATE: dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "stats": None,
+    "error": None,
+}
+
+
+def _tg_dialog_sync_peers_per_run() -> int:
+    """Peers per bulk TG dialog sync run; ``0`` disables the keep-warm hook."""
+    raw = (os.environ.get("MOYSKLAD_TG_DIALOG_SYNC_PEERS") or "").strip()
+    if not raw:
+        return 40
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 40
+
+
+def _tg_dialog_sync_worker(max_peers: int) -> None:
+    error: str | None = None
+    stats: dict[str, Any] | None = None
+    try:
+        catalog, _meta = _get_catalog(
+            force=False, blocking=False, refresh_counts=False
+        )
+        rows = list((catalog or {}).get("rows") or [])
+        if not rows:
+            error = "catalog_empty"
+        else:
+            stats = sync_telegram_dialogs_into_threads(rows, max_peers=max_peers)
+            if not stats.get("ok"):
+                error = str(stats.get("error") or "sync_failed")
+    except Exception as exc:  # pragma: no cover — network path
+        log.exception("moysklad telegram dialog sync failed")
+        error = str(exc)
+    finally:
+        with _TG_DIALOG_SYNC_LOCK:
+            _TG_DIALOG_SYNC_STATE.update(
+                running=False,
+                finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                stats=stats,
+                error=error,
+            )
+
+
+def start_telegram_dialog_sync(max_peers: int = 40) -> bool:
+    """Single-flight background sync of the operator's TG dialogs into the
+    «TG conversation» column. Returns False when a run is already active."""
+    with _TG_DIALOG_SYNC_LOCK:
+        if _TG_DIALOG_SYNC_STATE.get("running"):
+            return False
+        _TG_DIALOG_SYNC_STATE.update(
+            running=True,
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            finished_at=None,
+            stats=None,
+            error=None,
+        )
+    threading.Thread(
+        target=_tg_dialog_sync_worker,
+        args=(max_peers,),
+        name="moysklad-tg-dialog-sync",
+        daemon=True,
+    ).start()
+    return True
+
+
+def _maybe_kick_telegram_dialog_sync() -> None:
+    peers = _tg_dialog_sync_peers_per_run()
+    if peers <= 0:
+        return
+    try:
+        from plugins.platforms.telegram_user import client as tg_user
+
+        if not tg_user.is_authorized():
+            return
+    except Exception:
+        return
+    start_telegram_dialog_sync(max_peers=peers)
+
+
 def _catalog_keepwarm_loop() -> None:
     # Let the web server finish booting before the first MoySklad pull.
     time.sleep(_KEEPWARM_BOOT_DELAY_SECONDS)
@@ -446,6 +531,11 @@ def _catalog_keepwarm_loop() -> None:
                 log.info("moysklad catalog keepwarm: %s", action)
         except Exception:
             log.warning("moysklad catalog keepwarm tick failed", exc_info=True)
+        try:
+            # Personal-TG dialogs → «TG conversation» column, same cadence.
+            _maybe_kick_telegram_dialog_sync()
+        except Exception:
+            log.warning("moysklad tg dialog keepwarm kick failed", exc_info=True)
         interval = _keepwarm_interval_seconds()
         if interval <= 0:
             return
@@ -2834,6 +2924,33 @@ def post_client_conversation_sync(
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/{id}/conversation/sync failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/clients/conversations/telegram-sync")
+def post_clients_conversations_telegram_sync(
+    limit: int = Query(100, ge=1, le=300),
+) -> dict[str, Any]:
+    """Bulk-sync operator's personal TG dialogs into «TG conversation».
+
+    Runs in the background (single-flight); poll the GET twin for progress.
+    Matched peers = cached TG contacts/dialogs ∩ catalog rows (chat id /
+    @nick / phone). Fresh threads (<6h) are skipped.
+    """
+    try:
+        started = start_telegram_dialog_sync(max_peers=limit)
+        with _TG_DIALOG_SYNC_LOCK:
+            state = dict(_TG_DIALOG_SYNC_STATE)
+        return {"ok": True, "started": started, "state": state}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/conversations/telegram-sync failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/conversations/telegram-sync")
+def get_clients_conversations_telegram_sync() -> dict[str, Any]:
+    """State of the background TG dialog sync (running flag + last stats)."""
+    with _TG_DIALOG_SYNC_LOCK:
+        return {"ok": True, "state": dict(_TG_DIALOG_SYNC_STATE)}
 
 
 @router.post("/clients/telegram-export/import")
