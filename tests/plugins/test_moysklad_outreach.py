@@ -386,8 +386,9 @@ def test_outreach_generate_routes_llm_via_openrouter_egress(monkeypatch):
 
     assert captured.get("base_url") == proxy
     assert "openrouter.ai" not in str(captured.get("base_url") or "")
-    # One message LLM only — not card AI + message + sanity (was 3 serial calls).
-    assert llm_calls["n"] == 1
+    # refresh_ai=True → card DeepSeek renew + message LLM (sanity stays
+    # heuristic — never a third serial call).
+    assert llm_calls["n"] == 2
     assert result.get("source") == "llm"
     assert (result.get("sanity") or {}).get("source") == "heuristic"
     assert "Мария" in (result.get("message") or "")
