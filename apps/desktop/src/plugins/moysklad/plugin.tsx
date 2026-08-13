@@ -3708,6 +3708,8 @@ function CampaignsPage() {
   const [audienceHasMore, setAudienceHasMore] = useState(false)
   const [audienceNextOffset, setAudienceNextOffset] = useState(0)
   const [audienceLoadingMore, setAudienceLoadingMore] = useState(false)
+  /** Server served a partial/stale catalog (rebuild in flight) — auto re-poll. */
+  const [audienceStaleHint, setAudienceStaleHint] = useState(false)
   const [groupOptionsMs, setGroupOptionsMs] = useState<GroupChipOption[]>([])
   const [groupOptionsAi, setGroupOptionsAi] = useState<GroupChipOption[]>([])
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
@@ -4503,8 +4505,11 @@ function CampaignsPage() {
   )
 
   const loadAudience = useCallback(
-    async (opts?: { append?: boolean }) => {
+    async (opts?: { append?: boolean; quiet?: boolean }) => {
       const append = Boolean(opts?.append)
+      // quiet = re-poll while the server catalog rebuilds: keep painted rows,
+      // no wipe/seed — only the fetch + repaint.
+      const quiet = Boolean(opts?.quiet) && !append
       const offset = append ? audienceNextOffsetRef.current : 0
       const gen = append ? audienceLoadGen.current : ++audienceLoadGen.current
 
@@ -4512,6 +4517,9 @@ function CampaignsPage() {
         if (audienceLoadMoreRef.current || !audienceHasMoreRef.current) {return}
         audienceLoadMoreRef.current = true
         setAudienceLoadingMore(true)
+      } else if (quiet) {
+        setLoading(true)
+        setError('')
       } else if (audienceCalendarFilterActive) {
         // Calendar / days-before need server dates — don't paint stale chips.
         setAudiencePreview([])
@@ -4595,7 +4603,16 @@ function CampaignsPage() {
       }
 
       try {
-        const pageLimit = append ? AUDIENCE_APPEND_PAGE_SIZE : AUDIENCE_PAGE_SIZE
+        // Quiet re-polls refetch at least as many rows as already painted so
+        // the list never shrinks mid-rebuild (backend caps limit at 500).
+        const pageLimit = append
+          ? AUDIENCE_APPEND_PAGE_SIZE
+          : quiet
+            ? Math.min(
+                500,
+                Math.max(AUDIENCE_PAGE_SIZE, audiencePreviewRef.current.length)
+              )
+            : AUDIENCE_PAGE_SIZE
         const fetchPage = () =>
           call<{
             counts?: Counts
@@ -4678,6 +4695,13 @@ function CampaignsPage() {
         audienceHasMoreRef.current = more
         setAudienceNextOffset(next)
         setAudienceHasMore(more)
+
+        if (!append) {
+          // Rebuild in flight server-side → matched_total is partial (e.g. 15
+          // of 152 on calendar filters). Poll effect below refetches quietly
+          // until the catalog is complete — no dead «Нет клиентов…».
+          setAudienceStaleHint(Boolean(page.revalidating))
+        }
 
         const { ms, ai } = append
           ? {
@@ -4775,6 +4799,27 @@ function CampaignsPage() {
     void loadAudience()
     // loadAudience identity tracks filter deps — include it so group chip clicks always refetch.
   }, [loadAudience])
+
+  // While the server catalog rebuilds (post-deploy restart), /clients answers
+  // 200 with a partial catalog + revalidating=true. Same pattern as the
+  // Clients page: poll quietly until fresh so filters recover on their own.
+  useEffect(() => {
+    if (!audienceStaleHint || loading) {
+      return
+    }
+
+    const started = Date.now()
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > CLIENTS_REVALIDATE_POLL_MAX_MS) {
+        window.clearInterval(timer)
+        setAudienceStaleHint(false)
+        return
+      }
+      void loadAudience({ quiet: true })
+    }, CLIENTS_REVALIDATE_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [audienceStaleHint, loading, loadAudience])
 
   useEffect(() => {
     void call<{ campaigns?: Campaign[] }>('/campaigns')
@@ -6186,7 +6231,7 @@ function CampaignsPage() {
         <h2 className="ms-section-title">1. Аудитория</h2>
         <p className="ms-muted">
           Найдено (после дедупа): <strong>{audience}</strong>
-          {loading ? ' · обновляем…' : ''}
+          {loading ? ' · обновляем…' : audienceStaleHint ? ' · каталог пересобирается, список дополняется…' : ''}
           {selectedClientId ? (
             <>
               {' '}
@@ -6582,7 +6627,11 @@ function CampaignsPage() {
                 <div className="ms-audience-pick-head">
                   <p className="ms-muted">
                     Клиенты · <strong>{audience}</strong>
-                    {loading ? ' · обновляем…' : ''}
+                    {loading
+                      ? ' · обновляем…'
+                      : audienceStaleHint
+                        ? ' · каталог пересобирается…'
+                        : ''}
                     {selectedClientId
                       ? ` · ${selectedClientName || selectedClientId}`
                       : ' · кликните клиента'}
@@ -6664,13 +6713,15 @@ function CampaignsPage() {
                   <p className="ms-muted">
                     {loading
                       ? 'Загрузка аудитории…'
-                      : eventDateFrom || eventDateTo
-                        ? daysBeforeEvent > 0
-                          ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
-                          : 'Нет клиентов с событием / заказом в выбранных датах.'
-                        : daysBeforeEvent > 0
-                          ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
-                          : 'Нет клиентов под текущие фильтры / поиск.'}
+                      : audienceStaleHint
+                        ? 'Каталог пересобирается на сервере — список появится сам, не переключайте фильтры…'
+                        : eventDateFrom || eventDateTo
+                          ? daysBeforeEvent > 0
+                            ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
+                            : 'Нет клиентов с событием / заказом в выбранных датах.'
+                          : daysBeforeEvent > 0
+                            ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
+                            : 'Нет клиентов под текущие фильтры / поиск.'}
                   </p>
                 )}
               </div>
