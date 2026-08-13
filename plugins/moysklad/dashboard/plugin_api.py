@@ -1870,6 +1870,17 @@ def post_client_conversation(
                 deep_link = str(msg.get("whatsapp_url") or "")
             else:
                 deep_link = str(msg.get("telegram_url") or "")
+        else:
+            # Outreach contact without a catalog row — resolve the TG peer
+            # from the contact registry so the reply box actually delivers.
+            contact = get_contact(client_id)
+            if contact is not None:
+                phone = str(contact.get("phone") or "")
+                tg_nick = str(contact.get("tg_nick") or "")
+                tg_chat_id = str(contact.get("tg_chat_id") or "")
+                client_name = str(contact.get("name") or "")
+                if tg_nick:
+                    deep_link = f"https://t.me/{tg_nick}"
 
         channel = (body.channel or "telegram").strip().lower()
         direction = (body.direction or "outbound").strip().lower()
@@ -1897,6 +1908,7 @@ def post_client_conversation(
             label=body.label or "",
             phone=phone,
             tg_nick=tg_nick,
+            tg_chat_id=str(delivery.get("chat_id") or tg_chat_id or ""),
             client_name=client_name,
             source=source,
         )
@@ -2919,6 +2931,16 @@ def post_client_conversation_sync(
             tg_nick = str(client.get("tg_nick") or "")
             tg_chat_id = str(client.get("tg_chat_id") or "")
             client_name = str(client.get("name") or "")
+        else:
+            # Outreach contact (custom:… or overlay-only peer) — the catalog
+            # has no row, but the contact registry knows the TG peer. Without
+            # this, sync reports no_tg_nick_or_phone and inbound never lands.
+            contact = get_contact(client_id)
+            if contact is not None:
+                phone = str(contact.get("phone") or "")
+                tg_nick = str(contact.get("tg_nick") or "")
+                tg_chat_id = str(contact.get("tg_chat_id") or "")
+                client_name = str(contact.get("name") or "")
         thread = sync_client_conversation(
             client_id=client_id,
             phone=phone,

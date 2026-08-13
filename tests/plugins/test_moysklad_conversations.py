@@ -420,3 +420,55 @@ def test_history_import_keeps_genuine_rapid_repeats(tmp_path, monkeypatch):
     synced = sync_from_telegram_user(client_id="cp-rep", tg_nick="@maria")
     assert synced["sync"]["imported"] == 2
     assert synced["message_count"] == 2
+
+
+def test_sync_client_conversation_falls_back_to_thread_peer(tmp_path, monkeypatch):
+    """Outreach contact (custom:…) has no catalog row — the sync must reuse
+    the peer stored on the thread instead of failing no_tg_nick_or_phone."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    clear_live_pull_throttle_for_tests()
+
+    append_message(
+        client_id="custom:hans1",
+        text="Привет, Hans! Какой у вас любимый цветок?",
+        direction="outbound",
+        channel="telegram",
+        tg_nick="pawels2137",
+        tg_chat_id="796461007",
+        client_name="Hans",
+        source="campaign_send",
+    )
+
+    seen_peer = {}
+
+    def _fake_history(*, peer: str, limit: int = 40):
+        seen_peer["peer"] = peer
+        return {
+            "ok": True,
+            "tg_chat_id": "796461007",
+            "tg_nick": "pawels2137",
+            "messages": [
+                {
+                    "direction": "inbound",
+                    "text": "сиски",
+                    "ts": "2026-08-13T06:51:40+00:00",
+                    "message_id": 501,
+                },
+            ],
+            "via": "stub",
+        }
+
+    import plugins.platforms.telegram_user.client as tg_user
+
+    monkeypatch.setattr(tg_user, "fetch_history", _fake_history)
+
+    from plugins.moysklad.conversations import sync_client_conversation
+
+    # Caller knows only the id — exactly what /conversation/sync sends for
+    # contacts without a catalog row.
+    thread = sync_client_conversation(client_id="custom:hans1")
+    assert seen_peer["peer"] == "796461007"
+    assert thread["sync"]["inbound_imported"] == 1
+    assert thread["message_count"] == 2
+    assert any(m["direction"] == "inbound" for m in thread["messages"])

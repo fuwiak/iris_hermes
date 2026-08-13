@@ -395,32 +395,15 @@ def get_thread(
     tg_nick: str = "",
     client_name: str = "",
 ) -> dict[str, Any]:
+    """Resolve a thread by hard identity only (id / phone / @nick).
+
+    Name soft-match used to pull «Александр Семин» into every card named
+    «Александр» — that is never a valid identity signal.
+    """
     keys = _index_keys(client_id=client_id, phone=phone, tg_nick=tg_nick)
     with _LOCK:
         store = _load()
         tid = _resolve_thread_id(store, keys)
-        if not tid and (client_name or "").strip():
-            # Soft match by name — Telegram export often indexes by display name
-            # when phone/nick are empty (e.g. client «анатолий»).
-            needle = (
-                str(client_name)
-                .strip()
-                .lower()
-                .replace("ё", "е")
-            )
-            if needle:
-                for candidate_id, thread in (store.get("threads") or {}).items():
-                    if not isinstance(thread, dict):
-                        continue
-                    name = (
-                        str(thread.get("client_name") or "")
-                        .strip()
-                        .lower()
-                        .replace("ё", "е")
-                    )
-                    if name and (name == needle or needle in name or name in needle):
-                        tid = str(candidate_id)
-                        break
         if not tid:
             return public_thread(None)
         return public_thread(store["threads"].get(tid))
@@ -1241,6 +1224,17 @@ def sync_client_conversation(
     client_name: str = "",
 ) -> dict[str, Any]:
     """Gateway sessions + personal MTProto history → one local thread."""
+    if not (
+        normalize_tg_nick(tg_nick)
+        or normalize_phone(phone)
+        or str(tg_chat_id or "").strip()
+    ):
+        # Caller knows only the id (outreach contact, orphaned thread) — the
+        # thread itself remembers the peer from earlier sends/merges.
+        stored = get_thread(client_id=client_id, client_name=client_name)
+        tg_nick = tg_nick or str(stored.get("tg_nick") or "")
+        phone = phone or str(stored.get("phone") or "")
+        tg_chat_id = tg_chat_id or str(stored.get("tg_chat_id") or "")
     gateway = sync_from_gateway(
         client_id=client_id,
         phone=phone,
