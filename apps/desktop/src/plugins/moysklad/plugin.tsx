@@ -3938,12 +3938,12 @@ function CampaignsPage() {
   const [salesFilter, setSalesFilter] = useState('all')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
-  /** Audience delivery is Telegram-only for now (WA / «любой» hidden). */
-  const [channelKind, setChannelKind] = useState('telegram')
+  /** Delivery channel for compose/send — not an audience filter until user toggles chips. */
+  const [channelKind, setChannelKind] = useState('')
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [requirePhone, setRequirePhone] = useState(false)
-  const [requireTelegram, setRequireTelegram] = useState(true)
+  const [requireTelegram, setRequireTelegram] = useState(false)
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
@@ -4206,8 +4206,6 @@ function CampaignsPage() {
       }
 
       if (prefill.salesFilter) {setSalesFilter(prefill.salesFilter)}
-      setChannelKind('telegram')
-      setRequireTelegram(true)
       setTitle('Черновик · клиент')
     }
 
@@ -4728,13 +4726,13 @@ function CampaignsPage() {
 
     setActiveSegmentId(segment.id)
     setSegmentName(segment.name)
-    setSalesFilter(f.sales_filter || 'direct')
+    setSalesFilter(f.sales_filter || 'all')
     setGroup(f.group || '')
     setGroupSource((f.group_source as 'any' | 'ms' | 'ai') || 'any')
     setAudienceQ(f.q || '')
-    setChannelKind('telegram')
-    setRequireTelegram(true)
-    setRequirePhone(false)
+    setChannelKind(String(f.channel_kind || '').trim())
+    setRequireTelegram(Boolean(f.require_telegram))
+    setRequirePhone(Boolean(f.require_phone))
     setVipOnly(Boolean(f.vip_only))
     setBirthdaySoon(Boolean(f.birthday_soon))
     setDaysBeforeEvent(f.days_before_event || 0)
@@ -6650,11 +6648,11 @@ function CampaignsPage() {
                 className="ms-btn"
                 onClick={() => {
                   setSalesFilter('all')
-                  setChannelKind('telegram')
+                  setChannelKind('')
                   setChannel('telegram')
                   setVipOnly(false)
                   setRequirePhone(false)
-                  setRequireTelegram(true)
+                  setRequireTelegram(false)
                   setBirthdaySoon(false)
                   setDaysBeforeEvent(0)
                   setEventDateFrom(null)
