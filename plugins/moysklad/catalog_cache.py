@@ -425,7 +425,7 @@ def page_snapshot_key(
 ) -> str:
     """Stable key for the clients page window snapshot (filter dims only)."""
     parts = (
-        "moysklad:clients:page:v5",
+        "moysklad:clients:page:v6",
         _account_fingerprint(),
         f"sf={(sales_filter or 'all').strip().lower()}",
         f"g={(group or '').strip().lower()}",

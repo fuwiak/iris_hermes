@@ -73,6 +73,12 @@ def _load_catalog(max_orders: int, max_counterparties: int) -> dict[str, Any]:
             max_counterparties=max_counterparties,
         )
     rows = list(catalog.get("rows") or [])
+    try:
+        from plugins.moysklad.telegram_export import stamp_catalog_rows_from_overlay
+
+        stamp_catalog_rows_from_overlay(rows)
+    except Exception:
+        pass
     stamp_catalog_rows_from_verify(rows)
     catalog["rows"] = rows
     return catalog
@@ -89,6 +95,21 @@ def main() -> int:
         help="Skip rows already present in tg_verify overlay",
     )
     parser.add_argument(
+        "--nicks-only",
+        action="store_true",
+        help="Only clients with ТГ ник (legacy; default is колонка Телефон)",
+    )
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Only match catalog phones to Telegram contacts cache (no live ImportContacts)",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Drop previous tg_verify overlay before this run",
+    )
+    parser.add_argument(
         "--sales-filter",
         default="all",
         choices=("all", "direct", "marketplace"),
@@ -98,22 +119,47 @@ def main() -> int:
     parser.add_argument("--max-counterparties", type=int, default=0)
     args = parser.parse_args()
 
+    from plugins.moysklad.conversations import normalize_tg_nick
     from plugins.moysklad.sales_channels import row_matches_sales_filter
     from plugins.moysklad.tg_verify import (
+        match_catalog_phones_to_contacts,
         overlay_for_client,
         row_has_contact_for_tg_check,
+        save_overlay,
         stamp_catalog_rows_from_verify,
         verify_catalog_row,
     )
 
+    if args.reset:
+        save_overlay({"by_client_id": {}, "stats": {}})
+        print("Reset tg_verify overlay.")
+
     catalog = _load_catalog(args.max_orders, args.max_counterparties)
     rows = list(catalog.get("rows") or [])
+
+    cache_stats = match_catalog_phones_to_contacts(rows)
+    print(
+        "Contacts cache: "
+        f"catalog phones={cache_stats.get('scanned', 0)} "
+        f"contacts_with_phone={cache_stats.get('contacts_with_phone', 0)} "
+        f"matched={cache_stats.get('matched', 0)}"
+    )
+    stamp_catalog_rows_from_verify(rows)
+
+    if args.cache_only:
+        print("Cache-only — skip live phone resolve.")
+        return 0
+
+    def _has_nick(row: dict[str, Any]) -> bool:
+        return bool(normalize_tg_nick(str(row.get("ТГ ник") or row.get("tg_nick") or "")))
+
     candidates = [
         r
         for r in rows
         if isinstance(r, dict)
         and row_has_contact_for_tg_check(r)
         and row_matches_sales_filter(r, args.sales_filter)
+        and (not args.nicks_only or _has_nick(r))
     ]
     if args.only_unchecked:
         filtered = []
@@ -130,7 +176,7 @@ def main() -> int:
 
     total = len(candidates)
     if not total:
-        print("Nothing to verify (no rows with @nick / chat id / phone).")
+        print("Nothing to verify (no rows with phone in колонка Телефон).")
         return 0
 
     active = inactive = skipped = 0
@@ -140,24 +186,26 @@ def main() -> int:
     for i, row in enumerate(candidates, start=1):
         cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
         name = str(row.get("Наименование") or row.get("name") or cid)[:48]
-        nick = str(row.get("ТГ ник") or row.get("tg_nick") or "").strip()
+        phone = str(row.get("Телефон") or row.get("phone") or "").strip()
         try:
             result = verify_catalog_row(row)
         except Exception as exc:
             skipped += 1
-            print(f"[{i}/{total}] {name}: ERROR {exc}")
+            print(f"[{i}/{total}] {name} {phone}: ERROR {exc}")
             continue
         if not result.get("checked"):
             skipped += 1
-            print(f"[{i}/{total}] {name}: skip — {result.get('detail')}")
+            print(f"[{i}/{total}] {name} {phone}: skip — {result.get('detail')}")
             continue
         if result.get("active"):
             active += 1
-            resolved = result.get("resolved_nick") or nick
-            print(f"[{i}/{total}] {name}: OK {resolved} via {result.get('via') or '?'}")
+            resolved = result.get("resolved_nick") or ""
+            print(
+                f"[{i}/{total}] {name} {phone}: OK {resolved} via {result.get('via') or '?'}"
+            )
         else:
             inactive += 1
-            print(f"[{i}/{total}] {name}: FAIL — {result.get('detail') or 'not found'}")
+            print(f"[{i}/{total}] {name} {phone}: FAIL — {result.get('detail') or 'not found'}")
         if delay and i < total:
             time.sleep(delay)
 

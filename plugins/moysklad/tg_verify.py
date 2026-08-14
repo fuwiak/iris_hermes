@@ -209,14 +209,11 @@ def row_tg_active(row: dict[str, Any]) -> bool | None:
 
 
 def row_has_contact_for_tg_check(row: dict[str, Any]) -> bool:
-    nick = normalize_tg_nick(row.get("ТГ ник") or row.get("tg_nick") or "")
-    chat_id = str(row.get("tg_chat_id") or "").strip()
-    phone = normalize_phone(row.get("Телефон") or row.get("phone"))
-    return bool(nick or chat_id or phone)
+    return bool(normalize_phone(row.get("Телефон") or row.get("phone")))
 
 
 def row_passes_telegram_filter(row: dict[str, Any]) -> bool:
-    """Audience chip «Telegram» — only verified reachable peers."""
+    """Audience chip «Telegram» — verified reachable via phone (or nick)."""
     active = row_tg_active(row)
     if active is True:
         return True
@@ -277,6 +274,82 @@ def stamp_catalog_rows_from_verify(rows: list[dict[str, Any]]) -> int:
     return stamped
 
 
+def save_verify_results_bulk(results: dict[str, dict[str, Any]]) -> int:
+    """Upsert many client verifications in one overlay write."""
+    if not results:
+        return 0
+    overlay = load_overlay()
+    by_id = dict(overlay.get("by_client_id") or {})
+    now = time.time()
+    written = 0
+    for cid, result in results.items():
+        key = str(cid or "").strip()
+        if not key:
+            continue
+        by_id[key] = {
+            "active": bool(result.get("active")),
+            "checked_at": float(result.get("checked_at") or now),
+            "resolved_nick": normalize_tg_nick(result.get("resolved_nick") or ""),
+            "chat_id": str(result.get("chat_id") or "").strip(),
+            "via": str(result.get("via") or "").strip(),
+            "detail": str(result.get("detail") or "").strip(),
+        }
+        written += 1
+    stats = dict(overlay.get("stats") or {})
+    stats["last_run_at"] = now
+    stats["total_checked"] = len(by_id)
+    stats["active"] = sum(1 for v in by_id.values() if isinstance(v, dict) and v.get("active"))
+    stats["inactive"] = sum(
+        1 for v in by_id.values() if isinstance(v, dict) and v.get("active") is False
+    )
+    overlay["by_client_id"] = by_id
+    overlay["stats"] = stats
+    save_overlay(overlay)
+    return written
+
+
+def match_catalog_phones_to_contacts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Mark ``tg_active`` from personal Telegram contacts cache (no live MTProto).
+
+    Matches catalog «Телефон» to ``contacts.json`` phone — this is the fast
+    path after «Синхр.» in Рассылки.
+    """
+    from plugins.platforms.telegram_user.client import cached_contacts, phone_lookup_key
+
+    index: dict[str, dict[str, Any]] = {}
+    for contact in cached_contacts():
+        if not isinstance(contact, dict):
+            continue
+        key = phone_lookup_key(str(contact.get("phone") or ""))
+        if key and key not in index:
+            index[key] = contact
+    hits: dict[str, dict[str, Any]] = {}
+    scanned = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        phone = str(row.get("Телефон") or row.get("phone") or "")
+        key = phone_lookup_key(phone)
+        if not key:
+            continue
+        scanned += 1
+        contact = index.get(key)
+        if not contact:
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if not cid:
+            continue
+        hits[cid] = {
+            "active": True,
+            "resolved_nick": contact.get("tg_nick") or "",
+            "chat_id": str(contact.get("tg_chat_id") or contact.get("id") or ""),
+            "via": "contacts_cache",
+            "detail": "",
+        }
+    written = save_verify_results_bulk(hits)
+    return {"scanned": scanned, "matched": written, "contacts_with_phone": len(index)}
+
+
 def save_verify_result(client_id: str, result: dict[str, Any]) -> dict[str, Any]:
     """Upsert one client verification into the overlay."""
     cid = str(client_id or "").strip()
@@ -314,33 +387,51 @@ def verify_client_peers(
     tg_chat_id: str = "",
     tg_conversation: str = "",
 ) -> dict[str, Any]:
-    """Resolve @nick / chat id / phone — does the peer still exist in Telegram?"""
+    """Resolve phone first (колонка Телефон), then chat id / @nick."""
     from plugins.moysklad.telegram_send import preflight_recipient
     from plugins.platforms.telegram_user import client as tg_user
 
     nick = normalize_tg_nick(tg_nick)
     chat_id = str(tg_chat_id or "").strip()
-    phone_digits = re.sub(r"\D+", "", str(phone or ""))
-    peers = [
-        p
-        for p in (
-            f"@{nick.lstrip('@')}" if nick else "",
-            chat_id,
-            phone_digits,
-        )
-        if p
-    ]
-    if not peers:
-        return {
-            "ok": True,
-            "active": False,
-            "checked": False,
-            "detail": "Нет ни ТГ ника, ни chat id, ни телефона — проверить нечего.",
-        }
+    phone_raw = str(phone or "").strip()
+    phone_digits = re.sub(r"\D+", "", phone_raw)
 
     last_error: dict[str, Any] = {}
     try:
+        if phone_raw:
+            res = tg_user.resolve_peer(
+                tg_user.normalize_login_phone(phone_raw) or phone_raw
+            )
+            if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
+                resolved = normalize_tg_nick(res.get("tg_nick") or nick)
+                return {
+                    "ok": True,
+                    "active": True,
+                    "checked": True,
+                    "chat_id": str(res.get("tg_chat_id") or res.get("id")),
+                    "resolved_nick": resolved,
+                    "via": str(res.get("resolved_via") or "phone"),
+                    "detail": "",
+                }
+            if res.get("error") == "phone_not_on_telegram":
+                return {
+                    "ok": True,
+                    "active": False,
+                    "checked": True,
+                    "resolved_nick": nick,
+                    "detail": str(res.get("detail") or "На этом номере нет Telegram"),
+                    "error": "phone_not_on_telegram",
+                }
+            last_error = res
         if tg_user.is_authorized():
+            peers = [
+                p
+                for p in (
+                    chat_id,
+                    f"@{nick.lstrip('@')}" if nick else "",
+                )
+                if p
+            ]
             for peer in peers:
                 res = tg_user.resolve_peer(peer)
                 if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
@@ -357,6 +448,32 @@ def verify_client_peers(
                 last_error = res
     except Exception as exc:
         last_error = {"error": "telegram_user_error", "detail": str(exc)}
+
+    if last_error.get("error") in {
+        "not_authorized",
+        "network_unreachable",
+        "gateway_unreachable",
+        "timeout",
+        "gateway_missing",
+    }:
+        return {
+            "ok": True,
+            "active": False,
+            "checked": False,
+            "detail": str(
+                last_error.get("detail")
+                or "Личный Telegram не подключён — телефон не проверен."
+            ),
+            "error": last_error.get("error"),
+        }
+
+    if not nick and not chat_id and not phone_digits:
+        return {
+            "ok": True,
+            "active": False,
+            "checked": False,
+            "detail": "Нет телефона, ТГ ника и chat id — проверить нечего.",
+        }
 
     check = preflight_recipient(
         tg_nick=tg_nick,
@@ -375,17 +492,17 @@ def verify_client_peers(
             "detail": "",
         }
 
-    detail = (
-        last_error.get("detail")
-        or check.get("detail")
-        or "Telegram не нашёл пользователя по нику / телефону."
-    )
+    # Bot API «chat not found» is not proof the phone has no Telegram.
     return {
         "ok": True,
         "active": False,
-        "checked": True,
+        "checked": False,
         "resolved_nick": nick,
-        "detail": str(detail),
+        "detail": str(
+            last_error.get("detail")
+            or check.get("detail")
+            or "Не удалось проверить телефон (нужен личный Telegram)."
+        ),
         "error": last_error.get("error") or check.get("error"),
     }
 

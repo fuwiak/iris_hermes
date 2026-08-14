@@ -249,6 +249,8 @@ def test_contacts_cache_roundtrip(tmp_path, monkeypatch):
     found = tu.find_cached_contact(tg_nick="@papa2139")
     assert found is not None and found["name"] == "Ася"
     assert tu.find_cached_contact(tg_chat_id="415321451") is not None
+    assert tu.find_cached_contact(phone="+7 999 000 11 22") is not None
+    assert tu.find_cached_contact(phone="89990001122") is not None
     assert tu.find_cached_contact(tg_nick="nobody") is None
 
 
@@ -481,6 +483,43 @@ def test_resolve_peer_uses_contacts_cache(tmp_path, monkeypatch):
     out = tu.resolve_peer("@cacheduser")
     assert out["ok"] is True
     assert out["tg_chat_id"] == "99"
+    assert out["resolved_via"] == "contacts_cache"
+
+
+def test_looks_like_phone_not_user_id():
+    assert tu.looks_like_phone("+79001234567") is True
+    assert tu.looks_like_phone("79001234567") is True
+    assert tu.looks_like_phone("89001234567") is True
+    assert tu.looks_like_phone("9001234567") is True
+    assert tu.looks_like_phone("415321451") is False
+    assert tu.phone_lookup_key("+7 (900) 123-45-67") == "9001234567"
+
+
+def test_resolve_peer_phone_uses_contacts_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("TELEGRAM_USER_GATEWAY_URL", raising=False)
+    monkeypatch.setattr(
+        tu,
+        "cached_contacts",
+        lambda: [
+            {
+                "id": "77",
+                "tg_chat_id": "77",
+                "tg_nick": "flower",
+                "name": "Клиент",
+                "phone": "79001112233",
+            }
+        ],
+    )
+
+    def _boom(*a, **k):
+        raise AssertionError("phone cache hit must skip Telethon/gateway")
+
+    monkeypatch.setattr(tu, "_call", _boom)
+    monkeypatch.setattr(tu, "_gateway_request", _boom)
+    out = tu.resolve_peer("+7 900 111-22-33")
+    assert out["ok"] is True
+    assert out["tg_chat_id"] == "77"
     assert out["resolved_via"] == "contacts_cache"
 
 

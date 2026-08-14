@@ -2906,6 +2906,7 @@ function ClientsPage() {
   const [tgImportBusy, setTgImportBusy] = useState(false)
   const [tgImportNote, setTgImportNote] = useState('')
   const [tgDialogSyncBusy, setTgDialogSyncBusy] = useState(false)
+  const [tgPhoneVerifyBusy, setTgPhoneVerifyBusy] = useState(false)
 
   /** Bulk-sync personal TG dialogs → «TG conversation»; poll until done. */
   const runTgDialogSync = async () => {
@@ -2956,6 +2957,55 @@ function ClientsPage() {
       )
     } finally {
       setTgDialogSyncBusy(false)
+    }
+  }
+
+  /** Match колонка Телефон → Telegram contacts, then live ImportContacts. */
+  const runTgPhoneVerify = async () => {
+    setTgPhoneVerifyBusy(true)
+    setTgImportNote('Проверка Telegram по телефонам запущена…')
+    try {
+      await call('/clients/telegram-verify?live=true&limit=400&delay_ms=400', {
+        method: 'POST'
+      })
+      for (let i = 0; i < 180; i += 1) {
+        await new Promise(r => setTimeout(r, 4000))
+        const data = await call<{
+          state?: {
+            running?: boolean
+            error?: string | null
+            stats?: {
+              cache?: { scanned?: number; matched?: number; contacts_with_phone?: number }
+              live?: { active?: number; inactive?: number; skipped?: number }
+              live_queued?: number
+            } | null
+          }
+        }>('/clients/telegram-verify')
+        const state = data.state
+        if (state?.running) {
+          continue
+        }
+        if (state?.error) {
+          setTgImportNote(`TG телефоны: ${state.error}`)
+        } else {
+          const cache = state?.stats?.cache || {}
+          const live = state?.stats?.live || {}
+          setTgImportNote(
+            `TG по телефону: в кэше контактов ${cache.contacts_with_phone ?? 0}` +
+              ` · совпало ${cache.matched ?? 0}` +
+              ` · live OK ${live.active ?? 0} / нет ${live.inactive ?? 0}` +
+              ((live.skipped ?? 0) > 0 ? ` · skip ${live.skipped}` : '')
+          )
+          await load({ refresh: false })
+        }
+        break
+      }
+    } catch (err) {
+      setTgImportNote(
+        `TG телефоны: ${err instanceof Error ? err.message : String(err)}`
+      )
+    } finally {
+      setTgPhoneVerifyBusy(false)
     }
   }
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
@@ -3543,6 +3593,15 @@ function ClientsPage() {
             type="button"
           >
             {tgDialogSyncBusy ? 'Синхр. TG…' : 'Синхр. TG-диалоги'}
+          </button>
+          <button
+            className="ms-btn"
+            disabled={loading || tgPhoneVerifyBusy}
+            onClick={() => void runTgPhoneVerify()}
+            title="Проверить колонку Телефон: есть ли у номера аккаунт Telegram. Пишет «TG активен» и фильтр Telegram в Рассылках."
+            type="button"
+          >
+            {tgPhoneVerifyBusy ? 'Проверяю TG…' : 'TG по телефонам'}
           </button>
           <button className="ms-btn" onClick={() => host.navigate('/campaigns')} type="button">
             Рассылка

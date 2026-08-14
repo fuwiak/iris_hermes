@@ -26,6 +26,35 @@ def test_require_telegram_audience_extras_uses_verified_only() -> None:
     assert row_matches_audience_extras(unchecked, require_telegram=True) is False
 
 
+def test_match_catalog_phones_to_contacts(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    from plugins.platforms.telegram_user import client as tu
+    from plugins.moysklad.tg_verify import match_catalog_phones_to_contacts, row_tg_active
+
+    monkeypatch.setattr(
+        tu,
+        "cached_contacts",
+        lambda: [
+            {
+                "id": "u1",
+                "tg_chat_id": "111",
+                "tg_nick": "oknick",
+                "phone": "+7 900 111-22-33",
+            }
+        ],
+    )
+    rows = [
+        {"id": "c1", "Телефон": "89001112233", "name": "A"},
+        {"id": "c2", "Телефон": "+79009998877", "name": "B"},
+        {"id": "c3", "name": "no phone"},
+    ]
+    stats = match_catalog_phones_to_contacts(rows)
+    assert stats["matched"] == 1
+    assert stats["scanned"] == 2
+    assert row_tg_active({"id": "c1"}) is True
+    assert row_tg_active({"id": "c2"}) is None
+
+
 def test_stamp_catalog_rows_from_verify(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     cid = "cp-test-1"

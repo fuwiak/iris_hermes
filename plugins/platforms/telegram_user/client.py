@@ -245,6 +245,37 @@ def normalize_login_phone(value: str) -> str:
     return "+" + digits
 
 
+def phone_lookup_key(value: str) -> str:
+    """Stable last-10 digit key — same shape as MoySklad ``normalize_phone``."""
+    digits = _PHONE_DIGITS_RE.sub("", str(value or ""))
+    if not digits:
+        return ""
+    if len(digits) >= 11 and digits[0] in ("7", "8"):
+        digits = digits[-10:]
+    elif len(digits) > 10:
+        digits = digits[-10:]
+    return digits if len(digits) >= 7 else ""
+
+
+def looks_like_phone(value: str) -> bool:
+    """RU/E.164 phone vs Telegram numeric user id.
+
+    ``79001234567`` must not be treated as a user id (``_PEER_ID_RE`` would).
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("+") or raw.startswith("00"):
+        digits = _PHONE_DIGITS_RE.sub("", raw)
+        return 10 <= len(digits) <= 15
+    digits = _PHONE_DIGITS_RE.sub("", raw)
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        return True
+    if len(digits) == 10 and digits.startswith("9"):
+        return True
+    return False
+
+
 def _sent_code_meta(sent: Any) -> dict[str, Any]:
     """Human + machine hints for where Telegram delivered the login code."""
     type_obj = getattr(sent, "type", None)
@@ -1561,13 +1592,17 @@ def find_cached_contact(
     *,
     tg_nick: str = "",
     tg_chat_id: str = "",
+    phone: str = "",
 ) -> Optional[dict[str, Any]]:
     nick = str(tg_nick or "").strip().lstrip("@").lower()
     chat_id = str(tg_chat_id or "").strip()
+    phone_key = phone_lookup_key(phone)
     for c in cached_contacts():
         if chat_id and str(c.get("tg_chat_id") or "") == chat_id:
             return c
         if nick and str(c.get("tg_nick") or "").lower() == nick:
+            return c
+        if phone_key and phone_lookup_key(str(c.get("phone") or "")) == phone_key:
             return c
     return None
 
@@ -1588,7 +1623,7 @@ def _peer_arg(peer: str) -> Any:
 
 
 def resolve_peer(query: str) -> dict[str, Any]:
-    """Resolve @nick / t.me / numeric id through the user session.
+    """Resolve @nick / t.me / numeric id / phone through the user session.
 
     When ``TELEGRAM_USER_GATEWAY_URL`` is set (Selectel → Railway egress), resolve
     MUST go through the gateway — local Telethon cannot reach Telegram DCs and
@@ -1596,9 +1631,79 @@ def resolve_peer(query: str) -> dict[str, Any]:
     """
     raw = str(query or "").strip()
     if not raw:
-        return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+        return _err("peer_missing", "Укажите @ник, телефон, t.me/… или numeric id")
 
     # Cheap path: already in the synced personal contacts cache.
+    if looks_like_phone(raw):
+        cached = find_cached_contact(phone=raw)
+        if cached and cached.get("tg_chat_id"):
+            return {
+                "ok": True,
+                "id": str(cached.get("id") or cached.get("tg_chat_id") or ""),
+                "tg_chat_id": str(cached["tg_chat_id"]),
+                "tg_nick": str(cached.get("tg_nick") or "").lstrip("@"),
+                "name": str(cached.get("name") or ""),
+                "phone": str(cached.get("phone") or ""),
+                "resolved_via": "contacts_cache",
+            }
+        e164 = normalize_login_phone(raw)
+        if _gateway_base():
+            res = _gateway_request(
+                "POST",
+                "resolve",
+                json_body={"peer": e164 or raw, "kind": "phone"},
+                timeout=45.0,
+            )
+            if res.get("ok") and res.get("tg_chat_id"):
+                res.setdefault("resolved_via", "mtproto_gateway")
+                return res
+            return res
+
+        async def _resolve_phone() -> dict[str, Any]:
+            client = await _RUNNER.client()
+            if not await client.is_user_authorized():
+                return _err("not_authorized", "Личный Telegram не подключён")
+            from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
+                DeleteContactsRequest,
+                ImportContactsRequest,
+            )
+            from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
+
+            result = await client(
+                ImportContactsRequest(
+                    [
+                        InputPhoneContact(
+                            client_id=0,
+                            phone=e164,
+                            first_name=".",
+                            last_name="",
+                        )
+                    ]
+                )
+            )
+            users = list(getattr(result, "users", None) or [])
+            if not users:
+                return _err(
+                    "phone_not_on_telegram",
+                    "На этом номере нет аккаунта Telegram",
+                )
+            try:
+                await client(DeleteContactsRequest(id=users))
+            except Exception:
+                log.debug("DeleteContacts after phone import failed", exc_info=True)
+            norm = _contact_from_user(users[0], source="phone_import") or {}
+            if not norm:
+                eid = getattr(users[0], "id", None)
+                norm = {
+                    "id": str(eid),
+                    "tg_chat_id": str(eid),
+                    "tg_nick": "",
+                    "name": "",
+                }
+            return {"ok": True, **norm, "resolved_via": "import_contacts"}
+
+        return _call(_resolve_phone, timeout=45.0)
+
     target = _peer_arg(raw)
     if isinstance(target, int):
         cached = find_cached_contact(tg_chat_id=str(target))

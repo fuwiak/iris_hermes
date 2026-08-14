@@ -533,6 +533,104 @@ def _maybe_kick_telegram_dialog_sync() -> None:
     start_telegram_dialog_sync(max_peers=peers)
 
 
+_TG_PHONE_VERIFY_LOCK = threading.Lock()
+_TG_PHONE_VERIFY_STATE: dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "stats": None,
+    "error": None,
+}
+
+
+def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
+    error: str | None = None
+    stats: dict[str, Any] = {}
+    try:
+        from plugins.moysklad.tg_verify import (
+            match_catalog_phones_to_contacts,
+            overlay_for_client,
+            row_has_contact_for_tg_check,
+            stamp_catalog_rows_from_verify,
+            verify_catalog_row,
+        )
+
+        catalog, _meta = _get_catalog(
+            force=False, blocking=True, refresh_counts=False
+        )
+        rows = list((catalog or {}).get("rows") or [])
+        cache_stats = match_catalog_phones_to_contacts(rows)
+        stats["cache"] = cache_stats
+        stamped = stamp_catalog_rows_from_verify(rows)
+        stats["stamped"] = stamped
+        if live:
+            remaining = [
+                r
+                for r in rows
+                if isinstance(r, dict)
+                and row_has_contact_for_tg_check(r)
+                and not overlay_for_client(
+                    str(r.get("_moysklad_id") or r.get("id") or "")
+                )
+            ]
+            cap = max(0, int(limit or 0))
+            if cap:
+                remaining = remaining[:cap]
+            stats["live_queued"] = len(remaining)
+            active = inactive = skipped = 0
+            delay = max(0, int(delay_ms or 0)) / 1000.0
+            for i, row in enumerate(remaining):
+                result = verify_catalog_row(row)
+                if not result.get("checked"):
+                    skipped += 1
+                elif result.get("active"):
+                    active += 1
+                else:
+                    inactive += 1
+                if delay and i + 1 < len(remaining):
+                    time.sleep(delay)
+            stamp_catalog_rows_from_verify(rows)
+            stats["live"] = {
+                "active": active,
+                "inactive": inactive,
+                "skipped": skipped,
+            }
+        with _TG_PHONE_VERIFY_LOCK:
+            _TG_PHONE_VERIFY_STATE["stats"] = stats
+    except Exception as exc:
+        log.exception("moysklad telegram phone verify failed")
+        error = str(exc)
+    finally:
+        with _TG_PHONE_VERIFY_LOCK:
+            _TG_PHONE_VERIFY_STATE.update(
+                running=False,
+                finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                error=error,
+            )
+
+
+def start_telegram_phone_verify(
+    *, live: bool = True, limit: int = 400, delay_ms: int = 400
+) -> bool:
+    with _TG_PHONE_VERIFY_LOCK:
+        if _TG_PHONE_VERIFY_STATE.get("running"):
+            return False
+        _TG_PHONE_VERIFY_STATE.update(
+            running=True,
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            finished_at=None,
+            stats=None,
+            error=None,
+        )
+    threading.Thread(
+        target=_tg_phone_verify_worker,
+        kwargs={"live": live, "limit": limit, "delay_ms": delay_ms},
+        name="moysklad-tg-phone-verify",
+        daemon=True,
+    ).start()
+    return True
+
+
 def _catalog_keepwarm_loop() -> None:
     # Let the web server finish booting before the first MoySklad pull.
     time.sleep(_KEEPWARM_BOOT_DELAY_SECONDS)
@@ -3102,6 +3200,34 @@ def get_clients_conversations_telegram_sync() -> dict[str, Any]:
     """State of the background TG dialog sync (running flag + last stats)."""
     with _TG_DIALOG_SYNC_LOCK:
         return {"ok": True, "state": dict(_TG_DIALOG_SYNC_STATE)}
+
+
+@router.post("/clients/telegram-verify")
+def post_clients_telegram_verify(
+    live: bool = Query(True),
+    limit: int = Query(400, ge=0, le=5000),
+    delay_ms: int = Query(400, ge=0, le=5000),
+) -> dict[str, Any]:
+    """Check колонка Телефон against Telegram (contacts cache + ImportContacts).
+
+    Writes ``tg_active`` for Клиенты column «TG активен» and Рассылки filter.
+    """
+    try:
+        started = start_telegram_phone_verify(
+            live=live, limit=limit, delay_ms=delay_ms
+        )
+        with _TG_PHONE_VERIFY_LOCK:
+            state = dict(_TG_PHONE_VERIFY_STATE)
+        return {"ok": True, "started": started, "state": state}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /clients/telegram-verify failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/clients/telegram-verify")
+def get_clients_telegram_verify() -> dict[str, Any]:
+    with _TG_PHONE_VERIFY_LOCK:
+        return {"ok": True, "state": dict(_TG_PHONE_VERIFY_STATE)}
 
 
 @router.post("/clients/telegram-export/import")
