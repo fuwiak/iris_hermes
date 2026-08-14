@@ -389,6 +389,75 @@ def list_jobs(limit: int = 20) -> list[dict[str, Any]]:
     return rows[:cap]
 
 
+def record_completed_job(
+    *,
+    message: str,
+    results: list[dict[str, Any]],
+    channel: str = "telegram",
+    via: str = "",
+    deliver: bool = True,
+) -> dict[str, Any]:
+    """Persist a finished blast (e.g. legacy mark-sent-batch) into job history.
+
+    ``results`` items: ``client_id``, optional ``client_name`` / ``tg_nick``,
+    ``ok`` bool, optional ``error`` / ``detail``.
+    """
+    text = str(message or "")
+    recipients: list[dict[str, Any]] = []
+    sent_ok = 0
+    sent_failed = 0
+    now = _now_iso()
+    for raw in results:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("client_id") or "").strip()
+        if not cid:
+            continue
+        ok = bool(raw.get("ok"))
+        if ok:
+            sent_ok += 1
+            status = "ok"
+        else:
+            sent_failed += 1
+            status = "failed"
+        recipients.append(
+            {
+                "client_id": cid,
+                "client_name": str(raw.get("client_name") or ""),
+                "tg_nick": str(raw.get("tg_nick") or ""),
+                "status": status,
+                "error": raw.get("error"),
+                "detail": raw.get("detail"),
+                "ts": now,
+            }
+        )
+    job_id = f"msj-{uuid.uuid4().hex[:12]}"
+    job: dict[str, Any] = {
+        "id": job_id,
+        "status": "done",
+        "channel": (channel or "telegram").strip().lower(),
+        "via": (via or "").strip(),
+        "deliver": bool(deliver),
+        "stop_on_error": False,
+        "message": text,
+        "total": len(recipients),
+        "attempted": len(recipients),
+        "sent_ok": sent_ok,
+        "sent_failed": sent_failed,
+        "created_at": now,
+        "started_at": now,
+        "finished_at": now,
+        "cancel_requested": False,
+        "error": None,
+        "recipients": recipients,
+    }
+    with _LOCK:
+        _JOBS[job_id] = job
+    _persist(job)
+    _prune_disk()
+    return job
+
+
 def clear_for_tests() -> None:
     global _RUNNING_ID
     with _LOCK:

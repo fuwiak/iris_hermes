@@ -2323,6 +2323,20 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                 stopped_early = True
                 break
 
+        # Persist into История отправок (same store as background mass-send).
+        history_job = None
+        if results:
+            try:
+                history_job = mass_send_jobs.record_completed_job(
+                    message=text,
+                    results=results,
+                    channel=channel,
+                    via=body.via or telegram_send_mode(),
+                    deliver=body.deliver,
+                )
+            except Exception:
+                log.warning("mark-sent-batch history persist failed", exc_info=True)
+
         payload = {
             "ok": sent_failed == 0,
             "channel": channel,
@@ -2335,6 +2349,7 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
             "account": account or None,
             "results": results,
             "telegram": telegram_send_status(),
+            "job": mass_send_jobs.summary(history_job) if history_job else None,
         }
         return _attach_cache_meta(payload, meta)
     except HTTPException:
@@ -2508,9 +2523,29 @@ def get_campaign_mass_send_history(
     limit: int = Query(20, ge=1, le=20),
 ) -> dict[str, Any]:
     """История отправок: newest-first job summaries (message preview, counts,
-    status). Per-recipient log — GET /campaigns/mass-send/{job_id}."""
+    status). Per-recipient log — GET /campaigns/mass-send/{job_id}.
+
+    Merges background ``mass_send_jobs`` with conversation-derived blasts
+    (identical исходящие in Facts / TG conversation — Telegram export and
+    older mark-sent-batch sends that never wrote a job file).
+    """
     try:
-        return {"ok": True, "jobs": mass_send_jobs.list_jobs(limit=limit)}
+        from plugins.moysklad.conversations import list_outbound_blasts
+
+        cap = max(1, min(int(limit or 20), 20))
+        jobs = list(mass_send_jobs.list_jobs(limit=cap))
+        blasts = list_outbound_blasts(limit=cap)
+        by_id: dict[str, dict[str, Any]] = {}
+        for row in jobs + blasts:
+            jid = str(row.get("id") or "").strip()
+            if jid and jid not in by_id:
+                by_id[jid] = row
+        merged = sorted(
+            by_id.values(),
+            key=lambda j: str(j.get("created_at") or ""),
+            reverse=True,
+        )
+        return {"ok": True, "jobs": merged[:cap]}
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mass-send/history failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2528,6 +2563,16 @@ def get_campaign_mass_send_job(
         snap = mass_send_jobs.job_snapshot(
             job_id, offset=offset, limit=limit, status=status
         )
+        if snap is None:
+            from plugins.moysklad.conversations import (
+                get_outbound_blast,
+                is_blast_history_id,
+            )
+
+            if is_blast_history_id(job_id):
+                snap = get_outbound_blast(
+                    job_id, offset=offset, limit=limit, status=status
+                )
         if snap is None:
             raise HTTPException(status_code=404, detail="mass send job not found")
         return {"ok": True, "job": snap}

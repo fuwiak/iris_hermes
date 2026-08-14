@@ -1483,3 +1483,182 @@ def list_awaiting_replies(
 
     rows.sort(key=_sort_key, reverse=True)
     return rows[:cap]
+
+
+# ── История отправок from TG conversation outbound ──────────────────────
+# Mass-send jobs live in mass_send_jobs/. Older blasts (Telegram Desktop
+# export, mark-sent-batch) only land in conversations — rebuild them here
+# so «3. История отправок» is not empty when Facts already shows исходящие.
+
+_BLAST_ID_PREFIX = "blast-"
+_DEFAULT_MIN_BLAST_RECIPIENTS = 2
+
+
+def is_blast_history_id(job_id: str) -> bool:
+    return str(job_id or "").startswith(_BLAST_ID_PREFIX)
+
+
+def _normalize_blast_text(text: str) -> str:
+    return " ".join(str(text or "").split())
+
+
+def _blast_id_for(day: str, normalized_text: str) -> str:
+    digest = hashlib.sha256(f"{day}\0{normalized_text}".encode("utf-8")).hexdigest()
+    return f"{_BLAST_ID_PREFIX}{digest[:12]}"
+
+
+def _collect_outbound_blast_groups(
+    *,
+    min_recipients: int = _DEFAULT_MIN_BLAST_RECIPIENTS,
+) -> list[dict[str, Any]]:
+    """Group identical outbound texts (same calendar day) into blast summaries.
+
+    A group needs ``min_recipients`` unique clients — unique 1:1 chatter stays
+    in Facts / TG conversation, not in the mass-history list.
+    """
+    try:
+        floor = max(1, int(min_recipients))
+    except (TypeError, ValueError):
+        floor = _DEFAULT_MIN_BLAST_RECIPIENTS
+
+    # key → {text, day, created_at, by_client: {cid: row}}
+    groups: dict[str, dict[str, Any]] = {}
+    with _LOCK:
+        store = _load()
+        threads = store.get("threads") or {}
+        for tid, thread in threads.items():
+            if not isinstance(thread, dict):
+                continue
+            cid = str(thread.get("client_id") or tid or "").strip()
+            if not cid:
+                continue
+            client_name = str(thread.get("client_name") or "")
+            tg_nick = str(thread.get("tg_nick") or "")
+            for msg in thread.get("messages") or []:
+                if not isinstance(msg, dict):
+                    continue
+                if str(msg.get("direction") or "").strip().lower() != "outbound":
+                    continue
+                raw_text = str(msg.get("text") or "").strip()
+                if not raw_text:
+                    continue
+                norm = _normalize_blast_text(raw_text)
+                if not norm:
+                    continue
+                ts = str(msg.get("ts") or "").strip()
+                day = ts[:10] if len(ts) >= 10 else (ts or "unknown")
+                blast_id = _blast_id_for(day, norm)
+                bucket = groups.get(blast_id)
+                if bucket is None:
+                    bucket = {
+                        "id": blast_id,
+                        "text": raw_text,
+                        "day": day,
+                        "created_at": ts or day,
+                        "by_client": {},
+                        "source": str(msg.get("source") or "") or "conversation",
+                        "channel": str(msg.get("channel") or "telegram") or "telegram",
+                    }
+                    groups[blast_id] = bucket
+                else:
+                    # Prefer the latest timestamp as the blast's finished_at.
+                    if ts and ts > str(bucket.get("created_at") or ""):
+                        bucket["created_at"] = ts
+                by_client: dict[str, dict[str, Any]] = bucket["by_client"]
+                prev = by_client.get(cid)
+                row = {
+                    "client_id": cid,
+                    "client_name": client_name,
+                    "tg_nick": tg_nick,
+                    "status": "ok",
+                    "error": None,
+                    "detail": None,
+                    "ts": ts or None,
+                    "source": str(msg.get("source") or "") or None,
+                }
+                # Keep the latest send per client within the day+text group.
+                if prev is None or str(ts) >= str(prev.get("ts") or ""):
+                    by_client[cid] = row
+
+    out: list[dict[str, Any]] = []
+    for bucket in groups.values():
+        recipients = list(bucket["by_client"].values())
+        if len(recipients) < floor:
+            continue
+        text = str(bucket.get("text") or "")
+        created = str(bucket.get("created_at") or bucket.get("day") or "")
+        out.append(
+            {
+                "id": bucket["id"],
+                "status": "done",
+                "channel": bucket.get("channel") or "telegram",
+                "via": "conversation",
+                "deliver": True,
+                "total": len(recipients),
+                "attempted": len(recipients),
+                "sent_ok": len(recipients),
+                "sent_failed": 0,
+                "created_at": created,
+                "started_at": created,
+                "finished_at": created,
+                "cancel_requested": False,
+                "stop_on_error": False,
+                "error": None,
+                "message_preview": text[:160],
+                "history_kind": "conversation_blast",
+                "source": bucket.get("source") or "conversation",
+                # Kept for snapshot; stripped from list_jobs-style summaries.
+                "_recipients": recipients,
+                "_message": text,
+            }
+        )
+    out.sort(key=lambda j: str(j.get("created_at") or ""), reverse=True)
+    return out
+
+
+def list_outbound_blasts(
+    *,
+    limit: int = 20,
+    min_recipients: int = _DEFAULT_MIN_BLAST_RECIPIENTS,
+) -> list[dict[str, Any]]:
+    """Newest-first blast summaries for История отправок (no recipient payloads)."""
+    try:
+        cap = max(1, min(int(limit or 20), 50))
+    except (TypeError, ValueError):
+        cap = 20
+    rows = []
+    for job in _collect_outbound_blast_groups(min_recipients=min_recipients)[:cap]:
+        rows.append({k: v for k, v in job.items() if not str(k).startswith("_")})
+    return rows
+
+
+def get_outbound_blast(
+    blast_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 500,
+    status: str = "all",
+) -> Optional[dict[str, Any]]:
+    """Summary + recipient slice for a conversation-derived blast id."""
+    bid = str(blast_id or "").strip()
+    if not is_blast_history_id(bid):
+        return None
+    for job in _collect_outbound_blast_groups(min_recipients=1):
+        if job.get("id") != bid:
+            continue
+        recipients = list(job.get("_recipients") or [])
+        want = (status or "all").strip().lower()
+        if want in ("failed", "ok", "pending", "skipped"):
+            recipients = [r for r in recipients if str(r.get("status")) == want]
+        lo = max(0, int(offset))
+        try:
+            hi = lo + max(1, min(int(limit), 2000))
+        except (TypeError, ValueError):
+            hi = lo + 500
+        snap = {k: v for k, v in job.items() if not str(k).startswith("_")}
+        snap["message"] = job.get("_message") or ""
+        snap["recipients"] = recipients[lo:hi]
+        snap["results_offset"] = lo
+        snap["results_total"] = len(recipients)
+        return snap
+    return None

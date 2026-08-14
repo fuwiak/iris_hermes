@@ -106,6 +106,8 @@ export interface MassJobSummary {
   cancel_requested?: boolean
   error?: string | null
   message_preview?: string
+  /** Present on conversation-derived history rows (Telegram export / Facts). */
+  history_kind?: string
 }
 
 export const MASS_TERMINAL_ROW_STATUSES = new Set(['ok', 'failed', 'skipped'])

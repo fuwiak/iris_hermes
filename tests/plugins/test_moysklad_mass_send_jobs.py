@@ -162,3 +162,29 @@ def test_list_jobs_newest_first_with_summaries(tmp_path, monkeypatch):
     assert all("recipients" not in j for j in jobs)
     assert jobs[0].get("message_preview")
     msj.clear_for_tests()
+
+
+def test_record_completed_job_lands_in_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from plugins.moysklad import mass_send_jobs as msj
+
+    msj.clear_for_tests()
+    job = msj.record_completed_job(
+        message="Пачка из mark-sent-batch",
+        results=[
+            {"client_id": "a", "client_name": "A", "ok": True},
+            {"client_id": "b", "ok": False, "error": "no_peer"},
+        ],
+        channel="telegram",
+        via="bot",
+    )
+    assert job["status"] == "done"
+    assert job["sent_ok"] == 1
+    assert job["sent_failed"] == 1
+    listed = msj.list_jobs()
+    assert listed[0]["id"] == job["id"]
+    assert listed[0]["message_preview"]
+    snap = msj.job_snapshot(job["id"], limit=10)
+    assert snap is not None
+    assert snap["results_total"] == 2
+    msj.clear_for_tests()

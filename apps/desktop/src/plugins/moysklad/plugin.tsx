@@ -5791,15 +5791,19 @@ function CampaignsPage() {
   const [historyRows, setHistoryRows] = useState<MassRecipientRow[]>([])
   const [historyRowsLoading, setHistoryRowsLoading] = useState(false)
 
+  const [historyError, setHistoryError] = useState('')
+
   const loadSendHistory = useCallback(async () => {
     setHistoryLoading(true)
+    setHistoryError('')
     try {
       const data = await call<{ jobs?: MassJobSummary[] }>(
         '/campaigns/mass-send/history?limit=20'
       )
       setHistoryJobs(data.jobs || [])
-    } catch {
-      /* history is best-effort — never block the send form */
+    } catch (err) {
+      setHistoryJobs([])
+      setHistoryError(err instanceof Error ? err.message : String(err))
     } finally {
       setHistoryLoading(false)
     }
@@ -5808,6 +5812,18 @@ function CampaignsPage() {
   useEffect(() => {
     void loadSendHistory()
   }, [loadSendHistory])
+
+  // When a live blast finishes, refresh section 3 so the job stays visible.
+  const massJobStatus = massJob?.status
+  useEffect(() => {
+    if (!massJob?.id) {
+      return
+    }
+    if (isMassJobActive(massJobStatus)) {
+      return
+    }
+    void loadSendHistory()
+  }, [massJob?.id, massJobStatus, loadSendHistory])
 
   const toggleHistoryJob = useCallback(
     async (jobId: string) => {
@@ -5971,6 +5987,7 @@ function CampaignsPage() {
         // «Собрать ответы» works off this cohort after the blast.
         setLastSentClientIds(ids => mergeUniqueIds(ids, massIds))
         setActionStatus(`Рассылка запущена: ${data.job.total || massIds.length} получателей`)
+        void loadSendHistory()
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -7803,7 +7820,8 @@ function CampaignsPage() {
       <section aria-label="История отправок" className="ms-mass-panel ms-history-panel">
         <div className="ms-card-head">
           <p className="ms-muted">
-            Последние рассылки: кому, что и с каким статусом (доставлено / ошибка).
+            Последние рассылки и одинаковые исходящие из Фактов / TG conversation
+            (импорт Telegram и прошлые отправки): кому, что, статус.
           </p>
           <button
             className="ms-link-btn"
@@ -7814,8 +7832,13 @@ function CampaignsPage() {
             {historyLoading ? 'Обновляем…' : 'Обновить'}
           </button>
         </div>
+        {historyError ? <p className="ms-error">{historyError}</p> : null}
         {!historyJobs.length ? (
-          <p className="ms-muted">Рассылок пока не было.</p>
+          <p className="ms-muted">
+            {historyLoading
+              ? 'Загружаем…'
+              : 'Пока нет рассылок и групповых исходящих (≥2 клиента с одним текстом).'}
+          </p>
         ) : (
           historyJobs.map(job => (
             <div className="ms-history-job" key={job.id}>
@@ -7831,8 +7854,9 @@ function CampaignsPage() {
                 </span>
                 <span className="ms-history-job-msg">{job.message_preview || '—'}</span>
                 <span className="ms-muted">
-                  {massJobStatusLabel(job.status)} · {job.total ?? 0} получ. · ✓
-                  {job.sent_ok ?? 0} · ✕{job.sent_failed ?? 0}
+                  {massJobStatusLabel(job.status)}
+                  {job.history_kind === 'conversation_blast' ? ' · из переписки' : ''} ·{' '}
+                  {job.total ?? 0} получ. · ✓{job.sent_ok ?? 0} · ✕{job.sent_failed ?? 0}
                 </span>
               </button>
               {historyOpenJobId === job.id ? (

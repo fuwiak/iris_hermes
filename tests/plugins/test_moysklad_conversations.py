@@ -596,3 +596,48 @@ def test_sync_falls_back_to_nick_when_chat_id_entity_unknown(tmp_path, monkeypat
     assert tried == ["796461007", "@pawels2137"]
     assert thread["sync"]["ok"] is True
     assert thread["sync"]["inbound_imported"] == 1
+
+
+def test_outbound_blasts_group_identical_texts(tmp_path, monkeypatch):
+    """История отправок: identical исходящие (≥2 clients) become a blast."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    from plugins.moysklad.conversations import (
+        get_outbound_blast,
+        is_blast_history_id,
+        list_outbound_blasts,
+    )
+
+    text = "Сезон пионов открыт!"
+    for i, cid in enumerate(("c1", "c2", "c3")):
+        append_message(
+            client_id=cid,
+            text=text,
+            direction="outbound",
+            channel="telegram",
+            client_name=f"Client {i}",
+            source="telegram_export",
+        )
+    # Unique 1:1 chatter must not appear as a blast.
+    append_message(
+        client_id="solo",
+        text="Личное сообщение только одному",
+        direction="outbound",
+        source="telegram_export",
+    )
+
+    blasts = list_outbound_blasts(limit=10)
+    assert len(blasts) == 1
+    job = blasts[0]
+    assert job["total"] == 3
+    assert job["sent_ok"] == 3
+    assert job["status"] == "done"
+    assert job["history_kind"] == "conversation_blast"
+    assert "пионов" in (job.get("message_preview") or "")
+    assert is_blast_history_id(str(job["id"]))
+
+    snap = get_outbound_blast(str(job["id"]), limit=10)
+    assert snap is not None
+    assert snap["results_total"] == 3
+    assert len(snap["recipients"]) == 3
+    assert {r["client_id"] for r in snap["recipients"]} == {"c1", "c2", "c3"}
