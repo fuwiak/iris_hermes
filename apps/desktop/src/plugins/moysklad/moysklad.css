@@ -1136,12 +1136,19 @@ td.ms-tg-active-unknown {
   white-space: pre-wrap;
 }
 
+.ms-conversation-msg {
+  max-width: 92%;
+}
+
 .ms-conversation-msg.is-outbound {
   border-left: 3px solid #9ec5e8;
+  align-self: flex-start;
 }
 
 .ms-conversation-msg.is-inbound {
-  border-left: 3px solid #8fd19e;
+  border-right: 3px solid #8fd19e;
+  align-self: flex-end;
+  text-align: right;
 }
 
 .ms-conversation-msg.is-system {
@@ -2541,5 +2548,75 @@ td.ms-ai-added {
 .ms-history-feed summary {
   cursor: pointer;
   font-size: 0.9rem;
+  margin: 0.25rem 0;
+}
+
+/* Чат доработки текста (Рассылки) */
+.ms-chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 1px solid var(--ms-border, rgba(148, 163, 184, 0.3));
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+}
+
+.ms-chat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ms-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.ms-chat-msg {
+  border-radius: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  max-width: 92%;
+}
+
+.ms-chat-msg.is-user {
+  align-self: flex-end;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.ms-chat-msg.is-assistant {
+  align-self: flex-start;
+  background: rgba(94, 138, 208, 0.14);
+}
+
+.ms-chat-input {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ms-chat-input input {
+  flex: 1;
+}
+
+.ms-skill-prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px dashed var(--ms-border, rgba(148, 163, 184, 0.4));
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.ms-hidden-panel > summary,
+.ms-more-actions > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0.75;
   margin: 0.25rem 0;
 }

@@ -58,6 +58,13 @@ import {
   terminalPrefixLength
 } from './mass-send'
 
+// Chat refine model variants (OpenRouter ids — edit here to swap versions).
+const CHAT_MODEL_IDS: Record<'deepseek' | 'grok' | 'gpt', string> = {
+  deepseek: 'deepseek/deepseek-chat',
+  grok: 'x-ai/grok-3',
+  gpt: 'openai/gpt-5'
+}
+
 interface GroupChipOption {
   name: string
   count: number
@@ -433,7 +440,7 @@ function ClientDialogModal({
   useEffect(() => {
     const box = threadRef.current?.querySelector('.ms-conversation-list')
     if (box) {
-      box.scrollTop = box.scrollHeight
+      box.scrollTop = 0 // newest message renders on top now
     }
   }, [conversation])
 
@@ -1775,9 +1782,9 @@ function ConversationThread({
     )
   }
 
-  // Full history always — compact only shrinks the scroll box, hiding
-  // messages made «видна только часть переписки».
-  const shown = messages
+  // Full history, newest FIRST — operator reads the latest exchange without
+  // scrolling; compact only shrinks the scroll box.
+  const shown = [...messages].reverse()
 
   return (
     <div className="ms-conversation">
@@ -5793,6 +5800,81 @@ function CampaignsPage() {
 
   const [historyError, setHistoryError] = useState('')
 
+  const [chatTurns, setChatTurns] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+  const [chatModel, setChatModel] = useState<'deepseek' | 'grok' | 'gpt'>('deepseek')
+  const [skillPromptText, setSkillPromptText] = useState('')
+  const [skillNote, setSkillNote] = useState('')
+
+  // Chat resets per client — the fact anchor changes with the selection.
+  useEffect(() => {
+    setChatTurns([])
+    setChatInput('')
+    setSkillPromptText('')
+  }, [selectedClientId])
+
+  const sendChatTurn = useCallback(async () => {
+    const ask = chatInput.trim()
+    if (!ask || chatBusy || !selectedClientId) {return}
+    const model = CHAT_MODEL_IDS[chatModel]
+    const turns = [...chatTurns, { role: 'user' as const, content: ask }]
+    setChatTurns(turns)
+    setChatInput('')
+    setChatBusy(true)
+    try {
+      const data = await call<{ reply?: string; message?: string }>('/campaigns/chat', {
+        method: 'POST',
+        timeoutMs: 90_000,
+        body: {
+          client_id: selectedClientId,
+          channel,
+          draft: offerRef.current || offer,
+          messages: turns,
+          provider: 'openrouter',
+          model,
+          seller_name: sellerName,
+          seller_facts: sellerFacts
+        }
+      })
+      const reply = (data.reply || '').trim() || 'Готово.'
+      setChatTurns(prev => [...prev, { role: 'assistant', content: reply }])
+      const msg = (data.message || '').trim()
+      if (msg) {
+        setOffer(msg)
+        offerRef.current = msg
+        setGenSource('chat')
+      }
+    } catch (err) {
+      setChatTurns(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Ошибка: ${err instanceof Error ? err.message : String(err)}`
+        }
+      ])
+    } finally {
+      setChatBusy(false)
+    }
+  }, [call, channel, chatBusy, chatInput, chatModel, chatTurns, offer, selectedClientId, sellerFacts, sellerName])
+
+  const saveSkill = useCallback(
+    async (text: string) => {
+      try {
+        await call('/campaigns/skills', {
+          method: 'POST',
+          body: { text, notes: '' }
+        })
+        setSkillNote('✓ Сохранено в навык — следующие генерации учтут этот стиль')
+      } catch (err) {
+        setSkillNote(err instanceof Error ? err.message : String(err))
+      } finally {
+        setSkillPromptText('')
+      }
+    },
+    [call]
+  )
+
   const [sentFeed, setSentFeed] = useState<
     {
       client_id?: string
@@ -7208,6 +7290,8 @@ function CampaignsPage() {
 
       <h2 className="ms-section-title">2. Текст и отправка</h2>
 
+      <details className="ms-hidden-panel">
+        <summary>Массовая рассылка (скрыто — открыть при необходимости)</summary>
       <section aria-label="Массовая рассылка" className="ms-mass-panel">
         <div className="ms-mass-panel-head">
           <strong>Массовая рассылка</strong>
@@ -7314,12 +7398,13 @@ function CampaignsPage() {
           </p>
         ) : null}
       </section>
+      </details>
 
       <div className="ms-compose-split">
         <form className="ms-campaign-form" onSubmit={event => void createDraft(event)}>
-          <details className="ms-tg-account" open={!tgUser?.authorized}>
+          <details className="ms-tg-account">
             <summary className="ms-tg-account-head">
-              <strong>Личный Telegram</strong>
+              <strong>Настройки аккаунта (скрыто)</strong>
               <span className="ms-muted">
                 {tgUser?.authorized
                   ? `✓ ${
@@ -7730,6 +7815,75 @@ function CampaignsPage() {
               value={offer}
             />
           </label>
+          {selectedClientId ? (
+            <div className="ms-chat-panel">
+              <div className="ms-chat-head">
+                <span className="ms-ai-label">Чат доработки текста</span>
+                <select
+                  className="ms-select"
+                  onChange={e => setChatModel(e.target.value as 'deepseek' | 'grok' | 'gpt')}
+                  title="Какой моделью улучшать текст"
+                  value={chatModel}
+                >
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="grok">Grok</option>
+                  <option value="gpt">GPT</option>
+                </select>
+              </div>
+              {chatTurns.length ? (
+                <div className="ms-chat-log">
+                  {chatTurns.map((t, idx) => (
+                    <div className={`ms-chat-msg is-${t.role}`} key={idx}>
+                      {t.content}
+                    </div>
+                  ))}
+                  {chatBusy ? <div className="ms-chat-msg is-assistant">…</div> : null}
+                </div>
+              ) : null}
+              <div className="ms-chat-input">
+                <input
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void sendChatTurn()
+                    }
+                  }}
+                  placeholder="Например: короче и теплее, добавь про баллы…"
+                  type="text"
+                  value={chatInput}
+                />
+                <button
+                  className="ms-btn"
+                  disabled={chatBusy || !chatInput.trim()}
+                  onClick={() => void sendChatTurn()}
+                  type="button"
+                >
+                  {chatBusy ? '…' : '➤'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {skillPromptText ? (
+            <div className="ms-skill-prompt">
+              <span>Сохранить отправленное сообщение в навык генерации?</span>
+              <button
+                className="ms-btn ms-btn-primary"
+                onClick={() => void saveSkill(skillPromptText)}
+                type="button"
+              >
+                Да, в навык
+              </button>
+              <button
+                className="ms-btn"
+                onClick={() => setSkillPromptText('')}
+                type="button"
+              >
+                Нет
+              </button>
+            </div>
+          ) : null}
+          {skillNote ? <p className="ms-muted">{skillNote}</p> : null}
           {actionStatus ? <p className="ms-action-status">{actionStatus}</p> : null}
           <div className="ms-compose-actions">
             {selectedClientId ? (
@@ -7744,6 +7898,9 @@ function CampaignsPage() {
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
+            <details className="ms-more-actions">
+              <summary>Другие действия</summary>
+              <div className="ms-compose-actions">
             {selectedClientId ? (
               <button
                 className="ms-btn"
@@ -7803,6 +7960,8 @@ function CampaignsPage() {
             >
               {checkingSanity ? 'Проверяем…' : 'Проверить смысл'}
             </button>
+              </div>
+            </details>
             {selectedClientId && offer.trim() ? (
               <button
                 className="ms-btn ms-btn-primary"

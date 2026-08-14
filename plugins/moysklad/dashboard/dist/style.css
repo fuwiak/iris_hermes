@@ -755,12 +755,19 @@
   white-space: pre-wrap;
 }
 
+.ms-conversation-msg {
+  max-width: 92%;
+}
+
 .ms-conversation-msg.is-outbound {
   border-left: 3px solid #9ec5e8;
+  align-self: flex-start;
 }
 
 .ms-conversation-msg.is-inbound {
-  border-left: 3px solid #8fd19e;
+  border-right: 3px solid #8fd19e;
+  align-self: flex-end;
+  text-align: right;
 }
 
 .ms-conversation-msg.is-system {

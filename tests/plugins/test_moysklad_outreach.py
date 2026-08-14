@@ -276,7 +276,7 @@ def test_parse_outreach_json():
     parsed = _parse_outreach_json(
         '```json\n{"message":"Привет","grounding_notes":"даты заказов"}\n```'
     )
-    assert parsed == {"message": "Привет", "grounding_notes": "даты заказов"}
+    assert parsed == {"message": "Привет", "grounding_notes": "даты заказов", "reply": ""}
 
 
 def test_seller_settings_persist(tmp_path, monkeypatch):

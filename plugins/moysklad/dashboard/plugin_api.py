@@ -678,6 +678,27 @@ def start_telegram_phone_verify(
     return True
 
 
+def _tg_verify_auto_enabled() -> bool:
+    raw = (os.environ.get("MOYSKLAD_TG_VERIFY_AUTO") or "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _maybe_kick_telegram_phone_verify() -> None:
+    """Обработчик «каждый клиент проверен на ТГ»: every keep-warm tick verifies
+    the next slice of unchecked phones (batched importContacts — cheap), so the
+    «Telegram» filter converges on everyone actually reachable."""
+    if not _tg_verify_auto_enabled():
+        return
+    try:
+        from plugins.platforms.telegram_user import client as tg_user
+
+        if not tg_user.is_authorized():
+            return
+    except Exception:
+        return
+    start_telegram_phone_verify(live=True, limit=400, delay_ms=400)
+
+
 def _catalog_keepwarm_loop() -> None:
     # Let the web server finish booting before the first MoySklad pull.
     time.sleep(_KEEPWARM_BOOT_DELAY_SECONDS)
@@ -693,6 +714,11 @@ def _catalog_keepwarm_loop() -> None:
             _maybe_kick_telegram_dialog_sync()
         except Exception:
             log.warning("moysklad tg dialog keepwarm kick failed", exc_info=True)
+        try:
+            # «TG активен» for every client, slice per tick, flood-safe.
+            _maybe_kick_telegram_phone_verify()
+        except Exception:
+            log.warning("moysklad tg verify keepwarm kick failed", exc_info=True)
         interval = _keepwarm_interval_seconds()
         if interval <= 0:
             return
@@ -1199,6 +1225,24 @@ class ClientAiBody(BaseModel):
     max_orders: int = 25000
     max_counterparties: int = 0
     include_archived: bool = False
+
+
+class OutreachChatBody(BaseModel):
+    """One chat turn refining the outreach draft."""
+
+    client_id: str = ""
+    channel: str = "telegram"
+    draft: str = ""
+    messages: list[dict[str, str]] = Field(default_factory=list)
+    provider: str = ""
+    model: str = ""
+    seller_name: str = ""
+    seller_facts: str = ""
+
+
+class SkillSaveBody(BaseModel):
+    text: str
+    notes: str = ""
 
 
 class MarkSentBody(BaseModel):
@@ -4159,6 +4203,78 @@ def put_campaign_draft_cache(body: OutreachDraftCacheBody) -> dict[str, Any]:
         "saved_at": envelope.get("saved_at"),
         "cache_backend": outreach_cache_backend_name(),
     }
+
+
+@router.post("/campaigns/chat")
+def post_campaign_chat(body: OutreachChatBody) -> dict[str, Any]:
+    """Чат доработки черновика: та же фактология, что у generate, плюс
+    история переписки оператора с ассистентом. Возвращает reply + message."""
+    try:
+        client_id = (body.client_id or "").strip()
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id required")
+        catalog, meta = _get_catalog(force=False)
+        row = _row_or_contact(catalog, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        detail = build_client_detail(row)
+        seller_name, seller_facts = _resolve_seller(
+            body.seller_name, body.seller_facts
+        )
+        from plugins.moysklad.outreach import chat_refine_message
+
+        out = chat_refine_message(
+            detail,
+            channel=body.channel,
+            draft=body.draft,
+            chat=list(body.messages or []),
+            provider=body.provider,
+            model=body.model,
+            seller_name=seller_name,
+            seller_facts=seller_facts,
+        )
+        if not out.get("ok"):
+            raise HTTPException(
+                status_code=502, detail=str(out.get("error") or "chat failed")
+            )
+        return _attach_cache_meta({"ok": True, **out}, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/chat failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/skills")
+def get_campaign_skills() -> dict[str, Any]:
+    """Сохранённые примеры навыка (few-shot для генерации)."""
+    from plugins.moysklad.outreach_skills import list_skills
+
+    return {"ok": True, "skills": list_skills()}
+
+
+@router.post("/campaigns/skills")
+def post_campaign_skill(body: SkillSaveBody) -> dict[str, Any]:
+    """Сохранить отправленное сообщение в навык генерации."""
+    try:
+        from plugins.moysklad.outreach_skills import list_skills, save_skill
+
+        item = save_skill(text=body.text, notes=body.notes)
+        return {"ok": True, "skill": item, "total": len(list_skills())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad POST /campaigns/skills failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.delete("/campaigns/skills/{skill_id}")
+def delete_campaign_skill(skill_id: str) -> dict[str, Any]:
+    from plugins.moysklad.outreach_skills import delete_skill
+
+    if not delete_skill(skill_id):
+        raise HTTPException(status_code=404, detail="skill not found")
+    return {"ok": True, "deleted": skill_id}
 
 
 @router.post("/campaigns/generate")

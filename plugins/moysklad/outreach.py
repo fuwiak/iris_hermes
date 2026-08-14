@@ -127,6 +127,14 @@ def _OUTREACH_SYSTEM(seller_name: str, seller_facts: str) -> str:
         if facts
         else "Факты о магазине не заданы — не придумывай адрес, акции, спецпредложения.\n"
     )
+    try:
+        from plugins.moysklad.outreach_skills import prompt_examples_block
+
+        skills_block = prompt_examples_block()
+    except Exception:
+        skills_block = ""
+    if skills_block:
+        facts_block = facts_block + skills_block
     return f"""Ты — продавец цветочного магазина в переписке с клиентом (WhatsApp/Telegram).
 Пиши СВОБОДНО, как в живом чате с хорошим вкусом: тепло, по-человечески,
 с лёгким креативом и разными формулировками каждый раз. Не канцелярит,
@@ -149,6 +157,9 @@ def _OUTREACH_SYSTEM(seller_name: str, seller_facts: str) -> str:
   прошло с последнего заказа. Сверяйся с этим: если прошли недели или месяцы,
   НЕ пиши, будто заказ был «на днях», букет «ещё свежий» или «до сих пор радует» —
   говори честно («пару месяцев назад», «этим летом») либо просто предлагай новое.
+• Баллы лояльности (client.loyalty_points): если есть и > 0 — мягко напомни,
+  что у клиента накоплено N баллов и их можно потратить на следующий заказ.
+  Курс/скидку не выдумывай; при 0 или пустом поле — не упоминай баллы.
 • Представься через подпись выше (не хардкодь «Это Iris», если подпись другая).
 • Канал уже известен — не дописывай в конец «(WhatsApp)» / «(Telegram)».
 • Не пиши мета-фразы вроде «без навязанных скидок», «только по вашей истории».
@@ -583,6 +594,8 @@ def _parse_outreach_json(text: str) -> Optional[dict[str, str]]:
     return {
         "message": message,
         "grounding_notes": str(data.get("grounding_notes") or "").strip(),
+        # Chat mode returns an operator-facing reply alongside the draft.
+        "reply": str(data.get("reply") or "").strip(),
     }
 
 
@@ -2497,3 +2510,99 @@ def iter_generate_outreach_for_row_events(
                 "client_name": client_name,
             }
         yield ev
+
+
+_CHAT_SYSTEM_TAIL = """
+Оператор дорабатывает черновик исходящего сообщения в чате с тобой.
+Понимай просьбы свободно («короче», «теплее», «добавь про баллы», «убери эмодзи»).
+Каждый твой ответ — строго JSON без markdown:
+{"reply": "1-2 предложения оператору: что поменял или что предлагаешь",
+ "message": "полный обновлённый текст сообщения клиенту"}
+Если оператор просто спрашивает совета и текст менять не надо — верни
+текущий черновик в message без изменений.
+"""
+
+
+def chat_refine_message(
+    detail: dict[str, Any],
+    *,
+    channel: str = "telegram",
+    draft: str = "",
+    chat: list[dict[str, str]] | None = None,
+    provider: str = "",
+    model: str = "",
+    seller_name: str = "",
+    seller_facts: str = "",
+) -> dict[str, Any]:
+    """One chat turn over the current draft. Returns ``{reply, message}``.
+
+    The chat carries the same fact anchor as generate (client JSON, time
+    grounding, saved навык examples in the system prompt), so refinements
+    stay grounded while the operator steers style in natural language.
+    """
+    channel = (channel or "telegram").strip().lower()
+    seller_name, seller_facts = normalize_seller_fields(seller_name, seller_facts)
+    detail = _prepare_generate_detail(detail)
+    facts_prompt = _generate_user_prompt(
+        detail,
+        channel=channel,
+        seller_name=seller_name,
+        seller_facts=seller_facts,
+    )
+    draft_text = (draft or "").strip()
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": _OUTREACH_SYSTEM(seller_name, seller_facts)
+            + _CHAT_SYSTEM_TAIL,
+        },
+        {
+            "role": "user",
+            "content": facts_prompt
+            + "\n\nТекущий черновик сообщения:\n"
+            + (draft_text or "(пусто — предложи первый вариант)"),
+        },
+    ]
+    for turn in (chat or [])[-12:]:
+        role = str((turn or {}).get("role") or "").strip().lower()
+        content = str((turn or {}).get("content") or "").strip()
+        if not content or role not in ("user", "assistant"):
+            continue
+        messages.append({"role": role, "content": content[:2000]})
+
+    from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+
+    kwargs: dict[str, Any] = {
+        "task": OUTREACH_LLM_TASK,
+        "messages": messages,
+        "max_tokens": OUTREACH_LLM_MAX_TOKENS,
+        "temperature": 0.7,
+        "timeout": OUTREACH_LLM_TIMEOUT,
+        "reasoning_config": _OUTREACH_NO_REASONING,
+        "extra_body": _OUTREACH_EXTRA_BODY,
+    }
+    if (provider or "").strip():
+        kwargs["provider"] = provider.strip()
+    if (model or "").strip():
+        kwargs["model"] = model.strip()
+    response = call_llm(**kwargs)
+    text = (extract_content_or_reasoning(response) or "").strip()
+    parsed = _parse_outreach_json(text)
+    if parsed and parsed.get("message"):
+        reply = str(
+            parsed.get("reply") or parsed.get("grounding_notes") or "Обновил текст."
+        ).strip()
+        return {
+            "ok": True,
+            "reply": reply,
+            "message": _strip_channel_trailer(str(parsed["message"]), channel),
+        }
+    # Not JSON — treat the whole answer as advice, keep the draft as is.
+    if text:
+        return {"ok": True, "reply": text[:1500], "message": draft_text}
+    return {
+        "ok": False,
+        "error": "empty_llm_response",
+        "reply": "",
+        "message": draft_text,
+    }

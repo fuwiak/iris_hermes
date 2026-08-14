@@ -534,7 +534,28 @@ def append_message(
         thread["messages"] = messages
         thread["updated_at"] = msg["ts"]
         _save(store)
-        return public_thread(thread)
+        public = public_thread(thread)
+    if direction == "outbound":
+        # Durable send log — thread cap/TTL must not erase «кому что отправляли».
+        try:
+            from plugins.moysklad.sent_history import record_sent
+
+            record_sent(
+                {
+                    "client_id": cid,
+                    "client_name": (client_name or "").strip()
+                    or str(public.get("client_name") or ""),
+                    "tg_nick": normalize_tg_nick(tg_nick)
+                    or str(public.get("tg_nick") or ""),
+                    "text": body,
+                    "ts": msg["ts"],
+                    "channel": channel,
+                    "source": msg["source"],
+                }
+            )
+        except Exception:
+            log.debug("sent log hook failed", exc_info=True)
+    return public
 
 
 def seed_from_moysklad_attr(

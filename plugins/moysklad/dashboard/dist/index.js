@@ -1594,7 +1594,7 @@
         ),
       );
     }
-    var shown = messages; // full history; compact only shrinks the scroll box
+    var shown = messages.slice().reverse(); // full history, newest first
     return h(
       "div",
       { className: "ms-conversation" },
