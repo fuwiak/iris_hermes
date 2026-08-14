@@ -688,6 +688,97 @@ def resolve_phone(*, phone: str) -> dict[str, Any]:
     return _call(_probe, timeout=45.0)
 
 
+_PHONE_PROBE_CHUNK = 50
+
+
+def resolve_phones(*, phones: list[str]) -> dict[str, Any]:
+    """Batch «is this number on Telegram?» — one ImportContacts per chunk.
+
+    Probing numbers one by one burns Telegram's contact-import budget and
+    lands in hour-long FLOOD_WAIT after a few dozen. ImportContacts takes a
+    LIST, so 400 numbers cost ~8 requests instead of 400.
+    """
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for raw in phones or []:
+        e164 = normalize_phone(str(raw or ""))
+        if e164 and e164 not in seen:
+            seen.add(e164)
+            wanted.append(e164)
+    if not wanted:
+        return _err("phone_missing", "Пустой список номеров")
+
+    async def _probe() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        from telethon.errors import FloodWaitError  # type: ignore[import-not-found]
+        from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
+            DeleteContactsRequest,
+            ImportContactsRequest,
+        )
+        from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
+
+        found: dict[str, dict[str, Any]] = {}
+        checked: list[str] = []
+        flood_wait = 0
+        for start in range(0, len(wanted), _PHONE_PROBE_CHUNK):
+            chunk = wanted[start : start + _PHONE_PROBE_CHUNK]
+            contacts = [
+                InputPhoneContact(
+                    client_id=idx, phone=phone, first_name=".", last_name=""
+                )
+                for idx, phone in enumerate(chunk)
+            ]
+            try:
+                result = await client(ImportContactsRequest(contacts))
+            except FloodWaitError as exc:
+                # Report what we already know; the caller resumes later.
+                flood_wait = int(getattr(exc, "seconds", 0) or 0)
+                break
+            checked.extend(chunk)
+            users = list(getattr(result, "users", None) or [])
+            # imported[].client_id maps a returned user back to our chunk index.
+            by_user_id = {str(getattr(u, "id", "")): u for u in users}
+            for imported in list(getattr(result, "imported", None) or []):
+                idx = int(getattr(imported, "client_id", -1) or -1)
+                uid = str(getattr(imported, "user_id", "") or "")
+                if idx < 0 or idx >= len(chunk):
+                    continue
+                user = by_user_id.get(uid)
+                phone = chunk[idx]
+                found[phone] = {
+                    "phone": phone,
+                    "tg_chat_id": uid,
+                    "tg_nick": str(getattr(user, "username", "") or "") if user else "",
+                    "name": " ".join(
+                        p
+                        for p in (
+                            str(getattr(user, "first_name", "") or ""),
+                            str(getattr(user, "last_name", "") or ""),
+                        )
+                        if p
+                    ).strip()
+                    if user
+                    else "",
+                }
+            if users:
+                try:
+                    await client(DeleteContactsRequest(id=users))
+                except Exception:
+                    log.debug("DeleteContacts after batch import failed", exc_info=True)
+        return {
+            "ok": True,
+            "requested": len(wanted),
+            "checked": checked,
+            "found": found,
+            "flood_wait": flood_wait,
+            "via": "gateway",
+        }
+
+    return _call(_probe, timeout=180.0)
+
+
 def resolve_peer(*, peer: str, kind: str = "") -> dict[str, Any]:
     """Resolve @nick / t.me / numeric id / phone via Telethon on the egress IP."""
     raw = str(peer or "").strip()
@@ -885,6 +976,13 @@ async def gateway(
         out = resolve_peer(
             peer=str(body.get("peer") or body.get("query") or ""),
             kind=str(body.get("kind") or ""),
+        )
+        return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+    if request.method == "POST" and route == "resolve-phones":
+        raw_list = body.get("phones")
+        out = resolve_phones(
+            phones=[str(p) for p in raw_list] if isinstance(raw_list, list) else []
         )
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 

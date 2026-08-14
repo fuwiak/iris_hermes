@@ -507,6 +507,89 @@ def verify_client_peers(
     }
 
 
+def verify_rows_by_phone_bulk(
+    rows: list[dict[str, Any]],
+    *,
+    chunk: int = 200,
+) -> dict[str, Any]:
+    """Batch-probe the Телефон column and persist results in one pass.
+
+    One ``importContacts`` per chunk beats one per client: per-number probing
+    exhausts Telegram's contact-import budget and stalls for hours in
+    FLOOD_WAIT (that is why «TG активен» showed almost nobody). Numbers the
+    probe never reached stay UNCHECKED — a flood wait is not proof of
+    «нет в Telegram».
+    """
+    from plugins.platforms.telegram_user import client as tg_user
+
+    by_phone: dict[str, list[str]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        raw = str(row.get("Телефон") or row.get("phone") or "").strip()
+        if not cid or not raw:
+            continue
+        e164 = tg_user.normalize_login_phone(raw) or ""
+        if not e164:
+            continue
+        by_phone.setdefault(e164, []).append(cid)
+
+    stats: dict[str, Any] = {
+        "phones": len(by_phone),
+        "checked": 0,
+        "active": 0,
+        "inactive": 0,
+        "flood_wait": 0,
+        "error": None,
+    }
+    if not by_phone:
+        return stats
+
+    phones = list(by_phone)
+    results: dict[str, dict[str, Any]] = {}
+    for start in range(0, len(phones), max(1, int(chunk))):
+        batch = phones[start : start + max(1, int(chunk))]
+        out = tg_user.resolve_phones_bulk(batch)
+        if not out.get("ok"):
+            stats["error"] = str(out.get("error") or "probe_failed")
+            stats["detail"] = str(out.get("detail") or "")
+            break
+        found = out.get("found") if isinstance(out.get("found"), dict) else {}
+        checked = out.get("checked") if isinstance(out.get("checked"), list) else []
+        for phone in checked:
+            hit = found.get(phone) if isinstance(found, dict) else None
+            for cid in by_phone.get(str(phone), []):
+                if hit:
+                    results[cid] = {
+                        "active": True,
+                        "chat_id": str(hit.get("tg_chat_id") or ""),
+                        "resolved_nick": normalize_tg_nick(hit.get("tg_nick") or ""),
+                        "via": "import_contacts_bulk",
+                        "detail": "",
+                    }
+                else:
+                    results[cid] = {
+                        "active": False,
+                        "chat_id": "",
+                        "resolved_nick": "",
+                        "via": "import_contacts_bulk",
+                        "detail": "На этом номере нет аккаунта Telegram",
+                    }
+        stats["checked"] += len(checked)
+        wait = int(out.get("flood_wait") or 0)
+        if wait:
+            stats["flood_wait"] = wait
+            break
+
+    if results:
+        save_verify_results_bulk(results)
+        stats["active"] = sum(1 for r in results.values() if r.get("active"))
+        stats["inactive"] = sum(1 for r in results.values() if not r.get("active"))
+        stamp_catalog_rows_from_verify(rows)
+    return stats
+
+
 def verify_catalog_row(row: dict[str, Any]) -> dict[str, Any]:
     """Verify one deduped catalog row; persists when ``id`` is present."""
     cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()

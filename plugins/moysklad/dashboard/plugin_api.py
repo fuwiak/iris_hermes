@@ -533,6 +533,10 @@ def _maybe_kick_telegram_dialog_sync() -> None:
     start_telegram_dialog_sync(max_peers=peers)
 
 
+# Per-run wall-clock budget for the slow per-nick fallback: without it a
+# 400-row live pass could hold the worker for hours behind MTProto waits.
+_TG_VERIFY_LIVE_BUDGET_SECONDS = 600.0
+
 _TG_PHONE_VERIFY_LOCK = threading.Lock()
 _TG_PHONE_VERIFY_STATE: dict[str, Any] = {
     "running": False,
@@ -553,6 +557,7 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
             row_has_contact_for_tg_check,
             stamp_catalog_rows_from_verify,
             verify_catalog_row,
+            verify_rows_by_phone_bulk,
         )
 
         catalog, _meta = _get_catalog(
@@ -577,9 +582,42 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
             if cap:
                 remaining = remaining[:cap]
             stats["live_queued"] = len(remaining)
+            with _TG_PHONE_VERIFY_LOCK:
+                _TG_PHONE_VERIFY_STATE["progress"] = {
+                    "queued": len(remaining),
+                    "checked": 0,
+                    "phase": "phones",
+                }
+
+            # Phones first, in batches: one importContacts per chunk. Probing
+            # per client burned the contact-import budget and stalled for
+            # hours in FLOOD_WAIT, so «TG активен» stayed almost empty.
+            phone_stats = verify_rows_by_phone_bulk(remaining)
+            stats["phones"] = phone_stats
+            with _TG_PHONE_VERIFY_LOCK:
+                _TG_PHONE_VERIFY_STATE["progress"] = {
+                    "queued": len(remaining),
+                    "checked": int(phone_stats.get("checked") or 0),
+                    "active": int(phone_stats.get("active") or 0),
+                    "phase": "nicks",
+                }
+
+            # Whatever the phone probe could not settle (no phone, flood wait)
+            # falls back to per-row @nick / chat-id resolve.
+            leftover = [
+                r
+                for r in remaining
+                if not overlay_for_client(
+                    str(r.get("_moysklad_id") or r.get("id") or "")
+                )
+            ]
             active = inactive = skipped = 0
             delay = max(0, int(delay_ms or 0)) / 1000.0
-            for i, row in enumerate(remaining):
+            deadline = time.time() + _TG_VERIFY_LIVE_BUDGET_SECONDS
+            for i, row in enumerate(leftover):
+                if time.time() > deadline:
+                    stats["live_timeboxed"] = len(leftover) - i
+                    break
                 result = verify_catalog_row(row)
                 if not result.get("checked"):
                     skipped += 1
@@ -587,10 +625,19 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
                     active += 1
                 else:
                     inactive += 1
-                if delay and i + 1 < len(remaining):
+                if (i + 1) % 10 == 0:
+                    with _TG_PHONE_VERIFY_LOCK:
+                        _TG_PHONE_VERIFY_STATE["progress"] = {
+                            "queued": len(leftover),
+                            "checked": i + 1,
+                            "active": active,
+                            "phase": "nicks",
+                        }
+                if delay and i + 1 < len(leftover):
                     time.sleep(delay)
             stamp_catalog_rows_from_verify(rows)
             stats["live"] = {
+                "queued": len(leftover),
                 "active": active,
                 "inactive": inactive,
                 "skipped": skipped,
@@ -1868,6 +1915,14 @@ def get_clients_integrity(
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /clients/integrity failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# Literal route MUST precede /clients/{client_id}, else the wildcard eats it
+# and the UI polls «client not found in catalog» instead of verify progress.
+@router.get("/clients/telegram-verify")
+def get_clients_telegram_verify() -> dict[str, Any]:
+    with _TG_PHONE_VERIFY_LOCK:
+        return {"ok": True, "state": dict(_TG_PHONE_VERIFY_STATE)}
 
 
 @router.get("/clients/{client_id}")
@@ -3285,10 +3340,7 @@ def post_clients_telegram_verify(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/clients/telegram-verify")
-def get_clients_telegram_verify() -> dict[str, Any]:
-    with _TG_PHONE_VERIFY_LOCK:
-        return {"ok": True, "state": dict(_TG_PHONE_VERIFY_STATE)}
+# (GET twin lives above GET /clients/{client_id} — literal beats the wildcard.)
 
 
 @router.post("/clients/telegram-export/import")
