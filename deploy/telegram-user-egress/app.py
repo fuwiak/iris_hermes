@@ -630,11 +630,73 @@ def _peer_arg(peer: str) -> Any:
     return raw if raw.startswith("@") else f"@{raw.lstrip('@')}"
 
 
-def resolve_peer(*, peer: str) -> dict[str, Any]:
-    """Resolve @nick / t.me / numeric id via Telethon on the egress IP."""
+def resolve_phone(*, phone: str) -> dict[str, Any]:
+    """Does this number have a Telegram account? ImportContacts probe.
+
+    ``get_entity('+7…')`` only works for saved contacts; a real check is
+    contacts.importContacts → look at ``users`` → delete the temp contact.
+    """
+    digits = normalize_phone(phone)
+    if not digits:
+        return _err("phone_missing", "Укажите номер в формате +79991234567")
+
+    async def _probe() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
+            DeleteContactsRequest,
+            ImportContactsRequest,
+        )
+        from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
+
+        result = await client(
+            ImportContactsRequest(
+                [
+                    InputPhoneContact(
+                        client_id=0, phone=digits, first_name=".", last_name=""
+                    )
+                ]
+            )
+        )
+        users = list(getattr(result, "users", None) or [])
+        if not users:
+            return _err(
+                "phone_not_on_telegram", "На этом номере нет аккаунта Telegram"
+            )
+        try:
+            await client(DeleteContactsRequest(id=users))
+        except Exception:
+            log.debug("DeleteContacts after phone import failed", exc_info=True)
+        user = users[0]
+        norm = _contact_from_user(user) or {}
+        if not norm:
+            eid = getattr(user, "id", None)
+            norm = {
+                "id": str(eid),
+                "tg_chat_id": str(eid),
+                "tg_nick": "",
+                "name": "",
+            }
+        return {
+            "ok": True,
+            **norm,
+            "resolved_via": "import_contacts_gateway",
+            "via": "gateway",
+        }
+
+    return _call(_probe, timeout=45.0)
+
+
+def resolve_peer(*, peer: str, kind: str = "") -> dict[str, Any]:
+    """Resolve @nick / t.me / numeric id / phone via Telethon on the egress IP."""
     raw = str(peer or "").strip()
     if not raw:
         return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
+    # Phone only when the caller says so or the string is written as one —
+    # a bare 10-11-digit number is a Telegram user id, not a phone.
+    if (kind or "").strip().lower() == "phone" or raw.startswith("+"):
+        return resolve_phone(phone=raw)
     target = _peer_arg(raw)
     if not str(target).strip("@"):
         return _err("peer_missing", "Укажите @ник, t.me/… или numeric id")
@@ -820,7 +882,10 @@ async def gateway(
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
     if request.method == "POST" and route == "resolve":
-        out = resolve_peer(peer=str(body.get("peer") or body.get("query") or ""))
+        out = resolve_peer(
+            peer=str(body.get("peer") or body.get("query") or ""),
+            kind=str(body.get("kind") or ""),
+        )
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
     if request.method == "POST" and route == "send":

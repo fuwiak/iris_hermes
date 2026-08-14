@@ -2537,3 +2537,9 @@ td.ms-ai-added {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.ms-history-feed summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+}

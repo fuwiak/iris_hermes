@@ -5793,6 +5793,30 @@ function CampaignsPage() {
 
   const [historyError, setHistoryError] = useState('')
 
+  const [sentFeed, setSentFeed] = useState<
+    {
+      client_id?: string
+      client_name?: string
+      tg_nick?: string
+      text?: string
+      ts?: string
+      status?: string
+      source?: string
+    }[]
+  >([])
+  const [sentFeedOpen, setSentFeedOpen] = useState(false)
+
+  const loadSentFeed = useCallback(async () => {
+    try {
+      const data = await call<{ messages?: typeof sentFeed }>(
+        '/campaigns/sent-history?limit=300'
+      )
+      setSentFeed(data.messages || [])
+    } catch {
+      /* best-effort */
+    }
+  }, [call])
+
   const loadSendHistory = useCallback(async () => {
     setHistoryLoading(true)
     setHistoryError('')
@@ -5811,7 +5835,8 @@ function CampaignsPage() {
 
   useEffect(() => {
     void loadSendHistory()
-  }, [loadSendHistory])
+    void loadSentFeed()
+  }, [loadSendHistory, loadSentFeed])
 
   // When a live blast finishes, refresh section 3 so the job stays visible.
   const massJobStatus = massJob?.status
@@ -7885,6 +7910,41 @@ function CampaignsPage() {
             </div>
           ))
         )}
+        <details
+          className="ms-history-feed"
+          onToggle={e => {
+            const open = (e.target as HTMLDetailsElement).open
+            setSentFeedOpen(open)
+            if (open) {void loadSentFeed()}
+          }}
+          open={sentFeedOpen}
+        >
+          <summary>
+            Все отправленные сообщения{sentFeed.length ? ` · ${sentFeed.length}` : ''} —
+            включая одиночные с карточки/диалога
+          </summary>
+          <div className="ms-mass-log">
+            {!sentFeed.length ? (
+              <p className="ms-muted">Исходящих пока нет.</p>
+            ) : (
+              sentFeed.map((m, idx) => (
+                <div
+                  className={`ms-mass-log-row is-${m.status === 'delivered' ? 'ok' : 'sending'}`}
+                  key={`${m.client_id || ''}-${m.ts || idx}`}
+                >
+                  <span>
+                    {m.client_name || (m.tg_nick ? `@${m.tg_nick}` : m.client_id || '—')}
+                    {m.text ? ` — ${m.text.slice(0, 120)}${m.text.length > 120 ? '…' : ''}` : ''}
+                  </span>
+                  <span className="ms-muted">
+                    {m.status === 'delivered' ? '✓ доставлено' : '✎ записано'}
+                    {m.ts ? ` · ${String(m.ts).slice(0, 16).replace('T', ' ')}` : ''}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </details>
       </section>
       {error ? <MsErrorModal message={error} onClose={() => setError('')} /> : null}
       {massConfirmOpen ? (

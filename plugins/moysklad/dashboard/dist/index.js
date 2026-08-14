@@ -1750,6 +1750,33 @@
   }
 
   function CampaignsPage() {
+    const [sentFeed, setSentFeed] = useState([]);
+    const [sentFeedLoading, setSentFeedLoading] = useState(false);
+    const [historyJobs, setHistoryJobs] = useState([]);
+
+    function loadSendHistory() {
+      setSentFeedLoading(true);
+      Promise.all([
+        api("/campaigns/mass-send/history?limit=20").catch(function () {
+          return {};
+        }),
+        api("/campaigns/sent-history?limit=300").catch(function () {
+          return {};
+        }),
+      ])
+        .then(function (out) {
+          setHistoryJobs((out[0] && out[0].jobs) || []);
+          setSentFeed((out[1] && out[1].messages) || []);
+        })
+        .finally(function () {
+          setSentFeedLoading(false);
+        });
+    }
+
+    useEffect(function () {
+      loadSendHistory();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -3439,6 +3466,87 @@
         h(FactsPanel, { facts: facts, notes: groundingNotes, sanity: sanity }),
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
+      h("h2", { className: "ms-section-title" }, "История отправок"),
+      h(
+        "section",
+        { className: "ms-mass-panel ms-history-panel" },
+        h(
+          "div",
+          { className: "ms-card-head" },
+          h(
+            "p",
+            { className: "ms-muted" },
+            "Кому, что и с каким статусом ушло (массовые + одиночные).",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-link-btn",
+              disabled: sentFeedLoading,
+              onClick: loadSendHistory,
+            },
+            sentFeedLoading ? "Обновляем…" : "Обновить",
+          ),
+        ),
+        (historyJobs || []).map(function (job) {
+          return h(
+            "div",
+            { key: job.id, className: "ms-history-job" },
+            h(
+              "div",
+              { className: "ms-history-job-head" },
+              h(
+                "span",
+                { className: "ms-muted" },
+                String(job.created_at || "").slice(0, 16).replace("T", " "),
+              ),
+              h("span", { className: "ms-history-job-msg" }, job.message_preview || "—"),
+              h(
+                "span",
+                { className: "ms-muted" },
+                String(job.status || "") +
+                  " · " +
+                  String(job.total || 0) +
+                  " получ. · ✓" +
+                  String(job.sent_ok || 0) +
+                  " · ✕" +
+                  String(job.sent_failed || 0),
+              ),
+            ),
+          );
+        }),
+        h(
+          "div",
+          { className: "ms-mass-log" },
+          !(sentFeed || []).length
+            ? h("p", { className: "ms-muted" }, "Исходящих пока нет.")
+            : sentFeed.map(function (m, idx) {
+                return h(
+                  "div",
+                  {
+                    key: String(m.client_id || "") + "-" + String(m.ts || idx),
+                    className:
+                      "ms-mass-log-row is-" + (m.status === "delivered" ? "ok" : "sending"),
+                  },
+                  h(
+                    "span",
+                    null,
+                    (m.client_name || (m.tg_nick ? "@" + m.tg_nick : m.client_id) || "—") +
+                      (m.text
+                        ? " — " + String(m.text).slice(0, 120) + (String(m.text).length > 120 ? "…" : "")
+                        : ""),
+                  ),
+                  h(
+                    "span",
+                    { className: "ms-muted" },
+                    (m.status === "delivered" ? "✓ доставлено" : "✎ записано") +
+                      (m.ts ? " · " + String(m.ts).slice(0, 16).replace("T", " ") : ""),
+                  ),
+                );
+              }),
+        ),
+      ),
       h("h2", { className: "ms-section-title" }, "Черновики"),
       !campaigns.length
         ? h(

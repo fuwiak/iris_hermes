@@ -2551,6 +2551,22 @@ def get_campaign_mass_send_history(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/campaigns/sent-history")
+def get_campaign_sent_history(
+    limit: int = Query(200, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Каждое исходящее (одиночные + массовые) из стора переписок: кому,
+    что, когда, статус delivered/recorded. Дополняет mass-send/history,
+    которая показывает только группы ≥2 получателей."""
+    try:
+        from plugins.moysklad.sent_history import list_sent_messages
+
+        return {"ok": True, "messages": list_sent_messages(limit=limit)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /campaigns/sent-history failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/campaigns/mass-send/{job_id}")
 def get_campaign_mass_send_job(
     job_id: str,
