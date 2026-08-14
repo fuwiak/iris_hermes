@@ -74,6 +74,13 @@ def row_has_telegram(row: dict[str, Any]) -> bool:
     )
 
 
+def row_passes_telegram_filter(row: dict[str, Any]) -> bool:
+    """Verified reachable Telegram — used by audience chip «Telegram»."""
+    from plugins.moysklad.tg_verify import row_passes_telegram_filter as _passes
+
+    return _passes(row)
+
+
 def row_is_vip(row: dict[str, Any]) -> bool:
     tags = list(row.get("_moysklad_tags") or row.get("tags") or [])
     state = str(
@@ -94,6 +101,13 @@ def row_matches_channel_kind(row: dict[str, Any], channel_kind: str) -> bool:
     channels = [c.lower() for c in unique_sales_channels(row)]
     blob = " ".join(channels)
     if key in ("telegram", "tg"):
+        from plugins.moysklad.tg_verify import row_tg_active
+
+        active = row_tg_active(row)
+        if active is True:
+            return True
+        if active is False:
+            return False
         if row_has_telegram(row):
             return True
         return "telegram" in blob or "телеграм" in blob
@@ -541,7 +555,7 @@ def row_matches_audience_extras(
         return False
     if require_phone and not row_has_phone(row):
         return False
-    if require_telegram and not row_has_telegram(row):
+    if require_telegram and not row_passes_telegram_filter(row):
         return False
     if vip_only and not row_is_vip(row):
         return False

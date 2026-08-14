@@ -482,6 +482,9 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         "company_type": row.get("Тип контрагента") or "",
         "sex": row.get("Пол") or "",
         "tg_nick": row.get("ТГ ник") or "",
+        "tg_active": row.get("tg_active"),
+        "tg_active_label": row.get("tg_active_label") or "",
+        "tg_active_nick": row.get("tg_active_nick") or "",
         "tg_conversation": row.get("TG conversation") or "",
         "balance": row.get("balance"),
         "audience": {
@@ -537,6 +540,12 @@ def clients_page(
         include_archived=include_archived,
     )
     all_rows: list[dict[str, Any]] = list(catalog["rows"])
+    try:
+        from plugins.moysklad.tg_verify import stamp_catalog_rows_from_verify
+
+        stamp_catalog_rows_from_verify(all_rows)
+    except Exception:
+        pass
     # Stamp counts + event indexes once per catalog version — do NOT rewrite
     # every channel field on each filter click (that made calendar feel frozen).
     counts = ensure_audience_ready(catalog)

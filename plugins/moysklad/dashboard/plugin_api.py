@@ -2833,8 +2833,10 @@ def post_client_telegram_check(client_id: str) -> dict[str, Any]:
     """Есть ли клиент в Telegram — независимо от истории переписки и ника.
 
     Личный MTProto резолвит @ник / chat id / телефон; fallback — Business
-    bot getChat. Возвращает exists + резолвнутый peer.
+    bot getChat. Возвращает exists + резолвнутый peer; пишет в tg_verify overlay.
     """
+    from plugins.moysklad.tg_verify import save_verify_result, verify_client_peers
+
     try:
         phone = ""
         tg_nick = ""
@@ -2857,65 +2859,24 @@ def post_client_telegram_check(client_id: str) -> dict[str, Any]:
             tg_nick = str(contact.get("tg_nick") or "")
             tg_chat_id = str(contact.get("tg_chat_id") or "")
 
-        nick = tg_nick.strip().lstrip("@")
-        peers = [
-            p
-            for p in (
-                f"@{nick}" if nick else "",
-                tg_chat_id.strip(),
-                re.sub(r"\D+", "", phone),
-            )
-            if p
-        ]
-        if not peers:
-            return {
-                "ok": True,
-                "exists": False,
-                "checked": False,
-                "detail": "Нет ни ТГ ника, ни chat id, ни телефона — проверить нечего.",
-            }
-
-        last_error: dict[str, Any] = {}
-        try:
-            if tg_user.is_authorized():
-                for peer in peers:
-                    res = tg_user.resolve_peer(peer)
-                    if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
-                        return {
-                            "ok": True,
-                            "exists": True,
-                            "checked": True,
-                            "chat_id": str(res.get("tg_chat_id") or res.get("id")),
-                            "tg_nick": res.get("tg_nick") or nick or None,
-                            "name": res.get("name") or None,
-                            "via": res.get("resolved_via") or "mtproto",
-                        }
-                    last_error = res
-        except Exception as exc:
-            last_error = {"error": "telegram_user_error", "detail": str(exc)}
-
-        check = preflight_recipient(
+        result = verify_client_peers(
+            client_id=client_id,
+            phone=phone,
             tg_nick=tg_nick,
-            tg_conversation=tg_conversation,
             tg_chat_id=tg_chat_id,
+            tg_conversation=tg_conversation,
         )
-        if check.get("ok"):
-            return {
-                "ok": True,
-                "exists": True,
-                "checked": True,
-                "chat_id": str(check.get("chat_id") or ""),
-                "tg_nick": nick or None,
-                "via": check.get("resolved_via") or "business_bot",
-            }
+        if result.get("checked"):
+            save_verify_result(client_id, result)
         return {
             "ok": True,
-            "exists": False,
-            "checked": True,
-            "error": last_error.get("error") or check.get("error"),
-            "detail": last_error.get("detail")
-            or check.get("detail")
-            or "Telegram не нашёл пользователя по нику / телефону.",
+            "exists": bool(result.get("active")),
+            "checked": bool(result.get("checked")),
+            "chat_id": result.get("chat_id"),
+            "tg_nick": result.get("resolved_nick") or tg_nick.strip().lstrip("@") or None,
+            "via": result.get("via"),
+            "detail": result.get("detail"),
+            "error": result.get("error"),
         }
     except HTTPException:
         raise

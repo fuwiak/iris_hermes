@@ -158,15 +158,16 @@ describe('filterClientRowsByAudience', () => {
   it('applies phone / telegram / vip extras locally', () => {
     const rows = [
       { id: '1', name: 'A', phone: '+79001112233', tg_nick: '', tags: [] },
-      { id: '2', name: 'B', phone: '', tg_nick: '@bob', tags: ['VIP'] },
-      { id: '3', name: 'C', phone: '89005556677', tg_nick: '@c', tags: [] }
+      { id: '2', name: 'B', phone: '', tg_nick: '@bob', tg_active: true, tags: ['VIP'] },
+      { id: '3', name: 'C', phone: '89005556677', tg_nick: '@c', tg_active: false, tags: [] },
+      { id: '4', name: 'D', phone: '', tg_nick: '@unchecked', tags: [] }
     ]
     expect(
       filterClientRowsByAudience(rows, { requirePhone: true }).map(r => r.id)
     ).toEqual(['1', '3'])
     expect(
       filterClientRowsByAudience(rows, { requireTelegram: true }).map(r => r.id)
-    ).toEqual(['2', '3'])
+    ).toEqual(['2'])
     expect(filterClientRowsByAudience(rows, { vipOnly: true }).map(r => r.id)).toEqual([
       '2'
     ])

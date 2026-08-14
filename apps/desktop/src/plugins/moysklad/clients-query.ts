@@ -92,7 +92,18 @@ export interface ClientQueryRow {
   audience?: { direct?: boolean; marketplace?: boolean } | null
   tg_conversation?: string | null
   tg_conversation_preview?: string | null
+  tg_active?: boolean | null
+  tg_active_label?: string | null
+  tg_active_nick?: string | null
   actual_address?: string | null
+}
+
+/** Verified reachable Telegram — mirrors plugins/moysklad/tg_verify.row_passes_telegram_filter. */
+export function rowPassesTelegramFilter(row: ClientQueryRow): boolean {
+  if (row.tg_active === true) {
+    return true
+  }
+  return false
 }
 
 const VIP_RE = /\b(vip|вип)\b/i
@@ -162,6 +173,12 @@ export function rowMatchesChannelKind(
   const phone = digitsPhone(String(row.phone || ''))
   const blob = clientSalesChannelTokens(row).join(' ').toLowerCase()
   if (key === 'telegram' || key === 'tg') {
+    if (row.tg_active === true) {
+      return true
+    }
+    if (row.tg_active === false) {
+      return false
+    }
     return Boolean(nick) || blob.includes('telegram') || blob.includes('телеграм')
   }
   if (key === 'whatsapp' || key === 'wa' || key === 'max') {
@@ -321,7 +338,7 @@ export function filterClientRowsByAudience<T extends ClientQueryRow>(
     out = out.filter(row => Boolean(digitsPhone(String(row.phone || ''))))
   }
   if (opts.requireTelegram) {
-    out = out.filter(row => Boolean(String(row.tg_nick || '').trim()))
+    out = out.filter(row => rowPassesTelegramFilter(row))
   }
   if (opts.vipOnly) {
     out = out.filter(row => rowLooksVip(row))

@@ -889,6 +889,9 @@ interface ClientRow {
   company_type?: string
   sex?: string
   tg_nick?: string
+  tg_active?: boolean | null
+  tg_active_label?: string
+  tg_active_nick?: string
   tg_conversation?: string
   client_stage?: string
   client_stage_reason?: string
@@ -1189,6 +1192,24 @@ const CLIENT_COLUMNS: Array<{
   { key: 'sex', label: 'Пол', sortValue: r => r.sex || '', render: r => r.sex || '' },
   { key: 'email', label: 'E-mail', sortValue: r => r.email || '', render: r => r.email || '' },
   { key: 'tg_nick', label: 'ТГ ник', sortValue: r => r.tg_nick || '', render: r => r.tg_nick || '' },
+  {
+    key: 'tg_active',
+    label: 'TG активен',
+    sortValue: r =>
+      r.tg_active === true ? 2 : r.tg_active === false ? 0 : r.tg_nick ? 1 : -1,
+    render: r => {
+      if (r.tg_active === true) {
+        return r.tg_active_nick || r.tg_active_label || '✓'
+      }
+      if (r.tg_active === false) {
+        return r.tg_active_label || '✗'
+      }
+      if (r.tg_nick) {
+        return r.tg_active_label || '?'
+      }
+      return '—'
+    }
+  },
   {
     key: 'tg_conversation',
     label: 'TG conversation',
@@ -3876,6 +3897,30 @@ function ClientsPage() {
                           >
                             {value || '—'}
                           </button>
+                        </td>
+                      )
+                    }
+
+                    if (col.key === 'tg_active') {
+                      const title =
+                        row.tg_active === true
+                          ? `Telegram активен${row.tg_active_nick ? ` · ${row.tg_active_nick}` : ''}`
+                          : row.tg_active === false
+                            ? row.tg_active_label || 'Telegram не найден — ник устарел?'
+                            : row.tg_nick
+                              ? 'Не проверен — запустите verify_telegram_peers.py'
+                              : 'Нет @ника для проверки'
+                      const cls =
+                        row.tg_active === true
+                          ? 'ms-tg-active-ok'
+                          : row.tg_active === false
+                            ? 'ms-tg-active-bad'
+                            : row.tg_nick
+                              ? 'ms-tg-active-unknown'
+                              : ''
+                      return (
+                        <td className={cls || undefined} key={col.key} title={title}>
+                          {value || '—'}
                         </td>
                       )
                     }
@@ -6764,8 +6809,9 @@ function CampaignsPage() {
                     Телефон
                   </button>
                   <button
-                    className={`ms-chip${requireTelegram ? ' is-active' : ''}`}
+                    className={`ms-chip${requireTelegram ? ' is-active is-tg-filter' : ''}`}
                     onClick={() => setRequireTelegram(v => !v)}
+                    title="Только клиенты с проверенным активным Telegram (колонка «TG активен» = ✓)"
                     type="button"
                   >
                     Telegram
@@ -6934,7 +6980,10 @@ function CampaignsPage() {
               </div>
             ) : null}
 
-            <aside aria-label="Аудитория" className="ms-audience-col">
+            <aside
+              aria-label="Аудитория"
+              className={`ms-audience-col${requireTelegram ? ' is-tg-filter' : ''}`}
+            >
               <div className="ms-audience-pick ms-audience-pick-side">
                 <div className="ms-audience-pick-head">
                   <p className="ms-muted">
@@ -6982,17 +7031,30 @@ function CampaignsPage() {
                       {audiencePreview.map(row => {
                         const active = selectedClientId === row.id
                         const nick = (row.tg_nick || '').replace(/^@/, '')
+                        const tgOk = row.tg_active === true
+                        const tgBad = row.tg_active === false
 
                         return (
                           <button
-                            className={`ms-chip${active ? ' is-active' : ''}`}
+                            className={`ms-chip${active ? ' is-active' : ''}${
+                              tgOk ? ' is-tg-verified' : tgBad ? ' is-tg-dead' : ''
+                            }`}
                             key={row.id || row.name}
                             onClick={() => selectAudienceClient(row)}
-                            title={nick ? `@${nick}` : row.phone || row.id}
+                            title={
+                              tgOk
+                                ? `@${nick || row.tg_active_nick || ''} · TG активен`
+                                : tgBad
+                                  ? `@${nick} · TG не найден`
+                                  : nick
+                                    ? `@${nick}`
+                                    : row.phone || row.id
+                            }
                             type="button"
                           >
                             {row.name || row.phone || row.id}
                             {nick ? <span>@{nick}</span> : null}
+                            {tgOk ? <span className="ms-chip-tg-dot">✓</span> : null}
                             {row.order_count != null ? <span>{row.order_count}</span> : null}
                           </button>
                         )
