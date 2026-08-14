@@ -20,7 +20,7 @@ describe('planAudienceChipClick', () => {
     expect(r.focusId).toBe('cp-dmitry')
     expect(r.focusName).toBe('Дмитрий Врублевский основной')
     expect(r.selectedIds).toEqual(['cp-dmitry'])
-    expect(r.channel).toBe('whatsapp')
+    expect(r.channel).toBe('telegram')
   })
 
   it('multi mode still focuses compose (does not no-op)', () => {

@@ -36,10 +36,8 @@ export interface AudiencePickResult {
 export function planAudienceChipClick(input: AudiencePickInput): AudiencePickResult {
   const rowId = String(input.rowId || '').trim()
   const focusName = String(input.rowName || '').trim()
-  const phone = String(input.rowPhone || '').trim()
-  const tgNick = String(input.rowTgNick || '').trim()
-  const channel: 'telegram' | 'whatsapp' =
-    phone && !tgNick ? 'whatsapp' : 'telegram'
+  // Delivery is Telegram-only in Рассылки for now (WA UI removed).
+  const channel: 'telegram' | 'whatsapp' = 'telegram'
 
   if (!rowId) {
     return {

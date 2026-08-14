@@ -3938,11 +3938,12 @@ function CampaignsPage() {
   const [salesFilter, setSalesFilter] = useState('all')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
-  const [channelKind, setChannelKind] = useState('')
+  /** Audience delivery is Telegram-only for now (WA / «любой» hidden). */
+  const [channelKind, setChannelKind] = useState('telegram')
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [requirePhone, setRequirePhone] = useState(false)
-  const [requireTelegram, setRequireTelegram] = useState(false)
+  const [requireTelegram, setRequireTelegram] = useState(true)
   const [vipOnly, setVipOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
@@ -4199,9 +4200,14 @@ function CampaignsPage() {
     if (prefill) {
       setSelectedClientId(prefill.clientId)
 
-      if (prefill.channel) {setChannel(prefill.channel)}
+      if (prefill.channel) {
+        // Compose is Telegram-only until WA ships again.
+        setChannel(prefill.channel.startsWith('telegram') ? prefill.channel : 'telegram')
+      }
 
       if (prefill.salesFilter) {setSalesFilter(prefill.salesFilter)}
+      setChannelKind('telegram')
+      setRequireTelegram(true)
       setTitle('Черновик · клиент')
     }
 
@@ -4726,9 +4732,9 @@ function CampaignsPage() {
     setGroup(f.group || '')
     setGroupSource((f.group_source as 'any' | 'ms' | 'ai') || 'any')
     setAudienceQ(f.q || '')
-    setChannelKind(f.channel_kind || '')
-    setRequirePhone(Boolean(f.require_phone))
-    setRequireTelegram(Boolean(f.require_telegram))
+    setChannelKind('telegram')
+    setRequireTelegram(true)
+    setRequirePhone(false)
     setVipOnly(Boolean(f.vip_only))
     setBirthdaySoon(Boolean(f.birthday_soon))
     setDaysBeforeEvent(f.days_before_event || 0)
@@ -5503,7 +5509,7 @@ function CampaignsPage() {
       return
     }
 
-    setChannel(plan.channel)
+    setChannel('telegram')
     setContactPickerId(plan.focusId)
     setSelectedClientIds(plan.selectedIds)
     outreachAbortRef.current?.abort()
@@ -5538,7 +5544,7 @@ function CampaignsPage() {
       return
     }
 
-    setChannel(plan.channel)
+    setChannel('telegram')
     setSelectedClientIds(plan.selectedIds)
     outreachAbortRef.current?.abort()
     outreachGenRef.current += 1
@@ -6408,23 +6414,6 @@ function CampaignsPage() {
     }
   }
 
-  const syncDeliveryChannel = (kind: string) => {
-    setChannelKind(kind)
-
-    if (kind === 'telegram') {
-      setChannel('telegram')
-      setRequireTelegram(true)
-      setRequirePhone(false)
-    } else if (kind === 'whatsapp') {
-      setChannel('whatsapp')
-      setRequirePhone(true)
-      setRequireTelegram(false)
-    } else {
-      setRequirePhone(false)
-      setRequireTelegram(false)
-    }
-  }
-
   const canSendOne =
     Boolean(selectedClientId) &&
     Boolean(offer.trim()) &&
@@ -6661,10 +6650,11 @@ function CampaignsPage() {
                 className="ms-btn"
                 onClick={() => {
                   setSalesFilter('all')
-                  setChannelKind('')
+                  setChannelKind('telegram')
+                  setChannel('telegram')
                   setVipOnly(false)
                   setRequirePhone(false)
-                  setRequireTelegram(false)
+                  setRequireTelegram(true)
                   setBirthdaySoon(false)
                   setDaysBeforeEvent(0)
                   setEventDateFrom(null)
@@ -6756,26 +6746,6 @@ function CampaignsPage() {
                   onChange={setSalesFilter}
                   salesFilter={salesFilter}
                 />
-              </div>
-
-              <div className="ms-filter-block">
-                <span className="ms-filter-label">Канал доставки</span>
-                <div className="ms-filter-tabs ms-filter-tabs-wrap" role="group">
-                  {[
-                    { id: '', label: 'Любой' },
-                    { id: 'telegram', label: 'Telegram' },
-                    { id: 'whatsapp', label: 'WhatsApp' }
-                  ].map(opt => (
-                    <button
-                      className={`ms-filter-tab${channelKind === opt.id ? ' is-active' : ''}`}
-                      key={opt.id || 'any'}
-                      onClick={() => syncDeliveryChannel(opt.id)}
-                      type="button"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div className="ms-filter-block">
@@ -7551,18 +7521,6 @@ function CampaignsPage() {
             ) : null}
           </div>
 
-          <label>
-            Название
-            <input onChange={e => setTitle(e.target.value)} required value={title} />
-          </label>
-          <label>
-            Канал отправки
-            <select onChange={e => setChannel(e.target.value)} value={channel}>
-              <option value="telegram">Telegram (личные)</option>
-              <option value="telegram_channel">Telegram-канал</option>
-              <option value="whatsapp">WhatsApp</option>
-            </select>
-          </label>
           <details className="ms-seller-settings">
             <summary className="ms-muted">Подпись продавца</summary>
             <label>
