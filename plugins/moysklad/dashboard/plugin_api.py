@@ -2641,7 +2641,7 @@ def get_campaign_mass_send_history(
     older mark-sent-batch sends that never wrote a job file).
     """
     try:
-        from plugins.moysklad.conversations import list_outbound_blasts
+        from plugins.moysklad.conversations import list_outbound_blasts, recency_epoch
 
         cap = max(1, min(int(limit or 20), 20))
         jobs = list(mass_send_jobs.list_jobs(limit=cap))
@@ -2653,7 +2653,7 @@ def get_campaign_mass_send_history(
                 by_id[jid] = row
         merged = sorted(
             by_id.values(),
-            key=lambda j: str(j.get("created_at") or ""),
+            key=lambda j: recency_epoch(j.get("created_at")),
             reverse=True,
         )
         return {"ok": True, "jobs": merged[:cap]}

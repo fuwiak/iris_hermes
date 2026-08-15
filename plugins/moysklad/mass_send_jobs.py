@@ -381,9 +381,11 @@ def list_jobs(limit: int = 20) -> list[dict[str, Any]]:
         job = _load_from_disk(path.stem)
         if job is not None:
             by_id[path.stem] = summary(job)
+    from plugins.moysklad.conversations import recency_epoch
+
     rows = sorted(
         by_id.values(),
-        key=lambda j: str(j.get("created_at") or ""),
+        key=lambda j: recency_epoch(j.get("created_at")),
         reverse=True,
     )
     return rows[:cap]

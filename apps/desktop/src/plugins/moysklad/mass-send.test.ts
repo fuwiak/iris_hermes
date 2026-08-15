@@ -12,7 +12,9 @@ import {
   massSendStepHint,
   mergeUniqueIds,
   needsMassSendConfirm,
+  newestFirstByTs,
   overlayMassRows,
+  recencyMs,
   resolveMassSendStep,
   terminalPrefixLength
 } from './mass-send'
@@ -97,5 +99,18 @@ describe('mass-send helpers', () => {
     expect(massRecipientDisplay({ tg_nick: '@petr' })).toBe('@petr')
     expect(massRecipientDisplay({ client_id: 'x1' })).toBe('x1')
     expect(massRecipientDisplay({})).toBe('—')
+  })
+
+  it('newestFirstByTs puts latest timestamps first', () => {
+    expect(recencyMs('2026-08-15T12:00:00Z')).toBeGreaterThan(recencyMs('2020-01-01T00:00:00Z'))
+    const rows = newestFirstByTs(
+      [
+        { id: 'old', ts: '2020-01-01T00:00:00Z' },
+        { id: 'new', ts: '2026-08-15T12:00:00Z' },
+        { id: 'mid', ts: '2024-06-01T08:00:00Z' }
+      ],
+      r => r.ts
+    )
+    expect(rows.map(r => r.id)).toEqual(['new', 'mid', 'old'])
   })
 })

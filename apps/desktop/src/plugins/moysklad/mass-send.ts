@@ -147,6 +147,31 @@ export function overlayMassRows(
   return out
 }
 
+/** Milliseconds since epoch for a send timestamp. Unparseable → oldest. */
+export function recencyMs(ts?: string | null): number {
+  const raw = String(ts || '').trim()
+  if (!raw) {
+    return Number.NEGATIVE_INFINITY
+  }
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) {
+    return parsed
+  }
+  const n = Number(raw)
+  if (!Number.isFinite(n)) {
+    return Number.NEGATIVE_INFINITY
+  }
+  return n > 1e12 ? n : n * 1000
+}
+
+/** Newest timestamps first. Missing/unparseable timestamps sink to the bottom. */
+export function newestFirstByTs<T>(
+  rows: T[],
+  tsOf: (row: T) => string | null | undefined
+): T[] {
+  return [...rows].sort((a, b) => recencyMs(tsOf(b)) - recencyMs(tsOf(a)))
+}
+
 export function massJobPercent(attempted: number, total: number): number {
   if (!total || total <= 0) {
     return 0

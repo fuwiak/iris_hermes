@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from hermes_constants import get_hermes_home
-from plugins.moysklad.conversations import _LOCK, _load  # shared store access
+from plugins.moysklad.conversations import _LOCK, _load, recency_epoch  # shared store access
 
 log = logging.getLogger(__name__)
 
@@ -163,5 +163,5 @@ def list_sent_messages(*, limit: int = 200) -> list[dict[str, Any]]:
                         "status": delivery_status(source),
                     }
                 )
-    rows.sort(key=lambda r: r["ts"], reverse=True)
+    rows.sort(key=lambda r: recency_epoch(r.get("ts")), reverse=True)
     return rows[:cap]

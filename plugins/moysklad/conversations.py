@@ -102,6 +102,21 @@ def _ts_epoch(ts: Any) -> Optional[float]:
     return dt.timestamp()
 
 
+def recency_epoch(ts: Any) -> float:
+    """Sort key: larger = newer. Unparseable timestamps sort as oldest."""
+    epoch = _ts_epoch(ts)
+    if epoch is not None:
+        return epoch
+    raw = str(ts or "").strip()
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return float("-inf")
+    if val > 1e12:
+        val /= 1000.0
+    return val
+
+
 def cache_ttl_seconds() -> int:
     raw = (os.environ.get("MOYSKLAD_CONVERSATIONS_TTL_SECONDS") or "").strip()
     if not raw:
@@ -1633,7 +1648,7 @@ def _collect_outbound_blast_groups(
                 "_message": text,
             }
         )
-    out.sort(key=lambda j: str(j.get("created_at") or ""), reverse=True)
+    out.sort(key=lambda j: recency_epoch(j.get("created_at")), reverse=True)
     return out
 
 
@@ -1668,6 +1683,7 @@ def get_outbound_blast(
         if job.get("id") != bid:
             continue
         recipients = list(job.get("_recipients") or [])
+        recipients.sort(key=lambda r: recency_epoch(r.get("ts")), reverse=True)
         want = (status or "all").strip().lower()
         if want in ("failed", "ok", "pending", "skipped"):
             recipients = [r for r in recipients if str(r.get("status")) == want]

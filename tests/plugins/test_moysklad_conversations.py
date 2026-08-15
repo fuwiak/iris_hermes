@@ -641,3 +641,78 @@ def test_outbound_blasts_group_identical_texts(tmp_path, monkeypatch):
     assert snap["results_total"] == 3
     assert len(snap["recipients"]) == 3
     assert {r["client_id"] for r in snap["recipients"]} == {"c1", "c2", "c3"}
+
+
+def test_outbound_blasts_newest_day_first(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    import json
+    from hermes_constants import get_hermes_home
+    from plugins.moysklad.conversations import get_outbound_blast, list_outbound_blasts
+
+    root = get_hermes_home() / "moysklad"
+    root.mkdir(parents=True, exist_ok=True)
+    store = {
+        "threads": {
+            "c1": {
+                "client_id": "c1",
+                "client_name": "A",
+                "messages": [
+                    {
+                        "direction": "outbound",
+                        "text": "старая пачка",
+                        "ts": "2020-01-01T10:00:00+00:00",
+                        "source": "telegram_export",
+                    }
+                ],
+            },
+            "c2": {
+                "client_id": "c2",
+                "client_name": "B",
+                "messages": [
+                    {
+                        "direction": "outbound",
+                        "text": "старая пачка",
+                        "ts": "2020-01-01T10:01:00+00:00",
+                        "source": "telegram_export",
+                    }
+                ],
+            },
+            "c3": {
+                "client_id": "c3",
+                "client_name": "C",
+                "messages": [
+                    {
+                        "direction": "outbound",
+                        "text": "свежая пачка",
+                        "ts": "2026-08-15T10:00:00+00:00",
+                        "source": "telegram_export",
+                    }
+                ],
+            },
+            "c4": {
+                "client_id": "c4",
+                "client_name": "D",
+                "messages": [
+                    {
+                        "direction": "outbound",
+                        "text": "свежая пачка",
+                        "ts": "2026-08-15T10:01:00+00:00",
+                        "source": "telegram_export",
+                    }
+                ],
+            },
+        },
+        "index": {},
+    }
+    (root / "conversations.json").write_text(
+        json.dumps(store, ensure_ascii=False), encoding="utf-8"
+    )
+    blasts = list_outbound_blasts(limit=10)
+    assert len(blasts) == 2
+    assert "свежая" in (blasts[0].get("message_preview") or "")
+    assert "старая" in (blasts[1].get("message_preview") or "")
+    snap = get_outbound_blast(str(blasts[0]["id"]), limit=10)
+    assert snap is not None
+    assert [r["client_id"] for r in snap["recipients"]] == ["c4", "c3"]
+

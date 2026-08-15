@@ -1849,6 +1849,14 @@
     const [sentFeedLoading, setSentFeedLoading] = useState(false);
     const [historyJobs, setHistoryJobs] = useState([]);
 
+    function newestFirst(rows, key) {
+      return (rows || []).slice().sort(function (a, b) {
+        var ta = Date.parse(String((a && a[key]) || "")) || 0;
+        var tb = Date.parse(String((b && b[key]) || "")) || 0;
+        return tb - ta;
+      });
+    }
+
     function loadSendHistory() {
       setSentFeedLoading(true);
       Promise.all([
@@ -1860,8 +1868,8 @@
         }),
       ])
         .then(function (out) {
-          setHistoryJobs((out[0] && out[0].jobs) || []);
-          setSentFeed((out[1] && out[1].messages) || []);
+          setHistoryJobs(newestFirst((out[0] && out[0].jobs) || [], "created_at"));
+          setSentFeed(newestFirst((out[1] && out[1].messages) || [], "ts"));
         })
         .finally(function () {
           setSentFeedLoading(false);
@@ -3682,33 +3690,6 @@
             sentFeedLoading ? "Обновляем…" : "Обновить",
           ),
         ),
-        (historyJobs || []).map(function (job) {
-          return h(
-            "div",
-            { key: job.id, className: "ms-history-job" },
-            h(
-              "div",
-              { className: "ms-history-job-head" },
-              h(
-                "span",
-                { className: "ms-muted" },
-                String(job.created_at || "").slice(0, 16).replace("T", " "),
-              ),
-              h("span", { className: "ms-history-job-msg" }, job.message_preview || "—"),
-              h(
-                "span",
-                { className: "ms-muted" },
-                String(job.status || "") +
-                  " · " +
-                  String(job.total || 0) +
-                  " получ. · ✓" +
-                  String(job.sent_ok || 0) +
-                  " · ✕" +
-                  String(job.sent_failed || 0),
-              ),
-            ),
-          );
-        }),
         h(
           "div",
           { className: "ms-mass-log" },
@@ -3739,6 +3720,33 @@
                 );
               }),
         ),
+        (historyJobs || []).map(function (job) {
+          return h(
+            "div",
+            { key: job.id, className: "ms-history-job" },
+            h(
+              "div",
+              { className: "ms-history-job-head" },
+              h(
+                "span",
+                { className: "ms-muted" },
+                String(job.created_at || "").slice(0, 16).replace("T", " "),
+              ),
+              h("span", { className: "ms-history-job-msg" }, job.message_preview || "—"),
+              h(
+                "span",
+                { className: "ms-muted" },
+                String(job.status || "") +
+                  " · " +
+                  String(job.total || 0) +
+                  " получ. · ✓" +
+                  String(job.sent_ok || 0) +
+                  " · ✕" +
+                  String(job.sent_failed || 0),
+              ),
+            ),
+          );
+        }),
       ),
       h("h2", { className: "ms-section-title" }, "Черновики"),
       !campaigns.length
