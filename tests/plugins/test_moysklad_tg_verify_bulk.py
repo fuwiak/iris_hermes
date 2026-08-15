@@ -85,3 +85,80 @@ def test_flood_wait_leaves_unchecked_rows_unchecked(monkeypatch):
     assert stats["checked"] == 0
     assert not tg_verify.overlay_for_client("c1")
     assert not tg_verify.overlay_for_client("c2")
+
+
+def test_phone_miss_with_nick_stays_unchecked(monkeypatch):
+    """Privacy can hide a number while the @nick resolves — a phone miss must
+    NOT hard-mark a nick-carrying client as «не найден» (prod false negatives:
+    operator finds the number manually in Telegram)."""
+    from plugins.moysklad import tg_verify
+    from plugins.platforms.telegram_user import client as tg_user
+
+    rows = [
+        {
+            "_moysklad_id": "cn-1",
+            "Наименование": "С ником",
+            "Телефон": "+7 900 111-22-33",
+            "ТГ ник": "@hidden_by_privacy",
+        },
+        {
+            "_moysklad_id": "cn-2",
+            "Наименование": "Только телефон",
+            "Телефон": "+7 900 222-33-44",
+        },
+    ]
+    monkeypatch.setattr(
+        tg_user,
+        "resolve_phones_bulk",
+        lambda phones: {
+            "ok": True,
+            "requested": len(phones),
+            "checked": list(phones),
+            "found": {},
+            "flood_wait": 0,
+        },
+    )
+    tg_verify.verify_rows_by_phone_bulk(rows)
+    # Nick-carrying row left for the nick fallback; phone-only row settled.
+    assert not tg_verify.overlay_for_client("cn-1")
+    entry = tg_verify.overlay_for_client("cn-2")
+    assert entry["active"] is False
+    assert "приватн" in entry["detail"]
+
+
+def test_live_thread_marks_client_active(tmp_path, monkeypatch):
+    from plugins.moysklad import tg_verify
+    from plugins.moysklad.conversations import append_message, clear_memory_for_tests
+
+    clear_memory_for_tests()
+    append_message(
+        client_id="ch-1",
+        text="сиски",
+        direction="inbound",
+        tg_nick="@pawels2137",
+        tg_chat_id="796461007",
+        client_name="Hans",
+        source="telegram_user",
+    )
+    rows = [{"_moysklad_id": "ch-1", "Наименование": "Hans", "Телефон": ""}]
+    marked = tg_verify.mark_active_from_threads(rows)
+    assert marked == 1
+    entry = tg_verify.overlay_for_client("ch-1")
+    assert entry["active"] is True
+    assert entry["via"] == "history"
+
+
+def test_reset_inactive_keeps_actives(monkeypatch):
+    from plugins.moysklad import tg_verify
+
+    tg_verify.save_verify_results_bulk(
+        {
+            "ok-1": {"active": True, "via": "import_contacts_bulk"},
+            "bad-1": {"active": False, "via": "import_contacts_bulk"},
+            "bad-2": {"active": False, "via": "import_contacts_bulk"},
+        }
+    )
+    dropped = tg_verify.reset_inactive_entries()
+    assert dropped == 2
+    assert tg_verify.overlay_for_client("ok-1")["active"] is True
+    assert not tg_verify.overlay_for_client("bad-1")

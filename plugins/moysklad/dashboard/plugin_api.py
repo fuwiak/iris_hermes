@@ -552,6 +552,7 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
     stats: dict[str, Any] = {}
     try:
         from plugins.moysklad.tg_verify import (
+            mark_active_from_threads,
             match_catalog_phones_to_contacts,
             overlay_for_client,
             row_has_contact_for_tg_check,
@@ -566,6 +567,8 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
         rows = list((catalog or {}).get("rows") or [])
         cache_stats = match_catalog_phones_to_contacts(rows)
         stats["cache"] = cache_stats
+        # Live TG threads prove reachability better than any probe.
+        stats["from_history"] = mark_active_from_threads(rows)
         stamped = stamp_catalog_rows_from_verify(rows)
         stats["stamped"] = stamped
         if live:
@@ -3367,12 +3370,20 @@ def post_clients_telegram_verify(
     live: bool = Query(True),
     limit: int = Query(400, ge=0, le=5000),
     delay_ms: int = Query(400, ge=0, le=5000),
+    reset_inactive: bool = Query(
+        False,
+        description="Сбросить прежние «не найден» и перепроверить их заново.",
+    ),
 ) -> dict[str, Any]:
     """Check колонка Телефон against Telegram (contacts cache + ImportContacts).
 
     Writes ``tg_active`` for Клиенты column «TG активен» and Рассылки filter.
     """
     try:
+        if reset_inactive:
+            from plugins.moysklad.tg_verify import reset_inactive_entries
+
+            reset_inactive_entries()
         started = start_telegram_phone_verify(
             live=live, limit=limit, delay_ms=delay_ms
         )

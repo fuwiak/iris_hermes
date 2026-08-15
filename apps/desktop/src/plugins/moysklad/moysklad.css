@@ -194,8 +194,9 @@
 }
 
 .ms-chip.is-tg-dead {
-  opacity: 0.55;
-  text-decoration: line-through;
+  opacity: 0.65;
+  text-decoration: underline dotted rgba(248, 81, 73, 0.7);
+  text-underline-offset: 3px;
 }
 
 .ms-chip-tg-dot {

@@ -180,10 +180,13 @@ def overlay_for_client(client_id: str) -> dict[str, Any]:
 
 
 def tg_active_label(*, active: bool | None, has_contact: bool) -> str:
+    # «не найден по номеру» — honest wording: importContacts cannot see
+    # accounts whose privacy hides phone discovery, so a miss is NOT proof
+    # the person has no Telegram.
     if active is True:
-        return "активен"
+        return "есть TG"
     if active is False:
-        return "не найден"
+        return "не найден по номеру"
     if has_contact:
         return "не проверен"
     return "—"
@@ -507,6 +510,71 @@ def verify_client_peers(
     }
 
 
+def mark_active_from_threads(rows: list[dict[str, Any]]) -> int:
+    """A client with a real Telegram thread is reachable by definition.
+
+    Live chat history beats any probe — and covers people whose privacy
+    hides phone discovery (the main source of false «не найден»).
+    """
+    from plugins.moysklad.conversations import get_thread
+
+    results: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if not cid:
+            continue
+        existing = overlay_for_client(cid)
+        if existing and existing.get("active"):
+            continue
+        try:
+            thread = get_thread(client_id=cid)
+        except Exception:
+            continue
+        if thread.get("empty") or thread.get("attr_only_ghost"):
+            continue
+        if int(thread.get("message_count") or 0) <= 0:
+            continue
+        results[cid] = {
+            "active": True,
+            "chat_id": str(thread.get("tg_chat_id") or ""),
+            "resolved_nick": normalize_tg_nick(thread.get("tg_nick") or ""),
+            "via": "history",
+            "detail": "Есть живая переписка в Telegram",
+        }
+    if results:
+        save_verify_results_bulk(results)
+        stamp_catalog_rows_from_verify(rows)
+    return len(results)
+
+
+def reset_inactive_entries() -> int:
+    """Drop all «не найден» verdicts so the next pass re-checks them.
+
+    Needed after classification fixes: old runs wrote hard inactive for
+    numbers the probe simply could not see (privacy, broken egress).
+    """
+    overlay = load_overlay()
+    by_id = dict(overlay.get("by_client_id") or {})
+    kept = {
+        cid: entry
+        for cid, entry in by_id.items()
+        if isinstance(entry, dict) and entry.get("active")
+    }
+    dropped = len(by_id) - len(kept)
+    if dropped:
+        overlay["by_client_id"] = kept
+        stats = dict(overlay.get("stats") or {})
+        stats["last_run_at"] = time.time()
+        stats["total_checked"] = len(kept)
+        stats["active"] = len(kept)
+        stats["inactive"] = 0
+        overlay["stats"] = stats
+        save_overlay(overlay)
+    return dropped
+
+
 def verify_rows_by_phone_bulk(
     rows: list[dict[str, Any]],
     *,
@@ -523,6 +591,10 @@ def verify_rows_by_phone_bulk(
     from plugins.platforms.telegram_user import client as tg_user
 
     by_phone: dict[str, list[str]] = {}
+    # Clients with a @nick / chat id are NOT settled by a phone miss —
+    # privacy can hide the number while the nick resolves fine. Only
+    # phone-only rows may get an inactive verdict from this pass.
+    has_other_peer: set[str] = set()
     for row in rows or []:
         if not isinstance(row, dict):
             continue
@@ -533,6 +605,10 @@ def verify_rows_by_phone_bulk(
         e164 = tg_user.normalize_login_phone(raw) or ""
         if not e164:
             continue
+        if str(row.get("ТГ ник") or row.get("tg_nick") or "").strip() or str(
+            row.get("tg_chat_id") or ""
+        ).strip():
+            has_other_peer.add(cid)
         by_phone.setdefault(e164, []).append(cid)
 
     stats: dict[str, Any] = {
@@ -568,13 +644,20 @@ def verify_rows_by_phone_bulk(
                         "via": "import_contacts_bulk",
                         "detail": "",
                     }
+                elif cid in has_other_peer:
+                    # Nick/chat-id fallback decides — a phone miss may just
+                    # be privacy hiding the number.
+                    continue
                 else:
                     results[cid] = {
                         "active": False,
                         "chat_id": "",
                         "resolved_nick": "",
                         "via": "import_contacts_bulk",
-                        "detail": "На этом номере нет аккаунта Telegram",
+                        "detail": (
+                            "Номер не находится поиском Telegram — либо нет "
+                            "аккаунта, либо поиск по номеру скрыт приватностью"
+                        ),
                     }
         stats["checked"] += len(checked)
         wait = int(out.get("flood_wait") or 0)

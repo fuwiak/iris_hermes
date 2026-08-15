@@ -3970,12 +3970,10 @@ function ClientsPage() {
                     if (col.key === 'tg_active') {
                       const title =
                         row.tg_active === true
-                          ? `Telegram активен${row.tg_active_nick ? ` · ${row.tg_active_nick}` : ''}`
+                          ? `Есть Telegram${row.tg_active_nick ? ` · ${row.tg_active_nick}` : ''}`
                           : row.tg_active === false
-                            ? row.tg_active_label || 'Telegram не найден — ник устарел?'
-                            : row.tg_nick
-                              ? 'Не проверен — запустите verify_telegram_peers.py'
-                              : 'Нет @ника для проверки'
+                            ? 'Не находится по номеру — возможно, поиск скрыт настройками приватности. Проверьте по нику или вручную.'
+                            : 'Ещё не проверен — проверка идёт автоматически в фоне'
                       const cls =
                         row.tg_active === true
                           ? 'ms-tg-active-ok'
@@ -7226,11 +7224,11 @@ function CampaignsPage() {
                             onClick={() => selectAudienceClient(row)}
                             title={
                               tgOk
-                                ? `@${nick || row.tg_active_nick || ''} · TG активен`
+                                ? `@${nick || row.tg_active_nick || ''} · есть Telegram`
                                 : tgBad
-                                  ? `@${nick} · TG не найден`
+                                  ? `${nick ? `@${nick} · ` : ''}не находится по номеру (возможно, скрыт приватностью) — не значит, что Telegram нет`
                                   : nick
-                                    ? `@${nick}`
+                                    ? `@${nick} · ещё не проверен`
                                     : row.phone || row.id
                             }
                             type="button"
