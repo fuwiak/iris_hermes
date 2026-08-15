@@ -1063,7 +1063,7 @@ def sync_from_telegram_user(
     tg_nick: str = "",
     tg_chat_id: str = "",
     client_name: str = "",
-    limit: int = 40,
+    limit: int = 100,
 ) -> dict[str, Any]:
     """Pull personal MTProto chat history into the local client thread.
 
@@ -1217,7 +1217,7 @@ def sync_telegram_dialogs_into_threads(
     rows: list[dict[str, Any]],
     *,
     max_peers: int = 40,
-    per_chat_limit: int = 20,
+    per_chat_limit: int = 50,
     min_age_seconds: float = 6 * 3600.0,
 ) -> dict[str, Any]:
     """Bulk-sync the operator's personal Telegram into the «TG conversation»

@@ -266,6 +266,7 @@ def _schedule_snapshot_refresh(
     max_counterparties: int,
     include_archived: bool,
     entity_type: str = "all",
+    loyalty_only: bool = False,
 ) -> bool:
     """Rebuild first-100 snapshot + telegram export in a daemon thread."""
     if catalog is None or not isinstance(catalog, dict):
@@ -303,6 +304,7 @@ def _schedule_snapshot_refresh(
                 event_date_to=event_date_to,
                 stage=stage,
                 entity_type=entity_type,
+                loyalty_only=loyalty_only,
                 limit=PAGE_SNAPSHOT_ROWS,
                 offset=0,
                 max_orders=max_orders,
@@ -1560,6 +1562,7 @@ def get_clients(
     event_date_to: str = Query(""),
     stage: str = Query("all"),
     entity_type: str = Query("all"),
+    loyalty_only: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -1582,6 +1585,7 @@ def get_clients(
         event_date_to=event_date_to,
         stage=stage,
         entity_type=entity_type,
+        loyalty_only=loyalty_only,
     )
     catalog_key = cache_key(
         max_orders=max_orders,
@@ -1649,6 +1653,7 @@ def get_clients(
                                 event_date_to=event_date_to,
                                 stage=stage,
                                 entity_type=entity_type,
+                                loyalty_only=loyalty_only,
                                 max_orders=max_orders,
                                 max_counterparties=max_counterparties,
                                 include_archived=include_archived,
@@ -1748,6 +1753,7 @@ def get_clients(
             event_date_to=event_date_to,
             stage=stage,
             entity_type=entity_type,
+            loyalty_only=loyalty_only,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -1797,6 +1803,7 @@ def get_clients(
                         event_date_to=event_date_to,
                         stage=stage,
                         entity_type=entity_type,
+                        loyalty_only=loyalty_only,
                         max_orders=max_orders,
                         max_counterparties=max_counterparties,
                         include_archived=include_archived,
@@ -1848,6 +1855,7 @@ def get_clients_ids(
     event_date_to: str = Query(""),
     stage: str = Query("all"),
     entity_type: str = Query("all"),
+    loyalty_only: bool = Query(False),
     limit: int = Query(MASS_AUDIENCE_IDS_MAX, ge=1, le=MASS_AUDIENCE_IDS_MAX),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -1886,6 +1894,7 @@ def get_clients_ids(
             event_date_to=event_date_to,
             stage=stage,
             entity_type=entity_type,
+            loyalty_only=loyalty_only,
             limit=limit,
             offset=offset,
             max_orders=max_orders,

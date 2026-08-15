@@ -965,6 +965,7 @@
   function ClientsPage() {
     const [salesFilter, setSalesFilter] = useState("all");
     const [entityType, setEntityType] = useState("all");
+    const [loyaltyOnly, setLoyaltyOnly] = useState(false);
     const [group, setGroup] = useState("");
     const [qInput, setQInput] = useState("");
     const [q, setQ] = useState("");
@@ -1031,6 +1032,7 @@
           limit: String(PAGE_SIZE),
           offset: String(offset),
         });
+        if (loyaltyOnly) params.set("loyalty_only", "true");
         if (refresh) params.set("refresh", "true");
         api("/clients?" + params.toString())
           .then(function (payload) {
@@ -1074,7 +1076,7 @@
             }
           });
       },
-      [salesFilter, entityType, group, q, nextOffset, hasMore, mergePages],
+      [salesFilter, entityType, loyaltyOnly, group, q, nextOffset, hasMore, mergePages],
     );
 
     useEffect(
@@ -1082,7 +1084,7 @@
         load({ offset: 0 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
       },
-      [salesFilter, entityType, group, q],
+      [salesFilter, entityType, loyaltyOnly, group, q],
     );
 
     useEffect(
@@ -1389,6 +1391,20 @@
           h("option", { value: "all" }, "Все лица"),
           h("option", { value: "individual" }, "Физ. лица"),
           h("option", { value: "legal" }, "Юр. лица + ИП"),
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-chip" + (loyaltyOnly ? " is-active" : ""),
+            title: "Только клиенты с начисленными баллами",
+            onClick: function () {
+              setLoyaltyOnly(function (v) {
+                return !v;
+              });
+            },
+          },
+          "Есть баллы",
         ),
       ),
       h(GroupCloud, {
@@ -1750,6 +1766,85 @@
   }
 
   function CampaignsPage() {
+    const [chatTurns, setChatTurns] = useState([]);
+    const [chatInput, setChatInput] = useState("");
+    const [chatBusy, setChatBusy] = useState(false);
+    const [chatModel, setChatModel] = useState("deepseek");
+    const [skillPromptText, setSkillPromptText] = useState("");
+    var CHAT_MODEL_IDS = {
+      deepseek: "deepseek/deepseek-chat",
+      grok: "x-ai/grok-3",
+      gpt: "openai/gpt-5",
+    };
+
+    useEffect(
+      function () {
+        setChatTurns([]);
+        setChatInput("");
+        setSkillPromptText("");
+      },
+      [selectedClientId],
+    );
+
+    function sendChatTurn() {
+      var ask = String(chatInput || "").trim();
+      if (!ask || chatBusy || !selectedClientId) return;
+      var turns = chatTurns.concat([{ role: "user", content: ask }]);
+      setChatTurns(turns);
+      setChatInput("");
+      setChatBusy(true);
+      api("/campaigns/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: selectedClientId,
+          channel: channel,
+          draft: offerRef.current || offer || "",
+          messages: turns,
+          provider: "openrouter",
+          model: CHAT_MODEL_IDS[chatModel] || "",
+          seller_name: sellerName,
+          seller_facts: sellerFacts,
+        }),
+      })
+        .then(function (data) {
+          var reply = String((data && data.reply) || "").trim() || "Готово.";
+          setChatTurns(function (prev) {
+            return prev.concat([{ role: "assistant", content: reply }]);
+          });
+          var msg = String((data && data.message) || "").trim();
+          if (msg) {
+            setOffer(msg);
+            offerRef.current = msg;
+          }
+        })
+        .catch(function (err) {
+          setChatTurns(function (prev) {
+            return prev.concat([
+              { role: "assistant", content: "Ошибка: " + String((err && err.message) || err) },
+            ]);
+          });
+        })
+        .finally(function () {
+          setChatBusy(false);
+        });
+    }
+
+    function saveSkill(text) {
+      api("/campaigns/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text, notes: "" }),
+      })
+        .then(function () {
+          setActionStatus("✓ Сохранено в навык — следующие генерации учтут стиль");
+        })
+        .catch(function () {})
+        .finally(function () {
+          setSkillPromptText("");
+        });
+    }
+
     const [sentFeed, setSentFeed] = useState([]);
     const [sentFeedLoading, setSentFeedLoading] = useState(false);
     const [historyJobs, setHistoryJobs] = useState([]);
@@ -2483,6 +2578,7 @@
           setOffer(draft);
           if (data.delivery && data.delivery.ok) {
             setActionStatus("✓ Отправлено в Telegram (Business bot) + история.");
+            setSkillPromptText(draft);
           } else if (
             String(channel || "").indexOf("telegram") === 0 &&
             data.delivery &&
@@ -3364,6 +3460,103 @@
               },
             }),
           ),
+          selectedClientId
+            ? h(
+                "div",
+                { className: "ms-chat-panel" },
+                h(
+                  "div",
+                  { className: "ms-chat-head" },
+                  h("span", { className: "ms-ai-label" }, "Чат доработки текста"),
+                  h(
+                    "select",
+                    {
+                      className: "ms-select",
+                      value: chatModel,
+                      onChange: function (e) {
+                        setChatModel(e.target.value);
+                      },
+                    },
+                    h("option", { value: "deepseek" }, "DeepSeek"),
+                    h("option", { value: "grok" }, "Grok"),
+                    h("option", { value: "gpt" }, "GPT"),
+                  ),
+                ),
+                chatTurns.length
+                  ? h(
+                      "div",
+                      { className: "ms-chat-log" },
+                      chatTurns.map(function (t, idx) {
+                        return h(
+                          "div",
+                          { key: idx, className: "ms-chat-msg is-" + t.role },
+                          t.content,
+                        );
+                      }),
+                      chatBusy
+                        ? h("div", { className: "ms-chat-msg is-assistant" }, "…")
+                        : null,
+                    )
+                  : null,
+                h(
+                  "div",
+                  { className: "ms-chat-input" },
+                  h("input", {
+                    type: "text",
+                    value: chatInput,
+                    placeholder: "Например: короче и теплее, добавь про баллы…",
+                    onChange: function (e) {
+                      setChatInput(e.target.value);
+                    },
+                    onKeyDown: function (e) {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        sendChatTurn();
+                      }
+                    },
+                  }),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      disabled: chatBusy || !String(chatInput || "").trim(),
+                      onClick: sendChatTurn,
+                    },
+                    chatBusy ? "…" : "➤",
+                  ),
+                ),
+              )
+            : null,
+          skillPromptText
+            ? h(
+                "div",
+                { className: "ms-skill-prompt" },
+                h("span", null, "Сохранить отправленное сообщение в навык?"),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-btn ms-btn-primary",
+                    onClick: function () {
+                      saveSkill(skillPromptText);
+                    },
+                  },
+                  "Да, в навык",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-btn",
+                    onClick: function () {
+                      setSkillPromptText("");
+                    },
+                  },
+                  "Нет",
+                ),
+              )
+            : null,
           actionStatus
             ? h("p", { className: "ms-action-status" }, actionStatus)
             : null,

@@ -422,6 +422,7 @@ def page_snapshot_key(
     event_date_to: str = "",
     stage: str = "all",
     entity_type: str = "all",
+    loyalty_only: bool = False,
 ) -> str:
     """Stable key for the clients page window snapshot (filter dims only)."""
     parts = (
@@ -441,6 +442,7 @@ def page_snapshot_key(
         f"edt={(event_date_to or '').strip()}",
         f"st={(stage or 'all').strip().lower()}",
         f"et={(entity_type or 'all').strip().lower()}",
+        f"lp={1 if loyalty_only else 0}",
     )
     return ":".join(parts)
 

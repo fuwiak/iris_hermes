@@ -399,6 +399,32 @@ def verify_client_peers(
     phone_raw = str(phone or "").strip()
     phone_digits = re.sub(r"\D+", "", phone_raw)
 
+    # Live thread — strongest possible proof, no probing needed.
+    cid = str(client_id or "").strip()
+    if cid:
+        try:
+            from plugins.moysklad.conversations import get_thread
+
+            thread = get_thread(client_id=cid)
+            if (
+                not thread.get("empty")
+                and not thread.get("attr_only_ghost")
+                and int(thread.get("message_count") or 0) > 0
+            ):
+                return {
+                    "ok": True,
+                    "active": True,
+                    "checked": True,
+                    "chat_id": str(thread.get("tg_chat_id") or chat_id or ""),
+                    "resolved_nick": normalize_tg_nick(
+                        thread.get("tg_nick") or nick
+                    ),
+                    "via": "history",
+                    "detail": "Есть живая переписка в Telegram",
+                }
+        except Exception:
+            pass
+
     last_error: dict[str, Any] = {}
     try:
         if phone_raw:
@@ -416,13 +442,20 @@ def verify_client_peers(
                     "via": str(res.get("resolved_via") or "phone"),
                     "detail": "",
                 }
-            if res.get("error") == "phone_not_on_telegram":
+            if res.get("error") == "phone_not_on_telegram" and not (
+                nick or chat_id
+            ):
+                # Settle by phone ONLY when there is nothing else to try:
+                # privacy can hide the number while the @nick resolves fine.
                 return {
                     "ok": True,
                     "active": False,
                     "checked": True,
                     "resolved_nick": nick,
-                    "detail": str(res.get("detail") or "На этом номере нет Telegram"),
+                    "detail": (
+                        "Номер не находится поиском Telegram — либо нет "
+                        "аккаунта, либо поиск по номеру скрыт приватностью"
+                    ),
                     "error": "phone_not_on_telegram",
                 }
             last_error = res

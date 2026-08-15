@@ -502,6 +502,19 @@ def stage_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def row_has_loyalty_points(row: dict[str, Any]) -> bool:
+    """Баллы начисленные > 0 — фильтр «есть баллы»."""
+    raw = str(
+        row.get("Баллы начисленные") or row.get("bonus_points") or ""
+    ).strip()
+    if not raw:
+        return False
+    try:
+        return float(raw.replace(",", ".").replace(" ", "")) > 0
+    except ValueError:
+        return False
+
+
 def row_matches_entity_type(row: dict[str, Any], entity_type: str = "all") -> bool:
     """Физ/юр фильтр: individual | legal (юрлицо + ИП) | all.
 
@@ -541,6 +554,7 @@ def row_matches_audience_extras(
     event_date_to: str = "",
     stage: str = "all",
     entity_type: str = "all",
+    loyalty_only: bool = False,
 ) -> bool:
     source = normalize_group_source(group_source)
     if group and not row_has_group(row, group, source=source):
@@ -560,6 +574,8 @@ def row_matches_audience_extras(
     if vip_only and not row_is_vip(row):
         return False
     if not row_matches_entity_type(row, entity_type):
+        return False
+    if loyalty_only and not row_has_loyalty_points(row):
         return False
     if not row_matches_stage(row, stage):
         return False

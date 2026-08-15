@@ -73,4 +73,4 @@ def test_stamp_catalog_rows_from_verify(monkeypatch, tmp_path) -> None:
     assert row["tg_active"] is True
     assert row["tg_active_nick"] == "fresh"
     assert row_tg_active(row) is True
-    assert tg_active_label(active=True, has_contact=True) == "активен"
+    assert tg_active_label(active=True, has_contact=True) == "есть TG"

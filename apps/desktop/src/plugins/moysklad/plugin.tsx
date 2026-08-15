@@ -2876,6 +2876,7 @@ function ClientsPage() {
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [stage, setStage] = useState<StageKey>('all')
   const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal'>('all')
+  const [loyaltyOnly, setLoyaltyOnly] = useState(false)
   const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
   const [stageTagStatus, setStageTagStatus] = useState('')
   const [stageTagBusy, setStageTagBusy] = useState(false)
@@ -3207,6 +3208,8 @@ function ClientsPage() {
           offset: String(offset)
         })
 
+        if (loyaltyOnly) {params.set('loyalty_only', 'true')}
+
         if (opts?.refresh) {params.set('refresh', 'true')}
 
         const data = await call<{
@@ -3335,7 +3338,7 @@ function ClientsPage() {
         }
       }
     },
-    [call, entityType, group, groupSource, hasMore, nextOffset, qDebounced, salesFilter, stage]
+    [call, entityType, group, groupSource, hasMore, loyaltyOnly, nextOffset, qDebounced, salesFilter, stage]
   )
 
   /** Two steps on purpose: dry-run first, write only on a second, armed click. */
@@ -3390,14 +3393,14 @@ function ClientsPage() {
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, groupSource, qDebounced, stage, entityType]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, qDebounced, stage, entityType, loyaltyOnly]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Drop Excel column filters when the main audience filter changes.
   useEffect(() => {
     setColumnFilters({})
     setColumnSort(null)
     setOpenFilterKey(null)
-  }, [salesFilter, group, groupSource, qDebounced, stage, entityType])
+  }, [salesFilter, group, groupSource, qDebounced, stage, entityType, loyaltyOnly])
 
   // While server rebuilds in background, poll until fresh (clears sticky «обновляем…»).
   useEffect(() => {
@@ -3675,6 +3678,14 @@ function ClientsPage() {
           <option value="individual">Физ. лица</option>
           <option value="legal">Юр. лица + ИП</option>
         </select>
+        <button
+          className={`ms-chip${loyaltyOnly ? ' is-active' : ''}`}
+          onClick={() => setLoyaltyOnly(v => !v)}
+          title="Только клиенты с начисленными баллами лояльности"
+          type="button"
+        >
+          Есть баллы
+        </button>
       </div>
       <div className="ms-search">
         <input
@@ -4054,6 +4065,7 @@ function CampaignsPage() {
   const [requirePhone, setRequirePhone] = useState(false)
   const [requireTelegram, setRequireTelegram] = useState(false)
   const [vipOnly, setVipOnly] = useState(false)
+  const [loyaltyOnly, setLoyaltyOnly] = useState(false)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
   const [eventDateFrom, setEventDateFrom] = useState<string | null>(null)
@@ -4732,6 +4744,8 @@ function CampaignsPage() {
 
       if (vipOnly) {params.set('vip_only', 'true')}
 
+      if (loyaltyOnly) {params.set('loyalty_only', 'true')}
+
       if (birthdaySoon) {params.set('birthday_soon', 'true')}
 
       if (daysBeforeEvent > 0) {
@@ -4757,6 +4771,7 @@ function CampaignsPage() {
       eventDateTo,
       group,
       groupSource,
+      loyaltyOnly,
       requirePhone,
       requireTelegram,
       salesFilter,
@@ -4874,6 +4889,7 @@ function CampaignsPage() {
       requirePhone ||
       requireTelegram ||
       vipOnly ||
+      loyaltyOnly ||
       birthdaySoon ||
       audienceCalendarFilterActive
   )
@@ -4885,6 +4901,7 @@ function CampaignsPage() {
       requirePhone ||
       requireTelegram ||
       vipOnly ||
+      loyaltyOnly ||
       birthdaySoon
   )
 
@@ -5159,6 +5176,7 @@ function CampaignsPage() {
       channelKind,
       group,
       groupSource,
+      loyaltyOnly,
       requirePhone,
       requireTelegram,
       salesFilter,
@@ -6981,6 +6999,14 @@ function CampaignsPage() {
                     type="button"
                   >
                     VIP
+                  </button>
+                  <button
+                    className={`ms-chip${loyaltyOnly ? ' is-active' : ''}`}
+                    onClick={() => setLoyaltyOnly(v => !v)}
+                    title="Только клиенты с начисленными баллами"
+                    type="button"
+                  >
+                    Баллы
                   </button>
                   <button
                     className={`ms-chip${requirePhone ? ' is-active' : ''}`}
