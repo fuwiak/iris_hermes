@@ -85,7 +85,7 @@ def test_entity_chips_partition_real_company_types():
     assert {c["id"] for c in fiz["clients"]} == {"f1", "f2"}
 
     jur = clients_page(_DummyClient(), entity_type="legal", catalog=_catalog(ROWS))
-    assert {c["id"] for c in jur["clients"]} == {"u1", "u2"}
+    assert {c["id"] for c in jur["clients"]} == {"u1"}  # ИП — отдельная кнопка
 
     allp = clients_page(_DummyClient(), entity_type="all", catalog=_catalog(ROWS))
     assert allp["matched_total"] == 5
@@ -102,7 +102,7 @@ def test_loyalty_filter_shows_only_clients_with_points():
     combo = clients_page(
         _DummyClient(),
         loyalty_only=True,
-        entity_type="legal",
+        entity_type="entrepreneur",
         catalog=_catalog(ROWS),
     )
     assert {c["id"] for c in combo["clients"]} == {"u2"}
@@ -332,3 +332,27 @@ def test_outreach_system_prompt_bans_fake_recency():
     prompt = _OUTREACH_SYSTEM("Анна", "")
     assert "days_since_last_order" in prompt
     assert "до сих пор радует" in prompt  # явный запрет формулировки
+
+
+def test_entity_filter_separates_ip_from_legal():
+    """ИП — отдельная кнопка: «Индивидуальный предприниматель» больше не
+    прячется в «Юр. лица», а «Юр. лица» показывает только юрлиц."""
+    from plugins.moysklad.classify import clients_page
+
+    ip = clients_page(
+        _DummyClient(), entity_type="entrepreneur", catalog=_catalog(ROWS)
+    )
+    assert {c["id"] for c in ip["clients"]} == {"u2"}
+
+    jur = clients_page(_DummyClient(), entity_type="legal", catalog=_catalog(ROWS))
+    assert {c["id"] for c in jur["clients"]} == {"u1"}
+
+    fiz = clients_page(
+        _DummyClient(), entity_type="individual", catalog=_catalog(ROWS)
+    )
+    assert {c["id"] for c in fiz["clients"]} == {"f1", "f2"}
+
+    # Три кнопки — раздел без пересечений; «без типа» виден только на «все».
+    assert (
+        len(ip["clients"]) + len(jur["clients"]) + len(fiz["clients"]) == 4
+    )

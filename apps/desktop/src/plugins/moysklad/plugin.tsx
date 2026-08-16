@@ -940,6 +940,8 @@ interface SavedSegment {
     event_date_from?: string
     event_date_to?: string
     stage?: string
+    entity_type?: string
+    loyalty_only?: boolean
   }
 }
 
@@ -2872,7 +2874,7 @@ function ClientsPage() {
   const [group, setGroup] = useState('')
   const [groupSource, setGroupSource] = useState<'any' | 'ms' | 'ai'>('any')
   const [stage, setStage] = useState<StageKey>('all')
-  const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal'>('all')
+  const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal' | 'entrepreneur'>('all')
   const [loyaltyOnly, setLoyaltyOnly] = useState(false)
   const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
   const [stageTagStatus, setStageTagStatus] = useState('')
@@ -3675,10 +3677,20 @@ function ClientsPage() {
         <button
           className={`ms-chip${entityType === 'legal' ? ' is-active' : ''}`}
           onClick={() => setEntityType(v => (v === 'legal' ? 'all' : 'legal'))}
-          title="Только юрлица и ИП"
+          title="Только юридические лица"
           type="button"
         >
           Юр. лица
+        </button>
+        <button
+          className={`ms-chip${entityType === 'entrepreneur' ? ' is-active' : ''}`}
+          onClick={() =>
+            setEntityType(v => (v === 'entrepreneur' ? 'all' : 'entrepreneur'))
+          }
+          title="Только индивидуальные предприниматели"
+          type="button"
+        >
+          ИП
         </button>
         <button
           className={`ms-chip${loyaltyOnly ? ' is-active' : ''}`}
@@ -4068,6 +4080,11 @@ function CampaignsPage() {
   const [requireTelegram, setRequireTelegram] = useState(false)
   const [vipOnly, setVipOnly] = useState(false)
   const [loyaltyOnly, setLoyaltyOnly] = useState(false)
+  const [stage, setStage] = useState<StageKey>('all')
+  const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal' | 'entrepreneur'>(
+    'all'
+  )
+  const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
   const [eventDateFrom, setEventDateFrom] = useState<string | null>(null)
@@ -4735,7 +4752,9 @@ function CampaignsPage() {
         group_source: groupSource,
         q: opts?.q ?? audienceQDebounced,
         limit: String(opts?.limit ?? 40),
-        offset: String(opts?.offset ?? 0)
+        offset: String(opts?.offset ?? 0),
+        stage,
+        entity_type: entityType
       })
 
       if (channelKind) {params.set('channel_kind', channelKind)}
@@ -4769,6 +4788,7 @@ function CampaignsPage() {
       birthdaySoon,
       channelKind,
       daysBeforeEvent,
+      entityType,
       eventDateFrom,
       eventDateTo,
       group,
@@ -4777,6 +4797,7 @@ function CampaignsPage() {
       requirePhone,
       requireTelegram,
       salesFilter,
+      stage,
       vipOnly
     ]
   )
@@ -4821,7 +4842,10 @@ function CampaignsPage() {
           birthday_soon: birthdaySoon,
           days_before_event: daysBeforeEvent,
           event_date_from: eventDateFrom || '',
-          event_date_to: eventDateTo || ''
+          event_date_to: eventDateTo || '',
+          stage,
+          entity_type: entityType,
+          loyalty_only: loyaltyOnly
         }
       })
       if (data.segment) {
@@ -4843,8 +4867,8 @@ function CampaignsPage() {
   }, [
     activeSegmentId, audienceQDebounced, birthdaySoon, call, channelKind, daysBeforeEvent,
     eventDateFrom, eventDateTo,
-    group, groupSource, loadSegments, requirePhone, requireTelegram, salesFilter,
-    segmentName, vipOnly
+    group, groupSource, loadSegments, loyaltyOnly, requirePhone, requireTelegram, salesFilter,
+    segmentName, stage, entityType, vipOnly
   ])
 
   const applySegment = useCallback((segment: SavedSegment) => {
@@ -4860,10 +4884,15 @@ function CampaignsPage() {
     setRequireTelegram(Boolean(f.require_telegram))
     setRequirePhone(Boolean(f.require_phone))
     setVipOnly(Boolean(f.vip_only))
+    setLoyaltyOnly(Boolean(f.loyalty_only))
     setBirthdaySoon(Boolean(f.birthday_soon))
     setDaysBeforeEvent(f.days_before_event || 0)
     setEventDateFrom(f.event_date_from || null)
     setEventDateTo(f.event_date_to || null)
+    setStage((f.stage as StageKey) || 'all')
+    setEntityType(
+      (f.entity_type as 'all' | 'individual' | 'legal' | 'entrepreneur') || 'all'
+    )
     setSegmentStatus(`Загружен список «${segment.name}» — фильтры выше применены.`)
   }, [])
 
@@ -4893,6 +4922,8 @@ function CampaignsPage() {
       vipOnly ||
       loyaltyOnly ||
       birthdaySoon ||
+      (stage && stage !== 'all') ||
+      (entityType && entityType !== 'all') ||
       audienceCalendarFilterActive
   )
   const audienceClientFastFilterActive = Boolean(
@@ -4904,7 +4935,9 @@ function CampaignsPage() {
       requireTelegram ||
       vipOnly ||
       loyaltyOnly ||
-      birthdaySoon
+      birthdaySoon ||
+      (stage && stage !== 'all') ||
+      (entityType && entityType !== 'all')
   )
 
   const loadAudience = useCallback(
@@ -4956,7 +4989,10 @@ function CampaignsPage() {
           requirePhone,
           requireTelegram,
           vipOnly,
-          birthdaySoon
+          birthdaySoon,
+          stage,
+          entityType,
+          loyaltyOnly
         }
         if (local?.clients?.length) {
           const clients = audienceExtrasFilterActive
@@ -5026,6 +5062,7 @@ function CampaignsPage() {
             has_more?: boolean
             next_offset?: number
             revalidating?: boolean
+            stage_counts?: StageCounts
           }>(`/clients?${audienceFilterParams({ offset, limit: pageLimit })}`, {
             timeoutMs: CLIENTS_FETCH_TIMEOUT_MS
           })
@@ -5068,6 +5105,7 @@ function CampaignsPage() {
         const rows = page.clients || []
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
+        if (page.stage_counts) {setStageCounts(page.stage_counts)}
 
         // First page always replaces — never merge stale unfiltered chips back in
         // (sales / group / extras looked broken because prior list was longer).
@@ -5176,12 +5214,14 @@ function CampaignsPage() {
       birthdaySoon,
       call,
       channelKind,
+      entityType,
       group,
       groupSource,
       loyaltyOnly,
       requirePhone,
       requireTelegram,
       salesFilter,
+      stage,
       vipOnly
     ]
   )
@@ -6991,6 +7031,50 @@ function CampaignsPage() {
               </div>
 
               <div className="ms-filter-block">
+                <span className="ms-filter-label">Тип клиента</span>
+                <div className="ms-chips">
+                  {STAGE_CHIPS.filter(chip => chip.id !== 'all').map(chip => {
+                    const n = stageCounts?.[chip.id]
+
+                    return (
+                      <button
+                        className={`ms-chip${stage === chip.id ? ' is-active' : ''}`}
+                        key={chip.id}
+                        onClick={() =>
+                          setStage(v => (v === chip.id ? 'all' : chip.id))
+                        }
+                        title={chip.title}
+                        type="button"
+                      >
+                        {chip.label}
+                        {n != null ? <span>{n}</span> : null}
+                      </button>
+                    )
+                  })}
+                  <button
+                    className={`ms-chip${entityType === 'individual' ? ' is-active' : ''}`}
+                    onClick={() =>
+                      setEntityType(v => (v === 'individual' ? 'all' : 'individual'))
+                    }
+                    title="Только физические лица"
+                    type="button"
+                  >
+                    Физ. лица
+                  </button>
+                  <button
+                    className={`ms-chip${entityType === 'legal' ? ' is-active' : ''}`}
+                    onClick={() =>
+                      setEntityType(v => (v === 'legal' ? 'all' : 'legal'))
+                    }
+                    title="Только юридические лица"
+                    type="button"
+                  >
+                    Юр. лица
+                  </button>
+                </div>
+              </div>
+
+              <div className="ms-filter-block">
                 <span className="ms-filter-label">Дополнительно</span>
                 <div className="ms-chips">
                   <button
@@ -7003,10 +7087,10 @@ function CampaignsPage() {
                   <button
                     className={`ms-chip${loyaltyOnly ? ' is-active' : ''}`}
                     onClick={() => setLoyaltyOnly(v => !v)}
-                    title="Только клиенты с начисленными баллами"
+                    title="Только клиенты с начисленными баллами лояльности"
                     type="button"
                   >
-                    Баллы
+                    Есть баллы
                   </button>
                   <button
                     className={`ms-chip${requirePhone ? ' is-active' : ''}`}

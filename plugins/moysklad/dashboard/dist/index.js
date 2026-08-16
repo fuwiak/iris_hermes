@@ -20,6 +20,11 @@
 
   const API = "/api/plugins/moysklad";
   const PAGE_SIZE = 50;
+  var STAGE_CHIPS = [
+    { id: "failed", label: "Не состоялся" },
+    { id: "customer", label: "Покупатель" },
+    { id: "no_orders", label: "Нет заказов" },
+  ];
 
 
   function pickOutreachMessage(data) {
@@ -1397,7 +1402,7 @@
           {
             type: "button",
             className: "ms-chip" + (entityType === "legal" ? " is-active" : ""),
-            title: "Только юрлица и ИП",
+            title: "Только юридические лица",
             onClick: function () {
               setEntityType(function (v) {
                 return v === "legal" ? "all" : "legal";
@@ -1405,6 +1410,20 @@
             },
           },
           "Юр. лица",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-chip" + (entityType === "entrepreneur" ? " is-active" : ""),
+            title: "Только индивидуальные предприниматели",
+            onClick: function () {
+              setEntityType(function (v) {
+                return v === "entrepreneur" ? "all" : "entrepreneur";
+              });
+            },
+          },
+          "ИП",
         ),
         h(
           "button",
@@ -1900,6 +1919,10 @@
     const [requirePhone, setRequirePhone] = useState(false);
     const [requireTelegram, setRequireTelegram] = useState(false);
     const [vipOnly, setVipOnly] = useState(false);
+    const [loyaltyOnly, setLoyaltyOnly] = useState(false);
+    const [stage, setStage] = useState("all");
+    const [entityType, setEntityType] = useState("all");
+    const [stageCounts, setStageCounts] = useState(null);
     const [birthdaySoon, setBirthdaySoon] = useState(false);
     const [personalize, setPersonalize] = useState(false);
     const [mode, setMode] = useState("manual");
@@ -2306,11 +2329,14 @@
           q: opts.q != null ? opts.q : audienceQDebounced,
           limit: String(opts.limit != null ? opts.limit : 40),
           offset: String(opts.offset != null ? opts.offset : 0),
+          stage: stage,
+          entity_type: entityType,
         });
         if (channelKind) params.set("channel_kind", channelKind);
         if (requirePhone) params.set("require_phone", "true");
         if (requireTelegram) params.set("require_telegram", "true");
         if (vipOnly) params.set("vip_only", "true");
+        if (loyaltyOnly) params.set("loyalty_only", "true");
         if (birthdaySoon) params.set("birthday_soon", "true");
         return params.toString();
       },
@@ -2321,7 +2347,10 @@
         requirePhone,
         requireTelegram,
         vipOnly,
+        loyaltyOnly,
         birthdaySoon,
+        stage,
+        entityType,
         audienceQDebounced,
       ],
     );
@@ -2357,6 +2386,7 @@
             });
             setAudience((page && page.matched_total) || 0);
             setCounts((page && page.counts) || null);
+            if (page && page.stage_counts) setStageCounts(page.stage_counts);
             if (!append) setGroupOptions((page && page.group_options) || []);
             const next =
               page && page.next_offset != null
@@ -2409,6 +2439,9 @@
         requireTelegram,
         vipOnly,
         birthdaySoon,
+        stage,
+        entityType,
+        loyaltyOnly,
         audienceQDebounced,
       ],
     );
@@ -2748,6 +2781,64 @@
         disabled: loading,
         onChange: setSalesFilter,
       }),
+      h(
+        "div",
+        { className: "ms-filter-block" },
+        h("span", { className: "ms-filter-label" }, "Тип клиента"),
+        h(
+          "div",
+          { className: "ms-chips" },
+          STAGE_CHIPS.map(function (chip) {
+            var n = stageCounts && stageCounts[chip.id];
+            return h(
+              "button",
+              {
+                key: chip.id,
+                type: "button",
+                className: "ms-chip" + (stage === chip.id ? " is-active" : ""),
+                onClick: function () {
+                  setStage(stage === chip.id ? "all" : chip.id);
+                },
+              },
+              chip.label,
+              n != null ? h("span", null, String(n)) : null,
+            );
+          }),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-chip" + (entityType === "individual" ? " is-active" : ""),
+              onClick: function () {
+                setEntityType(entityType === "individual" ? "all" : "individual");
+              },
+            },
+            "Физ. лица",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-chip" + (entityType === "legal" ? " is-active" : ""),
+              onClick: function () {
+                setEntityType(entityType === "legal" ? "all" : "legal");
+              },
+            },
+            "Юр. лица",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "ms-chip" + (loyaltyOnly ? " is-active" : ""),
+              onClick: function () {
+                setLoyaltyOnly(!loyaltyOnly);
+              },
+            },
+            "Есть баллы",
+          ),
+        ),
+      ),
       h(
         "section",
         { className: "ms-audience-builder" },

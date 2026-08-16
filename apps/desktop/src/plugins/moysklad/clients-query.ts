@@ -96,6 +96,10 @@ export interface ClientQueryRow {
   tg_active_label?: string | null
   tg_active_nick?: string | null
   actual_address?: string | null
+  client_stage?: string | null
+  company_type?: string | null
+  bonus_points?: string | number | null
+  loyalty_points?: number | null
 }
 
 /** Verified reachable Telegram — mirrors plugins/moysklad/tg_verify.row_passes_telegram_filter. */
@@ -156,6 +160,61 @@ export function rowMatchesSalesFilter(
     return st.includes('маркет') || st.includes('flow') || st.includes('флау')
   }
   return true
+}
+
+const STAGE_FILTER_LABELS: Record<string, string> = {
+  failed: 'не состоялся',
+  customer: 'покупатель',
+  no_orders: 'нет заказов',
+  unknown: 'нет данных'
+}
+
+/** Mirrors plugins/moysklad/audience.row_matches_stage. */
+export function rowMatchesStage(row: ClientQueryRow, stage?: string): boolean {
+  const key = String(stage || 'all')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  if (!key || key === 'all' || key === 'any' || key === 'все') {
+    return true
+  }
+  const want = STAGE_FILTER_LABELS[key] || key
+  const label = String(row.client_stage || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+  return label === want
+}
+
+/** Mirrors plugins/moysklad/audience.row_matches_entity_type. */
+export function rowMatchesEntityType(row: ClientQueryRow, entityType?: string): boolean {
+  const kind = String(entityType || 'all').trim().toLowerCase()
+  if (!kind || kind === 'all' || kind === 'any') {
+    return true
+  }
+  const label = String(row.company_type || '')
+    .trim()
+    .toLowerCase()
+  if (kind === 'individual') {
+    return label.startsWith('физ') || label === 'individual'
+  }
+  if (kind === 'legal') {
+    return label.startsWith('юр') || label === 'legal'
+  }
+  if (kind === 'entrepreneur' || kind === 'ip') {
+    return label.startsWith('инд') || label === 'entrepreneur' || label === 'ип'
+  }
+  return true
+}
+
+/** Mirrors plugins/moysklad/audience.row_has_loyalty_points. */
+export function rowHasLoyaltyPoints(row: ClientQueryRow): boolean {
+  const raw = String(row.bonus_points ?? row.loyalty_points ?? '').trim()
+  if (!raw) {
+    return false
+  }
+  const n = Number(raw.replace(',', '.').replace(/\s+/g, ''))
+  return Number.isFinite(n) && n > 0
 }
 
 /** Mirrors plugins/moysklad/audience.row_matches_channel_kind. */
@@ -323,6 +382,9 @@ export function filterClientRowsByAudience<T extends ClientQueryRow>(
     requireTelegram?: boolean
     vipOnly?: boolean
     birthdaySoon?: boolean
+    stage?: string
+    entityType?: string
+    loyaltyOnly?: boolean
   }
 ): T[] {
   let out = rows
@@ -342,6 +404,17 @@ export function filterClientRowsByAudience<T extends ClientQueryRow>(
   }
   if (opts.vipOnly) {
     out = out.filter(row => rowLooksVip(row))
+  }
+  if (opts.loyaltyOnly) {
+    out = out.filter(row => rowHasLoyaltyPoints(row))
+  }
+  const stage = String(opts.stage || 'all').trim()
+  if (stage && stage !== 'all') {
+    out = out.filter(row => rowMatchesStage(row, stage))
+  }
+  const entityType = String(opts.entityType || 'all').trim()
+  if (entityType && entityType !== 'all') {
+    out = out.filter(row => rowMatchesEntityType(row, entityType))
   }
   if (opts.birthdaySoon) {
     out = out.filter(row => {

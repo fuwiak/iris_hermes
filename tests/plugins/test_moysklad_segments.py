@@ -23,6 +23,19 @@ def test_normalize_filters_keeps_only_known_keys():
     assert out == {"sales_filter": "direct", "vip_only": True, "days_before_event": 5}
 
 
+def test_normalize_filters_keeps_stage_entity_loyalty():
+    out = normalize_filters({
+        "stage": "failed",
+        "entity_type": "individual",
+        "loyalty_only": True,
+    })
+    assert out == {
+        "stage": "failed",
+        "entity_type": "individual",
+        "loyalty_only": True,
+    }
+
+
 def test_save_and_list_segments(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_memory_for_tests()

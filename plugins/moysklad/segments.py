@@ -50,6 +50,8 @@ FILTER_FIELDS = (
     "event_date_from",
     "event_date_to",
     "stage",
+    "entity_type",
+    "loyalty_only",
 )
 
 
@@ -113,7 +115,7 @@ def normalize_filters(raw: dict[str, Any] | None) -> dict[str, Any]:
     for key in FILTER_FIELDS:
         if key not in raw or raw[key] in (None, ""):
             continue
-        if key in ("require_phone", "require_telegram", "vip_only", "birthday_soon"):
+        if key in ("require_phone", "require_telegram", "vip_only", "birthday_soon", "loyalty_only"):
             out[key] = bool(raw[key])
         elif key == "days_before_event":
             try:

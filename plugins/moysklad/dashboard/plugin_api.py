@@ -3463,6 +3463,8 @@ class SegmentBody(BaseModel):
     event_date_from: str = ""
     event_date_to: str = ""
     stage: str = "all"
+    entity_type: str = "all"
+    loyalty_only: bool = False
 
 
 @router.get("/segments")

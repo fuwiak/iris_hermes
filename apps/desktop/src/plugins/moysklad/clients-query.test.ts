@@ -172,6 +172,47 @@ describe('filterClientRowsByAudience', () => {
       '2'
     ])
   })
+
+  it('narrows by stage, entity type and loyalty points', () => {
+    const rows = [
+      {
+        id: '1',
+        client_stage: 'не состоялся',
+        company_type: 'физлицо',
+        bonus_points: '0'
+      },
+      {
+        id: '2',
+        client_stage: 'покупатель',
+        company_type: 'юрлицо',
+        bonus_points: '120'
+      },
+      {
+        id: '3',
+        client_stage: 'нет заказов',
+        company_type: 'физлицо',
+        bonus_points: '5'
+      }
+    ]
+    expect(
+      filterClientRowsByAudience(rows, { stage: 'failed' }).map(r => r.id)
+    ).toEqual(['1'])
+    expect(
+      filterClientRowsByAudience(rows, { stage: 'customer' }).map(r => r.id)
+    ).toEqual(['2'])
+    expect(
+      filterClientRowsByAudience(rows, { stage: 'no_orders' }).map(r => r.id)
+    ).toEqual(['3'])
+    expect(
+      filterClientRowsByAudience(rows, { entityType: 'individual' }).map(r => r.id)
+    ).toEqual(['1', '3'])
+    expect(
+      filterClientRowsByAudience(rows, { entityType: 'legal' }).map(r => r.id)
+    ).toEqual(['2'])
+    expect(
+      filterClientRowsByAudience(rows, { loyaltyOnly: true }).map(r => r.id)
+    ).toEqual(['2', '3'])
+  })
 })
 
 describe('pickLocalClientsSeed', () => {

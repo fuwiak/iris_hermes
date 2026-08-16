@@ -531,11 +531,11 @@ def row_matches_entity_type(row: dict[str, Any], entity_type: str = "all") -> bo
     if kind == "individual":
         return label.startswith("физ") or label == "individual"
     if kind == "legal":
-        return (
-            label.startswith("юр")
-            or label.startswith("инд")
-            or label in ("legal", "entrepreneur")
-        )
+        return label.startswith("юр") or label == "legal"
+    if kind in ("entrepreneur", "ip"):
+        # «Индивидуальный предприниматель» — отдельная кнопка ИП,
+        # больше не прячется внутри «Юр. лица».
+        return label.startswith("инд") or label == "entrepreneur" or label == "ип"
     return True
 
 
