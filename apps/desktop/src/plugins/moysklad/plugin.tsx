@@ -59,12 +59,8 @@ import {
   terminalPrefixLength
 } from './mass-send'
 
-// Chat refine model variants (OpenRouter ids — edit here to swap versions).
-const CHAT_MODEL_IDS: Record<'deepseek' | 'grok' | 'gpt', string> = {
-  deepseek: 'deepseek/deepseek-chat',
-  grok: 'x-ai/grok-3',
-  gpt: 'openai/gpt-5'
-}
+// Chat refine — DeepSeek only (OpenRouter id).
+const CHAT_REFINE_MODEL = 'deepseek/deepseek-chat'
 
 interface GroupChipOption {
   name: string
@@ -5825,7 +5821,6 @@ function CampaignsPage() {
   const [chatTurns, setChatTurns] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
-  const [chatModel, setChatModel] = useState<'deepseek' | 'grok' | 'gpt'>('deepseek')
   const [skillPromptText, setSkillPromptText] = useState('')
   const [skillNote, setSkillNote] = useState('')
 
@@ -5836,13 +5831,9 @@ function CampaignsPage() {
     setSkillPromptText('')
   }, [selectedClientId])
 
-  const sendChatTurn = useCallback(async (override?: {
-    ask?: string
-    model?: 'deepseek' | 'grok' | 'gpt'
-  }) => {
+  const sendChatTurn = useCallback(async (override?: { ask?: string }) => {
     const ask = (override?.ask ?? chatInput).trim()
     if (!ask || chatBusy || !selectedClientId) {return}
-    const model = CHAT_MODEL_IDS[override?.model ?? chatModel]
     const turns = [...chatTurns, { role: 'user' as const, content: ask }]
     setChatTurns(turns)
     setChatInput('')
@@ -5857,7 +5848,7 @@ function CampaignsPage() {
           draft: offerRef.current || offer,
           messages: turns,
           provider: 'openrouter',
-          model,
+          model: CHAT_REFINE_MODEL,
           seller_name: sellerName,
           seller_facts: sellerFacts
         }
@@ -5881,7 +5872,7 @@ function CampaignsPage() {
     } finally {
       setChatBusy(false)
     }
-  }, [call, channel, chatBusy, chatInput, chatModel, chatTurns, offer, selectedClientId, sellerFacts, sellerName])
+  }, [call, channel, chatBusy, chatInput, chatTurns, offer, selectedClientId, sellerFacts, sellerName])
 
   const saveSkill = useCallback(
     async (text: string) => {
@@ -7853,28 +7844,21 @@ function CampaignsPage() {
               <div className="ms-chat-head">
                 <span className="ms-ai-label">Чат доработки текста</span>
                 <div className="ms-chips">
-                  {(['deepseek', 'grok', 'gpt'] as const).map(mk => (
-                    <button
-                      className={`ms-chip${chatModel === mk ? ' is-active' : ''}`}
-                      disabled={chatBusy}
-                      key={mk}
-                      onClick={() => {
-                        setChatModel(mk)
-                        // Кнопка должна ДЕЛАТЬ, а не только выбирать: сразу
-                        // переписываем текущий текст выбранной моделью.
-                        if ((offerRef.current || offer).trim()) {
-                          void sendChatTurn({
-                            ask: 'Перепиши этот текст той же сутью, но свежими словами.',
-                            model: mk
-                          })
-                        }
-                      }}
-                      title={`Переписать текст моделью ${mk === 'deepseek' ? 'DeepSeek' : mk === 'grok' ? 'Grok' : 'GPT'}`}
-                      type="button"
-                    >
-                      {mk === 'deepseek' ? 'DeepSeek' : mk === 'grok' ? 'Grok' : 'GPT'}
-                    </button>
-                  ))}
+                  <button
+                    className="ms-chip is-active"
+                    disabled={chatBusy}
+                    onClick={() => {
+                      if ((offerRef.current || offer).trim()) {
+                        void sendChatTurn({
+                          ask: 'Перепиши этот текст той же сутью, но свежими словами.'
+                        })
+                      }
+                    }}
+                    title="Переписать текст моделью DeepSeek"
+                    type="button"
+                  >
+                    DeepSeek
+                  </button>
                 </div>
               </div>
               {chatTurns.length ? (

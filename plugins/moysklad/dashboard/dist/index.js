@@ -1783,13 +1783,8 @@
     const [chatTurns, setChatTurns] = useState([]);
     const [chatInput, setChatInput] = useState("");
     const [chatBusy, setChatBusy] = useState(false);
-    const [chatModel, setChatModel] = useState("deepseek");
     const [skillPromptText, setSkillPromptText] = useState("");
-    var CHAT_MODEL_IDS = {
-      deepseek: "deepseek/deepseek-chat",
-      grok: "x-ai/grok-3",
-      gpt: "openai/gpt-5",
-    };
+    var CHAT_REFINE_MODEL = "deepseek/deepseek-chat";
 
     useEffect(
       function () {
@@ -1804,7 +1799,6 @@
       override = override || {};
       var ask = String(override.ask != null ? override.ask : chatInput || "").trim();
       if (!ask || chatBusy || !selectedClientId) return;
-      var modelKey = override.model || chatModel;
       var turns = chatTurns.concat([{ role: "user", content: ask }]);
       setChatTurns(turns);
       setChatInput("");
@@ -1818,7 +1812,7 @@
           draft: offerRef.current || offer || "",
           messages: turns,
           provider: "openrouter",
-          model: CHAT_MODEL_IDS[modelKey] || "",
+          model: CHAT_REFINE_MODEL,
           seller_name: sellerName,
           seller_facts: sellerFacts,
         }),
@@ -3495,30 +3489,23 @@
                   h(
                     "div",
                     { className: "ms-chips" },
-                    ["deepseek", "grok", "gpt"].map(function (mk) {
-                      var label =
-                        mk === "deepseek" ? "DeepSeek" : mk === "grok" ? "Grok" : "GPT";
-                      return h(
-                        "button",
-                        {
-                          key: mk,
-                          type: "button",
-                          disabled: chatBusy,
-                          className: "ms-chip" + (chatModel === mk ? " is-active" : ""),
-                          title: "Переписать текст моделью " + label,
-                          onClick: function () {
-                            setChatModel(mk);
-                            if (String(offerRef.current || offer || "").trim()) {
-                              sendChatTurn({
-                                ask: "Перепиши этот текст той же сутью, но свежими словами.",
-                                model: mk,
-                              });
-                            }
-                          },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        disabled: chatBusy,
+                        className: "ms-chip is-active",
+                        title: "Переписать текст моделью DeepSeek",
+                        onClick: function () {
+                          if (String(offerRef.current || offer || "").trim()) {
+                            sendChatTurn({
+                              ask: "Перепиши этот текст той же сутью, но свежими словами.",
+                            });
+                          }
                         },
-                        label,
-                      );
-                    }),
+                      },
+                      "DeepSeek",
+                    ),
                   ),
                 ),
                 chatTurns.length
