@@ -243,7 +243,7 @@ _PARAPHRASE_SYSTEM = """Ты — лингвист-редактор. Сделай
 """
 
 # Creative temperatures — closer to free chat, still grounded via prompts.
-OUTREACH_GENERATE_TEMPERATURE = 0.95
+OUTREACH_GENERATE_TEMPERATURE = 0.8
 OUTREACH_REWRITE_TEMPERATURE = 1.0
 OUTREACH_BOUQUET_TEMPERATURE = 0.85
 OUTREACH_PARAPHRASE_TEMPERATURE = 0.95
@@ -892,6 +892,8 @@ def generate_outreach_message(
     user = (
         "Напиши личное сообщение клиенту СВОБОДНО, как в живом чате продавца — "
         "креативно и по-человечески, опираясь на факты JSON (не шаблон CRM).\n"
+        f"Сегодня: {datetime.now(timezone.utc).date().isoformat()} — сверяй все "
+        "формулировки о времени с этой датой и time.days_since_last_order.\n"
         f"Канал отправки: {_channel_label(channel)} "
         "(не дублируй название канала в конце сообщения).\n"
         f"Подпись продавца: {seller_name or '(не задана — мягко из цветочного магазина)'}.\n"
@@ -1797,6 +1799,8 @@ def _generate_user_prompt(
     return (
         "Напиши личное сообщение клиенту СВОБОДНО, как в живом чате продавца — "
         "креативно и по-человечески, опираясь на факты JSON (не шаблон CRM).\n"
+        f"Сегодня: {datetime.now(timezone.utc).date().isoformat()} — сверяй все "
+        "формулировки о времени с этой датой и time.days_since_last_order.\n"
         f"Канал отправки: {_channel_label(channel)} "
         "(не дублируй название канала в конце сообщения).\n"
         f"Подпись продавца: {seller_name or '(не задана — мягко из цветочного магазина)'}.\n"

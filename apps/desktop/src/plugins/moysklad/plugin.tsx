@@ -6263,7 +6263,7 @@ function CampaignsPage() {
         setError(`Telegram: ${detail}`)
         setActionStatus('')
       } else {
-        applyOfferText(draft, '✓ Исходящее добавлено в историю (лейбл исходящее).')
+        applyOfferText(draft, '⚠ НЕ доставлено в Telegram — записано только в историю (клиент недоступен или доставка не настроена).')
         setActionStatus('✓ В истории. Можно выбрать следующего клиента.')
       }
 
@@ -8091,7 +8091,7 @@ function CampaignsPage() {
                     {m.text ? ` — ${m.text.slice(0, 120)}${m.text.length > 120 ? '…' : ''}` : ''}
                   </span>
                   <span className="ms-muted">
-                    {m.status === 'delivered' ? '✓ доставлено' : '✎ записано'}
+                    {m.status === 'delivered' ? '✓ доставлено' : '✎ записано (не доставлено)'}
                     {m.ts ? ` · ${String(m.ts).slice(0, 16).replace('T', ' ')}` : ''}
                   </span>
                 </div>

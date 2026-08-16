@@ -2612,7 +2612,7 @@
             setActionStatus("⚠ В историю записано; Bot API: " + detail);
             setError("Telegram: " + detail);
           } else {
-            setActionStatus("✓ Исходящее добавлено в историю (лейбл исходящее).");
+            setActionStatus("⚠ НЕ доставлено в Telegram — записано только в историю (клиент недоступен или доставка не настроена).");
           }
           if (data.deep_link) window.open(data.deep_link, "_blank", "noopener");
         })
@@ -3745,7 +3745,7 @@
                   h(
                     "span",
                     { className: "ms-muted" },
-                    (m.status === "delivered" ? "✓ доставлено" : "✎ записано") +
+                    (m.status === "delivered" ? "✓ доставлено" : "✎ записано (не доставлено)") +
                       (m.ts ? " · " + String(m.ts).slice(0, 16).replace("T", " ") : ""),
                   ),
                 );

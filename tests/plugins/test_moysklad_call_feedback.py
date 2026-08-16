@@ -281,3 +281,54 @@ def test_recency_epoch_parses_ru_export_dates():
     ).timestamp()
     assert recency_epoch("2026-08-15T09:00:00+00:00") > ru
     assert recency_epoch("мусор") == float("-inf")
+
+
+# ── модель и заземление даты (звонок: «не понимает, какое сегодня число») ──
+
+
+def test_generate_prompt_carries_today_and_elapsed_days():
+    from plugins.moysklad.outreach import _generate_user_prompt
+
+    detail = {
+        "client": {"id": "r1", "name": "Ростислав", "loyalty_points": None},
+        "orders": [
+            {
+                "id": "o1",
+                "date": "2026-06-14 12:33:00",
+                "sum": 11490,
+                "product_snippet": "дофаминовый букет",
+            }
+        ],
+        "ai": {"recommendation": "тест"},
+    }
+    prompt = _generate_user_prompt(
+        detail, channel="telegram", seller_name="Анна", seller_facts=""
+    )
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert f"Сегодня: {today}" in prompt
+    assert '"days_since_last_order"' in prompt
+    # Июньский заказ — прошло явно больше 30 дней; число попало в JSON фактов.
+    import json as _json
+    import re as _re
+
+    m = _re.search(r'"days_since_last_order":\s*(\d+)', prompt)
+    assert m and int(m.group(1)) > 30
+
+
+def test_outreach_task_uses_card_quality_model():
+    """Сообщения и карточка — одна модель (deepseek-chat), а не flash."""
+    import inspect
+
+    import plugins.moysklad as pkg
+
+    src = inspect.getsource(pkg)
+    assert '"model": "deepseek/deepseek-chat"' in src
+    assert "deepseek-v4-flash" not in src
+
+
+def test_outreach_system_prompt_bans_fake_recency():
+    from plugins.moysklad.outreach import _OUTREACH_SYSTEM
+
+    prompt = _OUTREACH_SYSTEM("Анна", "")
+    assert "days_since_last_order" in prompt
+    assert "до сих пор радует" in prompt  # явный запрет формулировки
