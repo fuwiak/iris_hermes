@@ -3941,6 +3941,133 @@
     );
   }
 
+  function DashboardPage() {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    function load() {
+      setLoading(true);
+      setError("");
+      api("/dashboard")
+        .then(function (payload) {
+          setData(payload);
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          setLoading(false);
+        });
+    }
+
+    useEffect(function () {
+      load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    var c = (data && data.clients) || {};
+    var sends = (data && data.sends) || {};
+    var job = data && data.last_mass_job;
+    var tiles = [
+      ["Клиентов всего", c.total],
+      ["Физ. лица", c.individual],
+      ["Юр. лица", c.legal],
+      ["ИП", c.entrepreneur],
+      ["С телефоном", c.with_phone],
+      ["С баллами", c.with_loyalty],
+      ["VIP", c.vip],
+      ["✓ есть TG", c.tg_active],
+      ["TG не найден", c.tg_not_found],
+      ["TG не проверен", c.tg_unchecked],
+      ["Отправок за 24ч", sends.last_24h],
+      ["Отправок за 7д", sends.last_7d],
+      ["✓ доставлено (7д)", sends.delivered_7d],
+      ["✎ не доставлено (7д)", sends.recorded_7d],
+    ];
+
+    return h(
+      "div",
+      { className: "ms-page ms-dashboard-page" },
+      h(
+        "div",
+        { className: "ms-card-head" },
+        h("h1", { className: "ms-clients-title" }, "Дашборд"),
+        h(
+          "button",
+          { type: "button", className: "ms-btn", disabled: loading, onClick: load },
+          loading ? "Обновляем…" : "Обновить",
+        ),
+      ),
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Эскиз: состав базы, охват Telegram и активность отправок.",
+      ),
+      error ? h("p", { className: "ms-error" }, error) : null,
+      h(
+        "div",
+        { className: "ms-stats-grid ms-dashboard-grid" },
+        tiles.map(function (t) {
+          return h(
+            "div",
+            { key: t[0] },
+            h("div", { className: "ms-stat-val" }, String(t[1] != null ? t[1] : "—")),
+            h("div", { className: "ms-muted" }, t[0]),
+          );
+        }),
+      ),
+      h(
+        "section",
+        { className: "ms-mass-panel" },
+        h("strong", null, "Последняя массовая рассылка"),
+        job
+          ? h(
+              "p",
+              { className: "ms-muted" },
+              String(job.created_at || "").slice(0, 16).replace("T", " ") +
+                " · " +
+                String(job.status || "—") +
+                " · " +
+                String(job.total || 0) +
+                " получ. · ✓" +
+                String(job.sent_ok || 0) +
+                " · ✕" +
+                String(job.sent_failed || 0),
+            )
+          : h("p", { className: "ms-muted" }, "Рассылок пока не было."),
+      ),
+      h(
+        "section",
+        { className: "ms-mass-panel" },
+        h("strong", null, "Последние отправки"),
+        (sends.recent || []).length
+          ? h(
+              "div",
+              { className: "ms-mass-log" },
+              sends.recent.map(function (m, idx) {
+                return h(
+                  "div",
+                  {
+                    key: String(m.ts || idx),
+                    className:
+                      "ms-mass-log-row is-" + (m.status === "delivered" ? "ok" : "sending"),
+                  },
+                  h("span", null, (m.client_name || "—") + (m.text ? " — " + m.text : "")),
+                  h(
+                    "span",
+                    { className: "ms-muted" },
+                    (m.status === "delivered" ? "✓" : "✎") +
+                      (m.ts ? " · " + String(m.ts).slice(0, 16).replace("T", " ") : ""),
+                  ),
+                );
+              }),
+            )
+          : h("p", { className: "ms-muted" }, "Исходящих пока нет."),
+      ),
+    );
+  }
+
   function MoySkladApp() {
     const [view, setView] = useState(function () {
       try {
@@ -3990,12 +4117,27 @@
           "Рассылки",
         ),
         h(
+          "button",
+          {
+            type: "button",
+            className: "ms-topnav-link" + (view === "dashboard" ? " is-active" : ""),
+            onClick: function () {
+              go("dashboard");
+            },
+          },
+          "Дашборд",
+        ),
+        h(
           "a",
           { className: "ms-topnav-link ms-topnav-ext", href: "/plugins" },
           "Plugins",
         ),
       ),
-      view === "campaigns" ? h(CampaignsPage) : h(ClientsPage),
+      view === "campaigns"
+        ? h(CampaignsPage)
+        : view === "dashboard"
+          ? h(DashboardPage)
+          : h(ClientsPage),
     );
   }
 

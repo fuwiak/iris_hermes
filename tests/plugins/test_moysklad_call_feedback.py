@@ -356,3 +356,53 @@ def test_entity_filter_separates_ip_from_legal():
     assert (
         len(ip["clients"]) + len(jur["clients"]) + len(fiz["clients"]) == 4
     )
+
+
+# ── дашборд (эскиз) ───────────────────────────────────────────────────────
+
+
+def test_dashboard_summary_aggregates_real_rows(monkeypatch):
+    from plugins.moysklad import tg_verify
+    from plugins.moysklad.dashboard_stats import build_dashboard_summary
+    from plugins.moysklad.sent_history import record_sent
+
+    tg_verify.save_verify_results_bulk(
+        {"f1": {"active": True, "via": "import_contacts_bulk"}}
+    )
+    record_sent(
+        {
+            "client_id": "f1",
+            "client_name": "Ирина",
+            "text": "Свежая отправка",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "channel": "telegram",
+            "source": "campaign_telegram_bot",
+        }
+    )
+    record_sent(
+        {
+            "client_id": "old",
+            "client_name": "Старый",
+            "text": "Из экспорта",
+            "ts": "24.07.2026 12:00",
+            "channel": "telegram",
+            "source": "campaign_send",
+        }
+    )
+
+    summary = build_dashboard_summary(
+        ROWS, last_job={"status": "done", "total": 3, "sent_ok": 2, "sent_failed": 1}
+    )
+    c = summary["clients"]
+    assert c["total"] == 5
+    assert (c["individual"], c["legal"], c["entrepreneur"], c["no_type"]) == (2, 1, 1, 1)
+    assert c["with_loyalty"] == 2
+    assert c["tg_active"] == 1
+    assert c["tg_unchecked"] == 4
+
+    sends = summary["sends"]
+    assert sends["last_24h"] == 1
+    assert sends["delivered_7d"] == 1
+    # Июльская запись не попадает в 7-дневное окно и не считается доставленной.
+    assert sends["recorded_7d"] == 0
+    assert summary["last_mass_job"]["sent_ok"] == 2

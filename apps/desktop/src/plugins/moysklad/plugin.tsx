@@ -8876,6 +8876,134 @@ function AiPlaygroundLegacyRoute() {
   return <p className="ms-muted">Открываю AI тест…</p>
 }
 
+function DashboardPage() {
+  const call = useMsRest()
+  const [data, setData] = useState<{
+    clients?: Record<string, number>
+    sends?: {
+      total_logged?: number
+      last_24h?: number
+      last_7d?: number
+      delivered_7d?: number
+      recorded_7d?: number
+      recent?: {
+        client_name?: string
+        text?: string
+        ts?: string
+        status?: string
+      }[]
+    }
+    last_mass_job?: {
+      status?: string
+      total?: number
+      sent_ok?: number
+      sent_failed?: number
+      created_at?: string
+      message_preview?: string
+    } | null
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const payload = await call<typeof data>('/dashboard', { timeoutMs: 120_000 })
+      setData(payload)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [call])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const c = data?.clients || {}
+  const sends = data?.sends || {}
+  const job = data?.last_mass_job
+
+  const tiles: { label: string; value: number | string }[] = [
+    { label: 'Клиентов всего', value: c.total ?? '—' },
+    { label: 'Физ. лица', value: c.individual ?? '—' },
+    { label: 'Юр. лица', value: c.legal ?? '—' },
+    { label: 'ИП', value: c.entrepreneur ?? '—' },
+    { label: 'С телефоном', value: c.with_phone ?? '—' },
+    { label: 'С баллами', value: c.with_loyalty ?? '—' },
+    { label: 'VIP', value: c.vip ?? '—' },
+    { label: '✓ есть TG', value: c.tg_active ?? '—' },
+    { label: 'TG не найден', value: c.tg_not_found ?? '—' },
+    { label: 'TG не проверен', value: c.tg_unchecked ?? '—' },
+    { label: 'Отправок за 24ч', value: sends.last_24h ?? '—' },
+    { label: 'Отправок за 7д', value: sends.last_7d ?? '—' },
+    { label: '✓ доставлено (7д)', value: sends.delivered_7d ?? '—' },
+    { label: '✎ не доставлено (7д)', value: sends.recorded_7d ?? '—' }
+  ]
+
+  return (
+    <div className="ms-page ms-dashboard-page">
+      <div className="ms-page-head">
+        <h1>Дашборд</h1>
+        <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
+          {loading ? 'Обновляем…' : 'Обновить'}
+        </button>
+      </div>
+      <p className="ms-muted">
+        Эскиз: состав базы, охват Telegram и активность отправок. Скажите, какие
+        метрики добавить — графики продаж, динамику ответов, воронку этапов.
+      </p>
+      {error ? <p className="ms-error">{error}</p> : null}
+      <div className="ms-stats-grid ms-dashboard-grid">
+        {tiles.map(t => (
+          <div key={t.label}>
+            <div className="ms-stat-val">{String(t.value)}</div>
+            <div className="ms-muted">{t.label}</div>
+          </div>
+        ))}
+      </div>
+      <section className="ms-mass-panel">
+        <strong>Последняя массовая рассылка</strong>
+        {job ? (
+          <p className="ms-muted">
+            {(job.created_at || '').slice(0, 16).replace('T', ' ')} · {job.status || '—'} ·{' '}
+            {job.total ?? 0} получ. · ✓{job.sent_ok ?? 0} · ✕{job.sent_failed ?? 0}
+            {job.message_preview ? ` · «${job.message_preview}»` : ''}
+          </p>
+        ) : (
+          <p className="ms-muted">Рассылок пока не было.</p>
+        )}
+      </section>
+      <section className="ms-mass-panel">
+        <strong>Последние отправки</strong>
+        {(sends.recent || []).length ? (
+          <div className="ms-mass-log">
+            {(sends.recent || []).map((m, idx) => (
+              <div
+                className={`ms-mass-log-row is-${m.status === 'delivered' ? 'ok' : 'sending'}`}
+                key={`${m.ts || idx}`}
+              >
+                <span>
+                  {m.client_name || '—'}
+                  {m.text ? ` — ${m.text}` : ''}
+                </span>
+                <span className="ms-muted">
+                  {m.status === 'delivered' ? '✓' : '✎'}
+                  {m.ts ? ` · ${String(m.ts).slice(0, 16).replace('T', ' ')}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ms-muted">Исходящих пока нет.</p>
+        )}
+      </section>
+    </div>
+  )
+}
+
 const plugin: HermesPlugin = {
   id: 'moysklad',
   name: 'МойСклад CRM',
@@ -8915,6 +9043,12 @@ const plugin: HermesPlugin = {
         render: () => <CampaignsPage />
       },
       {
+        id: 'dashboard-page',
+        area: ROUTES_AREA,
+        data: { path: '/dashboard' } satisfies RouteContribution,
+        render: () => <DashboardPage />
+      },
+      {
         id: 'clients-nav',
         area: SIDEBAR_NAV_AREA,
         order: 40,
@@ -8932,6 +9066,16 @@ const plugin: HermesPlugin = {
           codicon: 'mail',
           label: 'Рассылки',
           path: '/campaigns'
+        } satisfies SidebarNavContribution
+      },
+      {
+        id: 'dashboard-nav',
+        area: SIDEBAR_NAV_AREA,
+        order: 43,
+        data: {
+          codicon: 'graph',
+          label: 'Дашборд',
+          path: '/dashboard'
         } satisfies SidebarNavContribution
       }
     ])

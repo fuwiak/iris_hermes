@@ -2662,6 +2662,28 @@ def get_campaign_mass_send_history(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/dashboard")
+def get_dashboard() -> dict[str, Any]:
+    """Эскиз дашборда: состав базы, охват Telegram, активность отправок.
+
+    One pass over the cached catalog + durable send log — no MoySklad calls.
+    """
+    try:
+        from plugins.moysklad.dashboard_stats import build_dashboard_summary
+
+        catalog, meta = _get_catalog(force=False, blocking=True)
+        rows = list((catalog or {}).get("rows") or [])
+        summary = build_dashboard_summary(
+            rows, last_job=mass_send_jobs.latest_job_summary()
+        )
+        return _attach_cache_meta({"ok": True, **summary}, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /dashboard failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/campaigns/sent-history")
 def get_campaign_sent_history(
     limit: int = Query(200, ge=1, le=1000),
