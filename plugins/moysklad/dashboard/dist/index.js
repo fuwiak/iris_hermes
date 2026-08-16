@@ -1379,18 +1379,32 @@
           },
         }),
         h(
-          "select",
+          "button",
           {
-            className: "ms-select",
-            title: "Физические / юридические лица (юрлица + ИП)",
-            value: entityType,
-            onChange: function (e) {
-              setEntityType(e.target.value);
+            type: "button",
+            className: "ms-chip" + (entityType === "individual" ? " is-active" : ""),
+            title: "Только физические лица",
+            onClick: function () {
+              setEntityType(function (v) {
+                return v === "individual" ? "all" : "individual";
+              });
             },
           },
-          h("option", { value: "all" }, "Все лица"),
-          h("option", { value: "individual" }, "Физ. лица"),
-          h("option", { value: "legal" }, "Юр. лица + ИП"),
+          "Физ. лица",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-chip" + (entityType === "legal" ? " is-active" : ""),
+            title: "Только юрлица и ИП",
+            onClick: function () {
+              setEntityType(function (v) {
+                return v === "legal" ? "all" : "legal";
+              });
+            },
+          },
+          "Юр. лица",
         ),
         h(
           "button",
@@ -1786,9 +1800,11 @@
       [selectedClientId],
     );
 
-    function sendChatTurn() {
-      var ask = String(chatInput || "").trim();
+    function sendChatTurn(override) {
+      override = override || {};
+      var ask = String(override.ask != null ? override.ask : chatInput || "").trim();
       if (!ask || chatBusy || !selectedClientId) return;
+      var modelKey = override.model || chatModel;
       var turns = chatTurns.concat([{ role: "user", content: ask }]);
       setChatTurns(turns);
       setChatInput("");
@@ -1802,7 +1818,7 @@
           draft: offerRef.current || offer || "",
           messages: turns,
           provider: "openrouter",
-          model: CHAT_MODEL_IDS[chatModel] || "",
+          model: CHAT_MODEL_IDS[modelKey] || "",
           seller_name: sellerName,
           seller_facts: sellerFacts,
         }),
@@ -3477,17 +3493,32 @@
                   { className: "ms-chat-head" },
                   h("span", { className: "ms-ai-label" }, "Чат доработки текста"),
                   h(
-                    "select",
-                    {
-                      className: "ms-select",
-                      value: chatModel,
-                      onChange: function (e) {
-                        setChatModel(e.target.value);
-                      },
-                    },
-                    h("option", { value: "deepseek" }, "DeepSeek"),
-                    h("option", { value: "grok" }, "Grok"),
-                    h("option", { value: "gpt" }, "GPT"),
+                    "div",
+                    { className: "ms-chips" },
+                    ["deepseek", "grok", "gpt"].map(function (mk) {
+                      var label =
+                        mk === "deepseek" ? "DeepSeek" : mk === "grok" ? "Grok" : "GPT";
+                      return h(
+                        "button",
+                        {
+                          key: mk,
+                          type: "button",
+                          disabled: chatBusy,
+                          className: "ms-chip" + (chatModel === mk ? " is-active" : ""),
+                          title: "Переписать текст моделью " + label,
+                          onClick: function () {
+                            setChatModel(mk);
+                            if (String(offerRef.current || offer || "").trim()) {
+                              sendChatTurn({
+                                ask: "Перепиши этот текст той же сутью, но свежими словами.",
+                                model: mk,
+                              });
+                            }
+                          },
+                        },
+                        label,
+                      );
+                    }),
                   ),
                 ),
                 chatTurns.length

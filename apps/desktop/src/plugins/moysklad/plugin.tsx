@@ -3666,19 +3666,24 @@ function ClientsPage() {
           </button>
         ) : null}
         {stageTagStatus ? <span className="ms-muted">{stageTagStatus}</span> : null}
-        <select
-          aria-label="Тип контрагента"
-          className="ms-select"
-          onChange={e =>
-            setEntityType(e.target.value as 'all' | 'individual' | 'legal')
+        <button
+          className={`ms-chip${entityType === 'individual' ? ' is-active' : ''}`}
+          onClick={() =>
+            setEntityType(v => (v === 'individual' ? 'all' : 'individual'))
           }
-          title="Физические / юридические лица (юрлица + ИП)"
-          value={entityType}
+          title="Только физические лица"
+          type="button"
         >
-          <option value="all">Все лица</option>
-          <option value="individual">Физ. лица</option>
-          <option value="legal">Юр. лица + ИП</option>
-        </select>
+          Физ. лица
+        </button>
+        <button
+          className={`ms-chip${entityType === 'legal' ? ' is-active' : ''}`}
+          onClick={() => setEntityType(v => (v === 'legal' ? 'all' : 'legal'))}
+          title="Только юрлица и ИП"
+          type="button"
+        >
+          Юр. лица
+        </button>
         <button
           className={`ms-chip${loyaltyOnly ? ' is-active' : ''}`}
           onClick={() => setLoyaltyOnly(v => !v)}
@@ -3987,16 +3992,16 @@ function ClientsPage() {
                             ? 'Не находится по номеру — возможно, поиск скрыт настройками приватности. Проверьте по нику или вручную.'
                             : 'Ещё не проверен — проверка идёт автоматически в фоне'
                       const cls =
+                        row.tg_active === true ? 'ms-tg-active-ok' : ''
+                      // Две категории на экране: ✓ есть TG — или пусто.
+                      // Детали (не найден / не проверен) остаются в tooltip.
+                      const shownValue =
                         row.tg_active === true
-                          ? 'ms-tg-active-ok'
-                          : row.tg_active === false
-                            ? 'ms-tg-active-bad'
-                            : row.tg_nick
-                              ? 'ms-tg-active-unknown'
-                              : ''
+                          ? row.tg_active_nick || '✓'
+                          : '—'
                       return (
                         <td className={cls || undefined} key={col.key} title={title}>
-                          {value || '—'}
+                          {shownValue}
                         </td>
                       )
                     }
@@ -5831,10 +5836,13 @@ function CampaignsPage() {
     setSkillPromptText('')
   }, [selectedClientId])
 
-  const sendChatTurn = useCallback(async () => {
-    const ask = chatInput.trim()
+  const sendChatTurn = useCallback(async (override?: {
+    ask?: string
+    model?: 'deepseek' | 'grok' | 'gpt'
+  }) => {
+    const ask = (override?.ask ?? chatInput).trim()
     if (!ask || chatBusy || !selectedClientId) {return}
-    const model = CHAT_MODEL_IDS[chatModel]
+    const model = CHAT_MODEL_IDS[override?.model ?? chatModel]
     const turns = [...chatTurns, { role: 'user' as const, content: ask }]
     setChatTurns(turns)
     setChatInput('')
@@ -7245,7 +7253,7 @@ function CampaignsPage() {
                         return (
                           <button
                             className={`ms-chip${active ? ' is-active' : ''}${
-                              tgOk ? ' is-tg-verified' : tgBad ? ' is-tg-dead' : ''
+                              tgOk ? ' is-tg-verified' : ''
                             }`}
                             key={row.id || row.name}
                             onClick={() => selectAudienceClient(row)}
@@ -7844,16 +7852,30 @@ function CampaignsPage() {
             <div className="ms-chat-panel">
               <div className="ms-chat-head">
                 <span className="ms-ai-label">Чат доработки текста</span>
-                <select
-                  className="ms-select"
-                  onChange={e => setChatModel(e.target.value as 'deepseek' | 'grok' | 'gpt')}
-                  title="Какой моделью улучшать текст"
-                  value={chatModel}
-                >
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="grok">Grok</option>
-                  <option value="gpt">GPT</option>
-                </select>
+                <div className="ms-chips">
+                  {(['deepseek', 'grok', 'gpt'] as const).map(mk => (
+                    <button
+                      className={`ms-chip${chatModel === mk ? ' is-active' : ''}`}
+                      disabled={chatBusy}
+                      key={mk}
+                      onClick={() => {
+                        setChatModel(mk)
+                        // Кнопка должна ДЕЛАТЬ, а не только выбирать: сразу
+                        // переписываем текущий текст выбранной моделью.
+                        if ((offerRef.current || offer).trim()) {
+                          void sendChatTurn({
+                            ask: 'Перепиши этот текст той же сутью, но свежими словами.',
+                            model: mk
+                          })
+                        }
+                      }}
+                      title={`Переписать текст моделью ${mk === 'deepseek' ? 'DeepSeek' : mk === 'grok' ? 'Grok' : 'GPT'}`}
+                      type="button"
+                    >
+                      {mk === 'deepseek' ? 'DeepSeek' : mk === 'grok' ? 'Grok' : 'GPT'}
+                    </button>
+                  ))}
+                </div>
               </div>
               {chatTurns.length ? (
                 <div className="ms-chat-log">

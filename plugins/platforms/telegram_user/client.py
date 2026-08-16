@@ -1678,7 +1678,14 @@ def resolve_phones_bulk(phones: list[str]) -> dict[str, Any]:
             except FloodWaitError as exc:
                 flood_wait = int(getattr(exc, "seconds", 0) or 0)
                 break
-            checked.extend(chunk)
+            retried = {
+                int(x) for x in (getattr(result, "retry_contacts", None) or [])
+            }
+            checked.extend(
+                phone
+                for idx, phone in enumerate(chunk)
+                if idx not in retried
+            )
             users = list(getattr(result, "users", None) or [])
             by_user_id = {str(getattr(u, "id", "")): u for u in users}
             for imported in list(getattr(result, "imported", None) or []):
@@ -1781,6 +1788,11 @@ def resolve_peer(query: str) -> dict[str, Any]:
             )
             users = list(getattr(result, "users", None) or [])
             if not users:
+                if list(getattr(result, "retry_contacts", None) or []):
+                    return _err(
+                        "phone_check_throttled",
+                        "Лимит проверки номеров исчерпан — повторите позже",
+                    )
                 return _err(
                     "phone_not_on_telegram",
                     "На этом номере нет аккаунта Telegram",

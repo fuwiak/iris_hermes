@@ -491,6 +491,8 @@ def verify_client_peers(
         "gateway_unreachable",
         "timeout",
         "gateway_missing",
+        "phone_check_throttled",
+        "flood_wait",
     }:
         return {
             "ok": True,

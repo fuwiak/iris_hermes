@@ -102,12 +102,36 @@ def _ts_epoch(ts: Any) -> Optional[float]:
     return dt.timestamp()
 
 
+_RU_DATE_RE = re.compile(
+    r"^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?"
+)
+
+
 def recency_epoch(ts: Any) -> float:
-    """Sort key: larger = newer. Unparseable timestamps sort as oldest."""
+    """Sort key: larger = newer. Unparseable timestamps sort as oldest.
+
+    Accepts ISO, MoySklad «YYYY-MM-DD HH:MM:SS» and Telegram-export RU
+    «DD.MM.YYYY [HH:MM[:SS]]» — string-sorting the RU form floated July
+    export rows above every ISO date in История отправок.
+    """
     epoch = _ts_epoch(ts)
     if epoch is not None:
         return epoch
     raw = str(ts or "").strip()
+    m = _RU_DATE_RE.match(raw)
+    if m:
+        try:
+            return datetime(
+                int(m.group(3)),
+                int(m.group(2)),
+                int(m.group(1)),
+                int(m.group(4) or 0),
+                int(m.group(5) or 0),
+                int(m.group(6) or 0),
+                tzinfo=timezone.utc,
+            ).timestamp()
+        except ValueError:
+            return float("-inf")
     try:
         val = float(raw)
     except (TypeError, ValueError):

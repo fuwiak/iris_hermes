@@ -661,6 +661,13 @@ def resolve_phone(*, phone: str) -> dict[str, Any]:
         )
         users = list(getattr(result, "users", None) or [])
         if not users:
+            # Quota-exhausted importContacts returns retry_contacts instead of
+            # users — that is «попробуйте позже», NOT «аккаунта нет».
+            if list(getattr(result, "retry_contacts", None) or []):
+                return _err(
+                    "phone_check_throttled",
+                    "Лимит проверки номеров исчерпан — повторите позже",
+                )
             return _err(
                 "phone_not_on_telegram", "На этом номере нет аккаунта Telegram"
             )
@@ -736,7 +743,14 @@ def resolve_phones(*, phones: list[str]) -> dict[str, Any]:
                 # Report what we already know; the caller resumes later.
                 flood_wait = int(getattr(exc, "seconds", 0) or 0)
                 break
-            checked.extend(chunk)
+            retried = {
+                int(x) for x in (getattr(result, "retry_contacts", None) or [])
+            }
+            checked.extend(
+                phone
+                for idx, phone in enumerate(chunk)
+                if idx not in retried
+            )
             users = list(getattr(result, "users", None) or [])
             # imported[].client_id maps a returned user back to our chunk index.
             by_user_id = {str(getattr(u, "id", "")): u for u in users}
