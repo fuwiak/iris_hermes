@@ -147,6 +147,44 @@ def test_live_thread_marks_client_active(tmp_path, monkeypatch):
     assert entry["via"] == "history"
 
 
+def test_bulk_probe_includes_second_number_in_cell(monkeypatch):
+    from plugins.moysklad import tg_verify
+    from plugins.platforms.telegram_user import client as tg_user
+
+    captured: list[str] = []
+
+    def _fake_bulk(phones):
+        captured.extend(phones)
+        return {
+            "ok": True,
+            "requested": len(phones),
+            "checked": list(phones),
+            "found": {
+                "+79250553485": {
+                    "phone": "+79250553485",
+                    "tg_chat_id": "555001",
+                    "tg_nick": "",
+                    "name": "",
+                }
+            },
+            "flood_wait": 0,
+        }
+
+    monkeypatch.setattr(tg_user, "resolve_phones_bulk", _fake_bulk)
+    rows = [
+        {
+            "_moysklad_id": "c-055",
+            "Наименование": "Активный",
+            "Телефон": "+7 900 111-22-33, +7 925 055 3485",
+        }
+    ]
+    stats = tg_verify.verify_rows_by_phone_bulk(rows)
+    assert "+79001112233" in captured
+    assert "+79250553485" in captured
+    assert stats["active"] == 1
+    assert tg_verify.overlay_for_client("c-055")["active"] is True
+
+
 def test_reset_inactive_keeps_actives(monkeypatch):
     from plugins.moysklad import tg_verify
 

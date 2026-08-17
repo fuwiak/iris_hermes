@@ -56,6 +56,7 @@ _TME_RE = re.compile(
 _PHONE_DIGITS_RE = re.compile(r"\D+")
 # MoySklad «Телефон» often holds several numbers in one cell.
 _PHONE_FIELD_SPLIT_RE = re.compile(r"[,;/|\n]+")
+_PHONE_PLUS_SPLIT_RE = re.compile(r"(?=\+\s*[78])")
 
 _NETWORK_HINT = (
     "Сервер не достучался до Telegram MTProto (типично для Selectel/RU IP). "
@@ -253,6 +254,34 @@ def normalize_login_phone(value: str) -> str:
     if len(digits) == 10 and digits.startswith("9"):
         digits = "7" + digits
     return "+" + digits
+
+
+def iter_login_phones(value: str) -> list[str]:
+    """Every E.164 in a multi-number cell. Keeps inner zeros (``055``).
+
+    ``normalize_login_phone`` is first-number-only (login / identity).
+    Telegram check must still probe the second number the operator opened
+    via ``t.me/+79250553485``.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return []
+    parts: list[str] = []
+    for chunk in _PHONE_FIELD_SPLIT_RE.split(text):
+        bits = _PHONE_PLUS_SPLIT_RE.split(chunk)
+        parts.extend(bit.strip() for bit in bits if bit and bit.strip())
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        e164 = normalize_login_phone(part)
+        if e164 and e164 not in seen:
+            seen.add(e164)
+            out.append(e164)
+    if not out:
+        e164 = normalize_login_phone(text)
+        if e164:
+            out.append(e164)
+    return out
 
 
 def phone_lookup_key(value: str) -> str:
@@ -1764,7 +1793,10 @@ def _is_phone_unoccupied_error(exc: BaseException) -> bool:
 
 
 async def _resolve_phone_like_app_search(client: Any, e164: str) -> dict[str, Any]:
-    """Same API Telegram uses when you type a number into search."""
+    """``https://t.me/+<phone>`` → Open Chat → ``tg://resolve?phone=<digits>``.
+
+    Official clients call ``contacts.resolvePhone`` with digits, no plus.
+    """
     try:
         from telethon.errors import FloodWaitError  # type: ignore[import-not-found]
         from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
@@ -1830,17 +1862,23 @@ async def _resolve_phone_like_app_search(client: Any, e164: str) -> dict[str, An
             ),
         }
     hit = _hit_from_user(users[0], e164)
-    return {"ok": True, **hit, "resolved_via": "resolve_phone"}
+    return {"ok": True, **hit, "resolved_via": "tme_phone_link"}
 
 
 async def _import_one_phone(client: Any, e164: str) -> dict[str, Any]:
-    """Same probe as Telegram iOS New Contact: importContacts on one number."""
+    """``t.me/+phone`` Open Chat first, then iOS New Contact import."""
     from telethon.errors import FloodWaitError  # type: ignore[import-not-found]
     from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
         DeleteContactsRequest,
         ImportContactsRequest,
     )
     from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
+
+    search = await _resolve_phone_like_app_search(client, e164)
+    if search.get("ok") and (search.get("tg_chat_id") or search.get("id")):
+        return search
+    if search.get("error") == "phone_check_throttled":
+        return search
 
     saw_retry = False
     for phone_str in _phone_import_strings(e164):
@@ -1882,17 +1920,12 @@ async def _import_one_phone(client: Any, e164: str) -> dict[str, Any]:
             "error": "phone_check_throttled",
             "detail": "Лимит проверки номеров исчерпан — повторите позже",
         }
-    search = await _resolve_phone_like_app_search(client, e164)
-    if search.get("ok") and (search.get("tg_chat_id") or search.get("id")):
-        return search
-    if search.get("error") == "phone_check_throttled":
-        return search
     return {
         "ok": False,
         "error": "phone_not_confirmed",
         "detail": (
-            "Номер не подтверждён importContacts — в New Contact "
-            "он всё ещё может быть в Telegram"
+            "t.me/+phone и New Contact не подтвердили номер — "
+            "это не доказательство, что аккаунта нет"
         ),
     }
 

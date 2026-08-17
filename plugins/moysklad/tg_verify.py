@@ -180,13 +180,12 @@ def overlay_for_client(client_id: str) -> dict[str, Any]:
 
 
 def tg_active_label(*, active: bool | None, has_contact: bool) -> str:
-    # «не найден по номеру» — honest wording: importContacts cannot see
-    # accounts whose privacy hides phone discovery, so a miss is NOT proof
-    # the person has no Telegram.
+    # «не подтверждён» — t.me/+phone / importContacts miss is not proof
+    # the person has no Telegram (privacy hides phone discovery).
     if active is True:
         return "есть TG"
     if active is False:
-        return "не найден по номеру"
+        return "не подтверждён"
     if has_contact:
         return "не проверен"
     return "—"
@@ -332,11 +331,22 @@ def match_catalog_phones_to_contacts(rows: list[dict[str, Any]]) -> dict[str, in
         if not isinstance(row, dict):
             continue
         phone = str(row.get("Телефон") or row.get("phone") or "")
-        key = phone_lookup_key(phone)
-        if not key:
+        keys = []
+        try:
+            from plugins.moysklad.dedupe import all_normalized_phones
+
+            keys = all_normalized_phones(phone)
+        except Exception:
+            key = phone_lookup_key(phone)
+            keys = [key] if key else []
+        if not keys:
             continue
         scanned += 1
-        contact = index.get(key)
+        contact = None
+        for key in keys:
+            contact = index.get(key)
+            if contact:
+                break
         if not contact:
             continue
         cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
@@ -428,37 +438,26 @@ def verify_client_peers(
     last_error: dict[str, Any] = {}
     try:
         if phone_raw:
-            res = tg_user.resolve_peer(
-                tg_user.normalize_login_phone(phone_raw) or phone_raw
-            )
-            if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
-                resolved = normalize_tg_nick(res.get("tg_nick") or nick)
-                return {
-                    "ok": True,
-                    "active": True,
-                    "checked": True,
-                    "chat_id": str(res.get("tg_chat_id") or res.get("id")),
-                    "resolved_nick": resolved,
-                    "via": str(res.get("resolved_via") or "phone"),
-                    "detail": "",
-                }
-            if res.get("error") == "phone_not_on_telegram" and not (
-                nick or chat_id
-            ):
-                # New Contact can still see the account: resolvePhone/import
-                # miss is privacy or quota, not proof of «нет TG».
-                return {
-                    "ok": True,
-                    "active": False,
-                    "checked": False,
-                    "resolved_nick": nick,
-                    "detail": (
-                        "Номер не подтверждён API — в Telegram New Contact "
-                        "он всё ещё может быть виден"
-                    ),
-                    "error": "phone_not_confirmed",
-                }
-            last_error = res
+            phones = tg_user.iter_login_phones(phone_raw)
+            if not phones:
+                fallback = tg_user.normalize_login_phone(phone_raw) or phone_raw
+                phones = [fallback] if fallback else []
+            for e164 in phones:
+                if not str(e164).strip():
+                    continue
+                res = tg_user.resolve_peer(e164)
+                if res.get("ok") and (res.get("tg_chat_id") or res.get("id")):
+                    resolved = normalize_tg_nick(res.get("tg_nick") or nick)
+                    return {
+                        "ok": True,
+                        "active": True,
+                        "checked": True,
+                        "chat_id": str(res.get("tg_chat_id") or res.get("id")),
+                        "resolved_nick": resolved,
+                        "via": str(res.get("resolved_via") or "tme_phone_link"),
+                        "detail": "",
+                    }
+                last_error = res
         if tg_user.is_authorized():
             peers = [
                 p
@@ -506,7 +505,11 @@ def verify_client_peers(
                 last_error.get("detail")
                 or "Личный Telegram не подключён — телефон не проверен."
             ),
-            "error": last_error.get("error"),
+            "error": (
+                "phone_not_confirmed"
+                if last_error.get("error") == "phone_not_on_telegram"
+                else last_error.get("error")
+            ),
         }
 
     if not nick and not chat_id and not phone_digits:
@@ -614,6 +617,31 @@ def reset_inactive_entries() -> int:
     return dropped
 
 
+def drop_inactive_entry(client_id: str) -> bool:
+    """Drop a stale «не найден» so a live miss is not painted as «нет TG»."""
+    cid = str(client_id or "").strip()
+    if not cid:
+        return False
+    overlay = load_overlay()
+    by_id = dict(overlay.get("by_client_id") or {})
+    entry = by_id.get(cid)
+    if not isinstance(entry, dict) or entry.get("active") is True:
+        return False
+    by_id.pop(cid, None)
+    overlay["by_client_id"] = by_id
+    stats = dict(overlay.get("stats") or {})
+    stats["total_checked"] = len(by_id)
+    stats["active"] = sum(
+        1 for v in by_id.values() if isinstance(v, dict) and v.get("active")
+    )
+    stats["inactive"] = sum(
+        1 for v in by_id.values() if isinstance(v, dict) and v.get("active") is False
+    )
+    overlay["stats"] = stats
+    save_overlay(overlay)
+    return True
+
+
 def verify_rows_by_phone_bulk(
     rows: list[dict[str, Any]],
     *,
@@ -637,10 +665,10 @@ def verify_rows_by_phone_bulk(
         raw = str(row.get("Телефон") or row.get("phone") or "").strip()
         if not cid or not raw:
             continue
-        e164 = tg_user.normalize_login_phone(raw) or ""
-        if not e164:
-            continue
-        by_phone.setdefault(e164, []).append(cid)
+        for e164 in tg_user.iter_login_phones(raw):
+            if not e164:
+                continue
+            by_phone.setdefault(e164, []).append(cid)
 
     stats: dict[str, Any] = {
         "phones": len(by_phone),

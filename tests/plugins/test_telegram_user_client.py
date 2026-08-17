@@ -761,3 +761,14 @@ def test_is_phone_unoccupied_error():
     assert tu._is_phone_unoccupied_error(PhoneNumberUnoccupiedError("x")) is True
     assert tu._is_phone_unoccupied_error(RuntimeError("PHONE_NOT_OCCUPIED")) is True
     assert tu._is_phone_unoccupied_error(RuntimeError("network down")) is False
+
+
+def test_iter_login_phones_keeps_inner_zero_and_second_number():
+    """+7 925 055 3485 must stay 79250553485 — inner zero is load-bearing."""
+    assert tu.normalize_login_phone("+7 925 055 3485") == "+79250553485"
+    assert tu.iter_login_phones("+7 925 055 3485") == ["+79250553485"]
+    assert tu.iter_login_phones("+7 999 111 2233, +7 925 055 3485") == [
+        "+79991112233",
+        "+79250553485",
+    ]
+    assert tu._phone_import_strings("+79250553485")[0] == "79250553485"

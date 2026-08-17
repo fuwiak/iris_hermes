@@ -640,7 +640,8 @@
                               ? " · @" + String(tgCheck.tg_nick).replace(/^@/, "")
                               : "") +
                             (tgCheck.via ? " (" + tgCheck.via + ")" : "")
-                          : "нет — " + (tgCheck.detail || "не найден")
+                          : "не подтверждён — " +
+                            (tgCheck.detail || "номер может быть скрыт")
                         : tgCheck && tgCheck.detail
                           ? tgCheck.detail
                           : h(

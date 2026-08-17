@@ -3132,7 +3132,11 @@ def post_client_telegram_check(client_id: str) -> dict[str, Any]:
     Личный MTProto резолвит @ник / chat id / телефон; fallback — Business
     bot getChat. Возвращает exists + резолвнутый peer; пишет в tg_verify overlay.
     """
-    from plugins.moysklad.tg_verify import save_verify_result, verify_client_peers
+    from plugins.moysklad.tg_verify import (
+        drop_inactive_entry,
+        save_verify_result,
+        verify_client_peers,
+    )
 
     try:
         phone = ""
@@ -3163,12 +3167,14 @@ def post_client_telegram_check(client_id: str) -> dict[str, Any]:
             tg_chat_id=tg_chat_id,
             tg_conversation=tg_conversation,
         )
-        if result.get("checked"):
+        if result.get("checked") and result.get("active"):
             save_verify_result(client_id, result)
+        else:
+            drop_inactive_entry(client_id)
         return {
             "ok": True,
-            "exists": bool(result.get("active")),
-            "checked": bool(result.get("checked")),
+            "exists": True if result.get("active") else False,
+            "checked": bool(result.get("checked") and result.get("active")),
             "chat_id": result.get("chat_id"),
             "tg_nick": result.get("resolved_nick") or tg_nick.strip().lstrip("@") or None,
             "via": result.get("via"),
