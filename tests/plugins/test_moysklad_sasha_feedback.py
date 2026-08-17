@@ -100,6 +100,34 @@ class TestClientsSearchAndFilters:
         assert _row_matches_query(row, "саша")
         assert not _row_matches_query(row, "0000000000")
 
+    def test_phone_search_hits_second_number_and_ru_formats(self) -> None:
+        """Operator pastes the TG-confirmed number even when MoySklad
+        stored it as the second value in a multi-phone cell."""
+        row = _client_row(
+            cid="p2",
+            name="Клиент",
+            phone="+7 925 299-74-57, +7 985 625-45-19",
+        )
+        for q in (
+            "+79856254519",
+            "8 985 625 4519",
+            "985 625 4519",
+            "9856254519",
+            "+7 985 625 4519",
+            "9252997457",
+            "+7 925 299 7457",
+        ):
+            assert _row_matches_query(row, q), q
+
+        other = _client_row(cid="p3", name="Другой", phone="+7 999 214-56-86")
+        assert _row_matches_query(other, "9992145686")
+        assert _row_matches_query(other, "+7 999 214 5686")
+        assert _row_matches_query(other, "89992145686")
+        assert not _row_matches_query(other, "9856254519")
+
+        english = {"Наименование": "EN", "phone": "+7 985 625 4519"}
+        assert _row_matches_query(english, "89856254519")
+
     def test_search_finds_marketplace_client_under_direct_tab(self) -> None:
         """Search must ignore sales-tab scoping (default «Прямые» felt broken)."""
         direct = _client_row(
@@ -611,6 +639,31 @@ class TestOutreachAudienceFilters:
             catalog=_catalog(rows),
         )
         assert {c["id"] for c in by_name["clients"]} == {"b"}
+
+    def test_audience_search_finds_second_phone_in_cell(self) -> None:
+        rows = [
+            _client_row(
+                cid="a",
+                name="Первый",
+                phone="+7 925 299-74-57, +7 985 625-45-19",
+            ),
+            _client_row(cid="b", name="Второй", phone="+7 999 214-56-86"),
+        ]
+        hit = clients_page(
+            _DummyClient(),  # type: ignore[arg-type]
+            sales_filter="all",
+            q="+7 985 625 4519",
+            catalog=_catalog(rows),
+        )
+        assert {c["id"] for c in hit["clients"]} == {"a"}
+
+        hit2 = clients_page(
+            _DummyClient(),  # type: ignore[arg-type]
+            sales_filter="all",
+            q="89992145686",
+            catalog=_catalog(rows),
+        )
+        assert {c["id"] for c in hit2["clients"]} == {"b"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

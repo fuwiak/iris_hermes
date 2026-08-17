@@ -218,6 +218,20 @@ def test_row_matches_query_phone_normalize() -> None:
     assert not _row_matches_query(row, "0000000000")
 
 
+def test_row_matches_query_second_phone_in_cell() -> None:
+    from plugins.moysklad.classify import _row_matches_query
+    from plugins.moysklad.dedupe import all_normalized_phones, phone_query_matches
+
+    raw = "+7 925 299-74-57, +7 985 625-45-19"
+    assert set(all_normalized_phones(raw)) == {"9252997457", "9856254519"}
+    assert phone_query_matches(raw, "8 985 625 4519")
+    assert phone_query_matches(raw, "+79856254519")
+    row = _row(cid="p2", name="Клиент", phone=raw)
+    assert _row_matches_query(row, "+7 985 625 4519")
+    assert _row_matches_query(row, "9856254519")
+    assert _row_matches_query(row, "9252997457")
+
+
 def test_clients_page_search_spans_sales_tabs() -> None:
     """Search must find marketplace clients even when UI tab is «direct»."""
     from plugins.moysklad.sales_channels import refresh_row_channel_fields

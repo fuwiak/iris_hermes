@@ -55,6 +55,60 @@ def normalize_phone(value: Any) -> str:
     return digits if len(digits) >= 7 else ""
 
 
+_PHONE_PART_SPLIT = re.compile(r"[,;|/]+")
+_PHONE_PLUS_SPLIT = re.compile(r"(?=\+\s*[78])")
+
+
+def all_normalized_phones(value: Any) -> list[str]:
+    """Every RU last-10 key in a multi-number cell.
+
+    ``normalize_phone`` stays first-number-only (dedupe identity). Search
+    must still hit the second/third number the operator typed.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return []
+    parts: list[str] = []
+    for chunk in _PHONE_PART_SPLIT.split(text):
+        plus_bits = _PHONE_PLUS_SPLIT.split(chunk)
+        parts.extend(plus_bits if plus_bits else [chunk])
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        key = normalize_phone(part)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    if not out:
+        key = normalize_phone(text)
+        if key:
+            out.append(key)
+    return out
+
+
+def phone_query_matches(row_phone: Any, query: str) -> bool:
+    """True when operator query finds this phone cell (any number, any RU format)."""
+    needle_digits = _PHONE_DIGITS.sub("", query or "")
+    if len(needle_digits) < 7:
+        return False
+    needle_key = normalize_phone(query)
+    raw = str(row_phone or "")
+    blob = _PHONE_DIGITS.sub("", raw)
+    keys = all_normalized_phones(raw)
+    if needle_key:
+        if needle_key in blob:
+            return True
+        for key in keys:
+            if key == needle_key or key.endswith(needle_key) or needle_key.endswith(key):
+                return True
+    if needle_digits in blob:
+        return True
+    for key in keys:
+        if needle_digits in key or key in needle_digits:
+            return True
+    return False
+
+
 def normalize_email(value: Any) -> str:
     text = str(value or "").strip().lower()
     if not text or "@" not in text:

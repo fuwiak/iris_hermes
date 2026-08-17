@@ -46,6 +46,7 @@ from plugins.moysklad.conversations import (
     preview_text,
     public_thread,
 )
+from plugins.moysklad.dedupe import phone_query_matches
 from plugins.moysklad.telegram_export import (
     _account_fingerprint,
     _chat_messages_for_store,
@@ -441,7 +442,7 @@ def list_chats(
             if needle in str(e.get("name") or "").lower()
             or folded in fold_name(str(e.get("name") or ""))
             or needle in str(e.get("tg_nick") or "").lower()
-            or needle in str(e.get("phone") or "")
+            or phone_query_matches(e.get("phone") or "", needle)
             or needle in str(e.get("chat_id") or "")
             or needle in str(e.get("client_name") or "").lower()
             or needle in str(e.get("preview") or "").lower()

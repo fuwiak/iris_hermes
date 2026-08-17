@@ -17,6 +17,7 @@ from plugins.moysklad.client import MoySkladClient
 from plugins.moysklad.dedupe import (
     dedupe_catalog_rows,
     dedupe_entity_pages,
+    phone_query_matches,
     recompute_audience_counts,
 )
 from plugins.moysklad.groups import (
@@ -363,19 +364,12 @@ def _row_matches_query(row: dict[str, Any], q: str) -> bool:
     ).lower()
     if needle in blob:
         return True
-    # Phone search: normalize both sides so "+7 (919) …" matches "7919…" / "919…".
-    from plugins.moysklad.dedupe import normalize_phone
-
-    needle_phone = normalize_phone(needle)
-    if needle_phone:
-        row_phone = normalize_phone(row.get("Телефон") or "")
-        if row_phone and (
-            needle_phone in row_phone
-            or row_phone in needle_phone
-            or row_phone.endswith(needle_phone)
-            or needle_phone.endswith(row_phone)
-        ):
-            return True
+    # Phone search: any number in a multi-phone cell, any RU format
+    # ("+7 985 …" / "8 985 …" / "9856254519") — first-only normalize used
+    # to miss the second number the operator pasted from Telegram.
+    phone_raw = row.get("Телефон") or row.get("phone") or ""
+    if phone_query_matches(phone_raw, needle):
+        return True
     return False
 
 
