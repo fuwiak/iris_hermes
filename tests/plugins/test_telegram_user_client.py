@@ -132,6 +132,23 @@ def test_normalize_login_phone():
     assert tu.normalize_login_phone("89950998170") == "+79950998170"
     assert tu.normalize_login_phone("0079950998170") == "+79950998170"
     assert tu.normalize_login_phone("") == ""
+    # Multi-number MoySklad cell: probe the FIRST number, not the concatenation.
+    assert (
+        tu.normalize_login_phone("+7 982 235-21-88, +7 977 575-80-58")
+        == "+79822352188"
+    )
+    assert tu.normalize_login_phone("89822352188; 89775758058") == "+79822352188"
+
+
+def test_looks_like_phone_not_user_id():
+    assert tu.looks_like_phone("+79001234567") is True
+    assert tu.looks_like_phone("79001234567") is True
+    assert tu.looks_like_phone("89001234567") is True
+    assert tu.looks_like_phone("9001234567") is True
+    assert tu.looks_like_phone("415321451") is False
+    assert tu.phone_lookup_key("+7 (900) 123-45-67") == "9001234567"
+    assert tu.looks_like_phone("+7 982 235-21-88, +7 977 575-80-58") is True
+    assert tu.phone_lookup_key("+7 982 235-21-88, +7 977 575-80-58") == "9822352188"
 
 
 def test_telethon_proxy_arg_socks5():
@@ -486,15 +503,6 @@ def test_resolve_peer_uses_contacts_cache(tmp_path, monkeypatch):
     assert out["resolved_via"] == "contacts_cache"
 
 
-def test_looks_like_phone_not_user_id():
-    assert tu.looks_like_phone("+79001234567") is True
-    assert tu.looks_like_phone("79001234567") is True
-    assert tu.looks_like_phone("89001234567") is True
-    assert tu.looks_like_phone("9001234567") is True
-    assert tu.looks_like_phone("415321451") is False
-    assert tu.phone_lookup_key("+7 (900) 123-45-67") == "9001234567"
-
-
 def test_resolve_peer_phone_uses_contacts_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.delenv("TELEGRAM_USER_GATEWAY_URL", raising=False)
@@ -671,3 +679,61 @@ def test_fetch_history_via_gateway(tmp_path, monkeypatch):
     assert captured["path"] == "history"
     assert captured["body"]["peer"] == "@buyer"
     assert out["messages"][0]["direction"] == "inbound"
+
+
+def test_consume_import_contacts_matches_users_by_phone_when_imported_empty():
+    """Already-saved contacts come back in ``users`` with a phone, not ``imported``.
+
+    Treating that as «нет TG» was the bulk false-negative the operator hit
+    when the same number still resolved in the Telegram search box.
+    """
+    from types import SimpleNamespace
+
+    user = SimpleNamespace(
+        id=111,
+        username="ann",
+        first_name="Ann",
+        last_name="",
+        phone="79001112233",
+        bot=False,
+    )
+    result = SimpleNamespace(imported=[], retry_contacts=[], users=[user])
+    parsed = tu.consume_import_contacts(result, ["+79001112233", "+79009998877"])
+    assert "+79001112233" in parsed["found"]
+    assert parsed["found"]["+79001112233"]["tg_chat_id"] == "111"
+    assert parsed["found"]["+79001112233"]["tg_nick"] == "ann"
+    assert "+79009998877" not in parsed["found"]
+    assert parsed["retried"] == set()
+
+
+def test_consume_import_contacts_maps_1based_imported_and_retry():
+    from types import SimpleNamespace
+
+    user = SimpleNamespace(
+        id=222,
+        username="bob",
+        first_name="Bob",
+        last_name="",
+        phone="",
+        bot=False,
+    )
+    imported = SimpleNamespace(client_id=1, user_id=222)
+    result = SimpleNamespace(
+        imported=[imported],
+        retry_contacts=[2],
+        users=[user],
+    )
+    phones = ["+79001110001", "+79001110002"]
+    parsed = tu.consume_import_contacts(result, phones)
+    assert parsed["found"]["+79001110001"]["tg_chat_id"] == "222"
+    assert parsed["retried"] == {"+79001110002"}
+    assert parsed["imported_users"] == [user]
+
+
+def test_is_phone_unoccupied_error():
+    class PhoneNumberUnoccupiedError(Exception):
+        pass
+
+    assert tu._is_phone_unoccupied_error(PhoneNumberUnoccupiedError("x")) is True
+    assert tu._is_phone_unoccupied_error(RuntimeError("PHONE_NOT_OCCUPIED")) is True
+    assert tu._is_phone_unoccupied_error(RuntimeError("network down")) is False

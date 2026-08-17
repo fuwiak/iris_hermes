@@ -492,6 +492,8 @@ def verify_client_peers(
         "timeout",
         "gateway_missing",
         "phone_check_throttled",
+        "phone_check_failed",
+        "resolve_phone_unavailable",
         "flood_wait",
     }:
         return {

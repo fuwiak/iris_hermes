@@ -177,6 +177,28 @@ def test_quota_throttled_phone_probe_is_not_a_no_telegram_verdict(monkeypatch):
     assert "исчерпан" in str(result.get("detail") or "")
 
 
+def test_ambiguous_phone_check_is_not_a_no_telegram_verdict(monkeypatch):
+    """ResolvePhone/network failure must stay UNCHECKED — not «нет Telegram»."""
+    from plugins.moysklad import tg_verify
+    from plugins.platforms.telegram_user import client as tg_user
+
+    monkeypatch.setattr(tg_user, "is_authorized", lambda: True)
+    monkeypatch.setattr(
+        tg_user,
+        "resolve_peer",
+        lambda _q: {
+            "ok": False,
+            "error": "phone_check_failed",
+            "detail": "Не удалось проверить номер (не доказано, что аккаунта нет)",
+        },
+    )
+    result = tg_verify.verify_client_peers(
+        client_id="q2", phone="+7 900 111-22-33"
+    )
+    assert result["checked"] is False
+    assert "не доказано" in str(result.get("detail") or "").lower() or result.get("error") == "phone_check_failed"
+
+
 def test_live_thread_beats_any_probe(monkeypatch):
     from plugins.moysklad import tg_verify
     from plugins.moysklad.conversations import append_message
