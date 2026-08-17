@@ -60,7 +60,15 @@ import {
 } from './mass-send'
 
 // Chat refine — DeepSeek only (OpenRouter id).
-const CHAT_REFINE_MODEL = 'deepseek/deepseek-chat'
+// Verified live via OpenRouter on this key (probe 17.08.2026):
+// grok-* and gpt-5* return empty — key has no access. Do not re-add blindly.
+const CHAT_REFINE_MODELS = {
+  deepseek: { id: 'deepseek/deepseek-chat', label: 'DeepSeek' },
+  gpt: { id: 'openai/gpt-4o', label: 'GPT' },
+  claude: { id: 'anthropic/claude-sonnet-4.5', label: 'Claude' },
+  gemini: { id: 'google/gemini-2.5-flash', label: 'Gemini' }
+} as const
+type ChatModelKey = keyof typeof CHAT_REFINE_MODELS
 
 interface GroupChipOption {
   name: string
@@ -5871,9 +5879,15 @@ function CampaignsPage() {
     setSkillPromptText('')
   }, [selectedClientId])
 
-  const sendChatTurn = useCallback(async (override?: { ask?: string }) => {
+  const [chatModel, setChatModel] = useState<ChatModelKey>('deepseek')
+
+  const sendChatTurn = useCallback(async (override?: {
+    ask?: string
+    model?: ChatModelKey
+  }) => {
     const ask = (override?.ask ?? chatInput).trim()
     if (!ask || chatBusy || !selectedClientId) {return}
+    const modelKey = override?.model ?? chatModel
     const turns = [...chatTurns, { role: 'user' as const, content: ask }]
     setChatTurns(turns)
     setChatInput('')
@@ -5888,7 +5902,7 @@ function CampaignsPage() {
           draft: offerRef.current || offer,
           messages: turns,
           provider: 'openrouter',
-          model: CHAT_REFINE_MODEL,
+          model: CHAT_REFINE_MODELS[modelKey].id,
           seller_name: sellerName,
           seller_facts: sellerFacts
         }
@@ -5912,7 +5926,7 @@ function CampaignsPage() {
     } finally {
       setChatBusy(false)
     }
-  }, [call, channel, chatBusy, chatInput, chatTurns, offer, selectedClientId, sellerFacts, sellerName])
+  }, [call, channel, chatBusy, chatInput, chatModel, chatTurns, offer, selectedClientId, sellerFacts, sellerName])
 
   const saveSkill = useCallback(
     async (text: string) => {
@@ -7928,21 +7942,26 @@ function CampaignsPage() {
               <div className="ms-chat-head">
                 <span className="ms-ai-label">Чат доработки текста</span>
                 <div className="ms-chips">
-                  <button
-                    className="ms-chip is-active"
-                    disabled={chatBusy}
-                    onClick={() => {
-                      if ((offerRef.current || offer).trim()) {
-                        void sendChatTurn({
-                          ask: 'Перепиши этот текст той же сутью, но свежими словами.'
-                        })
-                      }
-                    }}
-                    title="Переписать текст моделью DeepSeek"
-                    type="button"
-                  >
-                    DeepSeek
-                  </button>
+                  {(Object.keys(CHAT_REFINE_MODELS) as ChatModelKey[]).map(mk => (
+                    <button
+                      className={`ms-chip${chatModel === mk ? ' is-active' : ''}`}
+                      disabled={chatBusy}
+                      key={mk}
+                      onClick={() => {
+                        setChatModel(mk)
+                        if ((offerRef.current || offer).trim()) {
+                          void sendChatTurn({
+                            ask: 'Перепиши этот текст той же сутью, но свежими словами.',
+                            model: mk
+                          })
+                        }
+                      }}
+                      title={`Переписать текст моделью ${CHAT_REFINE_MODELS[mk].label}`}
+                      type="button"
+                    >
+                      {CHAT_REFINE_MODELS[mk].label}
+                    </button>
+                  ))}
                 </div>
               </div>
               {chatTurns.length ? (

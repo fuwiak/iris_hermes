@@ -1803,7 +1803,15 @@
     const [chatInput, setChatInput] = useState("");
     const [chatBusy, setChatBusy] = useState(false);
     const [skillPromptText, setSkillPromptText] = useState("");
-    var CHAT_REFINE_MODEL = "deepseek/deepseek-chat";
+    // Verified live via OpenRouter on this key (probe 17.08.2026):
+    // grok-* / gpt-5* return empty — key has no access.
+    var CHAT_REFINE_MODELS = {
+      deepseek: { id: "deepseek/deepseek-chat", label: "DeepSeek" },
+      gpt: { id: "openai/gpt-4o", label: "GPT" },
+      claude: { id: "anthropic/claude-sonnet-4.5", label: "Claude" },
+      gemini: { id: "google/gemini-2.5-flash", label: "Gemini" },
+    };
+    const [chatModel, setChatModel] = useState("deepseek");
 
     useEffect(
       function () {
@@ -1818,6 +1826,7 @@
       override = override || {};
       var ask = String(override.ask != null ? override.ask : chatInput || "").trim();
       if (!ask || chatBusy || !selectedClientId) return;
+      var modelKey = override.model || chatModel;
       var turns = chatTurns.concat([{ role: "user", content: ask }]);
       setChatTurns(turns);
       setChatInput("");
@@ -1831,7 +1840,7 @@
           draft: offerRef.current || offer || "",
           messages: turns,
           provider: "openrouter",
-          model: CHAT_REFINE_MODEL,
+          model: (CHAT_REFINE_MODELS[modelKey] || CHAT_REFINE_MODELS.deepseek).id,
           seller_name: sellerName,
           seller_facts: sellerFacts,
         }),
@@ -3580,23 +3589,29 @@
                   h(
                     "div",
                     { className: "ms-chips" },
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        disabled: chatBusy,
-                        className: "ms-chip is-active",
-                        title: "Переписать текст моделью DeepSeek",
-                        onClick: function () {
-                          if (String(offerRef.current || offer || "").trim()) {
-                            sendChatTurn({
-                              ask: "Перепиши этот текст той же сутью, но свежими словами.",
-                            });
-                          }
+                    Object.keys(CHAT_REFINE_MODELS).map(function (mk) {
+                      var meta = CHAT_REFINE_MODELS[mk];
+                      return h(
+                        "button",
+                        {
+                          key: mk,
+                          type: "button",
+                          disabled: chatBusy,
+                          className: "ms-chip" + (chatModel === mk ? " is-active" : ""),
+                          title: "Переписать текст моделью " + meta.label,
+                          onClick: function () {
+                            setChatModel(mk);
+                            if (String(offerRef.current || offer || "").trim()) {
+                              sendChatTurn({
+                                ask: "Перепиши этот текст той же сутью, но свежими словами.",
+                                model: mk,
+                              });
+                            }
+                          },
                         },
-                      },
-                      "DeepSeek",
-                    ),
+                        meta.label,
+                      );
+                    }),
                   ),
                 ),
                 chatTurns.length

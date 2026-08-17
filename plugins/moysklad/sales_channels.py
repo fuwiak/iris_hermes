@@ -843,6 +843,22 @@ def _attributes_by_alias(cp: dict[str, Any]) -> dict[str, str]:
     return out
 
 
+def _bonus_points_display(cp: dict[str, Any], attrs: dict[str, Any]) -> str:
+    """Баллы клиента: native counterparty.bonusPoints, потом атрибуты."""
+    native = cp.get("bonusPoints")
+    if native is None:
+        native = cp.get("bonus_points")
+    if native is not None and str(native).strip() != "":
+        try:
+            value = float(native)
+        except (TypeError, ValueError):
+            return str(native).strip()
+        if value == int(value):
+            return str(int(value))
+        return str(value)
+    return str(attrs.get("bonus_points") or "").strip()
+
+
 def _company_type_label(raw: Any) -> str:
     key = str(raw or "").strip().lower()
     if not key:
@@ -930,7 +946,10 @@ def counterparty_row_from_api(
         "birthdate": attrs.get("birthdate") or "",
         "Фактический адрес": actual_address,
         "Фактический адрес (Комментарий)": attrs.get("actual_address_comment") or "",
-        "Баллы начисленные": attrs.get("bonus_points") or "",
+        # МойСклад native bonus program first (counterparty.bonusPoints);
+        # custom attributes are a fallback — real баллы live in the native
+        # field, attrs were empty on the whole live base (filter found 0).
+        "Баллы начисленные": _bonus_points_display(cp, attrs),
         "Заказчик или получатель": attrs.get("role") or "",
         "ТГ ник": tg_nick,
         "TG conversation": attrs.get("tg_conversation") or "",

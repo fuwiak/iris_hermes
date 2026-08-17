@@ -406,3 +406,22 @@ def test_dashboard_summary_aggregates_real_rows(monkeypatch):
     # Июльская запись не попадает в 7-дневное окно и не считается доставленной.
     assert sends["recorded_7d"] == 0
     assert summary["last_mass_job"]["sent_ok"] == 2
+
+
+def test_native_bonus_points_feed_the_loyalty_filter():
+    """Реальные баллы лежат в native counterparty.bonusPoints (программа
+    бонусов МойСклад), а не в атрибутах — на всей живой базе фильтр находил 0."""
+    from plugins.moysklad.audience import row_has_loyalty_points
+    from plugins.moysklad.sales_channels import counterparty_row_from_api
+
+    row = counterparty_row_from_api(
+        {"id": "cb-1", "name": "Ирина", "bonusPoints": 250}
+    )
+    assert row["Баллы начисленные"] == "250"
+    assert row_has_loyalty_points(row) is True
+
+    zero = counterparty_row_from_api({"id": "cb-2", "name": "Олег", "bonusPoints": 0})
+    assert row_has_loyalty_points(zero) is False
+
+    absent = counterparty_row_from_api({"id": "cb-3", "name": "Пусто"})
+    assert row_has_loyalty_points(absent) is False
