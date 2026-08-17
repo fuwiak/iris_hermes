@@ -56,9 +56,10 @@ def test_bulk_probe_marks_active_and_inactive_in_one_request(monkeypatch):
     # One batched request for both phones — not one per client.
     assert len(calls) == 1
     assert stats["active"] == 1
-    assert stats["inactive"] == 1
+    assert stats["inactive"] == 0
     assert tg_verify.overlay_for_client("c1")["active"] is True
-    assert tg_verify.overlay_for_client("c2")["active"] is False
+    # A miss is not «нет TG» — New Contact can still see the number.
+    assert not tg_verify.overlay_for_client("c2")
     # Row without a phone is untouched (nick path handles it).
     assert not tg_verify.overlay_for_client("c3")
 
@@ -119,11 +120,9 @@ def test_phone_miss_with_nick_stays_unchecked(monkeypatch):
         },
     )
     tg_verify.verify_rows_by_phone_bulk(rows)
-    # Nick-carrying row left for the nick fallback; phone-only row settled.
+    # Neither miss is a hard «нет» — privacy hides numbers that New Contact sees.
     assert not tg_verify.overlay_for_client("cn-1")
-    entry = tg_verify.overlay_for_client("cn-2")
-    assert entry["active"] is False
-    assert "приватн" in entry["detail"]
+    assert not tg_verify.overlay_for_client("cn-2")
 
 
 def test_live_thread_marks_client_active(tmp_path, monkeypatch):

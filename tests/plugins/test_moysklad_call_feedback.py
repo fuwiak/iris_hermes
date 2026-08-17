@@ -199,6 +199,27 @@ def test_ambiguous_phone_check_is_not_a_no_telegram_verdict(monkeypatch):
     assert "не доказано" in str(result.get("detail") or "").lower() or result.get("error") == "phone_check_failed"
 
 
+def test_phone_not_on_telegram_is_not_a_hard_no(monkeypatch):
+    """New Contact can see the number while resolvePhone returns PHONE_NOT_OCCUPIED."""
+    from plugins.moysklad import tg_verify
+    from plugins.platforms.telegram_user import client as tg_user
+
+    monkeypatch.setattr(tg_user, "is_authorized", lambda: True)
+    monkeypatch.setattr(
+        tg_user,
+        "resolve_peer",
+        lambda _q: {
+            "ok": False,
+            "error": "phone_not_on_telegram",
+            "detail": "На этом номере нет аккаунта Telegram",
+        },
+    )
+    result = tg_verify.verify_client_peers(
+        client_id="q3", phone="+7 985 625-45-19"
+    )
+    assert result["checked"] is False
+    assert result.get("error") == "phone_not_confirmed"
+
 def test_live_thread_beats_any_probe(monkeypatch):
     from plugins.moysklad import tg_verify
     from plugins.moysklad.conversations import append_message
@@ -239,8 +260,8 @@ def test_batch_verdicts_only_for_actually_checked_numbers(monkeypatch):
         },
     )
     stats = tg_verify.verify_rows_by_phone_bulk(rows)
-    assert stats["checked"] == 1
-    assert tg_verify.overlay_for_client("p1")["active"] is False
+    assert stats["checked"] == 0
+    assert not tg_verify.overlay_for_client("p1")
     assert not tg_verify.overlay_for_client("p2")  # без вердикта
 
 

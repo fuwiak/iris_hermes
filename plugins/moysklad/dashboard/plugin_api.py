@@ -557,6 +557,7 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
             mark_active_from_threads,
             match_catalog_phones_to_contacts,
             overlay_for_client,
+            reset_inactive_entries,
             row_has_contact_for_tg_check,
             stamp_catalog_rows_from_verify,
             verify_catalog_row,
@@ -567,6 +568,10 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
             force=False, blocking=True, refresh_counts=False
         )
         rows = list((catalog or {}).get("rows") or [])
+        if live:
+            # Old runs wrote hard «нет» on privacy misses. Drop them so this
+            # pass can mark the numbers New Contact actually sees.
+            stats["reset_inactive"] = reset_inactive_entries()
         cache_stats = match_catalog_phones_to_contacts(rows)
         stats["cache"] = cache_stats
         # Live TG threads prove reachability better than any probe.

@@ -706,6 +706,30 @@ def test_consume_import_contacts_matches_users_by_phone_when_imported_empty():
     assert parsed["retried"] == set()
 
 
+def test_consume_single_phone_hidden_phone_field_still_counts():
+    """iOS New Contact: importContacts returns User with empty phone + empty imported."""
+    from types import SimpleNamespace
+
+    user = SimpleNamespace(
+        id=9856254519,
+        username="",
+        first_name="A",
+        last_name="",
+        phone="",
+        bot=False,
+        is_self=False,
+    )
+    result = SimpleNamespace(imported=[], retry_contacts=[], users=[user])
+    parsed = tu.consume_import_contacts(result, ["+79856254519"])
+    assert parsed["found"]["+79856254519"]["tg_chat_id"] == "9856254519"
+
+
+def test_phone_import_strings_digits_first():
+    variants = tu._phone_import_strings("+7 985 625-45-19")
+    assert variants[0] == "79856254519"
+    assert "+79856254519" in variants
+
+
 def test_consume_import_contacts_maps_1based_imported_and_retry():
     from types import SimpleNamespace
 

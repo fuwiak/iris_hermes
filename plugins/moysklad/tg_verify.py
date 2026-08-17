@@ -445,18 +445,18 @@ def verify_client_peers(
             if res.get("error") == "phone_not_on_telegram" and not (
                 nick or chat_id
             ):
-                # Settle by phone ONLY when there is nothing else to try:
-                # privacy can hide the number while the @nick resolves fine.
+                # New Contact can still see the account: resolvePhone/import
+                # miss is privacy or quota, not proof of «нет TG».
                 return {
                     "ok": True,
                     "active": False,
-                    "checked": True,
+                    "checked": False,
                     "resolved_nick": nick,
                     "detail": (
-                        "Номер не находится поиском Telegram — либо нет "
-                        "аккаунта, либо поиск по номеру скрыт приватностью"
+                        "Номер не подтверждён API — в Telegram New Contact "
+                        "он всё ещё может быть виден"
                     ),
-                    "error": "phone_not_on_telegram",
+                    "error": "phone_not_confirmed",
                 }
             last_error = res
         if tg_user.is_authorized():
@@ -493,6 +493,8 @@ def verify_client_peers(
         "gateway_missing",
         "phone_check_throttled",
         "phone_check_failed",
+        "phone_not_confirmed",
+        "phone_not_on_telegram",
         "resolve_phone_unavailable",
         "flood_wait",
     }:
@@ -628,10 +630,6 @@ def verify_rows_by_phone_bulk(
     from plugins.platforms.telegram_user import client as tg_user
 
     by_phone: dict[str, list[str]] = {}
-    # Clients with a @nick / chat id are NOT settled by a phone miss —
-    # privacy can hide the number while the nick resolves fine. Only
-    # phone-only rows may get an inactive verdict from this pass.
-    has_other_peer: set[str] = set()
     for row in rows or []:
         if not isinstance(row, dict):
             continue
@@ -642,10 +640,6 @@ def verify_rows_by_phone_bulk(
         e164 = tg_user.normalize_login_phone(raw) or ""
         if not e164:
             continue
-        if str(row.get("ТГ ник") or row.get("tg_nick") or "").strip() or str(
-            row.get("tg_chat_id") or ""
-        ).strip():
-            has_other_peer.add(cid)
         by_phone.setdefault(e164, []).append(cid)
 
     stats: dict[str, Any] = {
@@ -669,34 +663,20 @@ def verify_rows_by_phone_bulk(
             stats["detail"] = str(out.get("detail") or "")
             break
         found = out.get("found") if isinstance(out.get("found"), dict) else {}
-        checked = out.get("checked") if isinstance(out.get("checked"), list) else []
-        for phone in checked:
-            hit = found.get(phone) if isinstance(found, dict) else None
+        for phone, hit in found.items():
+            if not isinstance(hit, dict):
+                continue
+            if not (hit.get("tg_chat_id") or hit.get("id")):
+                continue
             for cid in by_phone.get(str(phone), []):
-                if hit:
-                    results[cid] = {
-                        "active": True,
-                        "chat_id": str(hit.get("tg_chat_id") or ""),
-                        "resolved_nick": normalize_tg_nick(hit.get("tg_nick") or ""),
-                        "via": "import_contacts_bulk",
-                        "detail": "",
-                    }
-                elif cid in has_other_peer:
-                    # Nick/chat-id fallback decides — a phone miss may just
-                    # be privacy hiding the number.
-                    continue
-                else:
-                    results[cid] = {
-                        "active": False,
-                        "chat_id": "",
-                        "resolved_nick": "",
-                        "via": "import_contacts_bulk",
-                        "detail": (
-                            "Номер не находится поиском Telegram — либо нет "
-                            "аккаунта, либо поиск по номеру скрыт приватностью"
-                        ),
-                    }
-        stats["checked"] += len(checked)
+                results[cid] = {
+                    "active": True,
+                    "chat_id": str(hit.get("tg_chat_id") or hit.get("id") or ""),
+                    "resolved_nick": normalize_tg_nick(hit.get("tg_nick") or ""),
+                    "via": "import_contacts_bulk",
+                    "detail": "",
+                }
+        stats["checked"] += len(found)
         wait = int(out.get("flood_wait") or 0)
         if wait:
             stats["flood_wait"] = wait

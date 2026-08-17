@@ -155,13 +155,31 @@ def _phone_lookup_key(value: str) -> str:
 
 
 def _phone_contact_client_id(index: int) -> int:
-    return int(index) + 1
+    return int(index)
 
 
 def _phone_contact_first_name(phone: str) -> str:
     digits = _PHONE_DIGITS_RE.sub("", phone)
     tail = digits[-4:] if digits else "0"
     return f"T{tail}"
+
+
+def _phone_import_strings(e164: str) -> list[str]:
+    plus = normalize_phone(e164) or str(e164 or "").strip()
+    digits = plus.lstrip("+")
+    out: list[str] = []
+    for val in (digits, plus):
+        if val and val not in out:
+            out.append(val)
+    return out
+
+
+def _usable_import_user(user: Any) -> bool:
+    if user is None:
+        return False
+    if getattr(user, "bot", False) or getattr(user, "is_self", False):
+        return False
+    return getattr(user, "id", None) is not None
 
 
 def _index_from_contact_client_id(client_id: int, n: int) -> int:
@@ -232,6 +250,12 @@ def consume_import_contacts(result: Any, phones: list[str]) -> dict[str, Any]:
         if e164 and e164 not in found:
             found[e164] = _hit_from_user(user, e164)
 
+    if n == 1 and phones[0] not in found:
+        for user in users:
+            if _usable_import_user(user):
+                found[phones[0]] = _hit_from_user(user, phones[0])
+                break
+
     return {"found": found, "retried": retried, "imported_users": imported_users}
 
 
@@ -258,28 +282,33 @@ async def _resolve_phone_like_app_search(client: Any, e164: str) -> dict[str, An
     digits = str(e164 or "").lstrip("+")
     if not digits:
         return {"ok": False, "error": "phone_missing", "detail": "Пустой номер"}
-    try:
-        result = await client(ResolvePhoneRequest(phone=digits))
-    except FloodWaitError as exc:
-        wait = int(getattr(exc, "seconds", 0) or 0)
-        return {
-            "ok": False,
-            "error": "phone_check_throttled",
-            "detail": "Лимит проверки номеров исчерпан — повторите позже",
-            "flood_wait": wait,
-        }
-    except Exception as exc:
-        if _is_phone_unoccupied_error(exc):
+    last_exc: Exception | None = None
+    result = None
+    for phone_str in _phone_import_strings(e164):
+        try:
+            result = await client(ResolvePhoneRequest(phone=phone_str))
+            last_exc = None
+            break
+        except FloodWaitError as exc:
+            wait = int(getattr(exc, "seconds", 0) or 0)
             return {
                 "ok": False,
-                "error": "phone_not_on_telegram",
-                "detail": "На этом номере нет аккаунта Telegram",
+                "error": "phone_check_throttled",
+                "detail": "Лимит проверки номеров исчерпан — повторите позже",
+                "flood_wait": wait,
             }
-        log.debug("ResolvePhone %s failed: %s", e164, exc)
+        except Exception as exc:
+            last_exc = exc
+            if not _is_phone_unoccupied_error(exc):
+                log.debug("ResolvePhone %s failed: %s", phone_str, exc)
+    if last_exc is not None and result is None:
         return {
             "ok": False,
-            "error": "phone_check_failed",
-            "detail": str(exc) or type(exc).__name__,
+            "error": "phone_not_confirmed",
+            "detail": (
+                "resolvePhone не видит номер (часто приватность) — "
+                "в New Contact он всё ещё может быть в Telegram"
+            ),
         }
 
     users = [
@@ -290,11 +319,74 @@ async def _resolve_phone_like_app_search(client: Any, e164: str) -> dict[str, An
     if not users:
         return {
             "ok": False,
-            "error": "phone_not_on_telegram",
-            "detail": "На этом номере нет аккаунта Telegram",
+            "error": "phone_not_confirmed",
+            "detail": "resolvePhone не вернул пользователя",
         }
     hit = _hit_from_user(users[0], e164)
     return {"ok": True, **hit, "resolved_via": "resolve_phone"}
+
+
+async def _import_one_phone(client: Any, e164: str) -> dict[str, Any]:
+    from telethon.errors import FloodWaitError  # type: ignore[import-not-found]
+    from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
+        DeleteContactsRequest,
+        ImportContactsRequest,
+    )
+    from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
+
+    saw_retry = False
+    for phone_str in _phone_import_strings(e164):
+        try:
+            result = await client(
+                ImportContactsRequest(
+                    [
+                        InputPhoneContact(
+                            client_id=0,
+                            phone=phone_str,
+                            first_name=_phone_contact_first_name(e164),
+                            last_name="",
+                        )
+                    ]
+                )
+            )
+        except FloodWaitError as exc:
+            return {
+                "ok": False,
+                "error": "phone_check_throttled",
+                "detail": "Лимит проверки номеров исчерпан — повторите позже",
+                "flood_wait": int(getattr(exc, "seconds", 0) or 0),
+            }
+        parsed = consume_import_contacts(result, [e164])
+        imported_users = list(parsed.get("imported_users") or [])
+        if imported_users:
+            try:
+                await client(DeleteContactsRequest(id=imported_users))
+            except Exception:
+                log.debug("DeleteContacts after phone import failed", exc_info=True)
+        hit = (parsed.get("found") or {}).get(e164)
+        if hit and (hit.get("tg_chat_id") or hit.get("id")):
+            return {"ok": True, **hit, "resolved_via": "import_contacts"}
+        if e164 in (parsed.get("retried") or set()):
+            saw_retry = True
+    if saw_retry:
+        return {
+            "ok": False,
+            "error": "phone_check_throttled",
+            "detail": "Лимит проверки номеров исчерпан — повторите позже",
+        }
+    search = await _resolve_phone_like_app_search(client, e164)
+    if search.get("ok") and (search.get("tg_chat_id") or search.get("id")):
+        return search
+    if search.get("error") == "phone_check_throttled":
+        return search
+    return {
+        "ok": False,
+        "error": "phone_not_confirmed",
+        "detail": (
+            "Номер не подтверждён importContacts — в New Contact "
+            "он всё ещё может быть в Telegram"
+        ),
+    }
 
 
 def _sent_code_meta(sent: Any) -> dict[str, Any]:
@@ -807,70 +899,20 @@ def resolve_phone(*, phone: str) -> dict[str, Any]:
         client = await _RUNNER.client()
         if not await client.is_user_authorized():
             return _err("not_authorized", "Личный Telegram не подключён")
-        from telethon.errors import FloodWaitError  # type: ignore[import-not-found]
-        from telethon.tl.functions.contacts import (  # type: ignore[import-not-found]
-            DeleteContactsRequest,
-            ImportContactsRequest,
-        )
-        from telethon.tl.types import InputPhoneContact  # type: ignore[import-not-found]
-
-        try:
-            result = await client(
-                ImportContactsRequest(
-                    [
-                        InputPhoneContact(
-                            client_id=_phone_contact_client_id(0),
-                            phone=digits,
-                            first_name=_phone_contact_first_name(digits),
-                            last_name="",
-                        )
-                    ]
-                )
-            )
-        except FloodWaitError:
-            return _err(
-                "phone_check_throttled",
-                "Лимит проверки номеров исчерпан — повторите позже",
-            )
-        parsed = consume_import_contacts(result, [digits])
-        hit = (parsed.get("found") or {}).get(digits)
-        imported_users = list(parsed.get("imported_users") or [])
-        if imported_users:
-            try:
-                await client(DeleteContactsRequest(id=imported_users))
-            except Exception:
-                log.debug("DeleteContacts after phone import failed", exc_info=True)
-        if hit and (hit.get("tg_chat_id") or hit.get("id")):
-            return {
-                "ok": True,
-                **hit,
-                "resolved_via": "import_contacts_gateway",
-                "via": "gateway",
-            }
-        if digits in (parsed.get("retried") or set()):
-            return _err(
-                "phone_check_throttled",
-                "Лимит проверки номеров исчерпан — повторите позже",
-            )
-        search = await _resolve_phone_like_app_search(client, digits)
-        if search.get("ok") and (search.get("tg_chat_id") or search.get("id")):
-            search.setdefault("via", "gateway")
-            return search
-        if search.get("error") in {"phone_check_throttled", "phone_not_on_telegram"}:
-            extra = {}
-            if search.get("flood_wait"):
-                extra["flood_wait"] = search["flood_wait"]
-            return _err(
-                str(search["error"]),
-                str(search.get("detail") or ""),
-                **extra,
-            )
+        out = await _import_one_phone(client, digits)
+        if out.get("ok") and (out.get("tg_chat_id") or out.get("id")):
+            out.setdefault("via", "gateway")
+            return out
+        extra = {}
+        if out.get("flood_wait"):
+            extra["flood_wait"] = out["flood_wait"]
         return _err(
-            str(search.get("error") or "phone_check_failed"),
+            str(out.get("error") or "phone_not_confirmed"),
             str(
-                search.get("detail")
-                or "Не удалось проверить номер (не доказано, что аккаунта нет)"
+                out.get("detail")
+                or "Номер не подтверждён — в New Contact он может быть в Telegram"
             ),
+            **extra,
         )
 
     return _call(_probe, timeout=45.0)
@@ -910,7 +952,7 @@ def resolve_phones(*, phones: list[str]) -> dict[str, Any]:
             contacts = [
                 InputPhoneContact(
                     client_id=_phone_contact_client_id(idx),
-                    phone=phone,
+                    phone=(_phone_import_strings(phone) or [phone.lstrip("+")])[0],
                     first_name=_phone_contact_first_name(phone),
                     last_name="",
                 )
@@ -938,22 +980,19 @@ def resolve_phones(*, phones: list[str]) -> dict[str, Any]:
             ]
             stop_chunk = False
             for phone in remaining:
-                search = await _resolve_phone_like_app_search(client, phone)
-                if search.get("ok") and (search.get("tg_chat_id") or search.get("id")):
+                one = await _import_one_phone(client, phone)
+                if one.get("ok") and (one.get("tg_chat_id") or one.get("id")):
                     found[phone] = {
                         "phone": phone,
-                        "tg_chat_id": str(search.get("tg_chat_id") or search.get("id") or ""),
-                        "tg_nick": str(search.get("tg_nick") or ""),
-                        "name": str(search.get("name") or ""),
+                        "tg_chat_id": str(one.get("tg_chat_id") or one.get("id") or ""),
+                        "tg_nick": str(one.get("tg_nick") or ""),
+                        "name": str(one.get("name") or ""),
                     }
-                    checked.append(phone)
-                elif search.get("error") == "phone_not_on_telegram":
-                    checked.append(phone)
-                elif search.get("error") == "phone_check_throttled":
-                    flood_wait = int(search.get("flood_wait") or 0)
+                elif one.get("error") == "phone_check_throttled":
+                    flood_wait = int(one.get("flood_wait") or 0)
                     stop_chunk = True
                     break
-            checked.extend(phone for phone in chunk_found if phone not in checked)
+            checked.extend(phone for phone in found if phone in chunk)
             if stop_chunk:
                 break
         return {
