@@ -248,3 +248,4 @@ reference/selectel-kinetic-deploy/deploy/.env
 
 # Local knowledge graph (can exceed GitHub 100MB limit)
 graphify-out/
+.agents/
