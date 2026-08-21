@@ -1,3 +1,5 @@
+import type { EChartsOption } from 'echarts'
+
 export const CHANNEL_COLORS: Record<string, string> = {
   yandex_market: '#e8b86d',
   flavy: '#e39ac4',
@@ -10,95 +12,172 @@ export const CHANNEL_COLORS: Record<string, string> = {
   other: '#94a3b8'
 }
 
-export const CHART_PAD = { l: 52, r: 16, t: 16, b: 40 }
-
 export type ChartMetric = 'turnover' | 'revenue' | 'orders' | 'avg_check'
+
+export type ChannelValues = {
+  key: string
+  label: string
+  turnover?: Array<number | null>
+  revenue?: Array<number | null>
+  margin?: Array<number | null>
+  orders?: Array<number | null>
+  avg_check?: Array<number | null>
+}
 
 export function channelColor(key: string): string {
   return CHANNEL_COLORS[key] || CHANNEL_COLORS.other
 }
 
-export function nearestPeriodIndex(
-  x: number,
-  width: number,
-  count: number,
-  padL = CHART_PAD.l,
-  padR = CHART_PAD.r
-): number {
-  if (count <= 1) {
-    return 0
+export function seriesOf(ch: ChannelValues, metric: ChartMetric): number[] {
+  const raw = ch[metric] || []
+  return raw.map(v => Number(v) || 0)
+}
+
+export function visibleChannels<T extends { key: string }>(channels: T[], hidden: Set<string>): T[] {
+  return channels.filter(ch => !hidden.has(ch.key))
+}
+
+const TEXT = '#f4ede4'
+const MUTED = '#f0daf5'
+const GRID = '#592466'
+const AXIS = '#7c3a8c'
+
+function axisCommon() {
+  return {
+    axisLine: { lineStyle: { color: AXIS } },
+    axisLabel: { color: MUTED },
+    splitLine: { lineStyle: { color: GRID } }
   }
-  const inner = Math.max(1, width - padL - padR)
-  const t = (x - padL) / inner
-  return Math.max(0, Math.min(count - 1, Math.round(t * (count - 1))))
 }
 
-export function xAt(
-  i: number,
-  count: number,
-  width: number,
-  padL = CHART_PAD.l,
-  padR = CHART_PAD.r
-): number {
-  if (count <= 1) {
-    return padL + (width - padL - padR) / 2
+export function legendSelected(
+  channels: { key: string; label: string }[],
+  hidden: Set<string>
+): Record<string, boolean> {
+  return Object.fromEntries(channels.map(ch => [ch.label, !hidden.has(ch.key)]))
+}
+
+export function buildLineOption(
+  periods: { id: string; label: string }[],
+  channels: ChannelValues[],
+  metric: ChartMetric,
+  hidden: Set<string>
+): EChartsOption {
+  const shown = visibleChannels(channels, hidden)
+  return {
+    backgroundColor: 'transparent',
+    textStyle: { color: TEXT },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#3a1840',
+      borderColor: AXIS,
+      textStyle: { color: TEXT }
+    },
+    legend: {
+      type: 'scroll',
+      textStyle: { color: MUTED },
+      selected: legendSelected(channels, hidden)
+    },
+    grid: { left: 56, right: 16, top: 40, bottom: 56 },
+    dataZoom: [
+      { type: 'inside', filterMode: 'none' },
+      { type: 'slider', height: 18, bottom: 8, borderColor: AXIS, fillerColor: 'rgba(216,180,254,0.18)' }
+    ],
+    xAxis: { type: 'category', data: periods.map(p => p.label), ...axisCommon() },
+    yAxis: { type: 'value', ...axisCommon() },
+    series: shown.map(ch => ({
+      name: ch.label,
+      type: 'line',
+      smooth: true,
+      showSymbol: periods.length <= 16,
+      data: seriesOf(ch, metric),
+      itemStyle: { color: channelColor(ch.key) },
+      lineStyle: { width: 2.2 }
+    }))
   }
-  return padL + (i / (count - 1)) * (width - padL - padR)
 }
 
-export function yAt(
-  value: number,
-  max: number,
-  height: number,
-  padT = CHART_PAD.t,
-  padB = CHART_PAD.b
-): number {
-  const inner = Math.max(1, height - padT - padB)
-  const safeMax = max <= 0 ? 1 : max
-  return padT + (1 - Math.max(0, value) / safeMax) * inner
-}
-
-export function linePoints(
-  values: Array<number | null | undefined>,
-  max: number,
-  width: number,
-  height: number
-): string {
-  return values
-    .map((v, i) => `${xAt(i, values.length, width)},${yAt(Number(v) || 0, max, height)}`)
-    .join(' ')
-}
-
-export function niceMax(raw: number): number {
-  if (raw <= 0) {
-    return 1
+export function buildStackOption(
+  periods: { id: string; label: string }[],
+  channels: ChannelValues[],
+  metric: ChartMetric,
+  hidden: Set<string>
+): EChartsOption {
+  const shown = visibleChannels(channels, hidden)
+  return {
+    backgroundColor: 'transparent',
+    textStyle: { color: TEXT },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#3a1840',
+      borderColor: AXIS,
+      textStyle: { color: TEXT }
+    },
+    legend: {
+      type: 'scroll',
+      textStyle: { color: MUTED },
+      selected: legendSelected(channels, hidden)
+    },
+    grid: { left: 56, right: 16, top: 40, bottom: 56 },
+    dataZoom: [
+      { type: 'inside', filterMode: 'none' },
+      { type: 'slider', height: 18, bottom: 8, borderColor: AXIS, fillerColor: 'rgba(216,180,254,0.18)' }
+    ],
+    xAxis: { type: 'category', data: periods.map(p => p.label), ...axisCommon() },
+    yAxis: { type: 'value', ...axisCommon() },
+    series: shown.map(ch => ({
+      name: ch.label,
+      type: 'bar',
+      stack: 'mix',
+      data: seriesOf(ch, metric),
+      itemStyle: { color: channelColor(ch.key) }
+    }))
   }
-  const exp = 10 ** Math.floor(Math.log10(raw))
-  const n = raw / exp
-  const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10
-  return nice * exp
 }
 
-export type StackSeg = { key: string; y0: number; y1: number; value: number }
-
-export function stackColumns(
-  series: { key: string; values: number[] }[],
-  periodCount: number
-): StackSeg[][] {
-  const cols: StackSeg[][] = []
-  for (let i = 0; i < periodCount; i++) {
-    let y0 = 0
-    const segs: StackSeg[] = []
-    for (const s of series) {
-      const value = Number(s.values[i] || 0)
-      if (value <= 0) {
-        continue
+export function buildPieOption(
+  channels: ChannelValues[],
+  metric: ChartMetric,
+  hidden: Set<string>
+): EChartsOption {
+  const last = Math.max(0, (channels[0]?.[metric]?.length || 1) - 1)
+  const shown = visibleChannels(channels, hidden)
+    .map(ch => ({ name: ch.label, value: seriesOf(ch, metric)[last] || 0, key: ch.key }))
+    .filter(d => d.value > 0)
+  return {
+    backgroundColor: 'transparent',
+    textStyle: { color: TEXT },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#3a1840',
+      borderColor: AXIS,
+      textStyle: { color: TEXT }
+    },
+    legend: { type: 'scroll', bottom: 0, textStyle: { color: MUTED } },
+    series: [
+      {
+        type: 'pie',
+        radius: ['38%', '68%'],
+        data: shown.map(d => ({
+          name: d.name,
+          value: d.value,
+          itemStyle: { color: channelColor(d.key) }
+        }))
       }
-      const y1 = y0 + value
-      segs.push({ key: s.key, y0, y1, value })
-      y0 = y1
-    }
-    cols.push(segs)
+    ]
   }
-  return cols
+}
+
+export function buildHeatmapTrace(
+  periods: { id: string; label: string }[],
+  channels: ChannelValues[],
+  metric: ChartMetric,
+  hidden: Set<string>
+): { x: string[]; y: string[]; z: number[][] } {
+  const shown = visibleChannels(channels, hidden)
+  return {
+    x: periods.map(p => p.label),
+    y: shown.map(ch => ch.label),
+    z: shown.map(ch => seriesOf(ch, metric))
+  }
 }

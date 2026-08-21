@@ -2,11 +2,12 @@ import { describe, expect, test } from 'vitest'
 
 import { formatPct } from './dashboard-analytics'
 import {
-  linePoints,
-  nearestPeriodIndex,
-  niceMax,
-  stackColumns,
-  xAt
+  buildHeatmapTrace,
+  buildLineOption,
+  buildPieOption,
+  buildStackOption,
+  channelColor,
+  legendSelected
 } from './dashboard-chart-model'
 import { filterChannels, sortChannels, sortDayRows } from './dashboard-table-ops'
 
@@ -19,30 +20,47 @@ describe('formatPct (Excel growth =(new/old)-1)', () => {
   })
 })
 
-describe('chart geometry', () => {
-  test('nearest period maps cursor to column', () => {
-    expect(nearestPeriodIndex(52, 720, 4)).toBe(0)
-    expect(nearestPeriodIndex(720 - 16, 720, 4)).toBe(3)
+describe('chart option builders', () => {
+  const periods = [
+    { id: '2026-07', label: 'июль' },
+    { id: '2026-08', label: 'август' }
+  ]
+  const channels = [
+    { key: 'flowwow', label: 'Флау вау', turnover: [10, 80] },
+    { key: 'direct', label: 'Прямые', turnover: [50, 20] }
+  ]
+
+  test('line series skip hidden channels', () => {
+    const opt = buildLineOption(periods, channels, 'turnover', new Set(['direct']))
+    const series = opt.series as { name: string; data: number[] }[]
+    expect(series.map(s => s.name)).toEqual(['Флау вау'])
+    expect(series[0].data).toEqual([10, 80])
+    expect(legendSelected(channels, new Set(['direct'])).Прямые).toBe(false)
   })
 
-  test('line path has one point per period', () => {
-    const pts = linePoints([0, 50, 100], 100, 720, 248)
-    expect(pts.split(' ')).toHaveLength(3)
-    expect(xAt(0, 3, 720)).toBeLessThan(xAt(2, 3, 720))
+  test('stack is bar+stack mix', () => {
+    const opt = buildStackOption(periods, channels, 'turnover', new Set())
+    const series = opt.series as { type: string; stack: string }[]
+    expect(series.every(s => s.type === 'bar' && s.stack === 'mix')).toBe(true)
   })
 
-  test('stack columns accumulate per period', () => {
-    const cols = stackColumns(
-      [
-        { key: 'a', values: [10, 0] },
-        { key: 'b', values: [5, 20] }
-      ],
-      2
-    )
-    expect(cols[0].map(s => s.key)).toEqual(['a', 'b'])
-    expect(cols[0][1].y1).toBe(15)
-    expect(cols[1][0]).toMatchObject({ key: 'b', value: 20, y0: 0, y1: 20 })
-    expect(niceMax(8500)).toBe(10000)
+  test('pie uses last period', () => {
+    const opt = buildPieOption(channels, 'turnover', new Set())
+    const pie = (opt.series as { data: { name: string; value: number }[] }[])[0]
+    expect(pie.data).toEqual([
+      { name: 'Флау вау', value: 80, itemStyle: { color: channelColor('flowwow') } },
+      { name: 'Прямые', value: 20, itemStyle: { color: channelColor('direct') } }
+    ])
+  })
+
+  test('heatmap z is channel × period', () => {
+    const heat = buildHeatmapTrace(periods, channels, 'turnover', new Set())
+    expect(heat.x).toEqual(['июль', 'август'])
+    expect(heat.y).toEqual(['Флау вау', 'Прямые'])
+    expect(heat.z).toEqual([
+      [10, 80],
+      [50, 20]
+    ])
   })
 })
 

@@ -134,11 +134,16 @@ export default defineConfig(({ command }) => ({
               name: 'shiki',
               test: /node_modules[\\/](shiki|@shikijs|react-shiki|@streamdown[\\/]code|oniguruma-to-es|oniguruma-parser|regex(-[^\\/]+)?)[\\/]/
             },
-            { name: 'katex', test: /node_modules[\\/]katex[\\/]/ }
+            { name: 'katex', test: /node_modules[\\/]katex[\\/]/ },
+            { name: 'echarts', test: /node_modules[\\/]echarts[\\/]/ },
+            { name: 'plotly', test: /node_modules[\\/]plotly\.js-dist-min[\\/]/ }
           ]
         }
       }
     }
+  },
+  optimizeDeps: {
+    include: ['echarts', 'echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers', 'plotly.js-dist-min']
   },
   resolve: {
     alias: {

@@ -4365,41 +4365,159 @@
     return 16 + (1 - Math.max(0, v) / (max || 1)) * 192;
   }
 
+
+  var ECHARTS_SRC = "https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js";
+  var PLOTLY_SRC = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.7.0/plotly.min.js";
+
+  function loadChartLib(src, globalName) {
+    return new Promise(function (resolve, reject) {
+      if (window[globalName]) return resolve(window[globalName]);
+      var s = document.querySelector('script[data-ms-lib="' + globalName + '"]');
+      if (s) {
+        s.addEventListener("load", function () { resolve(window[globalName]); });
+        s.addEventListener("error", reject);
+        return;
+      }
+      s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.setAttribute("data-ms-lib", globalName);
+      s.onload = function () { resolve(window[globalName]); };
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function dashSeries(ch, metric) {
+    return (ch[metric] || []).map(function (v) { return Number(v) || 0; });
+  }
+
+  function MsEChart(props) {
+    var elRef = useRef(null);
+    var optKey = JSON.stringify(props.option || {});
+    useEffect(
+      function () {
+        var chart;
+        var dead = false;
+        loadChartLib(ECHARTS_SRC, "echarts").then(function (echarts) {
+          if (dead || !elRef.current || !echarts) return;
+          chart = echarts.init(elRef.current);
+          chart.setOption(props.option || {}, true);
+        });
+        return function () {
+          dead = true;
+          if (chart) chart.dispose();
+        };
+      },
+      [optKey],
+    );
+    return h("div", { className: "ms-dash-echart", ref: elRef });
+  }
+
+  function MsPlotlyHeat(props) {
+    var elRef = useRef(null);
+    var key = JSON.stringify({ x: props.x, y: props.y, z: props.z });
+    useEffect(
+      function () {
+        var el = elRef.current;
+        var dead = false;
+        loadChartLib(PLOTLY_SRC, "Plotly").then(function (Plotly) {
+          if (dead || !el || !Plotly) return;
+          Plotly.react(
+            el,
+            [
+              {
+                type: "heatmap",
+                x: props.x,
+                y: props.y,
+                z: props.z,
+                colorscale: [
+                  [0, "#2f1236"],
+                  [0.45, "#7c3a8c"],
+                  [1, "#e8b86d"],
+                ],
+                hoverongaps: false,
+              },
+            ],
+            {
+              margin: { l: 110, r: 40, t: 24, b: 56 },
+              paper_bgcolor: "rgba(0,0,0,0)",
+              plot_bgcolor: "#2f1236",
+              font: { color: "#f0daf5" },
+            },
+            { responsive: true, displaylogo: false },
+          );
+        });
+        return function () {
+          dead = true;
+          if (el && window.Plotly) window.Plotly.purge(el);
+        };
+      },
+      [key],
+    );
+    return h("div", { className: "ms-dash-plotly", ref: elRef });
+  }
+
   function DashCharts(props) {
     var analytics = props.analytics || {};
     const [metric, setMetric] = useState("turnover");
     const [scope, setScope] = useState("month");
     const [hidden, setHidden] = useState({});
-    const [hover, setHover] = useState(null);
     const [active, setActive] = useState(null);
     var insights = analytics.insights || [];
     var matrix = scope === "week" ? analytics.by_week : analytics.by_month;
     var periods = (matrix && matrix.periods) || [];
-    var channels = ((matrix && matrix.channels) || []).filter(function (ch) {
-      return !hidden[ch.key];
-    });
+    var allCh = (matrix && matrix.channels) || [];
+    var channels = allCh.filter(function (ch) { return !hidden[ch.key]; });
     if (!periods.length) {
       return h("p", { className: "ms-muted" }, "Мало данных для графиков.");
     }
-    var n = periods.length;
-    var max = 1;
-    channels.forEach(function (ch) {
-      (ch[metric] || []).forEach(function (v) {
-        if (Number(v) > max) max = Number(v);
-      });
+    var cats = periods.map(function (p) { return p.label; });
+    var selected = {};
+    allCh.forEach(function (ch) { selected[ch.label] = !hidden[ch.key]; });
+    var lineSeries = channels.map(function (ch) {
+      return {
+        name: ch.label,
+        type: "line",
+        smooth: true,
+        data: dashSeries(ch, metric),
+        itemStyle: { color: chColor(ch.key) },
+      };
     });
-    var exp = Math.pow(10, Math.floor(Math.log10(max)));
-    var nn = max / exp;
-    max = (nn <= 1 ? 1 : nn <= 2 ? 2 : nn <= 5 ? 5 : 10) * exp;
+    var stackSeries = channels.map(function (ch) {
+      return {
+        name: ch.label,
+        type: "bar",
+        stack: "mix",
+        data: dashSeries(ch, metric),
+        itemStyle: { color: chColor(ch.key) },
+      };
+    });
+    var last = periods.length - 1;
+    var pieData = channels
+      .map(function (ch) {
+        return { name: ch.label, value: dashSeries(ch, metric)[last] || 0, itemStyle: { color: chColor(ch.key) } };
+      })
+      .filter(function (d) { return d.value > 0; });
+    var heatZ = channels.map(function (ch) { return dashSeries(ch, metric); });
+    var heatY = channels.map(function (ch) { return ch.label; });
+    var baseOpt = {
+      backgroundColor: "transparent",
+      textStyle: { color: "#f4ede4" },
+      tooltip: { trigger: "axis", backgroundColor: "#3a1840", borderColor: "#7c3a8c" },
+      legend: { type: "scroll", textStyle: { color: "#f0daf5" }, selected: selected },
+      grid: { left: 56, right: 16, top: 40, bottom: 56 },
+      dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+      xAxis: { type: "category", data: cats, axisLabel: { color: "#f0daf5" } },
+      yAxis: { type: "value", axisLabel: { color: "#f0daf5" }, splitLine: { lineStyle: { color: "#592466" } } },
+    };
     function applyInsight(row) {
       setActive(row.id);
       if (row.metric) setMetric(row.metric);
       if (row.scope) setScope(row.scope);
       if (row.channel) {
         var next = {};
-        ((matrix && matrix.channels) || []).forEach(function (ch) {
-          if (ch.key !== row.channel) next[ch.key] = true;
-        });
+        allCh.forEach(function (ch) { if (ch.key !== row.channel) next[ch.key] = true; });
         setHidden(next);
       } else setHidden({});
     }
@@ -4411,79 +4529,6 @@
         else next[key] = true;
         return next;
       });
-    }
-    var tipRows =
-      hover == null
-        ? []
-        : channels
-            .map(function (ch) {
-              return { key: ch.key, label: ch.label, value: Number((ch[metric] || [])[hover] || 0) };
-            })
-            .filter(function (r) {
-              return r.value > 0;
-            })
-            .sort(function (a, b) {
-              return b.value - a.value;
-            });
-    var last = n - 1;
-    var shares = ((matrix && matrix.channels) || [])
-      .map(function (ch) {
-        return { key: ch.key, label: ch.label, value: Number((ch[metric] || [])[last] || 0) };
-      })
-      .filter(function (r) {
-        return r.value > 0;
-      })
-      .sort(function (a, b) {
-        return b.value - a.value;
-      });
-    var shareMax = shares[0] ? shares[0].value : 1;
-    var lines = channels.map(function (ch) {
-      var pts = (ch[metric] || [])
-        .map(function (v, i) {
-          return dashX(i, n) + "," + dashY(Number(v) || 0, max);
-        })
-        .join(" ");
-      return h("polyline", {
-        key: ch.key,
-        fill: "none",
-        stroke: chColor(ch.key),
-        strokeWidth: 2,
-        points: pts,
-      });
-    });
-    var stacks = periods.map(function (_p, i) {
-      var y0 = 0;
-      var segs = [];
-      channels.forEach(function (ch) {
-        var v = Number((ch[metric] || [])[i] || 0);
-        if (v <= 0) return;
-        segs.push({ key: ch.key, y0: y0, y1: y0 + v });
-        y0 += v;
-      });
-      var barW = Math.max(6, 652 / n - 4);
-      var x = dashX(i, n) - barW / 2;
-      return h(
-        "g",
-        { key: _p.id, opacity: hover == null || hover === i ? 1 : 0.35 },
-        segs.map(function (s) {
-          var y1 = dashY(s.y1, max);
-          var y0s = dashY(s.y0, max);
-          return h("rect", {
-            key: s.key,
-            x: x,
-            y: y1,
-            width: barW,
-            height: Math.max(1, y0s - y1),
-            rx: 2,
-            fill: chColor(s.key),
-          });
-        }),
-      );
-    });
-    function onMove(e, setH) {
-      var box = e.currentTarget.getBoundingClientRect();
-      var x = ((e.clientX - box.left) / box.width) * 720;
-      setH(dashNearest(x, n));
     }
     return h(
       "div",
@@ -4498,13 +4543,8 @@
                 {
                   type: "button",
                   key: row.id,
-                  className:
-                    "ms-dash-take is-" +
-                    (row.tone || "info") +
-                    (active === row.id ? " is-active" : ""),
-                  onClick: function () {
-                    applyInsight(row);
-                  },
+                  className: "ms-dash-take is-" + (row.tone || "info") + (active === row.id ? " is-active" : ""),
+                  onClick: function () { applyInsight(row); },
                 },
                 h("strong", null, row.title),
                 h("span", null, row.body),
@@ -4530,9 +4570,7 @@
                 type: "button",
                 key: opt[0],
                 className: "ms-filter-tab" + (metric === opt[0] ? " is-active" : ""),
-                onClick: function () {
-                  setMetric(opt[0]);
-                },
+                onClick: function () { setMetric(opt[0]); },
               },
               opt[1],
             );
@@ -4541,56 +4579,18 @@
         h(
           "div",
           { className: "ms-filter-tabs" },
-          h(
-            "button",
-            {
-              type: "button",
-              className: "ms-filter-tab" + (scope === "month" ? " is-active" : ""),
-              onClick: function () {
-                setScope("month");
-              },
-            },
-            "Месяцы",
-          ),
-          h(
-            "button",
-            {
-              type: "button",
-              className: "ms-filter-tab" + (scope === "week" ? " is-active" : ""),
-              onClick: function () {
-                setScope("week");
-              },
-            },
-            "Недели",
-          ),
+          h("button", { type: "button", className: "ms-filter-tab" + (scope === "month" ? " is-active" : ""), onClick: function () { setScope("month"); } }, "Месяцы"),
+          h("button", { type: "button", className: "ms-filter-tab" + (scope === "week" ? " is-active" : ""), onClick: function () { setScope("week"); } }, "Недели"),
         ),
-        h(
-          "button",
-          {
-            type: "button",
-            className: "ms-link-btn",
-            onClick: function () {
-              setHidden({});
-              setActive(null);
-            },
-          },
-          "Все каналы",
-        ),
+        h("button", { type: "button", className: "ms-link-btn", onClick: function () { setHidden({}); setActive(null); } }, "Все каналы"),
       ),
       h(
         "div",
         { className: "ms-dash-legend" },
-        ((matrix && matrix.channels) || []).map(function (ch) {
+        allCh.map(function (ch) {
           return h(
             "button",
-            {
-              type: "button",
-              key: ch.key,
-              className: "ms-dash-leg" + (hidden[ch.key] ? " is-off" : ""),
-              onClick: function () {
-                toggle(ch.key);
-              },
-            },
+            { type: "button", key: ch.key, className: "ms-dash-leg" + (hidden[ch.key] ? " is-off" : ""), onClick: function () { toggle(ch.key); } },
             h("i", { style: { background: chColor(ch.key) } }),
             ch.label,
           );
@@ -4599,111 +4599,14 @@
       h(
         "div",
         { className: "ms-dash-chart-grid" },
-        h(
-          "section",
-          null,
-          h("h3", null, "Динамика"),
-          h(
-            "div",
-            { className: "ms-dash-chart" },
-            h(
-              "svg",
-              {
-                className: "ms-dash-svg",
-                viewBox: "0 0 720 248",
-                role: "img",
-                onMouseMove: function (e) {
-                  onMove(e, setHover);
-                },
-                onMouseLeave: function () {
-                  setHover(null);
-                },
-              },
-              hover != null
-                ? h("line", {
-                    className: "ms-dash-hover-line",
-                    x1: dashX(hover, n),
-                    x2: dashX(hover, n),
-                    y1: 16,
-                    y2: 208,
-                  })
-                : null,
-              lines,
-            ),
-          ),
-        ),
-        h(
-          "section",
-          null,
-          h("h3", null, "Состав"),
-          h(
-            "div",
-            { className: "ms-dash-chart" },
-            h(
-              "svg",
-              {
-                className: "ms-dash-svg",
-                viewBox: "0 0 720 248",
-                role: "img",
-                onMouseMove: function (e) {
-                  onMove(e, setHover);
-                },
-                onMouseLeave: function () {
-                  setHover(null);
-                },
-              },
-              stacks,
-            ),
-          ),
-        ),
+        h("section", null, h("h3", null, "Динамика · ECharts"), h("div", { className: "ms-dash-chart" }, h(MsEChart, { option: Object.assign({}, baseOpt, { series: lineSeries }) }))),
+        h("section", null, h("h3", null, "Состав · ECharts"), h("div", { className: "ms-dash-chart" }, h(MsEChart, { option: Object.assign({}, baseOpt, { series: stackSeries }) }))),
       ),
-      hover != null
-        ? h(
-            "div",
-            { className: "ms-dash-tip" },
-            h("strong", null, periods[hover].label),
-            tipRows.map(function (r) {
-              return h(
-                "div",
-                { key: r.key },
-                h("i", { style: { background: chColor(r.key) } }),
-                r.label + ": " + (metric === "orders" ? String(Math.round(r.value)) : dashMoney(r.value)),
-              );
-            }),
-          )
-        : null,
       h(
-        "section",
-        null,
-        h("h3", null, "Доли сейчас"),
-        h(
-          "div",
-          { className: "ms-dash-share" },
-          shares.map(function (r) {
-            return h(
-              "button",
-              {
-                type: "button",
-                key: r.key,
-                className: "ms-dash-share-row" + (hidden[r.key] ? " is-off" : ""),
-                onClick: function () {
-                  toggle(r.key);
-                },
-              },
-              h("span", { className: "ms-dash-share-lab" }, h("i", { style: { background: chColor(r.key) } }), r.label),
-              h(
-                "span",
-                { className: "ms-dash-share-track" },
-                h("span", { style: { width: (r.value / shareMax) * 100 + "%", background: chColor(r.key) } }),
-              ),
-              h(
-                "span",
-                { className: "ms-dash-share-val" },
-                metric === "orders" ? String(Math.round(r.value)) : dashMoney(r.value),
-              ),
-            );
-          }),
-        ),
+        "div",
+        { className: "ms-dash-chart-grid" },
+        h("section", null, h("h3", null, "Доли · ECharts"), h("div", { className: "ms-dash-chart" }, h(MsEChart, { option: { backgroundColor: "transparent", tooltip: { trigger: "item" }, series: [{ type: "pie", radius: ["38%", "68%"], data: pieData }] } }))),
+        h("section", null, h("h3", null, "Тепловая карта · Plotly"), h("div", { className: "ms-dash-chart" }, h(MsPlotlyHeat, { x: cats, y: heatY, z: heatZ }))),
       ),
     );
   }

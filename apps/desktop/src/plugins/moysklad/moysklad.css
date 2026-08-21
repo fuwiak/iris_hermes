@@ -2840,10 +2840,10 @@ td.ms-ai-added {
   padding: 0.4rem;
 }
 
-.ms-dash-svg {
+.ms-dash-echart,
+.ms-dash-plotly {
   width: 100%;
-  height: auto;
-  display: block;
+  height: 280px;
 }
 
 .ms-dash-grid {

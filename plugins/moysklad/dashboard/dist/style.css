@@ -1200,6 +1200,7 @@ td.ms-ai-added {
 .ms-dash-chart-grid h3, .ms-dash-board h3 { margin: 0 0 0.2rem; font-size: 0.95rem; }
 .ms-dash-chart { background: #2f1236; border: 1px solid #592466; border-radius: 0.85rem; padding: 0.4rem; }
 .ms-dash-svg { width: 100%; height: auto; display: block; }
+.ms-dash-echart, .ms-dash-plotly { width: 100%; height: 280px; }
 .ms-dash-hover-line { stroke: #d8b4fe; stroke-dasharray: 3 3; }
 .ms-dash-tip {
   border: 1px solid #592466; background: #3a1840; border-radius: 0.7rem;

@@ -1,6 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react'
-
-import { DashboardCharts } from './dashboard-charts'
+import { lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
 import {
   type ChannelSortKey,
   filterChannels,
@@ -11,6 +9,8 @@ import {
   sortChannels,
   sortDayRows
 } from './dashboard-table-ops'
+
+const DashboardCharts = lazy(() => import('./dashboard-charts').then(m => ({ default: m.DashboardCharts })))
 
 export type DashCell = {
   orders?: number
@@ -569,7 +569,11 @@ export function DashboardAnalytics({
         ))}
       </div>
 
-      {tab === 'charts' && analytics ? <DashboardCharts analytics={analytics} /> : null}
+      {tab === 'charts' && analytics ? (
+        <Suspense fallback={<p className="ms-muted">Загружаем ECharts / Plotly…</p>}>
+          <DashboardCharts analytics={analytics} />
+        </Suspense>
+      ) : null}
       {tab === 'overview' ? overview : null}
       {tab === 'day' ? <DayTable analytics={analytics || {}} /> : null}
       {tab === 'week' ? <MatrixTable matrix={analytics?.by_week} title="Канал" /> : null}
