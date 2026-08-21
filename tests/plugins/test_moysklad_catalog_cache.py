@@ -18,6 +18,8 @@ def hermes_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("MOYSKLAD_REDIS_URL", raising=False)
+    monkeypatch.delenv("ELASTICSEARCH_URL", raising=False)
+    monkeypatch.delenv("MOYSKLAD_ELASTICSEARCH_URL", raising=False)
     monkeypatch.setenv("MOYSKLAD_API_TOKEN", "test-token-abc")
     monkeypatch.setenv("MOYSKLAD_CACHE_TTL_SECONDS", "3600")
     # Clear process memory between tests.
@@ -297,3 +299,13 @@ def test_counterparty_row_maps_crm_columns() -> None:
     assert row["ТГ ник"] == "@alice"
     assert row["TG conversation"] == "https://t.me/c/1/2"
     assert row["Тип канала продаж"] == "прямые продажи"
+
+
+def test_dashboard_summary_blob_tied_to_catalog_sync(hermes_home: Path) -> None:
+    summary = {"kpi": {"turnover": 42}, "clients": {"total": 3}}
+    cc.set_dashboard_summary_cached(summary, catalog_synced_at=111.0)
+    hit = cc.get_dashboard_summary_cached(111.0)
+    assert hit is not None
+    assert hit["kpi"]["turnover"] == 42
+    assert cc.get_dashboard_summary_cached(222.0) is None
+

@@ -32,6 +32,7 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
+import { CardsPage } from './cards-tab'
 import {
   audienceRetryDelayMs,
   clientSalesChannelTokens,
@@ -8923,6 +8924,11 @@ function DashboardPage() {
     } | null
     analytics?: DashAnalytics
     order_count?: number
+    cache_backend?: string
+    cached?: boolean
+    stale?: boolean
+    synced_at_label?: string
+    analytics_cached?: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -9029,7 +9035,17 @@ function DashboardPage() {
         {data?.analytics?.order_count != null ? ` (${data.analytics.order_count})` : ''}.
       </p>
       {error ? <p className="ms-error">{error}</p> : null}
-      <DashboardAnalytics analytics={data?.analytics} overview={overview} />
+      <DashboardAnalytics
+        analytics={data?.analytics}
+        cacheMeta={{
+          cache_backend: data?.cache_backend,
+          cached: data?.cached,
+          stale: data?.stale,
+          synced_at_label: data?.synced_at_label,
+          analytics_cached: data?.analytics_cached
+        }}
+        overview={overview}
+      />
     </div>
   )
 }
@@ -9079,6 +9095,22 @@ const plugin: HermesPlugin = {
         render: () => <DashboardPage />
       },
       {
+        id: 'cards-page',
+        area: ROUTES_AREA,
+        data: { path: '/cards' } satisfies RouteContribution,
+        render: () => (
+          <CardsPage
+            rest={(path, opts) => {
+              if (!rest) {
+                throw new Error('MoySklad plugin REST not bound')
+              }
+
+              return rest(path, opts)
+            }}
+          />
+        )
+      },
+      {
         id: 'clients-nav',
         area: SIDEBAR_NAV_AREA,
         order: 40,
@@ -9106,6 +9138,16 @@ const plugin: HermesPlugin = {
           codicon: 'graph',
           label: 'Дашборд',
           path: '/dashboard'
+        } satisfies SidebarNavContribution
+      },
+      {
+        id: 'cards-nav',
+        area: SIDEBAR_NAV_AREA,
+        order: 44,
+        data: {
+          codicon: 'package',
+          label: 'Карточки',
+          path: '/cards'
         } satisfies SidebarNavContribution
       }
     ])

@@ -8,9 +8,10 @@ Read path is CDN-style stale-while-revalidate:
 
 Backends, in order:
 
-1. Redis — when ``REDIS_URL`` is set and the ``redis`` package is importable
-2. File JSON under ``$HERMES_HOME/moysklad/cache/`` (always available)
-3. Process-local memory (hot layer on top of either durable store)
+1. Elasticsearch — when ``ELASTICSEARCH_URL`` / ``MOYSKLAD_ELASTICSEARCH_URL`` is set
+2. Redis — when ``REDIS_URL`` is set and the ``redis`` package is importable
+3. File JSON under ``$HERMES_HOME/moysklad/cache/`` (always available)
+4. Process-local memory (hot layer on top of durable stores)
 
 Logical TTL default: 6 hours (``MOYSKLAD_CACHE_TTL_SECONDS``).
 Redis retention is longer than logical TTL so expired keys remain
@@ -256,6 +257,12 @@ def get_cached(key: str) -> Optional[dict[str, Any]]:
         if mem and _is_fresh(mem, now=now):
             return mem
 
+    es_env = _es_read(key)
+    if es_env is not None and _is_fresh(es_env, now=now):
+        with _LOCK:
+            _MEMORY[key] = es_env
+        return es_env
+
     # Redis
     client = _redis_client()
     if client is not None:
@@ -336,6 +343,8 @@ def set_cached(
     with _LOCK:
         _MEMORY[key] = envelope
 
+    _es_write(key, envelope, kind="catalog")
+
     client = _redis_client()
     if client is not None:
         try:
@@ -361,7 +370,7 @@ def set_cached(
 def peek_cached(key: str) -> Optional[dict[str, Any]]:
     """Return envelope even when TTL-expired (for stale-while-revalidate).
 
-    Order: process memory → Redis → file. Does not filter on freshness.
+    Order: process memory → Elasticsearch → Redis → file. Does not filter on freshness.
     """
     with _LOCK:
         mem = _MEMORY.get(key)
@@ -371,8 +380,117 @@ def peek_cached(key: str) -> Optional[dict[str, Any]]:
     return _peek_any(key)
 
 
+def _es_read(key: str) -> Optional[dict[str, Any]]:
+    try:
+        from plugins.moysklad.es_cache import es_get
+
+        env = es_get(key)
+        return env if isinstance(env, dict) else None
+    except Exception as exc:
+        log.warning("MoySklad Elasticsearch get failed: %s", exc)
+        return None
+
+
+def _es_write(key: str, envelope: dict[str, Any], *, kind: str) -> None:
+    try:
+        from plugins.moysklad.es_cache import es_put
+
+        es_put(key, envelope, kind=kind)
+    except Exception as exc:
+        log.warning("MoySklad Elasticsearch put failed: %s", exc)
+
+
+def _es_drop(key: str) -> None:
+    try:
+        from plugins.moysklad.es_cache import es_delete
+
+        es_delete(key)
+    except Exception as exc:
+        log.warning("MoySklad Elasticsearch delete failed: %s", exc)
+
+
+def set_raw_envelope(key: str, envelope: dict[str, Any], *, kind: str = "blob") -> dict[str, Any]:
+    """Persist a JSON envelope without catalog dedupe (dashboard analytics cache)."""
+    payload = dict(envelope or {})
+    payload.setdefault("ttl_seconds", cache_ttl_seconds())
+    payload.setdefault("synced_at", time.time())
+    with _LOCK:
+        _MEMORY[key] = payload
+    _es_write(key, payload, kind=kind)
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.setex(
+                key,
+                redis_retention_seconds(),
+                json.dumps(payload, ensure_ascii=False, default=str),
+            )
+        except Exception as exc:
+            log.warning("MoySklad Redis blob set failed: %s", exc)
+    path = _file_path(key)
+    try:
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.warning("MoySklad file blob write failed: %s", exc)
+    return payload
+
+
+def get_raw_envelope(key: str, *, fresh: bool = True) -> Optional[dict[str, Any]]:
+    now = time.time()
+    with _LOCK:
+        mem = _MEMORY.get(key)
+        if mem and isinstance(mem, dict) and (not fresh or _is_fresh(mem, now=now)):
+            return mem
+    peeked = _peek_any(key)
+    if peeked is None:
+        return None
+    if fresh and not _is_fresh(peeked, now=now):
+        return None
+    return peeked
+
+
+def dashboard_summary_key() -> str:
+    return f"moysklad:dashboard:summary:v1:{_account_fingerprint()}"
+
+
+def get_dashboard_summary_cached(catalog_synced_at: float) -> Optional[dict[str, Any]]:
+    env = get_raw_envelope(dashboard_summary_key(), fresh=True)
+    if not env:
+        return None
+    cached_sync = float(env.get("catalog_synced_at") or 0)
+    if abs(cached_sync - float(catalog_synced_at or 0)) > 0.5:
+        return None
+    summary = env.get("summary")
+    return summary if isinstance(summary, dict) else None
+
+
+def set_dashboard_summary_cached(
+    summary: dict[str, Any],
+    *,
+    catalog_synced_at: float,
+) -> dict[str, Any]:
+    return set_raw_envelope(
+        dashboard_summary_key(),
+        {
+            "synced_at": time.time(),
+            "ttl_seconds": cache_ttl_seconds(),
+            "catalog_synced_at": float(catalog_synced_at or 0),
+            "summary": summary,
+        },
+        kind="dashboard",
+    )
+
+
 def _peek_any(key: str) -> Optional[dict[str, Any]]:
-    """Read durable envelope ignoring TTL (Redis / file)."""
+    """Read durable envelope ignoring TTL (Elasticsearch / Redis / file)."""
+    es_env = _es_read(key)
+    if es_env is not None:
+        with _LOCK:
+            _MEMORY[key] = es_env
+        return es_env
     client = _redis_client()
     if client is not None:
         try:
@@ -627,6 +745,8 @@ def invalidate(key: str | None = None) -> None:
     if key is None:
         return
 
+    _es_drop(key)
+
     client = _redis_client()
     if client is not None:
         try:
@@ -643,9 +763,20 @@ def invalidate(key: str | None = None) -> None:
 
 
 def cache_backend_name() -> str:
+    parts: list[str] = []
+    try:
+        from plugins.moysklad.es_cache import enabled, ready
+
+        if enabled() and ready():
+            parts.append("elasticsearch")
+        elif enabled():
+            parts.append("elasticsearch-down")
+    except Exception:
+        pass
     if _redis_client() is not None:
-        return "redis+file"
-    return "file"
+        parts.append("redis")
+    parts.append("file")
+    return "+".join(parts)
 
 
 def format_synced_at(synced_at: float | None) -> str:

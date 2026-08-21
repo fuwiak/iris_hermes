@@ -1,6 +1,16 @@
 import { type ReactNode, useMemo, useState } from 'react'
 
 import { DashboardCharts } from './dashboard-charts'
+import {
+  type ChannelSortKey,
+  filterChannels,
+  filterDayRows,
+  matchesQuery,
+  nextSortDir,
+  type SortDir,
+  sortChannels,
+  sortDayRows
+} from './dashboard-table-ops'
 
 export type DashCell = {
   orders?: number
@@ -159,19 +169,80 @@ function metricValue(metric: string, n: number | null | undefined): string {
   return money(n, 0)
 }
 
+function TableToolbar({
+  query,
+  onQuery,
+  sortLabel,
+  onToggleSort,
+  placeholder
+}: {
+  query: string
+  onQuery: (q: string) => void
+  sortLabel: string
+  onToggleSort: () => void
+  placeholder: string
+}) {
+  return (
+    <div className="ms-dash-table-tools">
+      <input
+        aria-label="Фильтр таблицы"
+        className="ms-dash-filter"
+        onChange={e => onQuery(e.target.value)}
+        placeholder={placeholder}
+        type="search"
+        value={query}
+      />
+      <button className="ms-link-btn" onClick={onToggleSort} type="button">
+        {sortLabel}
+      </button>
+    </div>
+  )
+}
+
 function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) {
   const periods = matrix?.periods || []
-  const channels = matrix?.channels || []
   const totals = matrix?.totals
+  const [query, setQuery] = useState('')
+  const [sortKey, setSortKey] = useState<ChannelSortKey>('turnover')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const last = Math.max(0, periods.length - 1)
+  const channels = useMemo(
+    () => sortChannels(filterChannels(matrix?.channels || [], query), sortKey, sortDir, last),
+    [matrix?.channels, query, sortDir, sortKey, last]
+  )
   if (!periods.length) {
     return <p className="ms-muted">Нет оплаченных заказов за период.</p>
   }
+  const toggle = (key: ChannelSortKey) => {
+    if (sortKey === key) {
+      setSortDir(nextSortDir(sortDir))
+    } else {
+      setSortKey(key)
+      setSortDir(key === 'label' ? 'asc' : 'desc')
+    }
+  }
+  const sortHint =
+    sortKey === 'label'
+      ? `Сорт: канал ${sortDir === 'asc' ? 'А→Я' : 'Я→А'}`
+      : `Сорт: ${METRIC_RU[sortKey]} ${sortDir === 'desc' ? '↓' : '↑'}`
   return (
-    <div className="ms-table-wrap ms-dash-table-wrap">
+    <>
+      <TableToolbar
+        onQuery={setQuery}
+        onToggleSort={() => toggle(sortKey === 'label' ? 'turnover' : sortKey)}
+        placeholder="Фильтр канала…"
+        query={query}
+        sortLabel={sortHint}
+      />
+      <div className="ms-table-wrap ms-dash-table-wrap">
       <table className="ms-table ms-dash-table">
         <thead>
           <tr>
-            <th className="ms-dash-sticky">{title}</th>
+            <th className="ms-dash-sticky">
+              <button className="ms-dash-th-btn" onClick={() => toggle('label')} type="button">
+                {title}
+              </button>
+            </th>
             <th className="ms-dash-sticky-2">Показатель</th>
             {periods.map(p => (
               <th key={p.id}>{p.label}</th>
@@ -190,7 +261,11 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
                     </div>
                   </th>
                 ) : null}
-                <td className="ms-dash-sticky-2 ms-dash-metric">{METRIC_RU[metric]}</td>
+                <td className="ms-dash-sticky-2 ms-dash-metric">
+                  <button className="ms-dash-th-btn" onClick={() => toggle(metric)} type="button">
+                    {METRIC_RU[metric]}
+                  </button>
+                </td>
                 {periods.map((_, i) => (
                   <td key={`${ch.key}-${metric}-${i}`} className="ms-dash-num">
                     <div>{metricValue(metric, seriesAt(ch, metric, i))}</div>
@@ -220,23 +295,56 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
             : null}
         </tbody>
       </table>
-    </div>
+      </div>
+      {query && !channels.length ? <p className="ms-muted">Нет каналов по фильтру «{query}».</p> : null}
+    </>
   )
 }
 
 function DayTable({ analytics }: { analytics: DashAnalytics }) {
   const keys = analytics.by_day?.channels || []
   const labels = analytics.channel_labels || {}
-  const rows = (analytics.by_day?.rows || []).filter(r => {
-    if (r.kind === 'month') {
-      return true
-    }
-    return keys.some(k => Number(r.channels?.[k]?.orders || 0) > 0)
-  })
+  const [query, setQuery] = useState('')
+  const [sortKey, setSortKey] = useState<'date' | 'orders' | 'turnover'>('date')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const visibleKeys = useMemo(
+    () => keys.filter(k => matchesQuery(`${labels[k] || ''} ${k}`, query) || !query.trim()),
+    [keys, labels, query]
+  )
+  const rows = useMemo(
+    () => sortDayRows(filterDayRows(analytics.by_day?.rows || [], query, visibleKeys.length ? visibleKeys : keys), sortKey, sortDir, visibleKeys.length ? visibleKeys : keys),
+    [analytics.by_day?.rows, keys, query, sortDir, sortKey, visibleKeys]
+  )
+  const channelKeys = visibleKeys.length ? visibleKeys : keys
   if (!rows.length) {
-    return <p className="ms-muted">Нет оплаченных заказов за выбранные дни.</p>
+    return (
+      <>
+        <TableToolbar
+          onQuery={setQuery}
+          onToggleSort={() => setSortDir(nextSortDir(sortDir))}
+          placeholder="Фильтр даты или канала…"
+          query={query}
+          sortLabel={`Сорт: ${sortKey === 'date' ? 'дата' : sortKey === 'orders' ? 'заказы' : 'оборот'} ${sortDir === 'desc' ? '↓' : '↑'}`}
+        />
+        <p className="ms-muted">Нет оплаченных заказов за выбранные дни.</p>
+      </>
+    )
+  }
+  const cycleSort = () => {
+    const order: Array<'date' | 'orders' | 'turnover'> = ['date', 'turnover', 'orders']
+    const next = order[(order.indexOf(sortKey) + 1) % order.length]
+    setSortKey(next)
+    setSortDir(next === 'date' ? 'desc' : 'desc')
   }
   return (
+    <>
+      <TableToolbar
+        onQuery={setQuery}
+        onToggleSort={cycleSort}
+        placeholder="Фильтр даты или канала…"
+        query={query}
+        sortLabel={`Сорт: ${sortKey === 'date' ? 'дата' : sortKey === 'orders' ? 'заказы' : 'оборот'} ${sortDir === 'desc' ? '↓' : '↑'}`}
+      />
     <div className="ms-table-wrap ms-dash-table-wrap">
       <table className="ms-table ms-dash-table">
         <thead>
@@ -244,14 +352,14 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
             <th className="ms-dash-sticky" rowSpan={2}>
               Дата
             </th>
-            {keys.map(k => (
+            {channelKeys.map(k => (
               <th key={k} colSpan={2}>
                 {labels[k] || k}
               </th>
             ))}
           </tr>
           <tr>
-            {keys.flatMap(k => [
+            {channelKeys.flatMap(k => [
               <th key={`${k}-o`}>Заказы</th>,
               <th key={`${k}-t`}>Оборот</th>
             ])}
@@ -261,7 +369,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
           {rows.map(r => (
             <tr key={r.id} className={r.kind === 'month' ? 'ms-dash-month-row' : undefined}>
               <th className="ms-dash-sticky">{r.label}</th>
-              {keys.flatMap(k => {
+              {channelKeys.flatMap(k => {
                 const cell = r.channels?.[k]
                 const sok = Number(cell?.sokolniki_orders || 0)
                 const uni = Number(cell?.universitet_orders || 0)
@@ -288,6 +396,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 
@@ -296,12 +405,27 @@ function FlowwowTable({ analytics }: { analytics: DashAnalytics }) {
   const periods = fw?.periods || []
   const metrics = fw?.metrics || {}
   const years = Object.keys(fw?.year_totals || {}).sort()
+  const [query, setQuery] = useState('')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const metricRows = useMemo(() => {
+    const filtered = FLOWWOW_ROWS.filter(metric =>
+      matchesQuery(`${METRIC_RU[metric]} ${metric}`, query)
+    )
+    return sortDir === 'asc' ? filtered : [...filtered].reverse()
+  }, [query, sortDir])
   if (!periods.length) {
     return <p className="ms-muted">Нет заказов FlowWow.</p>
   }
   const growth = (metrics.growth || {}) as Record<string, Array<number | null | undefined>>
   return (
     <>
+      <TableToolbar
+        onQuery={setQuery}
+        onToggleSort={() => setSortDir(nextSortDir(sortDir))}
+        placeholder="Фильтр показателя…"
+        query={query}
+        sortLabel={`Сорт: ${sortDir === 'asc' ? 'как в Excel' : 'обратный'}`}
+      />
       <div className="ms-table-wrap ms-dash-table-wrap">
         <table className="ms-table ms-dash-table">
           <thead>
@@ -316,7 +440,7 @@ function FlowwowTable({ analytics }: { analytics: DashAnalytics }) {
             </tr>
           </thead>
           <tbody>
-            {FLOWWOW_ROWS.map(metric => (
+            {metricRows.map(metric => (
               <tr key={metric}>
                 <th className="ms-dash-sticky ms-dash-metric">{METRIC_RU[metric]}</th>
                 {periods.map((_, i) => {
@@ -361,10 +485,18 @@ function FlowwowTable({ analytics }: { analytics: DashAnalytics }) {
 
 export function DashboardAnalytics({
   analytics,
-  overview
+  overview,
+  cacheMeta
 }: {
   analytics?: DashAnalytics | null
   overview: ReactNode
+  cacheMeta?: {
+    cache_backend?: string
+    cached?: boolean
+    stale?: boolean
+    synced_at_label?: string
+    analytics_cached?: boolean
+  }
 }) {
   const [tab, setTab] = useState<Tab>('charts')
   const kpi = analytics?.kpi
@@ -382,6 +514,15 @@ export function DashboardAnalytics({
 
   return (
     <>
+      {cacheMeta?.cache_backend ? (
+        <p className="ms-muted ms-dash-cache">
+          Кэш {cacheMeta.cache_backend}
+          {cacheMeta.synced_at_label ? ` · каталог ${cacheMeta.synced_at_label}` : ''}
+          {cacheMeta.analytics_cached ? ' · аналитика из кэша' : ' · аналитика пересчитана'}
+          {cacheMeta.stale ? ' · устарел, фоновое обновление' : ''}
+          . API МойСклад не дергаем, пока жив кэш.
+        </p>
+      ) : null}
       {kpi ? (
         <div className="ms-stats-grid ms-dashboard-grid">
           <div>

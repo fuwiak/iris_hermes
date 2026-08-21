@@ -8,6 +8,7 @@ import {
   stackColumns,
   xAt
 } from './dashboard-chart-model'
+import { filterChannels, sortChannels, sortDayRows } from './dashboard-table-ops'
 
 describe('formatPct (Excel growth =(new/old)-1)', () => {
   test('renders signed percent', () => {
@@ -44,3 +45,29 @@ describe('chart geometry', () => {
     expect(niceMax(8500)).toBe(10000)
   })
 })
+
+describe('dashboard table filter/sort', () => {
+  const channels = [
+    { key: 'flowwow', label: 'Флау вау', turnover: [10, 80], orders: [1, 4] },
+    { key: 'direct', label: 'Прямые продажи', turnover: [50, 20], orders: [2, 1] }
+  ]
+
+  test('filter keeps matching channel label', () => {
+    expect(filterChannels(channels, 'флау').map(c => c.key)).toEqual(['flowwow'])
+  })
+
+  test('sort by last-period turnover desc', () => {
+    expect(sortChannels(channels, 'turnover', 'desc', 1).map(c => c.key)).toEqual(['flowwow', 'direct'])
+    expect(sortChannels(channels, 'label', 'asc', 1)[0].key).toBe('direct')
+  })
+
+  test('sort day rows by turnover', () => {
+    const rows = [
+      { id: '2026-08-01', label: '1 авг', channels: { flowwow: { orders: 1, turnover: 100 } } },
+      { id: '2026-08-02', label: '2 авг', channels: { flowwow: { orders: 2, turnover: 500 } } }
+    ]
+    expect(sortDayRows(rows, 'turnover', 'desc', ['flowwow'])[0].id).toBe('2026-08-02')
+    expect(sortDayRows(rows, 'date', 'asc', ['flowwow'])[0].id).toBe('2026-08-01')
+  })
+})
+

@@ -1215,3 +1215,10 @@ td.ms-ai-added {
 .ms-dash-share-track { height: 0.55rem; background: #481a54; border-radius: 999px; overflow: hidden; align-self: center; }
 .ms-dash-share-track span { display: block; height: 100%; }
 .ms-dash-share-val { text-align: right; font-variant-numeric: tabular-nums; }
+.ms-dash-table-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.ms-dash-filter {
+  flex: 1; min-width: 12rem; background: #3a1840; border: 1px solid #592466;
+  color: #f4ede4; border-radius: 0.5rem; padding: 0.4rem 0.7rem; font: inherit;
+}
+.ms-dash-th-btn { appearance: none; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 0; text-align: left; }
+.ms-dash-cache { font-size: 0.82rem; }

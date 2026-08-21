@@ -4014,9 +4014,59 @@
     return dashMoney(n);
   }
 
-  function DashMatrix(matrix, title) {
+  function DashTableTools(query, setQuery, sortLabel, onToggle, placeholder) {
+    return h(
+      "div",
+      { className: "ms-dash-table-tools" },
+      h("input", {
+        type: "search",
+        className: "ms-dash-filter",
+        value: query,
+        placeholder: placeholder,
+        onChange: function (e) {
+          setQuery(e.target.value);
+        },
+      }),
+      h(
+        "button",
+        { type: "button", className: "ms-link-btn", onClick: onToggle },
+        sortLabel,
+      ),
+    );
+  }
+
+  function dashFilterChannels(channels, q) {
+    var needle = String(q || "").trim().toLowerCase();
+    if (!needle) return channels || [];
+    return (channels || []).filter(function (ch) {
+      return (
+        String(ch.label || "").toLowerCase().indexOf(needle) >= 0 ||
+        String(ch.key || "").toLowerCase().indexOf(needle) >= 0
+      );
+    });
+  }
+
+  function dashSortChannels(channels, dir, last) {
+    var sign = dir === "asc" ? 1 : -1;
+    return (channels || []).slice().sort(function (a, b) {
+      var av = Number((a.turnover || [])[last] || 0);
+      var bv = Number((b.turnover || [])[last] || 0);
+      return (av - bv) * sign;
+    });
+  }
+
+  function DashMatrix(props) {
+    var matrix = props.matrix;
+    var title = props.title;
+    const [query, setQuery] = useState("");
+    const [sortDir, setSortDir] = useState("desc");
     var periods = (matrix && matrix.periods) || [];
-    var channels = (matrix && matrix.channels) || [];
+    var last = Math.max(0, periods.length - 1);
+    var channels = dashSortChannels(
+      dashFilterChannels((matrix && matrix.channels) || [], query),
+      sortDir,
+      last,
+    );
     var totals = matrix && matrix.totals;
     if (!periods.length) return h("p", { className: "ms-muted" }, "Нет оплаченных заказов за период.");
     var body = [];
@@ -4086,6 +4136,18 @@
     }
     return h(
       "div",
+      null,
+      DashTableTools(
+        query,
+        setQuery,
+        "Сорт: оборот " + (sortDir === "desc" ? "↓" : "↑"),
+        function () {
+          setSortDir(sortDir === "desc" ? "asc" : "desc");
+        },
+        "Фильтр канала…",
+      ),
+      h(
+      "div",
       { className: "ms-table-wrap ms-dash-table-wrap" },
       h(
         "table",
@@ -4105,20 +4167,69 @@
         ),
         h("tbody", null, body),
       ),
+      ),
     );
   }
 
-  function DashDays(analytics) {
+  function DashDays(props) {
+    var analytics = props.analytics || {};
+    const [query, setQuery] = useState("");
+    const [sortDir, setSortDir] = useState("desc");
     var keys = (analytics.by_day && analytics.by_day.channels) || [];
     var labels = analytics.channel_labels || {};
+    var needle = String(query || "").trim().toLowerCase();
+    var visKeys = needle
+      ? keys.filter(function (k) {
+          return (
+            String(labels[k] || "").toLowerCase().indexOf(needle) >= 0 ||
+            String(k).toLowerCase().indexOf(needle) >= 0
+          );
+        })
+      : keys;
+    if (!visKeys.length) visKeys = keys;
     var rows = ((analytics.by_day && analytics.by_day.rows) || []).filter(function (r) {
-      if (r.kind === "month") return true;
-      return keys.some(function (k) {
-        return Number((r.channels && r.channels[k] && r.channels[k].orders) || 0) > 0;
-      });
+      if (r.kind !== "month") {
+        var active = visKeys.some(function (k) {
+          return Number((r.channels && r.channels[k] && r.channels[k].orders) || 0) > 0;
+        });
+        if (!active) return false;
+      }
+      if (!needle) return true;
+      if (String(r.label || "").toLowerCase().indexOf(needle) >= 0 || String(r.id).indexOf(needle) >= 0) return true;
+      return visKeys.length !== keys.length;
     });
-    if (!rows.length) return h("p", { className: "ms-muted" }, "Нет оплаченных заказов за выбранные дни.");
+    rows = rows.slice().sort(function (a, b) {
+      return String(a.id).localeCompare(String(b.id)) * (sortDir === "asc" ? 1 : -1);
+    });
+    keys = visKeys;
+    if (!rows.length)
+      return h(
+        "div",
+        null,
+        DashTableTools(
+          query,
+          setQuery,
+          "Сорт: дата " + (sortDir === "desc" ? "↓" : "↑"),
+          function () {
+            setSortDir(sortDir === "desc" ? "asc" : "desc");
+          },
+          "Фильтр даты или канала…",
+        ),
+        h("p", { className: "ms-muted" }, "Нет оплаченных заказов за выбранные дни."),
+      );
     return h(
+      "div",
+      null,
+      DashTableTools(
+        query,
+        setQuery,
+        "Сорт: дата " + (sortDir === "desc" ? "↓" : "↑"),
+        function () {
+          setSortDir(sortDir === "desc" ? "asc" : "desc");
+        },
+        "Фильтр даты или канала…",
+      ),
+      h(
       "div",
       { className: "ms-table-wrap ms-dash-table-wrap" },
       h(
@@ -4162,10 +4273,12 @@
           }),
         ),
       ),
+      ),
     );
   }
 
-  function DashFlowwow(analytics) {
+  function DashFlowwow(props) {
+    var analytics = props.analytics || {};
     var fw = analytics.flowwow || {};
     var periods = fw.periods || [];
     var metrics = fw.metrics || {};
@@ -4252,7 +4365,8 @@
     return 16 + (1 - Math.max(0, v) / (max || 1)) * 192;
   }
 
-  function DashCharts(analytics) {
+  function DashCharts(props) {
+    var analytics = props.analytics || {};
     const [metric, setMetric] = useState("turnover");
     const [scope, setScope] = useState("month");
     const [hidden, setHidden] = useState({});
@@ -4732,6 +4846,18 @@
         "Формулы Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау» по оплаченным заказам МойСклад.",
       ),
       error ? h("p", { className: "ms-error" }, error) : null,
+      data && data.cache_backend
+        ? h(
+            "p",
+            { className: "ms-muted ms-dash-cache" },
+            "Кэш " +
+              data.cache_backend +
+              (data.synced_at_label ? " · каталог " + data.synced_at_label : "") +
+              (data.analytics_cached ? " · аналитика из кэша" : " · аналитика пересчитана") +
+              (data.stale ? " · устарел, фоновое обновление" : "") +
+              ". API МойСклад не дергаем, пока жив кэш.",
+          )
+        : null,
       kpi && kpi.turnover != null
         ? h(
             "div",
@@ -4772,12 +4898,12 @@
           );
         }),
       ),
-      tab === "charts" ? DashCharts(analytics || {}) : null,
+      tab === "charts" ? h(DashCharts, { analytics: analytics || {} }) : null,
       tab === "overview" ? overview : null,
-      tab === "day" ? DashDays(analytics) : null,
-      tab === "week" ? DashMatrix(analytics.by_week, "Канал") : null,
-      tab === "month" ? DashMatrix(analytics.by_month, "Канал") : null,
-      tab === "flowwow" ? DashFlowwow(analytics) : null,
+      tab === "day" ? h(DashDays, { analytics: analytics }) : null,
+      tab === "week" ? h(DashMatrix, { matrix: analytics.by_week, title: "Канал" }) : null,
+      tab === "month" ? h(DashMatrix, { matrix: analytics.by_month, title: "Канал" }) : null,
+      tab === "flowwow" ? h(DashFlowwow, { analytics: analytics }) : null,
     );
   }
 

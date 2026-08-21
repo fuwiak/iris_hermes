@@ -2917,3 +2917,36 @@ td.ms-ai-added {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.ms-dash-table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ms-dash-filter {
+  flex: 1;
+  min-width: 12rem;
+  background: #3a1840;
+  border: 1px solid #592466;
+  color: #f4ede4;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+}
+
+.ms-dash-th-btn {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.ms-dash-cache {
+  font-size: 0.82rem;
+}

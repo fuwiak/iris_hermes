@@ -30,6 +30,10 @@ optional_env:
     description: "Clients catalog cache TTL in seconds (default 21600 = 6h). Refresh via Синхронизация or when expired."
     prompt: "MoySklad cache TTL seconds"
     password: false
+  - name: ELASTICSEARCH_URL
+    description: "Optional Elasticsearch URL for durable Clients/Дашборд cache (index moysklad-cache). Falls back to Redis then $HERMES_HOME/moysklad/cache/."
+    prompt: "Elasticsearch URL"
+    password: false
   - name: REDIS_URL
     description: "Optional Redis URL for durable Clients cache (falls back to $HERMES_HOME/moysklad/cache/)."
     prompt: "Redis URL"

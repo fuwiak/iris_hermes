@@ -104,6 +104,7 @@ from plugins.moysklad.catalog_cache import (
     extend_page_snapshot,
     format_synced_at,
     get_cached,
+    get_dashboard_summary_cached,
     get_page_snapshot,
     invalidate,
     page_snapshot_key,
@@ -111,6 +112,7 @@ from plugins.moysklad.catalog_cache import (
     peek_cached,
     refresh_audience_counts,
     set_cached,
+    set_dashboard_summary_cached,
     set_page_snapshot,
     slice_page_snapshot,
 )
@@ -2668,21 +2670,34 @@ def get_campaign_mass_send_history(
 
 
 @router.get("/dashboard")
-def get_dashboard() -> dict[str, Any]:
+def get_dashboard(recompute: bool = Query(False)) -> dict[str, Any]:
     """Дашборд: CRM-виталс + аналитика Вереск (день/неделя/месяц/Флау).
 
-    One pass over the cached catalog + durable send log — no MoySklad calls.
-    Formulas ported from «образец аналитика Вереск.xlsx».
+    Serves Elasticsearch / Redis / file cache first. MoySklad is only
+    contacted when the catalog envelope is missing (or SWR refresh).
+    Computed analytics are cached against catalog ``synced_at``.
     """
     try:
         from plugins.moysklad.dashboard_stats import build_dashboard_summary
 
         catalog, meta = _get_catalog(force=False, blocking=True)
+        synced = float(meta.get("synced_at") or 0)
+        if not recompute:
+            cached_summary = get_dashboard_summary_cached(synced)
+            if cached_summary:
+                return _attach_cache_meta(
+                    {"ok": True, "analytics_cached": True, **cached_summary},
+                    meta,
+                )
         rows = list((catalog or {}).get("rows") or [])
         summary = build_dashboard_summary(
             rows, last_job=mass_send_jobs.latest_job_summary()
         )
-        return _attach_cache_meta({"ok": True, **summary}, meta)
+        set_dashboard_summary_cached(summary, catalog_synced_at=synced)
+        return _attach_cache_meta(
+            {"ok": True, "analytics_cached": False, **summary},
+            meta,
+        )
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover
@@ -5103,3 +5118,21 @@ def remove_campaign(campaign_id: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=404, detail="campaign not found")
     return {"ok": True, "deleted": campaign_id}
+
+
+@router.get("/cards/marketplaces")
+def get_marketplace_cards(
+    limit: int = Query(default=100, ge=1, le=1000),
+    force: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Карточки товаров с маркетплейсов (Flowwow live, Яндекс — по токену).
+
+    Cached 5 min; ``force=true`` refetches. Feeds the «Карточки» tab.
+    """
+    try:
+        from plugins.moysklad.marketplace_cards import marketplace_cards_payload
+
+        return {"ok": True, **marketplace_cards_payload(limit=limit, force=force)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/marketplaces failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
