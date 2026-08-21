@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { BarChart, HeatmapChart, LineChart, PieChart } from 'echarts/charts'
 import {
   DataZoomComponent,
   GridComponent,
   LegendComponent,
-  TooltipComponent
+  TooltipComponent,
+  VisualMapComponent
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import type { EChartsType } from 'echarts/core'
-import Plotly from 'plotly.js-dist-min'
 
 import { type DashAnalytics } from './dashboard-analytics'
 import {
+  buildHeatmapOption,
   buildHeatmapTrace,
   buildLineOption,
   buildPieOption,
@@ -26,10 +27,12 @@ echarts.use([
   LineChart,
   BarChart,
   PieChart,
+  HeatmapChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  VisualMapComponent,
   CanvasRenderer
 ])
 
@@ -77,6 +80,7 @@ function EChart({
     chart.on('legendselectchanged', onSelect)
     const ro = new ResizeObserver(() => chart.resize())
     ro.observe(el)
+    requestAnimationFrame(() => chart.resize())
     return () => {
       ro.disconnect()
       chart.off('legendselectchanged', onSelect)
@@ -86,7 +90,12 @@ function EChart({
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: true })
+    const chart = chartRef.current
+    if (!chart) {
+      return
+    }
+    chart.setOption(option, { notMerge: true })
+    requestAnimationFrame(() => chart.resize())
   }, [option])
 
   return <div className="ms-dash-echart" ref={elRef} role="img" />
@@ -96,58 +105,101 @@ function PlotlyHeatmap({
   x,
   y,
   z,
-  title
+  title,
+  fallback
 }: {
   x: string[]
   y: string[]
   z: number[][]
   title: string
+  fallback: EChartsOption
 }) {
   const elRef = useRef<HTMLDivElement>(null)
+  const [mode, setMode] = useState<'plotly' | 'echarts'>('plotly')
 
   useEffect(() => {
+    if (mode !== 'plotly') {
+      return
+    }
     const el = elRef.current
     if (!el) {
       return
     }
-    void Plotly.react(
-      el,
-      [
-        {
-          type: 'heatmap',
-          x,
-          y,
-          z,
-          colorscale: [
-            [0, '#2f1236'],
-            [0.45, '#7c3a8c'],
-            [1, '#e8b86d']
-          ],
-          hoverongaps: false,
-          colorbar: { tickfont: { color: '#f0daf5' }, outlinecolor: '#592466' }
-        }
-      ],
-      {
-        title: { text: title, font: { color: '#f4ede4', size: 13 } },
-        margin: { l: 110, r: 48, t: 36, b: 64 },
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: '#2f1236',
-        font: { color: '#f0daf5' },
-        xaxis: { ticks: '', side: 'bottom' },
-        yaxis: { ticks: '', automargin: true }
-      },
-      { responsive: true, displaylogo: false }
-    )
-    const ro = new ResizeObserver(() => {
-      void Plotly.Plots.resize(el)
-    })
-    ro.observe(el)
-    return () => {
-      ro.disconnect()
-      void Plotly.purge(el)
-    }
-  }, [title, x, y, z])
+    let dead = false
+    let ro: ResizeObserver | null = null
+    let PlotlyMod: {
+      react: (el: HTMLElement, data: unknown, layout: unknown, config: unknown) => Promise<unknown>
+      purge: (el: HTMLElement) => void
+      Plots: { resize: (el: HTMLElement) => void }
+    } | null = null
 
+    void import('plotly.js-dist-min')
+      .then(mod => {
+        if (dead || !el) {
+          return
+        }
+        const loaded = mod as { default?: typeof PlotlyMod } & typeof PlotlyMod
+        PlotlyMod = loaded.default ?? loaded
+        if (!PlotlyMod?.react) {
+          throw new Error('plotly missing react')
+        }
+        return PlotlyMod.react(
+          el,
+          [
+            {
+              type: 'heatmap',
+              x,
+              y,
+              z,
+              colorscale: [
+                [0, '#2f1236'],
+                [0.45, '#7c3a8c'],
+                [1, '#e8b86d']
+              ],
+              hoverongaps: false,
+              colorbar: { tickfont: { color: '#f0daf5' }, outlinecolor: '#592466' }
+            }
+          ],
+          {
+            title: { text: title, font: { color: '#f4ede4', size: 13 } },
+            margin: { l: 110, r: 48, t: 36, b: 64 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: '#2f1236',
+            font: { color: '#f0daf5' },
+            xaxis: { ticks: '', side: 'bottom' },
+            yaxis: { ticks: '', automargin: true }
+          },
+          { responsive: true, displaylogo: false }
+        )
+      })
+      .then(() => {
+        if (dead || !el || !PlotlyMod) {
+          return
+        }
+        const lib = PlotlyMod
+        ro = new ResizeObserver(() => {
+          lib.Plots.resize(el)
+        })
+        ro.observe(el)
+      })
+      .catch(() => {
+        if (!dead) {
+          setMode('echarts')
+        }
+      })
+
+    return () => {
+      dead = true
+      ro?.disconnect()
+      if (PlotlyMod) {
+        PlotlyMod.purge(el)
+      }
+    }
+  }, [mode, title, x, y, z])
+
+  if (mode === 'echarts') {
+    return <EChart option={fallback} />
+  }
   return <div className="ms-dash-plotly" ref={elRef} />
 }
 
@@ -196,6 +248,10 @@ export function DashboardCharts({ analytics }: { analytics: DashAnalytics }) {
   )
   const heat = useMemo(
     () => (matrix ? buildHeatmapTrace(periods, channels, metric, hidden) : { x: [], y: [], z: [] }),
+    [channels, hidden, matrix, metric, periods]
+  )
+  const heatOption = useMemo(
+    () => (matrix ? buildHeatmapOption(periods, channels, metric, hidden) : {}),
     [channels, hidden, matrix, metric, periods]
   )
 
@@ -320,7 +376,7 @@ export function DashboardCharts({ analytics }: { analytics: DashAnalytics }) {
           <h3>Тепловая карта · Plotly</h3>
           <p className="ms-muted">Канал × период. Hover — точное значение {metricLabel.toLowerCase()}.</p>
           <div className="ms-dash-chart">
-            <PlotlyHeatmap title={metricLabel} x={heat.x} y={heat.y} z={heat.z} />
+            <PlotlyHeatmap fallback={heatOption} title={metricLabel} x={heat.x} y={heat.y} z={heat.z} />
           </div>
         </section>
       </div>

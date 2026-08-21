@@ -4352,28 +4352,24 @@
   function chColor(k) {
     return CH_COLORS[k] || "#94a3b8";
   }
-  function dashNearest(x, n) {
-    if (n <= 1) return 0;
-    var t = (x - 52) / Math.max(1, 720 - 52 - 16);
-    return Math.max(0, Math.min(n - 1, Math.round(t * (n - 1))));
+  var _msPluginSrc = (document.currentScript && document.currentScript.src) || "";
+  function pluginVendorUrl(file) {
+    var el = document.currentScript || document.querySelector('script[data-hermes-plugin="moysklad"]');
+    var src = (el && el.src) || _msPluginSrc || "";
+    if (src) {
+      return src.replace(/\/[^/]+(\?.*)?$/, "/vendor/" + file);
+    }
+    return "/dashboard-plugins/moysklad/dist/vendor/" + file;
   }
-  function dashX(i, n) {
-    if (n <= 1) return 386;
-    return 52 + (i / (n - 1)) * (720 - 68);
-  }
-  function dashY(v, max) {
-    return 16 + (1 - Math.max(0, v) / (max || 1)) * 192;
-  }
-
-
-  var ECHARTS_SRC = "https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js";
-  var PLOTLY_SRC = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.7.0/plotly.min.js";
+  var ECHARTS_SRC = pluginVendorUrl("echarts.min.js");
+  var PLOTLY_SRC = pluginVendorUrl("plotly.min.js");
 
   function loadChartLib(src, globalName) {
     return new Promise(function (resolve, reject) {
       if (window[globalName]) return resolve(window[globalName]);
       var s = document.querySelector('script[data-ms-lib="' + globalName + '"]');
       if (s) {
+        if (s.getAttribute("data-ms-loaded") === "1") return resolve(window[globalName]);
         s.addEventListener("load", function () { resolve(window[globalName]); });
         s.addEventListener("error", reject);
         return;
@@ -4382,8 +4378,13 @@
       s.src = src;
       s.async = true;
       s.setAttribute("data-ms-lib", globalName);
-      s.onload = function () { resolve(window[globalName]); };
-      s.onerror = reject;
+      s.onload = function () {
+        s.setAttribute("data-ms-loaded", "1");
+        resolve(window[globalName]);
+      };
+      s.onerror = function () {
+        reject(new Error("failed to load " + src));
+      };
       document.head.appendChild(s);
     });
   }
@@ -4394,23 +4395,38 @@
 
   function MsEChart(props) {
     var elRef = useRef(null);
+    const [err, setErr] = useState("");
     var optKey = JSON.stringify(props.option || {});
     useEffect(
       function () {
         var chart;
         var dead = false;
-        loadChartLib(ECHARTS_SRC, "echarts").then(function (echarts) {
-          if (dead || !elRef.current || !echarts) return;
-          chart = echarts.init(elRef.current);
-          chart.setOption(props.option || {}, true);
-        });
+        var ro;
+        setErr("");
+        loadChartLib(ECHARTS_SRC, "echarts")
+          .then(function (echarts) {
+            if (dead || !elRef.current || !echarts) {
+              if (!echarts && !dead) setErr("ECharts не загрузился");
+              return;
+            }
+            chart = echarts.init(elRef.current);
+            chart.setOption(props.option || {}, true);
+            requestAnimationFrame(function () { if (chart) chart.resize(); });
+            ro = new ResizeObserver(function () { if (chart) chart.resize(); });
+            ro.observe(elRef.current);
+          })
+          .catch(function () {
+            if (!dead) setErr("Нет vendor/echarts.min.js — обновите страницу");
+          });
         return function () {
           dead = true;
+          if (ro) ro.disconnect();
           if (chart) chart.dispose();
         };
       },
       [optKey],
     );
+    if (err) return h("p", { className: "ms-error" }, err);
     return h("div", { className: "ms-dash-echart", ref: elRef });
   }
 
@@ -4447,6 +4463,31 @@
             },
             { responsive: true, displaylogo: false },
           );
+        }).catch(function () {
+          return loadChartLib(ECHARTS_SRC, "echarts").then(function (echarts) {
+            if (dead || !el || !echarts) return;
+            var y = props.y || [];
+            var x = props.x || [];
+            var z = props.z || [];
+            var data = [];
+            var max = 1;
+            for (var yi = 0; yi < y.length; yi++) {
+              for (var xi = 0; xi < x.length; xi++) {
+                var v = (z[yi] && z[yi][xi]) || 0;
+                data.push([xi, yi, v]);
+                if (v > max) max = v;
+              }
+            }
+            var chart = echarts.init(el);
+            chart.setOption({
+              tooltip: { position: "top" },
+              grid: { left: 110, right: 24, top: 8, bottom: 48 },
+              xAxis: { type: "category", data: x },
+              yAxis: { type: "category", data: y },
+              visualMap: { min: 0, max: max, orient: "horizontal", left: "center", bottom: 0, inRange: { color: ["#2f1236", "#7c3a8c", "#e8b86d"] } },
+              series: [{ type: "heatmap", data: data }],
+            }, true);
+          });
         });
         return function () {
           dead = true;

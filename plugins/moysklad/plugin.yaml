@@ -1,5 +1,5 @@
 name: moysklad
-version: 1.10.0
+version: 1.11.0
 description: "МойСклад Remap 1.2 — Clients + Campaigns + AI fill empty fields (green markers), tools. Enabled by default on Iris. Token: MOYSKLAD_API_TOKEN."
 author: Hermes Agent
 kind: standalone

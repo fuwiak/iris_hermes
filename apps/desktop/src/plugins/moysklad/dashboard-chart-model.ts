@@ -181,3 +181,46 @@ export function buildHeatmapTrace(
     z: shown.map(ch => seriesOf(ch, metric))
   }
 }
+
+export function buildHeatmapOption(
+  periods: { id: string; label: string }[],
+  channels: ChannelValues[],
+  metric: ChartMetric,
+  hidden: Set<string>
+): EChartsOption {
+  const heat = buildHeatmapTrace(periods, channels, metric, hidden)
+  const data: Array<[number, number, number]> = []
+  let max = 0
+  heat.z.forEach((row, yi) => {
+    row.forEach((value, xi) => {
+      data.push([xi, yi, value])
+      if (value > max) {
+        max = value
+      }
+    })
+  })
+  return {
+    backgroundColor: 'transparent',
+    textStyle: { color: TEXT },
+    tooltip: {
+      position: 'top',
+      backgroundColor: '#3a1840',
+      borderColor: AXIS,
+      textStyle: { color: TEXT }
+    },
+    grid: { left: 110, right: 24, top: 16, bottom: 48 },
+    xAxis: { type: 'category', data: heat.x, splitArea: { show: true }, ...axisCommon() },
+    yAxis: { type: 'category', data: heat.y, splitArea: { show: true }, ...axisCommon() },
+    visualMap: {
+      min: 0,
+      max: max || 1,
+      calculable: true,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 0,
+      textStyle: { color: MUTED },
+      inRange: { color: ['#2f1236', '#7c3a8c', '#e8b86d'] }
+    },
+    series: [{ type: 'heatmap', data, emphasis: { itemStyle: { shadowBlur: 8 } } }]
+  }
+}

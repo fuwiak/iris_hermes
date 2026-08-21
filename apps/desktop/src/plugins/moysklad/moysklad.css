@@ -2844,6 +2844,7 @@ td.ms-ai-added {
 .ms-dash-plotly {
   width: 100%;
   height: 280px;
+  min-height: 280px;
 }
 
 .ms-dash-grid {

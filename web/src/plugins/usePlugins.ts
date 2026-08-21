@@ -43,7 +43,7 @@ export function usePlugins() {
     for (const manifest of manifests) {
       // Inject CSS if specified.
       if (manifest.css) {
-        const cssUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`;
+      const cssUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}?v=${encodeURIComponent(manifest.version || "0")}`;
         if (!document.querySelector(`link[href="${cssUrl}"]`)) {
           const link = document.createElement("link");
           link.rel = "stylesheet";
@@ -56,9 +56,9 @@ export function usePlugins() {
       // in-memory registry while the browser would otherwise never
       // re-execute a previously cached <script> URL.
       const baseUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.entry}`;
-      const scriptSrc = import.meta.env.DEV
-        ? `${baseUrl}?hermes_dv=${Date.now()}`
-        : baseUrl;
+      const scriptSrc = `${baseUrl}?v=${encodeURIComponent(manifest.version || "0")}${
+        import.meta.env.DEV ? `&hermes_dv=${Date.now()}` : ""
+      }`;
       if (!import.meta.env.DEV) {
         if (loadedScripts.current.has(baseUrl)) continue;
         loadedScripts.current.add(baseUrl);

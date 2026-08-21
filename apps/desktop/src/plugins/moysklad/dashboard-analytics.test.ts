@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import { formatPct } from './dashboard-analytics'
 import {
+  buildHeatmapOption,
   buildHeatmapTrace,
   buildLineOption,
   buildPieOption,
@@ -61,6 +62,10 @@ describe('chart option builders', () => {
       [10, 80],
       [50, 20]
     ])
+    const opt = buildHeatmapOption(periods, channels, 'turnover', new Set())
+    const series = opt.series as { type: string; data: Array<[number, number, number]> }[]
+    expect(series[0].type).toBe('heatmap')
+    expect(series[0].data).toContainEqual([1, 0, 80])
   })
 })
 
