@@ -391,20 +391,22 @@ def _period_totals(
         revenue.append(round(r, 2))
         margin.append(round(m, 2))
         orders.append(float(o))
+    avg_check = [
+        None if int(o or 0) <= 0 else round(float(t) / float(o), 2)
+        for t, o in zip(turnover, orders)
+    ]
     return {
         "turnover": turnover,
         "revenue": revenue,
         "margin": margin,
         "orders": orders,
-        "avg_check": [
-            None if int(o or 0) <= 0 else round(float(t) / float(o), 2)
-            for t, o in zip(turnover, orders)
-        ],
+        "avg_check": avg_check,
         "growth": {
             "turnover": _growth_series(turnover),
             "revenue": _growth_series(revenue),
             "margin": _growth_series(margin),
             "orders": _growth_series(orders),
+            "avg_check": _growth_series(avg_check),
         },
     }
 
@@ -496,6 +498,200 @@ def _nth_purchase_counts(
             else:
                 buckets[pid]["regular_clients"] += 1
     return buckets
+
+
+def _rub(n: float) -> str:
+    return f"{int(round(float(n))):,}".replace(",", " ")
+
+
+def _pct_ru(n: float) -> str:
+    pct = n * 100
+    sign = "+" if pct > 0 else ""
+    return f"{sign}{pct:.0f}%"
+
+
+def _series_at(seq: list[Any] | None, idx: int) -> float | None:
+    if not seq or idx >= len(seq) or idx < -len(seq):
+        return None
+    val = seq[idx]
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_insights(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Hot takes from the already-computed Excel matrices. No extra I/O."""
+    by_month = payload.get("by_month") or {}
+    channels = list(by_month.get("channels") or [])
+    periods = list(by_month.get("periods") or [])
+    totals = by_month.get("totals") or {}
+    if not periods or not channels:
+        return []
+    last = -1
+    label = str((periods[last] or {}).get("label") or "месяц")
+    total_t = _series_at(totals.get("turnover"), last) or 0.0
+    total_r = _series_at(totals.get("revenue"), last) or 0.0
+    out: list[dict[str, Any]] = []
+
+    shares: list[tuple[dict[str, Any], float, float]] = []
+    for ch in channels:
+        t = _series_at(ch.get("turnover"), last) or 0.0
+        if t > 0 and total_t > 0:
+            shares.append((ch, t, t / total_t))
+    shares.sort(key=lambda row: -row[1])
+    if shares and shares[0][2] >= 0.45:
+        ch, t, sh = shares[0]
+        out.append(
+            {
+                "id": "concentration",
+                "tone": "warn",
+                "title": f"{ch.get('label')} — {sh:.0%} оборота",
+                "body": f"{label}: {_rub(t)} ₽. Один канал тянет кассу — риск площадки.",
+                "channel": ch.get("key"),
+                "metric": "turnover",
+                "scope": "month",
+            }
+        )
+
+    movers: list[tuple[dict[str, Any], float, float]] = []
+    for ch in channels:
+        g = _series_at((ch.get("growth") or {}).get("turnover"), last)
+        cur = _series_at(ch.get("turnover"), last) or 0.0
+        if g is None:
+            continue
+        movers.append((ch, g, cur))
+    if movers:
+        up = max(movers, key=lambda row: row[1])
+        down = min(movers, key=lambda row: row[1])
+        if up[1] > 0.05:
+            out.append(
+                {
+                    "id": "mom-up",
+                    "tone": "up",
+                    "title": f"{up[0].get('label')} {_pct_ru(up[1])}",
+                    "body": f"Самый резкий рост к прошлому месяцу. Оборот {_rub(up[2])} ₽.",
+                    "channel": up[0].get("key"),
+                    "metric": "turnover",
+                    "scope": "month",
+                }
+            )
+        if down[1] < -0.05 and (up[1] <= 0.05 or down[0].get("key") != up[0].get("key")):
+            out.append(
+                {
+                    "id": "mom-down",
+                    "tone": "down",
+                    "title": f"{down[0].get('label')} {_pct_ru(down[1])}",
+                    "body": f"Главная просадка месяца. Оборот {_rub(down[2])} ₽.",
+                    "channel": down[0].get("key"),
+                    "metric": "turnover",
+                    "scope": "month",
+                }
+            )
+
+    g_orders = _series_at((totals.get("growth") or {}).get("orders"), last)
+    g_check = _series_at((totals.get("growth") or {}).get("avg_check"), last)
+    if g_orders is not None and g_check is not None:
+        if g_orders > 0.05 and g_check < -0.05:
+            out.append(
+                {
+                    "id": "cheap-mix",
+                    "tone": "warn",
+                    "title": "Заказов больше, чек ниже",
+                    "body": (
+                        f"Заказы {_pct_ru(g_orders)}, ср. чек {_pct_ru(g_check)}. "
+                        "Микс дешевеет — смотреть средний букет."
+                    ),
+                    "channel": None,
+                    "metric": "avg_check",
+                    "scope": "month",
+                }
+            )
+        elif g_orders < -0.05 and g_check > 0.05:
+            out.append(
+                {
+                    "id": "premium-or-traffic",
+                    "tone": "info",
+                    "title": "Меньше заказов, чек выше",
+                    "body": (
+                        f"Заказы {_pct_ru(g_orders)}, ср. чек {_pct_ru(g_check)}. "
+                        "Либо премиум, либо просел трафик."
+                    ),
+                    "channel": None,
+                    "metric": "avg_check",
+                    "scope": "month",
+                }
+            )
+
+    if total_t > 0 and total_r >= 0:
+        bite = 1.0 - (total_r / total_t)
+        if bite >= 0.22:
+            out.append(
+                {
+                    "id": "commission-bite",
+                    "tone": "warn",
+                    "title": f"Комиссия съела {bite:.0%} оборота",
+                    "body": (
+                        f"Выручка {_rub(total_r)} ₽ из {_rub(total_t)} ₽. "
+                        "Маркетплейсы дорожают вход."
+                    ),
+                    "channel": None,
+                    "metric": "revenue",
+                    "scope": "month",
+                }
+            )
+
+    week_tot = (payload.get("by_week") or {}).get("totals") or {}
+    wow = _series_at((week_tot.get("growth") or {}).get("turnover"), -1)
+    week_periods = list((payload.get("by_week") or {}).get("periods") or [])
+    if wow is not None and abs(wow) >= 0.12 and week_periods:
+        wlabel = week_periods[-1].get("label") or "неделя"
+        out.append(
+            {
+                "id": "wow",
+                "tone": "up" if wow > 0 else "down",
+                "title": f"Неделя {wlabel}: {_pct_ru(wow)}",
+                "body": "Скачок WoW по общему обороту. Откройте график по неделям.",
+                "channel": None,
+                "metric": "turnover",
+                "scope": "week",
+            }
+        )
+
+    fw = payload.get("flowwow") or {}
+    metrics = fw.get("metrics") or {}
+    fw_periods = list(fw.get("periods") or [])
+    if fw_periods:
+        new_c = _series_at(metrics.get("new_clients"), -1) or 0.0
+        second = _series_at(metrics.get("second_purchase"), -1) or 0.0
+        if new_c >= 8 and second / new_c < 0.08:
+            out.append(
+                {
+                    "id": "fw-repeat",
+                    "tone": "warn",
+                    "title": "Флау почти без второй покупки",
+                    "body": (
+                        f"{int(new_c)} новых vs {int(second)} вторых. "
+                        "Деньги в первом касании — повтор не цепляется."
+                    ),
+                    "channel": "flowwow",
+                    "metric": "turnover",
+                    "scope": "month",
+                }
+            )
+
+    # Dedup by id, cap so the board stays scannable.
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for row in out:
+        rid = str(row.get("id") or "")
+        if rid in seen:
+            continue
+        seen.add(rid)
+        unique.append(row)
+    return unique[:6]
 
 
 def build_analytics(
@@ -774,8 +970,7 @@ def build_analytics(
         else None,
         "period": month_periods[-1]["label"] if month_periods else "",
     }
-
-    return {
+    payload = {
         "formulas": {
             "growth": "(new/old)-1",
             "avg_check": "turnover/orders",
@@ -799,3 +994,5 @@ def build_analytics(
             "Конверсия FW / избранное / подборки в МойСклад нет — только в кабинете FlowWow.",
         ],
     }
+    payload["insights"] = build_insights(payload)
+    return payload

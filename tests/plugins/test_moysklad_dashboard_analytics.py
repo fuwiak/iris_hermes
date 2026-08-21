@@ -149,3 +149,12 @@ def test_build_analytics_aggregates_like_excel_sheets() -> None:
     assert direct["revenue"][jul_i] == 5000  # 0% commission
     assert direct["turnover"][aug_i] == 0
     assert direct["growth"]["turnover"][aug_i] == -1.0
+
+    ids = {row["id"] for row in analytics["insights"]}
+    assert "concentration" in ids
+    assert "mom-down" in ids
+    assert "cheap-mix" in ids
+    assert "commission-bite" in ids
+    conc = next(row for row in analytics["insights"] if row["id"] == "concentration")
+    assert conc["channel"] == "flowwow"
+    assert conc["tone"] == "warn"

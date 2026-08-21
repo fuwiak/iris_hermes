@@ -1,5 +1,7 @@
 import { type ReactNode, useMemo, useState } from 'react'
 
+import { DashboardCharts } from './dashboard-charts'
+
 export type DashCell = {
   orders?: number
   turnover?: number
@@ -63,6 +65,15 @@ export type DashAnalytics = {
   }
   order_count?: number
   notes?: string[]
+  insights?: {
+    id?: string
+    tone?: string
+    title?: string
+    body?: string
+    channel?: string | null
+    metric?: string
+    scope?: string
+  }[]
 }
 
 const METRIC_KEYS = ['turnover', 'revenue', 'margin', 'orders', 'avg_check'] as const
@@ -93,7 +104,7 @@ const FLOWWOW_ROWS = [
   'platform_commission'
 ] as const
 
-type Tab = 'overview' | 'day' | 'week' | 'month' | 'flowwow'
+type Tab = 'charts' | 'overview' | 'day' | 'week' | 'month' | 'flowwow'
 
 function money(n: number | null | undefined, digits = 0): string {
   if (n == null || Number.isNaN(Number(n))) {
@@ -355,10 +366,11 @@ export function DashboardAnalytics({
   analytics?: DashAnalytics | null
   overview: ReactNode
 }) {
-  const [tab, setTab] = useState<Tab>('month')
+  const [tab, setTab] = useState<Tab>('charts')
   const kpi = analytics?.kpi
   const tabs: { id: Tab; label: string }[] = useMemo(
     () => [
+      { id: 'charts', label: 'Графики' },
       { id: 'month', label: 'Месяц' },
       { id: 'week', label: 'Неделя' },
       { id: 'day', label: 'По дням' },
@@ -416,6 +428,7 @@ export function DashboardAnalytics({
         ))}
       </div>
 
+      {tab === 'charts' && analytics ? <DashboardCharts analytics={analytics} /> : null}
       {tab === 'overview' ? overview : null}
       {tab === 'day' ? <DayTable analytics={analytics || {}} /> : null}
       {tab === 'week' ? <MatrixTable matrix={analytics?.by_week} title="Канал" /> : null}

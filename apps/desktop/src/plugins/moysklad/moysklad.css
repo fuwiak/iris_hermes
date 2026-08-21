@@ -2732,3 +2732,188 @@ td.ms-ai-added {
 .ms-dash-notes {
   max-width: 52rem;
 }
+
+.ms-dash-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ms-dash-takes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.55rem;
+}
+
+.ms-dash-take {
+  appearance: none;
+  text-align: left;
+  border: 1px solid #592466;
+  background: #3a1840;
+  color: #f4ede4;
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ms-dash-take strong {
+  font-size: 0.92rem;
+}
+
+.ms-dash-take span {
+  font-size: 0.78rem;
+  color: #f0daf5;
+  opacity: 0.9;
+}
+
+.ms-dash-take.is-up { border-color: #86efac; }
+.ms-dash-take.is-down { border-color: #fda4af; }
+.ms-dash-take.is-warn { border-color: #f0c36e; }
+.ms-dash-take.is-active {
+  background: #481a54;
+  outline: 2px solid #d8b4fe;
+}
+
+.ms-dash-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.ms-dash-legend,
+.ms-dash-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ms-dash-leg,
+.ms-dash-share-row {
+  appearance: none;
+  border: 1px solid #592466;
+  background: #3a1840;
+  color: #f4ede4;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.ms-dash-leg i,
+.ms-dash-share-lab i,
+.ms-dash-tip i {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.ms-dash-leg.is-off,
+.ms-dash-share-row.is-off {
+  opacity: 0.4;
+}
+
+.ms-dash-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.ms-dash-chart-grid h3,
+.ms-dash-board h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+}
+
+.ms-dash-chart {
+  background: #2f1236;
+  border: 1px solid #592466;
+  border-radius: 0.85rem;
+  padding: 0.4rem;
+}
+
+.ms-dash-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.ms-dash-grid {
+  stroke: #592466;
+  stroke-width: 1;
+}
+
+.ms-dash-axis {
+  fill: #f0daf5;
+  font-size: 11px;
+}
+
+.ms-dash-hover-line {
+  stroke: #d8b4fe;
+  stroke-dasharray: 3 3;
+}
+
+.ms-dash-tip {
+  border: 1px solid #592466;
+  background: #3a1840;
+  border-radius: 0.7rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.ms-dash-tip div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ms-dash-share {
+  flex-direction: column;
+}
+
+.ms-dash-share-row {
+  border-radius: 0.55rem;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 9rem 1fr 5.5rem;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.ms-dash-share-lab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-dash-share-track {
+  height: 0.55rem;
+  background: #481a54;
+  border-radius: 999px;
+  overflow: hidden;
+  align-self: center;
+}
+
+.ms-dash-share-track span {
+  display: block;
+  height: 100%;
+}
+
+.ms-dash-share-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
