@@ -2669,9 +2669,10 @@ def get_campaign_mass_send_history(
 
 @router.get("/dashboard")
 def get_dashboard() -> dict[str, Any]:
-    """Эскиз дашборда: состав базы, охват Telegram, активность отправок.
+    """Дашборд: CRM-виталс + аналитика Вереск (день/неделя/месяц/Флау).
 
     One pass over the cached catalog + durable send log — no MoySklad calls.
+    Formulas ported from «образец аналитика Вереск.xlsx».
     """
     try:
         from plugins.moysklad.dashboard_stats import build_dashboard_summary

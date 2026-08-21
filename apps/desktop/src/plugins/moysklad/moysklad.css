@@ -2622,7 +2622,7 @@ td.ms-ai-added {
   margin: 0.25rem 0;
 }
 
-/* Дашборд (эскиз) */
+/* Дашборд — аналитика Вереск */
 .ms-dashboard-page {
   display: flex;
   flex-direction: column;
@@ -2634,4 +2634,101 @@ td.ms-ai-added {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.75rem;
+}
+
+.ms-dash-table-wrap {
+  max-height: min(78vh, 920px);
+}
+
+.ms-dash-table th,
+.ms-dash-table td {
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+}
+
+.ms-dash-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #481a54;
+  min-width: 8.5rem;
+}
+
+.ms-dash-sticky-2 {
+  position: sticky;
+  left: 8.5rem;
+  z-index: 2;
+  background: #481a54;
+  min-width: 7.2rem;
+}
+
+.ms-dash-table tbody .ms-dash-sticky,
+.ms-dash-table tbody .ms-dash-sticky-2 {
+  background: #3a1840;
+}
+
+.ms-dash-table tbody tr.ms-dash-month-row .ms-dash-sticky,
+.ms-dash-table tbody tr.ms-dash-channel-start .ms-dash-sticky,
+.ms-dash-table tbody tr.ms-dash-total-start .ms-dash-sticky,
+.ms-dash-table tbody tr.ms-dash-total .ms-dash-sticky,
+.ms-dash-table tbody tr.ms-dash-total-start .ms-dash-sticky-2,
+.ms-dash-table tbody tr.ms-dash-total .ms-dash-sticky-2 {
+  background: #2f1236;
+}
+
+.ms-dash-num {
+  text-align: right;
+}
+
+.ms-dash-metric {
+  font-size: 0.78rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+.ms-dash-rate,
+.ms-dash-store {
+  font-size: 0.72rem;
+  font-weight: 500;
+  margin-top: 0.15rem;
+}
+
+.ms-dash-channel-start td,
+.ms-dash-channel-start th {
+  border-top: 1px solid #7c3a8c;
+}
+
+.ms-dash-month-row td,
+.ms-dash-month-row th,
+.ms-dash-total-start td,
+.ms-dash-total-start th,
+.ms-dash-total td,
+.ms-dash-total th {
+  font-weight: 700;
+  background: #2f1236;
+}
+
+.ms-dash-pct {
+  display: inline-block;
+  margin-top: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ms-dash-pct.is-up {
+  color: #bbf7d0;
+}
+
+.ms-dash-pct.is-down {
+  color: #fecdd3;
+}
+
+.ms-dash-pct.is-flat {
+  color: #f0daf5;
+  opacity: 0.75;
+}
+
+.ms-dash-notes {
+  max-width: 52rem;
 }

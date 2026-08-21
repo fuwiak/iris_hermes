@@ -41,6 +41,7 @@ import {
   pickLocalClientsSeed,
   rowMatchesSalesChannelColumnFilter
 } from './clients-query'
+import { type DashAnalytics, DashboardAnalytics } from './dashboard-analytics'
 import { EventCalendarPicker, formatRuRange } from './event-calendar'
 import {
   isMassJobActive,
@@ -8920,6 +8921,8 @@ function DashboardPage() {
       created_at?: string
       message_preview?: string
     } | null
+    analytics?: DashAnalytics
+    order_count?: number
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -8962,19 +8965,8 @@ function DashboardPage() {
     { label: '✎ не доставлено (7д)', value: sends.recorded_7d ?? '—' }
   ]
 
-  return (
-    <div className="ms-page ms-dashboard-page">
-      <div className="ms-page-head">
-        <h1>Дашборд</h1>
-        <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
-          {loading ? 'Обновляем…' : 'Обновить'}
-        </button>
-      </div>
-      <p className="ms-muted">
-        Эскиз: состав базы, охват Telegram и активность отправок. Скажите, какие
-        метрики добавить — графики продаж, динамику ответов, воронку этапов.
-      </p>
-      {error ? <p className="ms-error">{error}</p> : null}
+  const overview = (
+    <>
       <div className="ms-stats-grid ms-dashboard-grid">
         {tiles.map(t => (
           <div key={t.label}>
@@ -9019,6 +9011,25 @@ function DashboardPage() {
           <p className="ms-muted">Исходящих пока нет.</p>
         )}
       </section>
+    </>
+  )
+
+  return (
+    <div className="ms-page ms-dashboard-page">
+      <div className="ms-page-head">
+        <h1>Дашборд</h1>
+        <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
+          {loading ? 'Обновляем…' : 'Обновить'}
+        </button>
+      </div>
+      <p className="ms-muted">
+        Формулы с листов Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау»: оборот, выручка
+        после комиссии, маржа, ср. чек, прирост к прошлому периоду. Считаем по
+        оплаченным заказам МойСклад
+        {data?.analytics?.order_count != null ? ` (${data.analytics.order_count})` : ''}.
+      </p>
+      {error ? <p className="ms-error">{error}</p> : null}
+      <DashboardAnalytics analytics={data?.analytics} overview={overview} />
     </div>
   )
 }

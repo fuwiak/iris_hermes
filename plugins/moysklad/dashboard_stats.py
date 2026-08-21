@@ -1,8 +1,7 @@
-"""Дашборд (эскиз): aggregate CRM vitals in one pass.
+"""Дашборд: CRM-виталс + аналитика Вереск (Excel formulas).
 
-First cut per the planning call — «наметить направление»: client base
-composition, Telegram reachability, send activity. Pure aggregation over
-already-cached rows; no extra MoySklad calls.
+Client-base composition, Telegram reach, send activity, plus day/week/month
+P&L from paid MoySklad orders (see dashboard_analytics.py).
 """
 
 from __future__ import annotations
@@ -110,9 +109,15 @@ def build_dashboard_summary(
     messages: list[dict[str, Any]] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
+    from datetime import date as date_cls
+    from plugins.moysklad.dashboard_analytics import build_analytics
+
+    generated = float(now if now is not None else time.time())
+    today = date_cls.fromtimestamp(generated)
     return {
         "clients": clients_summary(rows),
         "sends": sends_summary(messages, now=now),
         "last_mass_job": dict(last_job) if isinstance(last_job, dict) else None,
-        "generated_at": float(now if now is not None else time.time()),
+        "analytics": build_analytics(rows, today=today),
+        "generated_at": generated,
     }

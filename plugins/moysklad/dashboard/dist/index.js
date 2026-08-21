@@ -3957,10 +3957,279 @@
     );
   }
 
+  var DASH_METRICS = ["turnover", "revenue", "margin", "orders", "avg_check"];
+  var DASH_METRIC_RU = {
+    turnover: "Оборот",
+    revenue: "Выручка",
+    margin: "Маржа",
+    orders: "Заказы",
+    avg_check: "Ср чек",
+    commission: "Комиссия",
+    new_clients: "Новые клиенты",
+    second_purchase: "Вторая покупка",
+    third_purchase: "Третья покупка",
+    regular_clients: "Постоянные клиенты",
+    platform_commission: "Комиссия площадки",
+  };
+  var FLOWWOW_ROWS = [
+    "turnover",
+    "orders",
+    "avg_check",
+    "commission",
+    "revenue",
+    "new_clients",
+    "second_purchase",
+    "third_purchase",
+    "regular_clients",
+    "platform_commission",
+  ];
+
+  function dashMoney(n) {
+    if (n == null || isNaN(Number(n))) return "—";
+    return Number(n).toLocaleString("ru-RU", { maximumFractionDigits: 0 });
+  }
+  function dashPct(n) {
+    if (n == null || isNaN(Number(n))) return "";
+    var pct = Number(n) * 100;
+    var sign = pct > 0 ? "+" : "";
+    return sign + pct.toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + "%";
+  }
+  function dashPctEl(n) {
+    var text = dashPct(n);
+    if (!text) return null;
+    var cls = n > 0.0005 ? "is-up" : n < -0.0005 ? "is-down" : "is-flat";
+    return h("span", { className: "ms-dash-pct " + cls }, text);
+  }
+  function dashMetricVal(metric, n) {
+    if (metric === "platform_commission") return n == null ? "—" : dashPct(n);
+    if (
+      metric === "orders" ||
+      metric === "new_clients" ||
+      metric === "second_purchase" ||
+      metric === "third_purchase" ||
+      metric === "regular_clients"
+    ) {
+      return n == null ? "—" : String(Math.round(Number(n)));
+    }
+    return dashMoney(n);
+  }
+
+  function DashMatrix(matrix, title) {
+    var periods = (matrix && matrix.periods) || [];
+    var channels = (matrix && matrix.channels) || [];
+    var totals = matrix && matrix.totals;
+    if (!periods.length) return h("p", { className: "ms-muted" }, "Нет оплаченных заказов за период.");
+    var body = [];
+    channels.forEach(function (ch) {
+      DASH_METRICS.forEach(function (metric, mi) {
+        var cells = [
+          mi === 0
+            ? h(
+                "th",
+                { className: "ms-dash-sticky", rowSpan: DASH_METRICS.length, key: "ch" },
+                ch.label,
+                h(
+                  "div",
+                  { className: "ms-muted" },
+                  "комиссия " + ((Number(ch.commission_rate || 0) * 100).toFixed(1)) + "%",
+                ),
+              )
+            : null,
+          h("td", { className: "ms-dash-sticky-2 ms-dash-metric", key: "m" }, DASH_METRIC_RU[metric]),
+        ];
+        periods.forEach(function (_p, i) {
+          var series = ch[metric] || [];
+          cells.push(
+            h(
+              "td",
+              { className: "ms-dash-num", key: ch.key + metric + i },
+              h("div", null, dashMetricVal(metric, series[i])),
+              dashPctEl(ch.growth && ch.growth[metric] ? ch.growth[metric][i] : null),
+            ),
+          );
+        });
+        body.push(
+          h(
+            "tr",
+            { key: ch.key + metric, className: mi === 0 ? "ms-dash-channel-start" : undefined },
+            cells.filter(Boolean),
+          ),
+        );
+      });
+    });
+    if (totals) {
+      DASH_METRICS.forEach(function (metric, mi) {
+        var cells = [
+          mi === 0
+            ? h("th", { className: "ms-dash-sticky", rowSpan: DASH_METRICS.length, key: "t" }, "Итого")
+            : null,
+          h("td", { className: "ms-dash-sticky-2 ms-dash-metric", key: "m" }, DASH_METRIC_RU[metric]),
+        ];
+        periods.forEach(function (_p, i) {
+          cells.push(
+            h(
+              "td",
+              { className: "ms-dash-num", key: "tot" + metric + i },
+              h("div", null, dashMetricVal(metric, (totals[metric] || [])[i])),
+              dashPctEl(totals.growth && totals.growth[metric] ? totals.growth[metric][i] : null),
+            ),
+          );
+        });
+        body.push(
+          h(
+            "tr",
+            { key: "total-" + metric, className: mi === 0 ? "ms-dash-total-start" : "ms-dash-total" },
+            cells.filter(Boolean),
+          ),
+        );
+      });
+    }
+    return h(
+      "div",
+      { className: "ms-table-wrap ms-dash-table-wrap" },
+      h(
+        "table",
+        { className: "ms-table ms-dash-table" },
+        h(
+          "thead",
+          null,
+          h(
+            "tr",
+            null,
+            h("th", { className: "ms-dash-sticky" }, title),
+            h("th", { className: "ms-dash-sticky-2" }, "Показатель"),
+            periods.map(function (p) {
+              return h("th", { key: p.id }, p.label);
+            }),
+          ),
+        ),
+        h("tbody", null, body),
+      ),
+    );
+  }
+
+  function DashDays(analytics) {
+    var keys = (analytics.by_day && analytics.by_day.channels) || [];
+    var labels = analytics.channel_labels || {};
+    var rows = ((analytics.by_day && analytics.by_day.rows) || []).filter(function (r) {
+      if (r.kind === "month") return true;
+      return keys.some(function (k) {
+        return Number((r.channels && r.channels[k] && r.channels[k].orders) || 0) > 0;
+      });
+    });
+    if (!rows.length) return h("p", { className: "ms-muted" }, "Нет оплаченных заказов за выбранные дни.");
+    return h(
+      "div",
+      { className: "ms-table-wrap ms-dash-table-wrap" },
+      h(
+        "table",
+        { className: "ms-table ms-dash-table" },
+        h(
+          "thead",
+          null,
+          h(
+            "tr",
+            null,
+            h("th", { className: "ms-dash-sticky", rowSpan: 2 }, "Дата"),
+            keys.map(function (k) {
+              return h("th", { key: k, colSpan: 2 }, labels[k] || k);
+            }),
+          ),
+          h(
+            "tr",
+            null,
+            keys.flatMap(function (k) {
+              return [h("th", { key: k + "o" }, "Заказы"), h("th", { key: k + "t" }, "Оборот")];
+            }),
+          ),
+        ),
+        h(
+          "tbody",
+          null,
+          rows.map(function (r) {
+            return h(
+              "tr",
+              { key: r.id, className: r.kind === "month" ? "ms-dash-month-row" : undefined },
+              h("th", { className: "ms-dash-sticky" }, r.label),
+              keys.flatMap(function (k) {
+                var cell = (r.channels && r.channels[k]) || {};
+                return [
+                  h("td", { className: "ms-dash-num", key: r.id + k + "o" }, cell.orders || "—"),
+                  h("td", { className: "ms-dash-num", key: r.id + k + "t" }, dashMoney(cell.turnover)),
+                ];
+              }),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  function DashFlowwow(analytics) {
+    var fw = analytics.flowwow || {};
+    var periods = fw.periods || [];
+    var metrics = fw.metrics || {};
+    var years = Object.keys(fw.year_totals || {}).sort();
+    var growth = metrics.growth || {};
+    if (!periods.length) return h("p", { className: "ms-muted" }, "Нет заказов FlowWow.");
+    return h(
+      "div",
+      { className: "ms-table-wrap ms-dash-table-wrap" },
+      h(
+        "table",
+        { className: "ms-table ms-dash-table" },
+        h(
+          "thead",
+          null,
+          h(
+            "tr",
+            null,
+            h("th", { className: "ms-dash-sticky" }, "Показатель"),
+            periods.map(function (p) {
+              return h("th", { key: p.id }, p.label);
+            }),
+            years.map(function (y) {
+              return h("th", { key: "y" + y }, "Итого " + y);
+            }),
+          ),
+        ),
+        h(
+          "tbody",
+          null,
+          FLOWWOW_ROWS.map(function (metric) {
+            var series = metrics[metric] || [];
+            return h(
+              "tr",
+              { key: metric },
+              h("th", { className: "ms-dash-sticky ms-dash-metric" }, DASH_METRIC_RU[metric]),
+              periods.map(function (_p, i) {
+                return h(
+                  "td",
+                  { className: "ms-dash-num", key: metric + i },
+                  h("div", null, dashMetricVal(metric, series[i])),
+                  dashPctEl(growth[metric] ? growth[metric][i] : null),
+                );
+              }),
+              years.map(function (y) {
+                var block = (fw.year_totals && fw.year_totals[y]) || {};
+                return h(
+                  "td",
+                  { className: "ms-dash-num", key: metric + y },
+                  dashMetricVal(metric, block[metric]),
+                );
+              }),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
   function DashboardPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [tab, setTab] = useState("month");
 
     function load() {
       setLoading(true);
@@ -3985,6 +4254,8 @@
     var c = (data && data.clients) || {};
     var sends = (data && data.sends) || {};
     var job = data && data.last_mass_job;
+    var analytics = (data && data.analytics) || {};
+    var kpi = analytics.kpi || {};
     var tiles = [
       ["Клиентов всего", c.total],
       ["Физ. лица", c.individual],
@@ -4001,29 +4272,18 @@
       ["✓ доставлено (7д)", sends.delivered_7d],
       ["✎ не доставлено (7д)", sends.recorded_7d],
     ];
+    var tabs = [
+      ["month", "Месяц"],
+      ["week", "Неделя"],
+      ["day", "По дням"],
+      ["flowwow", "Флау"],
+      ["overview", "База"],
+    ];
 
-    return h(
-      "div",
-      { className: "ms-page ms-dashboard-page" },
+    var overview = [
       h(
         "div",
-        { className: "ms-card-head" },
-        h("h1", { className: "ms-clients-title" }, "Дашборд"),
-        h(
-          "button",
-          { type: "button", className: "ms-btn", disabled: loading, onClick: load },
-          loading ? "Обновляем…" : "Обновить",
-        ),
-      ),
-      h(
-        "p",
-        { className: "ms-muted" },
-        "Эскиз: состав базы, охват Telegram и активность отправок.",
-      ),
-      error ? h("p", { className: "ms-error" }, error) : null,
-      h(
-        "div",
-        { className: "ms-stats-grid ms-dashboard-grid" },
+        { className: "ms-stats-grid ms-dashboard-grid", key: "tiles" },
         tiles.map(function (t) {
           return h(
             "div",
@@ -4035,7 +4295,7 @@
       ),
       h(
         "section",
-        { className: "ms-mass-panel" },
+        { className: "ms-mass-panel", key: "job" },
         h("strong", null, "Последняя массовая рассылка"),
         job
           ? h(
@@ -4055,7 +4315,7 @@
       ),
       h(
         "section",
-        { className: "ms-mass-panel" },
+        { className: "ms-mass-panel", key: "sends" },
         h("strong", null, "Последние отправки"),
         (sends.recent || []).length
           ? h(
@@ -4081,6 +4341,72 @@
             )
           : h("p", { className: "ms-muted" }, "Исходящих пока нет."),
       ),
+    ];
+
+    return h(
+      "div",
+      { className: "ms-page ms-dashboard-page" },
+      h(
+        "div",
+        { className: "ms-card-head" },
+        h("h1", { className: "ms-clients-title" }, "Дашборд"),
+        h(
+          "button",
+          { type: "button", className: "ms-btn", disabled: loading, onClick: load },
+          loading ? "Обновляем…" : "Обновить",
+        ),
+      ),
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Формулы Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау» по оплаченным заказам МойСклад.",
+      ),
+      error ? h("p", { className: "ms-error" }, error) : null,
+      kpi && kpi.turnover != null
+        ? h(
+            "div",
+            { className: "ms-stats-grid ms-dashboard-grid" },
+            [
+              [dashMoney(kpi.turnover), "Оборот · " + (kpi.period || "")],
+              [dashMoney(kpi.revenue), "Выручка (после комиссии)"],
+              [String(kpi.orders != null ? kpi.orders : "—"), "Заказы"],
+              [kpi.avg_check != null ? dashMoney(kpi.avg_check) : "—", "Средний чек"],
+              [dashMoney(kpi.margin), "Маржа"],
+              [dashPct(kpi.mom_turnover) || "—", "Прирост оборота к прошлому месяцу"],
+            ].map(function (t) {
+              return h(
+                "div",
+                { key: t[1] },
+                h("div", { className: "ms-stat-val" }, t[0]),
+                h("div", { className: "ms-muted" }, t[1]),
+              );
+            }),
+          )
+        : null,
+      h(
+        "div",
+        { className: "ms-filter-tabs", role: "tablist" },
+        tabs.map(function (t) {
+          return h(
+            "button",
+            {
+              type: "button",
+              key: t[0],
+              role: "tab",
+              className: "ms-filter-tab" + (tab === t[0] ? " is-active" : ""),
+              onClick: function () {
+                setTab(t[0]);
+              },
+            },
+            t[1],
+          );
+        }),
+      ),
+      tab === "overview" ? overview : null,
+      tab === "day" ? DashDays(analytics) : null,
+      tab === "week" ? DashMatrix(analytics.by_week, "Канал") : null,
+      tab === "month" ? DashMatrix(analytics.by_month, "Канал") : null,
+      tab === "flowwow" ? DashFlowwow(analytics) : null,
     );
   }
 
