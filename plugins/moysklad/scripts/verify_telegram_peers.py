@@ -4,15 +4,11 @@
 Writes results to ``tg_verify_overlay.json`` (Redis when configured).
 After the run, «TG активен» column + фильтр «Telegram» in Рассылки use the cache.
 
-Usage (repo root, MOYSKLAD_API_TOKEN + Telegram user session configured):
+Usage (from repo root; ``python`` may be missing — use venv):
 
-  python plugins/moysklad/scripts/verify_telegram_peers.py
-  python plugins/moysklad/scripts/verify_telegram_peers.py --limit 200 --delay-ms 400
-  python plugins/moysklad/scripts/verify_telegram_peers.py --only-unchecked
-  python plugins/moysklad/scripts/verify_telegram_peers.py --sales-filter direct
+  .venv/bin/python3 -u plugins/moysklad/scripts/verify_telegram_peers.py --only-unchecked --delay-ms 400
 
-Requires personal Telegram (Telethon) or Business bot preflight — same as
-«Проверить» in the client card.
+``-u`` = unbuffered so progress lines show immediately.
 """
 
 from __future__ import annotations
@@ -27,6 +23,26 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# Line-buffer even without ``python -u`` / a TTY.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+def _fmt_dur(seconds: float) -> str:
+    sec = max(0, int(seconds))
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 def _load_dotenv() -> None:
@@ -58,6 +74,8 @@ def _load_catalog(max_orders: int, max_counterparties: int) -> dict[str, Any]:
     from plugins.moysklad.client import MoySkladClient
     from plugins.moysklad.tg_verify import stamp_catalog_rows_from_verify
 
+    _log("… loading catalog cache (can take 1–2 min, not frozen)")
+    t0 = time.time()
     key = cache_key(
         max_orders=max_orders,
         max_counterparties=max_counterparties,
@@ -65,26 +83,36 @@ def _load_catalog(max_orders: int, max_counterparties: int) -> dict[str, Any]:
     )
     cached = get_cached(key)
     catalog = cached.get("catalog") if isinstance(cached, dict) else None
-    if not isinstance(catalog, dict) or not catalog.get("rows"):
+    if isinstance(catalog, dict) and catalog.get("rows"):
+        _log(f"… cache hit · {len(catalog['rows'])} rows · {_fmt_dur(time.time() - t0)}")
+    else:
+        _log("… cache empty, fetching MoySklad (slow)")
         client = MoySkladClient()
         catalog = build_enriched_catalog(
             client,
             max_orders=max_orders,
             max_counterparties=max_counterparties,
         )
+        _log(
+            f"… MoySklad fetch done · {len(catalog.get('rows') or [])} rows · "
+            f"{_fmt_dur(time.time() - t0)}"
+        )
     rows = list(catalog.get("rows") or [])
     try:
         from plugins.moysklad.telegram_export import stamp_catalog_rows_from_overlay
 
+        _log("… stamping Telegram export overlay")
         stamp_catalog_rows_from_overlay(rows)
     except Exception:
         pass
     stamp_catalog_rows_from_verify(rows)
     catalog["rows"] = rows
+    _log(f"… catalog ready · {len(rows)} clients")
     return catalog
 
 
 def main() -> int:
+    _log("verify_telegram_peers: start")
     _load_dotenv()
     parser = argparse.ArgumentParser(description="Verify Telegram peers for MoySklad clients")
     parser.add_argument("--limit", type=int, default=0, help="Max clients to check (0 = all)")
@@ -132,13 +160,14 @@ def main() -> int:
 
     if args.reset:
         save_overlay({"by_client_id": {}, "stats": {}})
-        print("Reset tg_verify overlay.")
+        _log("Reset tg_verify overlay.")
 
     catalog = _load_catalog(args.max_orders, args.max_counterparties)
     rows = list(catalog.get("rows") or [])
 
+    _log("… matching catalog phones to Telegram contacts cache")
     cache_stats = match_catalog_phones_to_contacts(rows)
-    print(
+    _log(
         "Contacts cache: "
         f"catalog phones={cache_stats.get('scanned', 0)} "
         f"contacts_with_phone={cache_stats.get('contacts_with_phone', 0)} "
@@ -147,7 +176,7 @@ def main() -> int:
     stamp_catalog_rows_from_verify(rows)
 
     if args.cache_only:
-        print("Cache-only — skip live phone resolve.")
+        _log("Cache-only — skip live phone resolve.")
         return 0
 
     def _has_nick(row: dict[str, Any]) -> bool:
@@ -176,42 +205,61 @@ def main() -> int:
 
     total = len(candidates)
     if not total:
-        print("Nothing to verify (no rows with phone in колонка Телефон).")
+        _log("Nothing to verify (no rows with phone in колонка Телефон).")
         return 0
 
     active = inactive = skipped = 0
     delay = max(0, int(args.delay_ms)) / 1000.0
-    print(f"Checking {total} client(s)… (delay {args.delay_ms}ms)")
+    eta_note = ""
+    if delay:
+        eta_note = f" · ETA ≥ {_fmt_dur(total * (delay + 0.3))}"
+    _log(f"Checking {total} phone(s)… delay {args.delay_ms}ms{eta_note}")
+    t_loop = time.time()
 
     for i, row in enumerate(candidates, start=1):
         cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
-        name = str(row.get("Наименование") or row.get("name") or cid)[:48]
+        name = str(row.get("Наименование") or row.get("name") or cid)[:40]
         phone = str(row.get("Телефон") or row.get("phone") or "").strip()
+        pct = (100.0 * i / total) if total else 0.0
+        elapsed = time.time() - t_loop
+        eta = ""
+        if i > 1:
+            per = elapsed / (i - 1)
+            eta = f" · ETA {_fmt_dur(per * (total - i + 1))}"
+        _log(f"→ [{i}/{total} {pct:5.1f}%] {name} {phone} …{eta}")
         try:
             result = verify_catalog_row(row)
         except Exception as exc:
             skipped += 1
-            print(f"[{i}/{total}] {name} {phone}: ERROR {exc}")
+            _log(f"  ✗ ERROR {exc}  (ok={active} fail={inactive} skip={skipped})")
             continue
         if not result.get("checked"):
             skipped += 1
-            print(f"[{i}/{total}] {name} {phone}: skip — {result.get('detail')}")
+            _log(
+                f"  · skip — {result.get('detail')}  "
+                f"(ok={active} fail={inactive} skip={skipped})"
+            )
             continue
         if result.get("active"):
             active += 1
             resolved = result.get("resolved_nick") or ""
-            print(
-                f"[{i}/{total}] {name} {phone}: OK {resolved} via {result.get('via') or '?'}"
+            _log(
+                f"  ✓ OK {resolved} via {result.get('via') or '?'}  "
+                f"(ok={active} fail={inactive} skip={skipped})"
             )
         else:
             inactive += 1
-            print(f"[{i}/{total}] {name} {phone}: FAIL — {result.get('detail') or 'not found'}")
+            _log(
+                f"  ✗ FAIL — {result.get('detail') or 'not found'}  "
+                f"(ok={active} fail={inactive} skip={skipped})"
+            )
         if delay and i < total:
             time.sleep(delay)
 
     stamped = stamp_catalog_rows_from_verify(rows)
-    print(
-        f"Done. active={active} inactive={inactive} skipped={skipped} "
+    _log(
+        f"Done in {_fmt_dur(time.time() - t_loop)}. "
+        f"active={active} inactive={inactive} skipped={skipped} "
         f"stamped_rows={stamped}"
     )
     return 0
