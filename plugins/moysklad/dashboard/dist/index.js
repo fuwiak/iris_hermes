@@ -4907,11 +4907,153 @@
     );
   }
 
+  function CardsProductCard({ product }) {
+    var status = product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
+    var price = "—";
+    if (product.price) {
+      price = money(product.price);
+      var discount = Number(product.discount || 0);
+      if (discount > 0) price += " · скидка " + discount + "%";
+    }
+    return h(
+      "div",
+      { className: "ms-mp-card" },
+      product.image
+        ? h("img", {
+            className: "ms-mp-card-img",
+            src: product.image,
+            alt: product.name || "",
+            loading: "lazy",
+          })
+        : h("div", { className: "ms-mp-card-img is-empty" }, "нет фото"),
+      h(
+        "div",
+        { className: "ms-mp-card-body" },
+        h(
+          "strong",
+          null,
+          product.url
+            ? h("a", { href: product.url, target: "_blank", rel: "noreferrer" }, product.name || "—")
+            : product.name || "—",
+        ),
+        h("span", null, price),
+        h(
+          "span",
+          { className: "ms-muted" },
+          status + (product.images_count ? " · фото: " + product.images_count : ""),
+        ),
+      ),
+    );
+  }
+
+  function CardsPage() {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    function load(force) {
+      setLoading(true);
+      setError("");
+      api("/cards/marketplaces?limit=100" + (force ? "&force=true" : ""))
+        .then(function (payload) {
+          setData(payload);
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          setLoading(false);
+        });
+    }
+
+    useEffect(function () {
+      load(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    var fw = (data && data.flowwow) || null;
+    var ya = (data && data.yandex) || null;
+    var products = (fw && fw.products) || [];
+
+    var flowwowBody;
+    if (!fw) {
+      flowwowBody = h("p", { className: "ms-muted" }, loading ? "Загружаем…" : "Нет данных.");
+    } else if (!fw.configured) {
+      flowwowBody = h("p", { className: "ms-muted" }, fw.note || "Flowwow не настроен.");
+    } else if (fw.error) {
+      flowwowBody = h("p", { className: "ms-error" }, "Flowwow: " + fw.error);
+    } else {
+      flowwowBody = h(
+        React.Fragment,
+        null,
+        h(
+          "p",
+          { className: "ms-muted" },
+          "Магазин «" +
+            ((fw.shop && fw.shop.name) || "—") +
+            "» (" +
+            ((fw.shop && fw.shop.address) || "—") +
+            ") · карточек всего: " +
+            (fw.total != null ? fw.total : products.length),
+        ),
+        products.length
+          ? h(
+              "div",
+              { className: "ms-mp-grid" },
+              products.map(function (p) {
+                return h(CardsProductCard, { key: String(p.product_id || p.name), product: p });
+              }),
+            )
+          : h("p", { className: "ms-muted" }, "Карточек нет."),
+      );
+    }
+
+    return h(
+      "div",
+      { className: "ms-page ms-cards-page" },
+      h(
+        "div",
+        { className: "ms-card-head" },
+        h("h1", { className: "ms-clients-title" }, "Карточки"),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-btn",
+            disabled: loading,
+            onClick: function () {
+              load(true);
+            },
+          },
+          loading ? "Обновляем…" : "Обновить",
+        ),
+      ),
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Карточки товаров на маркетплейсах. Дальше — создание карточки из букета МоегоСклада и автопубликация.",
+      ),
+      error ? h("p", { className: "ms-error" }, error) : null,
+      h("section", { className: "ms-card-section" }, h("h2", null, "Flowwow"), flowwowBody),
+      h(
+        "section",
+        { className: "ms-card-section" },
+        h("h2", null, "Яндекс Маркет"),
+        h(
+          "p",
+          { className: "ms-muted" },
+          (ya && ya.note) || "Нет доступа — нужен API-токен Яндекс Маркета.",
+        ),
+      ),
+    );
+  }
+
   function MoySkladApp() {
     const [view, setView] = useState(function () {
       try {
         const sp = new URLSearchParams(window.location.search);
-        return sp.get("view") === "campaigns" ? "campaigns" : "clients";
+        const v = sp.get("view");
+        return v === "campaigns" || v === "dashboard" || v === "cards" ? v : "clients";
       } catch (_) {
         return "clients";
       }
@@ -4921,7 +5063,7 @@
       setView(next);
       try {
         const url = new URL(window.location.href);
-        if (next === "campaigns") url.searchParams.set("view", "campaigns");
+        if (next && next !== "clients") url.searchParams.set("view", next);
         else url.searchParams.delete("view");
         window.history.replaceState({}, "", url.pathname + url.search);
       } catch (_) {}
@@ -4967,6 +5109,17 @@
           "Дашборд",
         ),
         h(
+          "button",
+          {
+            type: "button",
+            className: "ms-topnav-link" + (view === "cards" ? " is-active" : ""),
+            onClick: function () {
+              go("cards");
+            },
+          },
+          "Карточки",
+        ),
+        h(
           "a",
           { className: "ms-topnav-link ms-topnav-ext", href: "/plugins" },
           "Plugins",
@@ -4976,7 +5129,9 @@
         ? h(CampaignsPage)
         : view === "dashboard"
           ? h(DashboardPage)
-          : h(ClientsPage),
+          : view === "cards"
+            ? h(CardsPage)
+            : h(ClientsPage),
     );
   }
 
