@@ -17,6 +17,42 @@ const EMPTY_SHIM = path.resolve(__dirname, "./src/shims/empty-module.ts");
  * import from those trees as if the importer were the web package so we do
  * not play allowlist whack-a-mole on each new desktop dep.
  */
+/**
+ * Keep MoySklad's ECharts/Plotly deps out of the dashboard SPA. Web serves
+ * that UI from `plugins/moysklad/dashboard/dist/`; the desktop React plugin
+ * is only for Electron.
+ */
+function stubDesktopMoyskladForWeb(): Plugin {
+  const stub = path.resolve(__dirname, "src/shims/empty-moysklad-plugin.ts");
+  const isMoyskladPluginEntry = (id: string) => {
+    const n = id.split("?")[0].replace(/\\/g, "/");
+    return (
+      n === stub.replace(/\\/g, "/") ||
+      n.endsWith("/plugins/moysklad/plugin.tsx") ||
+      n.endsWith("/plugins/moysklad/plugin.ts") ||
+      n.endsWith("/plugins/moysklad/plugin.jsx") ||
+      n.endsWith("/plugins/moysklad/plugin.js")
+    );
+  };
+  return {
+    name: "hermes:stub-desktop-moysklad-for-web",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (isMoyskladPluginEntry(source)) {
+        return stub;
+      }
+      if (!importer || !source.startsWith(".")) {
+        return null;
+      }
+      const abs = path.resolve(path.dirname(importer), source.split("?")[0]);
+      if (isMoyskladPluginEntry(abs)) {
+        return stub;
+      }
+      return null;
+    },
+  };
+}
+
 function resolveOutsideWebDepsFromWeb(): Plugin {
   const webImporter = path.resolve(__dirname, "package.json");
   const webRoot = path.resolve(__dirname) + path.sep;
@@ -137,6 +173,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     hermesDevToken(),
+    stubDesktopMoyskladForWeb(),
     desktopAtAlias(),
     resolveOutsideWebDepsFromWeb(),
   ],
@@ -154,6 +191,10 @@ export default defineConfig({
       { find: "node-pty", replacement: EMPTY_SHIM },
       { find: "simple-git", replacement: EMPTY_SHIM },
       { find: "electron", replacement: EMPTY_SHIM },
+      // Desktop MoySklad charts — web uses plugins/moysklad/dashboard/dist instead.
+      // Keep resolve green in Docker even if the stub misses a path.
+      { find: /^echarts(\/|$)/, replacement: EMPTY_SHIM },
+      { find: "plotly.js-dist-min", replacement: EMPTY_SHIM },
     ],
     // TS BEFORE JS — the desktop tree we alias into (`@desktop`, `@/…` from
     // apps/desktop/src) collects gitignored `foo.js` artifacts from
