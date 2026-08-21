@@ -1,15 +1,23 @@
-"""Flowwow marketplace HTTP client (sync).
+"""Flowwow seller HTTP client (sync).
 
-Standalone plugin, same shape as ``plugins.moysklad.client`` — Bearer auth,
-retry on 429/5xx, ``fetch_all`` pagination.
+Verified live against the official «Открытое API для продавцов (0.0.1)»
+(https://seller-docs.flowwow.com → 5.1 Документация и поддержка по API):
 
-⚠️ Endpoint paths below (``/orders``, ``/shop/orders``, ``/clients``) are the
-Flowwow seller-API conventions as documented for shop integrations; confirm
-the exact paths and field names against the credentials/docs in your Flowwow
-seller cabinet before relying on this in production — set
-``FLOWWOW_API_URL`` to override if your account uses a different base or
-version. ``flowwow_health`` is the fastest way to check a token actually
-works against the configured base URL.
+- Base URL: ``https://apis.flowwow.com`` (override: ``FLOWWOW_API_URL``)
+- Auth: ``Authorization: Bearer <FLOWWOW_API_TOKEN>``
+- Everything except ping is ``POST`` with a JSON body; product/stock/price
+  endpoints additionally take ``?shopId=<int>`` as a query parameter.
+
+Endpoints exposed here (read-only):
+
+- ``GET  /apiseller/ping/check``           — health, no auth
+- ``POST /apiseller/shops``                — shops list (paged, limit ≤ 50)
+- ``POST /apiseller/products``             — products of one shop (limit ≤ 1000)
+- ``POST /apiseller/stocks/get``           — stock per offerId
+- ``POST /apiseller/prices/get``           — price/discount per offerId
+
+The open seller API has NO orders/clients endpoints as of 0.0.1 — orders
+flow must go through a different channel (cabinet/webhooks) for now.
 """
 
 from __future__ import annotations
@@ -20,8 +28,9 @@ from typing import Any
 
 import httpx
 
-DEFAULT_BASE = "https://api.flowwow.com/v1"
-PAGE_SIZE = 100
+DEFAULT_BASE = "https://apis.flowwow.com"
+SHOPS_PAGE_SIZE = 50  # hard API max for /apiseller/shops
+PRODUCTS_PAGE_SIZE = 100  # API allows up to 1000; keep responses chat-sized
 
 
 class FlowwowError(RuntimeError):
@@ -66,7 +75,7 @@ class FlowwowClient:
         if not token:
             raise FlowwowError(
                 "FLOWWOW_API_TOKEN missing. Add it to ~/.hermes/.env "
-                "(Flowwow seller cabinet → API / интеграции)."
+                "(issued by Flowwow support / seller cabinet)."
             )
         self._token = token
         self._base = _base_url()
@@ -121,88 +130,108 @@ class FlowwowClient:
                 raise FlowwowError(f"Request failed {method} {path}: {exc}") from exc
         raise FlowwowError(f"Request failed after retries: {last_exc}")
 
-    def get_page(
+    def _post(
         self,
         path: str,
+        body: dict[str, Any],
         *,
-        limit: int = PAGE_SIZE,
-        offset: int = 0,
-        extra: dict[str, Any] | None = None,
-    ) -> tuple[list[dict[str, Any]], int | None]:
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
-        if extra:
-            params.update(extra)
+        shop_id: int | None = None,
+    ) -> dict[str, Any]:
         if _delay_s():
             time.sleep(_delay_s())
-        payload = self._request("GET", path, params=params)
-        rows = payload.get("data") if isinstance(payload.get("data"), list) else payload.get("items")
-        total = payload.get("total") or (payload.get("meta") or {}).get("total")
-        return list(rows or []), total
+        params = {"shopId": shop_id} if shop_id else None
+        return self._request("POST", path, params=params, json_body=body)
 
-    def fetch_all(
-        self,
-        path: str,
-        *,
-        max_rows: int = 0,
-        extra: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        offset = 0
-        unlimited = max_rows <= 0
-        while unlimited or len(rows) < max_rows:
-            batch_limit = PAGE_SIZE if unlimited else min(PAGE_SIZE, max_rows - len(rows))
-            batch, _ = self.get_page(path, limit=batch_limit, offset=offset, extra=extra)
-            if not batch:
-                break
-            for item in batch:
-                rid = str((item or {}).get("id") or "").strip()
-                if rid:
-                    if rid in seen_ids:
-                        continue
-                    seen_ids.add(rid)
-                rows.append(item)
-                if not unlimited and len(rows) >= max_rows:
-                    break
-            if len(batch) < batch_limit:
-                break
-            offset += len(batch)
-        return rows
+    def ping(self) -> dict[str, Any]:
+        return self._request("GET", "/apiseller/ping/check", params={"say": "hello"})
 
     def health(self) -> dict[str, Any]:
-        """One cheap call to confirm the token + base URL actually work."""
-        rows, total = self.get_page("/orders", limit=1, offset=0)
+        """Ping (no auth) + one shops page to confirm the token works."""
+        ping = self.ping()
+        shops = self._post("/apiseller/shops", {"status": "active", "limit": 1})
+        rows = list(shops.get("shops") or [])
         return {
-            "ok": True,
+            "ok": bool(ping.get("say") == "hello" and rows),
             "base_url": self._base,
-            "sample_order_id": str((rows[0] or {}).get("id")) if rows else None,
-            "total": total,
+            "ping": ping.get("say"),
+            "active_shops": shops.get("total"),
+            "sample_shop": (
+                {"shopId": rows[0].get("shopId"), "name": rows[0].get("name")}
+                if rows
+                else None
+            ),
         }
 
-    def orders(
-        self,
-        *,
-        fetch_all: bool = True,
-        limit: int = 0,
-        offset: int = 0,
-        status: str | None = None,
-    ) -> dict[str, Any]:
-        extra = {"status": status} if status else None
-        if fetch_all:
-            rows = self.fetch_all("/orders", max_rows=limit, extra=extra)
-            return {"rows": rows}
-        rows, total = self.get_page("/orders", limit=limit or PAGE_SIZE, offset=offset, extra=extra)
-        return {"rows": rows, "total": total}
+    def shops(self, *, status: str = "active") -> dict[str, Any]:
+        """All shops with the given status (moderation | active | disabled)."""
+        rows: list[dict[str, Any]] = []
+        page = 0
+        total: int | None = None
+        while True:
+            payload = self._post(
+                "/apiseller/shops",
+                {"status": status, "page": page, "limit": SHOPS_PAGE_SIZE},
+            )
+            batch = list(payload.get("shops") or [])
+            total = payload.get("total", total)
+            rows.extend(batch)
+            if len(batch) < SHOPS_PAGE_SIZE or (total is not None and len(rows) >= total):
+                break
+            page += 1
+        return {"rows": rows, "total": total if total is not None else len(rows)}
 
-    def clients(
+    def products(
         self,
+        shop_id: int,
         *,
-        fetch_all: bool = True,
         limit: int = 0,
-        offset: int = 0,
+        with_archive: bool = False,
+        extended: bool = False,
     ) -> dict[str, Any]:
-        if fetch_all:
-            rows = self.fetch_all("/clients", max_rows=limit)
-            return {"rows": rows}
-        rows, total = self.get_page("/clients", limit=limit or PAGE_SIZE, offset=offset)
-        return {"rows": rows, "total": total}
+        """Products of one shop. ``limit`` 0 = all pages."""
+        rows: list[dict[str, Any]] = []
+        page = 0
+        total: int | None = None
+        unlimited = limit <= 0
+        while True:
+            page_size = (
+                PRODUCTS_PAGE_SIZE
+                if unlimited
+                else min(PRODUCTS_PAGE_SIZE, limit - len(rows))
+            )
+            payload = self._post(
+                "/apiseller/products",
+                {
+                    "page": page,
+                    "limit": page_size,
+                    "withArchive": with_archive,
+                    "extended": extended,
+                },
+                shop_id=shop_id,
+            )
+            batch = list(payload.get("items") or [])
+            total = payload.get("total", total)
+            rows.extend(batch)
+            if not unlimited and len(rows) >= limit:
+                rows = rows[:limit]
+                break
+            if len(batch) < page_size:
+                break
+            page += 1
+        return {"rows": rows, "total": total if total is not None else len(rows)}
+
+    def stocks(self, shop_id: int, offer_ids: list[str]) -> dict[str, Any]:
+        """Stock levels for the given offerIds (seller-side product ids)."""
+        return self._post(
+            "/apiseller/stocks/get",
+            {"offers": [{"offerId": oid} for oid in offer_ids]},
+            shop_id=shop_id,
+        )
+
+    def prices(self, shop_id: int, offer_ids: list[str]) -> dict[str, Any]:
+        """Prices/discounts for the given offerIds."""
+        return self._post(
+            "/apiseller/prices/get",
+            {"offers": [{"offerId": oid} for oid in offer_ids]},
+            shop_id=shop_id,
+        )

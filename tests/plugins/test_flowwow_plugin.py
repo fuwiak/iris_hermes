@@ -15,7 +15,7 @@ def test_register_wires_three_tools():
 
     plugin.register(_Ctx())
     names = {c["name"] for c in calls}
-    assert names == {"flowwow_health", "flowwow_orders", "flowwow_clients"}
+    assert names == {"flowwow_health", "flowwow_shops", "flowwow_products"}
     assert all(c["toolset"] == "flowwow" for c in calls)
     assert all(c["check_fn"] is check_flowwow_available for c in calls)
 

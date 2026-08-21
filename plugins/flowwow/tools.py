@@ -32,8 +32,8 @@ def _handle(fn):
 FLOWWOW_HEALTH_SCHEMA = {
     "name": "flowwow_health",
     "description": (
-        "Check the Flowwow API token and base URL by fetching one order. "
-        "Returns ok + a sample order id when healthy."
+        "Check the Flowwow seller API: ping + one shops page. "
+        "Returns ok, active shop count and a sample shop when the token works."
     ),
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
@@ -43,20 +43,20 @@ def handle_flowwow_health(_args: dict[str, Any]) -> str:
     return _handle(lambda client: client.health())
 
 
-FLOWWOW_ORDERS_SCHEMA = {
-    "name": "flowwow_orders",
-    "description": "List Flowwow orders (optionally filtered by status).",
+FLOWWOW_SHOPS_SCHEMA = {
+    "name": "flowwow_shops",
+    "description": (
+        "List Flowwow shops for this seller account (shopId, name, address, "
+        "status). shopId is needed for flowwow_products."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "status": {
                 "type": "string",
-                "description": "Optional Flowwow order status filter (e.g. new, paid, cancelled).",
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Max rows to fetch (0 = all pages, capped at 5000).",
-                "default": 0,
+                "enum": ["moderation", "active", "disabled"],
+                "description": "Shop status filter (default active).",
+                "default": "active",
             },
         },
         "required": [],
@@ -64,29 +64,57 @@ FLOWWOW_ORDERS_SCHEMA = {
 }
 
 
-def handle_flowwow_orders(args: dict[str, Any]) -> str:
-    status = str(args.get("status") or "").strip() or None
-    limit = _int_arg(args.get("limit"), 0)
-    return _handle(lambda client: client.orders(status=status, limit=limit))
+def handle_flowwow_shops(args: dict[str, Any]) -> str:
+    status = str(args.get("status") or "active").strip() or "active"
+    return _handle(lambda client: client.shops(status=status))
 
 
-FLOWWOW_CLIENTS_SCHEMA = {
-    "name": "flowwow_clients",
-    "description": "List Flowwow buyers/clients known to this shop.",
+FLOWWOW_PRODUCTS_SCHEMA = {
+    "name": "flowwow_products",
+    "description": (
+        "List products of one Flowwow shop: name, description, price, discount, "
+        "images, availability. Get shopId from flowwow_shops first."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
+            "shop_id": {
+                "type": "integer",
+                "description": "Flowwow shopId (from flowwow_shops).",
+            },
             "limit": {
                 "type": "integer",
                 "description": "Max rows to fetch (0 = all pages, capped at 5000).",
                 "default": 0,
             },
+            "with_archive": {
+                "type": "boolean",
+                "description": "Include archived products.",
+                "default": False,
+            },
+            "extended": {
+                "type": "boolean",
+                "description": "Include the extended `properties` object per product.",
+                "default": False,
+            },
         },
-        "required": [],
+        "required": ["shop_id"],
     },
 }
 
 
-def handle_flowwow_clients(args: dict[str, Any]) -> str:
+def handle_flowwow_products(args: dict[str, Any]) -> str:
+    shop_id = _int_arg(args.get("shop_id"), 0, minimum=0, maximum=4294967295)
+    if not shop_id:
+        return tool_error("shop_id is required — call flowwow_shops to find it.")
     limit = _int_arg(args.get("limit"), 0)
-    return _handle(lambda client: client.clients(limit=limit))
+    with_archive = bool(args.get("with_archive"))
+    extended = bool(args.get("extended"))
+    return _handle(
+        lambda client: client.products(
+            shop_id,
+            limit=limit,
+            with_archive=with_archive,
+            extended=extended,
+        )
+    )

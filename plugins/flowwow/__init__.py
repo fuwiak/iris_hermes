@@ -5,29 +5,29 @@ Same shape as ``plugins.moysklad``: sync HTTP client (Bearer token from
 ``check_flowwow_available`` so the tools stay registered but inert until a
 token is configured.
 
-Endpoint paths in ``client.py`` follow the common Flowwow seller-API
-conventions but are not verified against live Flowwow docs from this
-environment — run ``flowwow_health`` after setting the token; if it 404s,
-adjust ``FLOWWOW_API_URL`` / the paths in ``client.py`` to match what your
-seller cabinet actually exposes.
+Endpoints verified live against the official seller API 0.0.1
+(``https://apis.flowwow.com/apiseller/...``) — see ``client.py`` docstring.
+The open API has no orders/clients endpoints yet, so tools cover shops and
+products (name, description, price, images) — the inputs for marketplace
+card automation.
 """
 
 from __future__ import annotations
 
 from plugins.flowwow.tools import (
-    FLOWWOW_CLIENTS_SCHEMA,
     FLOWWOW_HEALTH_SCHEMA,
-    FLOWWOW_ORDERS_SCHEMA,
+    FLOWWOW_PRODUCTS_SCHEMA,
+    FLOWWOW_SHOPS_SCHEMA,
     check_flowwow_available,
-    handle_flowwow_clients,
     handle_flowwow_health,
-    handle_flowwow_orders,
+    handle_flowwow_products,
+    handle_flowwow_shops,
 )
 
 _TOOLS = (
     ("flowwow_health", FLOWWOW_HEALTH_SCHEMA, handle_flowwow_health, "🌸"),
-    ("flowwow_orders", FLOWWOW_ORDERS_SCHEMA, handle_flowwow_orders, "📦"),
-    ("flowwow_clients", FLOWWOW_CLIENTS_SCHEMA, handle_flowwow_clients, "🧑‍🤝‍🧑"),
+    ("flowwow_shops", FLOWWOW_SHOPS_SCHEMA, handle_flowwow_shops, "🏬"),
+    ("flowwow_products", FLOWWOW_PRODUCTS_SCHEMA, handle_flowwow_products, "💐"),
 )
 
 
