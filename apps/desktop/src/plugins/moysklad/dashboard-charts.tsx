@@ -72,8 +72,9 @@ function EChart({
     }
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
-    const onSelect = (ev: { selected?: Record<string, boolean> }) => {
-      if (ev.selected) {
+    const onSelect = (...args: unknown[]) => {
+      const ev = args[0] as { selected?: Record<string, boolean> } | undefined
+      if (ev?.selected) {
         onLegendRef.current?.(ev.selected)
       }
     }

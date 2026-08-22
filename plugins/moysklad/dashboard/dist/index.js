@@ -4884,7 +4884,9 @@
         h(
           "span",
           { className: "ms-muted" },
-          status + (product.images_count ? " · фото: " + product.images_count : ""),
+          status +
+            (product.images_count ? " · фото: " + product.images_count : "") +
+            (product.content_rating != null ? " · контент: " + product.content_rating + "/100" : ""),
         ),
       ),
     );
@@ -4918,6 +4920,43 @@
     var fw = (data && data.flowwow) || null;
     var ya = (data && data.yandex) || null;
     var products = (fw && fw.products) || [];
+    var yaProducts = (ya && ya.products) || [];
+
+    var yandexBody;
+    if (!ya) {
+      yandexBody = h("p", { className: "ms-muted" }, loading ? "Загружаем…" : "Нет данных.");
+    } else if (!ya.configured) {
+      yandexBody = h(
+        "p",
+        { className: "ms-muted" },
+        ya.note || "Нет доступа — нужен API-токен Яндекс Маркета.",
+      );
+    } else if (ya.error) {
+      yandexBody = h("p", { className: "ms-error" }, "Яндекс Маркет: " + ya.error);
+    } else {
+      yandexBody = h(
+        React.Fragment,
+        null,
+        h(
+          "p",
+          { className: "ms-muted" },
+          "Бизнес «" +
+            ((ya.business && ya.business.name) || "—") +
+            "» · показано карточек: " +
+            yaProducts.length +
+            " · контент-рейтинг из кабинета (0–100)",
+        ),
+        yaProducts.length
+          ? h(
+              "div",
+              { className: "ms-mp-grid" },
+              yaProducts.map(function (p) {
+                return h(CardsProductCard, { key: String(p.offer_id || p.name), product: p });
+              }),
+            )
+          : h("p", { className: "ms-muted" }, "Карточек нет."),
+      );
+    }
 
     var flowwowBody;
     if (!fw) {
@@ -4983,11 +5022,7 @@
         "section",
         { className: "ms-card-section" },
         h("h2", null, "Яндекс Маркет"),
-        h(
-          "p",
-          { className: "ms-muted" },
-          (ya && ya.note) || "Нет доступа — нужен API-токен Яндекс Маркета.",
-        ),
+        yandexBody,
       ),
     );
   }

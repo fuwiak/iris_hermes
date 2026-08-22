@@ -7,7 +7,6 @@ card-autopublish flow (call 21.08.2026) builds on top of this.
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from typing import Any
@@ -72,13 +71,16 @@ def _flowwow_section(limit: int) -> dict[str, Any]:
         return {"configured": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _yandex_section() -> dict[str, Any]:
-    token = (
-        os.environ.get("YANDEX_MARKET_API_TOKEN")
-        or os.environ.get("YANDEX_MARKET_TOKEN")
-        or ""
-    ).strip()
-    if not token:
+def _yandex_section(limit: int) -> dict[str, Any]:
+    try:
+        from plugins.moysklad.yandex_market import (
+            YandexMarketError,
+            fetch_yandex_cards,
+            token_configured,
+        )
+    except Exception as exc:  # pragma: no cover — module missing
+        return {"configured": False, "error": f"yandex_market unavailable: {exc}"}
+    if not token_configured():
         return {
             "configured": False,
             "note": (
@@ -87,13 +89,13 @@ def _yandex_section() -> dict[str, Any]:
                 "YANDEX_MARKET_API_TOKEN."
             ),
         }
-    # Token present but the client integration is the next iteration.
-    return {
-        "configured": True,
-        "note": "Токен задан; интеграция каталога Яндекс Маркета в работе.",
-        "products": [],
-        "total": None,
-    }
+    try:
+        data = fetch_yandex_cards(limit=limit)
+        return {"configured": True, **data}
+    except YandexMarketError as exc:
+        return {"configured": True, "error": str(exc)}
+    except Exception as exc:  # pragma: no cover — defensive
+        return {"configured": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[str, Any]:
@@ -105,7 +107,7 @@ def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[
             return cached
     payload = {
         "flowwow": _flowwow_section(limit),
-        "yandex": _yandex_section(),
+        "yandex": _yandex_section(limit),
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     with _cache_lock:

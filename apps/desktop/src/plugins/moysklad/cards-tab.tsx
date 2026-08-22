@@ -25,6 +25,8 @@ type MarketplaceProduct = {
   url?: string
   image?: string
   images_count?: number
+  card_status?: string
+  content_rating?: number | null
 }
 
 type FlowwowSection = {
@@ -39,6 +41,8 @@ type FlowwowSection = {
 type YandexSection = {
   configured?: boolean
   note?: string
+  error?: string
+  business?: { id?: number; name?: string }
   products?: MarketplaceProduct[]
   total?: number | null
 }
@@ -108,6 +112,7 @@ function ProductCard({ product }: { product: MarketplaceProduct }) {
         <span className="ms-muted" style={{ fontSize: 12 }}>
           {product.is_archived ? 'в архиве' : product.is_active ? 'активна' : 'скрыта'}
           {product.images_count ? ` · фото: ${product.images_count}` : ''}
+          {product.content_rating != null ? ` · контент: ${product.content_rating}/100` : ''}
         </span>
       </div>
     </div>
@@ -138,6 +143,39 @@ function FlowwowBlock({ section }: { section?: FlowwowSection }) {
         <div style={GRID_STYLE}>
           {products.map(product => (
             <ProductCard key={String(product.product_id ?? product.name)} product={product} />
+          ))}
+        </div>
+      ) : (
+        <p className="ms-muted">Карточек нет.</p>
+      )}
+    </>
+  )
+}
+
+function YandexBlock({ section }: { section?: YandexSection }) {
+  if (!section) {
+    return null
+  }
+
+  if (!section.configured) {
+    return <p className="ms-muted">{section.note || 'Нет доступа — нужен API-токен.'}</p>
+  }
+
+  if (section.error) {
+    return <p className="ms-error">Яндекс Маркет: {section.error}</p>
+  }
+
+  const products = section.products || []
+  return (
+    <>
+      <p className="ms-muted">
+        Бизнес «{section.business?.name || '—'}» · показано карточек: {products.length}
+        {' · контент-рейтинг из кабинета (0–100)'}
+      </p>
+      {products.length ? (
+        <div style={GRID_STYLE}>
+          {products.map(product => (
+            <ProductCard key={String(product.offer_id ?? product.name)} product={product} />
           ))}
         </div>
       ) : (
@@ -194,11 +232,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
       </section>
       <section className="ms-card-section">
         <h2>Яндекс Маркет</h2>
-        {data?.yandex?.configured ? (
-          <p className="ms-muted">{data.yandex.note || 'Подключено.'}</p>
-        ) : (
-          <p className="ms-muted">{data?.yandex?.note || 'Нет доступа — нужен API-токен.'}</p>
-        )}
+        {loading && !data ? <p className="ms-muted">Загружаем…</p> : <YandexBlock section={data?.yandex} />}
       </section>
     </div>
   )
