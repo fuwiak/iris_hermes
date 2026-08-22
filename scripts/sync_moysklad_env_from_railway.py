@@ -56,6 +56,14 @@ TELEGRAM_USER_KEYS = (
     "TELEGRAM_PROXY",
 )
 
+# Marketplace tokens for the «Карточки» tab (Flowwow + Yandex Market).
+MARKETPLACE_KEYS = (
+    "FLOWWOW_API_TOKEN",
+    "FLOWWOW_API_URL",
+    "YANDEX_MARKET_API_TOKEN",
+    "YANDEX_MARKET_API_URL",
+)
+
 # Back-compat alias for importers / older call sites.
 KEYS = MOYSKLAD_KEYS
 
@@ -111,6 +119,7 @@ def _fetch_from_process_env() -> dict[str, str]:
     out = _fetch_keys_from_process_env(MOYSKLAD_KEYS)
     out.update(_fetch_keys_from_process_env(LLM_KEYS))
     out.update(_fetch_keys_from_process_env(TELEGRAM_USER_KEYS))
+    out.update(_fetch_keys_from_process_env(MARKETPLACE_KEYS))
     return out
 
 

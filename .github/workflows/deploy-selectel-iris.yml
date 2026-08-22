@@ -40,6 +40,9 @@ jobs:
           TELEGRAM_API_HASH: ${{ secrets.SELECTEL_IRIS_TELEGRAM_API_HASH }}
           # Railway Telethon egress (non-RU IP). See deploy/telegram-user-egress/.
           TELEGRAM_USER_GATEWAY_URL: ${{ secrets.SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL }}
+          # Marketplace tokens for the «Карточки» tab (optional patch).
+          FLOWWOW_API_TOKEN: ${{ secrets.SELECTEL_IRIS_FLOWWOW_API_TOKEN }}
+          YANDEX_MARKET_API_TOKEN: ${{ secrets.SELECTEL_IRIS_YANDEX_MARKET_API_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${SELECTEL_HOST:-}"
@@ -93,6 +96,12 @@ jobs:
           fi
           if [ -n "${TELEGRAM_USER_GATEWAY_URL:-}" ]; then
             printf 'TELEGRAM_USER_GATEWAY_URL=%s\n' "$TELEGRAM_USER_GATEWAY_URL" >>"$PATCH_FILE"
+          fi
+          if [ -n "${FLOWWOW_API_TOKEN:-}" ]; then
+            printf 'FLOWWOW_API_TOKEN=%s\n' "$FLOWWOW_API_TOKEN" >>"$PATCH_FILE"
+          fi
+          if [ -n "${YANDEX_MARKET_API_TOKEN:-}" ]; then
+            printf 'YANDEX_MARKET_API_TOKEN=%s\n' "$YANDEX_MARKET_API_TOKEN" >>"$PATCH_FILE"
           fi
           printf 'TELEGRAM_ENABLED=false\n' >>"$PATCH_FILE"
           if [ -s "$PATCH_FILE" ]; then
