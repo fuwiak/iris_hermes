@@ -27,38 +27,37 @@ import { appViewForPath, CRON_ROUTE, isOverlayView, navigateToWorkspacePage, rou
 const FAB_CLASS =
   'pointer-events-auto size-9 rounded-full border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous'
 
+const DOCK_ITEM_CLASS =
+  'pointer-events-auto flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-(--chrome-action-hover) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ui-stroke-focus)'
+
 const KANBAN_ROUTE = '/kanban'
 const PLUGINS_SETTINGS_ROUTE = `${SETTINGS_ROUTE}?tab=plugins`
 
-/** Widest dock row: four size-9 FABs + three gaps. */
-const CORNER_CHROME_WIDTH = '10.5rem'
+/** Single dock FAB width — plugin corner panels offset via --corner-chrome-width. */
+const CORNER_CHROME_WIDTH = '2.25rem'
 
 /**
- * Bottom-right chrome dock — FABs moved off the titlebar / Hermes One sidebar:
- *   nav row:   Обзор · Kanban · Расписания · Plugins
- *   chrome row: layout · haptics · settings · keybinds
- * Keybinds expands into a slide-out panel above the rows.
- *
- * Sets `--corner-chrome-width` on `:root` so sibling corner FABs (plugin AI test)
- * can sit to the left without overlapping.
+ * Bottom-right chrome — one FAB opens a drawer with nav + chrome actions.
+ * Keybinds still expands its panel above the dock when chosen from the drawer.
  */
 export function CornerChrome() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
   const path = routePathname(location.pathname)
-  const open = useStore($keybindsPanelOpen)
+  const keybindsOpen = useStore($keybindsPanelOpen)
   const statusbarVisible = useStore($statusbarVisible)
   const capturing = useStore($capture)
   const hapticsMuted = useStore($hapticsMuted)
   const layoutEditing = useStore($layoutEditMode)
   const modHeld = useModifierHeld()
+  const [dockOpen, setDockOpen] = useState(false)
   const embed = typeof window !== 'undefined' && window.__HERMES_DESKTOP_EMBED__ === true
   const nav = t.sidebar.hermesOneNav
   const pluginsLabel = t.settings.nav.plugins
 
   useEffect(() => {
-    if (!open) {
+    if (!keybindsOpen && !dockOpen) {
       return
     }
 
@@ -75,15 +74,25 @@ export function CornerChrome() {
         return
       }
 
-      closeKeybindsPanel()
-      event.preventDefault()
-      event.stopPropagation()
+      if (keybindsOpen) {
+        closeKeybindsPanel()
+        event.preventDefault()
+        event.stopPropagation()
+
+        return
+      }
+
+      if (dockOpen) {
+        setDockOpen(false)
+        event.preventDefault()
+        event.stopPropagation()
+      }
     }
 
     window.addEventListener('keydown', onKeyDown, true)
 
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [capturing, open])
+  }, [capturing, dockOpen, keybindsOpen])
 
   useEffect(() => {
     const root = document.documentElement
@@ -94,21 +103,24 @@ export function CornerChrome() {
     }
   }, [])
 
-  // Full-screen overlays own the window — same rule as TitlebarControls.
   if (!embed && isOverlayView(appViewForPath(location.pathname))) {
     return null
   }
+
+  const closeDock = () => setDockOpen(false)
 
   const onLayoutClick = (event: MouseEvent) => {
     if (event.metaKey || event.ctrlKey) {
       triggerHaptic('warning')
       resetLayoutTree()
+      closeDock()
 
       return
     }
 
     triggerHaptic('open')
     toggleLayoutEditMode()
+    closeDock()
   }
 
   const toggleHaptics = () => {
@@ -121,16 +133,25 @@ export function CornerChrome() {
     if (hapticsMuted) {
       window.requestAnimationFrame(() => triggerHaptic('success'))
     }
+
+    closeDock()
   }
 
   const go = (to: string, workspace = false) => {
     triggerHaptic('open')
+    closeDock()
 
     if (workspace) {
       navigateToWorkspacePage(navigate, to)
     } else {
       navigate(to)
     }
+  }
+
+  const openKeybinds = () => {
+    triggerHaptic(keybindsOpen ? 'tap' : 'open')
+    toggleKeybindsPanel()
+    closeDock()
   }
 
   return createPortal(
@@ -141,7 +162,7 @@ export function CornerChrome() {
       )}
       data-slot="corner-chrome"
     >
-      {open && (
+      {keybindsOpen ? (
         <div
           aria-label={t.keybinds.title}
           className="pointer-events-auto flex w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(70vh,36rem)] flex-col overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous duration-150 animate-in fade-in-0 slide-in-from-bottom-2"
@@ -169,132 +190,103 @@ export function CornerChrome() {
             <KeybindSettings embedded />
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Product nav — was Hermes One sidebar primary (minus New Chat / Office). */}
-      <div className="pointer-events-none flex flex-row-reverse items-center gap-2">
-        <Tip label={pluginsLabel}>
-          <Button
-            aria-label={pluginsLabel}
-            className={FAB_CLASS}
-            onClick={() => go(PLUGINS_SETTINGS_ROUTE)}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Codicon name="extensions" />
-          </Button>
-        </Tip>
-
-        <Tip label={<TipKeybindLabel actionId="nav.cron" text={nav.schedules} />}>
-          <Button
-            aria-label={nav.schedules}
-            className={cn(FAB_CLASS, path === CRON_ROUTE && 'bg-(--chrome-action-hover)')}
-            onClick={() => go(CRON_ROUTE)}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Codicon name="clock" />
-          </Button>
-        </Tip>
-
-        <Tip label={<TipKeybindLabel actionId="nav.artifacts" text={nav.kanban} />}>
-          <Button
-            aria-label={nav.kanban}
-            className={cn(FAB_CLASS, path === KANBAN_ROUTE && 'bg-(--chrome-action-hover)')}
-            onClick={() => go(KANBAN_ROUTE, true)}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Codicon name="project" />
-          </Button>
-        </Tip>
-
-        <Tip label={<TipKeybindLabel actionId="nav.skills" text={nav.discover} />}>
-          <Button
-            aria-label={nav.discover}
-            className={cn(FAB_CLASS, path === SKILLS_ROUTE && 'bg-(--chrome-action-hover)')}
+      {dockOpen ? (
+        <nav
+          aria-label={t.titlebar.cornerDock}
+          className="pointer-events-auto flex w-[min(16rem,calc(100vw-1.5rem))] flex-col gap-0.5 rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-1.5 shadow-nous duration-150 animate-in fade-in-0 slide-in-from-bottom-2"
+        >
+          <button
+            className={cn(DOCK_ITEM_CLASS, path === SKILLS_ROUTE && 'bg-(--chrome-action-hover)')}
             onClick={() => go(SKILLS_ROUTE, true)}
-            size="icon"
             type="button"
-            variant="ghost"
           >
-            <Codicon name="symbol-misc" />
-          </Button>
-        </Tip>
-      </div>
-
-      <div className="pointer-events-none flex flex-row-reverse items-center gap-2">
-        <Tip label={<TipKeybindLabel actionId="keybinds.openPanel" text={t.titlebar.openKeybinds} />}>
-          <Button
-            aria-expanded={open}
-            aria-label={t.titlebar.openKeybinds}
-            className={cn(FAB_CLASS, open && 'bg-(--chrome-action-hover)')}
-            onClick={() => {
-              triggerHaptic(open ? 'tap' : 'open')
-              toggleKeybindsPanel()
-            }}
-            size="icon"
+            <Codicon className="shrink-0 text-muted-foreground" name="symbol-misc" />
+            <span className="min-w-0 truncate">{nav.discover}</span>
+          </button>
+          <button
+            className={cn(DOCK_ITEM_CLASS, path === KANBAN_ROUTE && 'bg-(--chrome-action-hover)')}
+            onClick={() => go(KANBAN_ROUTE, true)}
             type="button"
-            variant="ghost"
           >
-            <Codicon name="keyboard" />
-          </Button>
-        </Tip>
-
-        <Tip label={<TipKeybindLabel actionId="nav.settings" text={t.titlebar.openSettings} />}>
-          <Button
-            aria-label={t.titlebar.openSettings}
-            className={FAB_CLASS}
-            onClick={() => go(SETTINGS_ROUTE)}
-            size="icon"
+            <Codicon className="shrink-0 text-muted-foreground" name="project" />
+            <span className="min-w-0 truncate">{nav.kanban}</span>
+          </button>
+          <button
+            className={cn(DOCK_ITEM_CLASS, path === CRON_ROUTE && 'bg-(--chrome-action-hover)')}
+            onClick={() => go(CRON_ROUTE)}
             type="button"
-            variant="ghost"
           >
-            <Codicon name="settings-gear" />
-          </Button>
-        </Tip>
+            <Codicon className="shrink-0 text-muted-foreground" name="clock" />
+            <span className="min-w-0 truncate">{nav.schedules}</span>
+          </button>
+          <button className={DOCK_ITEM_CLASS} onClick={() => go(PLUGINS_SETTINGS_ROUTE)} type="button">
+            <Codicon className="shrink-0 text-muted-foreground" name="extensions" />
+            <span className="min-w-0 truncate">{pluginsLabel}</span>
+          </button>
 
-        <Tip label={hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics}>
-          <Button
-            aria-label={hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics}
-            aria-pressed={hapticsMuted}
-            className={cn(FAB_CLASS, hapticsMuted && 'bg-(--chrome-action-hover)')}
-            onClick={toggleHaptics}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
-          </Button>
-        </Tip>
+          <div aria-hidden className="my-0.5 h-px bg-(--ui-stroke-secondary)/60" />
 
-        <Tip label={t.titlebar.layoutEditorTitle}>
-          <Button
-            aria-label={t.titlebar.layoutEditor}
-            aria-pressed={layoutEditing}
-            className={cn('group/tool', FAB_CLASS, layoutEditing && 'bg-(--chrome-action-hover)')}
+          <button
+            className={cn('group/tool', DOCK_ITEM_CLASS, layoutEditing && 'bg-(--chrome-action-hover)')}
             onClick={onLayoutClick}
-            size="icon"
+            title={t.titlebar.layoutEditorTitle}
             type="button"
-            variant="ghost"
           >
-            <LayoutGlyph modHeld={modHeld} />
-          </Button>
-        </Tip>
-      </div>
+            <span className="inline-flex w-4 shrink-0 justify-center">
+              <LayoutGlyph modHeld={modHeld} />
+            </span>
+            <span className="min-w-0 truncate">{t.titlebar.layoutEditor}</span>
+          </button>
+          <button
+            aria-pressed={hapticsMuted}
+            className={cn(DOCK_ITEM_CLASS, hapticsMuted && 'bg-(--chrome-action-hover)')}
+            onClick={toggleHaptics}
+            type="button"
+          >
+            <Codicon className="shrink-0 text-muted-foreground" name={hapticsMuted ? 'mute' : 'unmute'} />
+            <span className="min-w-0 truncate">
+              {hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics}
+            </span>
+          </button>
+          <button className={DOCK_ITEM_CLASS} onClick={() => go(SETTINGS_ROUTE)} type="button">
+            <Codicon className="shrink-0 text-muted-foreground" name="settings-gear" />
+            <span className="min-w-0 truncate">{t.titlebar.openSettings}</span>
+          </button>
+          <button
+            aria-expanded={keybindsOpen}
+            className={cn(DOCK_ITEM_CLASS, keybindsOpen && 'bg-(--chrome-action-hover)')}
+            onClick={openKeybinds}
+            type="button"
+          >
+            <Codicon className="shrink-0 text-muted-foreground" name="keyboard" />
+            <span className="min-w-0 truncate">{t.titlebar.openKeybinds}</span>
+          </button>
+        </nav>
+      ) : null}
+
+      <Tip label={t.titlebar.cornerDock}>
+        <Button
+          aria-expanded={dockOpen}
+          aria-label={t.titlebar.cornerDock}
+          className={cn(FAB_CLASS, dockOpen && 'bg-(--chrome-action-hover)')}
+          onClick={() => {
+            triggerHaptic(dockOpen ? 'tap' : 'open')
+            setDockOpen(prev => !prev)
+          }}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Codicon name={dockOpen ? 'close' : 'kebab-vertical'} />
+        </Button>
+      </Tip>
     </div>,
     document.body
   )
 }
 
-/**
- * Layout glyph morphs into reset (layout + refresh badge) only while the
- * pointer is on the button AND ⌘/Ctrl is held — hover gates via CSS, modifier
- * via the window listener.
- */
 function LayoutGlyph({ modHeld }: { modHeld: boolean }) {
   return (
     <>

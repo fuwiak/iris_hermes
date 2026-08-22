@@ -247,6 +247,7 @@ export interface Translations {
     openKeybinds: string
     layoutEditor: string
     layoutEditorTitle: string
+    cornerDock: string
   }
 
   keybinds: {

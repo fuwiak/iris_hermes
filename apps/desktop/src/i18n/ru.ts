@@ -198,7 +198,8 @@ export const ru = defineLocale({
     openStarmap: 'График открытой памяти',
     openKeybinds: 'Горячие клавиши',
     layoutEditor: 'Редактор макетов',
-    layoutEditorTitle: 'Layout editor — ⌘-click resets the layout'
+    layoutEditorTitle: 'Layout editor — ⌘-click resets the layout',
+    cornerDock: 'Быстрые действия'
   },
   keybinds: {
     title: 'Горячие клавиши',
