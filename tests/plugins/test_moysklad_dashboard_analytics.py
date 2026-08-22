@@ -98,10 +98,10 @@ def test_build_analytics_aggregates_like_excel_sheets() -> None:
         _paid("o5", "2026-07-15T10:00:00", 5000, "Telegram", "c4"),
         _paid("skip", "2026-08-03T10:00:00", 999, "Ozon", "c5"),
     ]
-    # unpaid must not enter оборот
-    rows[-1]["_orders_context"][0]["payment_status"] = "unpaid"
-    rows[-1]["_orders_context"][0]["unpaid"] = 999
-    rows[-1]["_orders_context"][0]["payed_sum"] = 0
+    # cancelled must not enter оборот (unpaid DOES count — marketplace orders
+    # often carry no per-order payment stamp; see analytics_paid_only)
+    rows[-1]["_orders_context"][0]["payment_status"] = "cancelled"
+    rows[-1]["_orders_context"][0]["applicable"] = False
 
     analytics = build_analytics(
         rows, today=date(2026, 8, 12), day_limit=14, week_limit=6, month_limit=4

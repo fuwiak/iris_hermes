@@ -1286,3 +1286,19 @@ td.ms-ai-added {
   background: #3a1840; border: 1px solid #592466; color: #f4ede4;
   border-radius: 0.5rem;
 }
+
+/* «Карточки» — combined list: marketplace badges, filters, listings */
+.ms-mp-badges { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.ms-mp-badge {
+  font-size: 0.7rem; padding: 0.05rem 0.45rem; border-radius: 0.6rem;
+  border: 1px solid #8b3aa0; color: #e8c7f0;
+}
+.ms-mp-filters { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+.ms-mp-filters select {
+  font: inherit; padding: 0.2rem 0.5rem; background: #3a1840;
+  border: 1px solid #592466; color: #f4ede4; border-radius: 0.4rem;
+}
+.ms-mp-listing {
+  border: 1px solid #592466; border-radius: 0.5rem; padding: 0.5rem 0.65rem;
+  display: flex; flex-direction: column; gap: 0.25rem;
+}

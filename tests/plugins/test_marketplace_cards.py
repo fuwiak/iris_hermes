@@ -116,3 +116,28 @@ def test_force_bypasses_durable_cache(monkeypatch):
     monkeypatch.delenv("FLOWWOW_API_TOKEN", raising=False)
     payload = mc.marketplace_cards_payload(force=True)
     assert "stale" not in payload["flowwow"]
+
+
+def test_combined_cards_merge_across_marketplaces():
+    flowwow = {
+        "products": [
+            {"name": "❣️ Букет «Розовый сад»", "image": "f.jpg", "is_active": True},
+            {"name": "Пионы Корал Шарм", "is_active": False},
+        ]
+    }
+    yandex = {
+        "products": [
+            {"name": "Букет Розовый сад", "image": "y.jpg", "is_active": True, "content_rating": 91},
+            {"name": "Гладиолусы", "is_archived": True},
+        ]
+    }
+    rows = mc.build_combined_cards(flowwow, yandex)
+    merged = next(r for r in rows if "Розовый сад" in r["name"])
+    assert sorted(merged["marketplaces"]) == ["flowwow", "yandex_market"]
+    assert merged["image"] == "f.jpg"  # first seen wins
+    assert merged["listings"]["yandex_market"]["content_rating"] == 91
+    only_fw = next(r for r in rows if "Пионы" in r["name"])
+    assert only_fw["marketplaces"] == ["flowwow"]
+    assert only_fw["statuses"] == ["hidden"]
+    archived = next(r for r in rows if "Гладиолусы" in r["name"])
+    assert archived["statuses"] == ["archived"]

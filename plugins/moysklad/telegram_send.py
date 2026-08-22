@@ -455,6 +455,21 @@ def telegram_user_status(*, probe: bool = True) -> dict[str, Any]:
         return {"ok": False, "available": False, "detail": str(exc)}
 
 
+def _decode_image(image_base64: str) -> bytes | None:
+    """data:-URL or bare base64 → bytes (None when empty/broken)."""
+    raw = (image_base64 or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    try:
+        import base64
+
+        return base64.b64decode(raw, validate=False)
+    except Exception:
+        return None
+
+
 def send_telegram_message(
     *,
     text: str,
@@ -463,14 +478,31 @@ def send_telegram_message(
     token: str | None = None,
     timeout: float = 30.0,
     via: str = "",
+    image_base64: str = "",
+    image_name: str = "photo.jpg",
 ) -> dict[str, Any]:
     """Send outreach. Returns ``{ok, ...}``; never raises for API errors.
 
     ``via`` overrides ``MOYSKLAD_TELEGRAM_SEND_VIA`` for one call.
+    ``image_base64`` attaches a photo — delivered through the Business bot
+    (personal-account path has no file support yet); text rides as the
+    caption (split into a follow-up message when longer than 1024).
     """
     mode = (via or telegram_send_mode()).strip().lower()
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
+
+    image_bytes = _decode_image(image_base64)
+    if image_bytes:
+        return _send_photo_via_bot(
+            text=text,
+            chat_id=chat_id,
+            image_bytes=image_bytes,
+            image_name=image_name or "photo.jpg",
+            business_connection_id=business_connection_id,
+            token=token,
+            timeout=max(timeout, 60.0),
+        )
 
     if mode in {"auto", "user"}:
         user_result = _send_via_user_account(text=text, chat_id=chat_id)
@@ -605,6 +637,80 @@ def business_preflight(token: str | None = None) -> dict[str, Any]:
     return {"ok": True, **snapshot}
 
 
+def _send_photo_via_bot(
+    *,
+    text: str,
+    chat_id: str,
+    image_bytes: bytes,
+    image_name: str,
+    business_connection_id: Optional[str] = None,
+    token: str | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """``sendPhoto`` through the Business bot (multipart upload)."""
+    token = (token or outreach_bot_token()).strip()
+    chat_id = str(chat_id or "").strip()
+    if not token:
+        return {
+            "ok": False,
+            "error": "telegram_token_missing",
+            "detail": (
+                "Картинки идут через Business-бота — нужен "
+                "TELEGRAM_BUSINESS_BOT_TOKEN / MOYSKLAD_TELEGRAM_BOT_TOKEN"
+            ),
+        }
+    if not chat_id:
+        return {"ok": False, "error": "telegram_chat_missing", "detail": "Client needs ТГ ник / chat id"}
+    if len(image_bytes) > 10 * 1024 * 1024:
+        return {"ok": False, "error": "image_too_large", "detail": "Фото больше 10 МБ"}
+
+    if business_connection_id is None:
+        biz = resolve_business_connection_id()
+    else:
+        biz = str(business_connection_id).strip()
+    if biz and not _TG_PEER_ID_RE.fullmatch(chat_id):
+        coerced = coerce_business_chat_id(chat_id, token=token)
+        if not coerced.get("ok"):
+            return coerced
+        chat_id = str(coerced["chat_id"])
+
+    text = (text or "").strip()
+    caption = text[:1024]
+    payload: dict[str, Any] = {"chat_id": chat_id}
+    if caption:
+        payload["caption"] = caption
+    if biz:
+        payload["business_connection_id"] = biz
+    data = telegram_api(
+        "sendPhoto",
+        token=token,
+        json_body=payload,
+        files={"photo": (image_name, image_bytes)},
+        timeout=timeout,
+    )
+    if not data.get("ok"):
+        return data
+    result = data.get("result") or {}
+    out = {
+        "ok": True,
+        "message_id": result.get("message_id"),
+        "chat_id": (result.get("chat") or {}).get("id") or chat_id,
+        "business_connection_id": biz or None,
+        "via": "business_bot_photo",
+    }
+    # Caption tops out at 1024 — deliver the remainder as a normal message.
+    if len(text) > 1024:
+        tail = send_telegram_message(
+            text=text[1024:],
+            chat_id=chat_id,
+            business_connection_id=biz or None,
+            token=token,
+            via="bot",
+        )
+        out["tail_ok"] = bool(tail.get("ok"))
+    return out
+
+
 def send_outreach_to_client(
     *,
     text: str,
@@ -612,6 +718,8 @@ def send_outreach_to_client(
     tg_conversation: str = "",
     tg_chat_id: str = "",
     via: str = "",
+    image_base64: str = "",
+    image_name: str = "photo.jpg",
 ) -> dict[str, Any]:
     """Resolve client TG target and send. Returns send_telegram_message result."""
     chat_id = resolve_telegram_chat_id(
@@ -619,4 +727,10 @@ def send_outreach_to_client(
         tg_conversation=tg_conversation,
         tg_chat_id=tg_chat_id,
     )
-    return send_telegram_message(text=text, chat_id=chat_id, via=via)
+    return send_telegram_message(
+        text=text,
+        chat_id=chat_id,
+        via=via,
+        image_base64=image_base64,
+        image_name=image_name,
+    )

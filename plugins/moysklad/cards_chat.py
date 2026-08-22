@@ -74,6 +74,69 @@ def build_context_prompt(
     return "\n".join(parts)
 
 
+_CARDS_ADVISOR_SYSTEM = """Ты — консультант по карточкам маркетплейсов цветочной студии «Вереск»
+(Flowwow, Яндекс Маркет). Ниже — реальные карточки магазина: название, цена,
+статус (активна/скрыта/архив), число фото, контент-рейтинг Яндекса (0–100),
+и на каких площадках карточка размещена.
+
+Твоя зона: размещение, продвижение, исправление и добавление карточек.
+- Рекомендации давай ОТДЕЛЬНО для каждой площадки — они работают по-разному.
+  Flowwow: витрина магазина, позиция зависит от качества фото, полноты
+  описания, цены к рынку, скорости подтверждения. Яндекс Маркет: контент-
+  рейтинг напрямую влияет на показы — смотри на карточки с низким рейтингом.
+- Указывай конкретные карточки из данных (по названию), что именно исправить:
+  мало фото, слабое описание, нет на второй площадке, скрыта без причины.
+- Карточка, размещённая только на одной площадке, — кандидат на добавление
+  на вторую; перечисляй такие.
+- Не выдумывай данных, которых нет; если для ответа нужны цифры продаж или
+  позиций — скажи, какие именно.
+- Отвечай по-русски, кратко, списками.
+"""
+
+
+def build_cards_context(combined: list[dict[str, Any]], *, cap: int = 120) -> str:
+    """Compact per-card lines for the advisor prompt."""
+    lines: list[str] = []
+    for row in (combined or [])[:cap]:
+        listings = row.get("listings") or {}
+        bits: list[str] = []
+        for mp, product in sorted(listings.items()):
+            rating = product.get("content_rating")
+            bits.append(
+                f"{mp}: {_card_status_ru(product)}"
+                + (f", фото {product.get('images_count')}" if product.get("images_count") is not None else "")
+                + (f", цена {product.get('price')}" if product.get("price") else "")
+                + (f", рейтинг {rating}/100" if rating is not None else "")
+            )
+        lines.append(f"- «{row.get('name') or '—'}» [{' | '.join(bits)}]")
+    return "\n".join(lines)
+
+
+def _card_status_ru(product: dict[str, Any]) -> str:
+    if product.get("is_archived"):
+        return "архив"
+    return "активна" if product.get("is_active") else "скрыта"
+
+
+def cards_advisor_reply(
+    messages: list[dict[str, str]],
+    *,
+    combined: list[dict[str, Any]],
+    provider: str = "",
+    model: str = "",
+) -> dict[str, Any]:
+    """One chat turn of the placement/promotion advisor. ``{ok, reply}``."""
+    context = "Карточки магазина:\n" + (build_cards_context(combined) or "(пусто)")
+    return _chat_turn(
+        messages,
+        system=_CARDS_ADVISOR_SYSTEM,
+        context=context,
+        ack="Карточки загружены. Спрашивайте про размещение и продвижение.",
+        provider=provider,
+        model=model,
+    )
+
+
 def cards_chat_reply(
     messages: list[dict[str, str]],
     *,
@@ -82,14 +145,30 @@ def cards_chat_reply(
     provider: str = "",
     model: str = "",
 ) -> dict[str, Any]:
-    """One chat turn. Returns ``{ok, reply}``."""
+    """One chat turn of the report analyst (Дашборд). Returns ``{ok, reply}``."""
+    return _chat_turn(
+        messages,
+        system=_SYSTEM,
+        context=build_context_prompt(month_report, cards_summary),
+        ack="Принял данные. Задавайте вопросы по отчёту.",
+        provider=provider,
+        model=model,
+    )
+
+
+def _chat_turn(
+    messages: list[dict[str, str]],
+    *,
+    system: str,
+    context: str,
+    ack: str,
+    provider: str = "",
+    model: str = "",
+) -> dict[str, Any]:
     prompt_messages: list[dict[str, str]] = [
-        {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": build_context_prompt(month_report, cards_summary)},
-        {
-            "role": "assistant",
-            "content": "Принял данные. Задавайте вопросы по отчёту и карточкам.",
-        },
+        {"role": "system", "content": system},
+        {"role": "user", "content": context},
+        {"role": "assistant", "content": ack},
     ]
     for turn in (messages or [])[-16:]:
         role = str((turn or {}).get("role") or "").strip().lower()

@@ -453,7 +453,8 @@ def get_raw_envelope(key: str, *, fresh: bool = True) -> Optional[dict[str, Any]
 
 
 def dashboard_summary_key() -> str:
-    return f"moysklad:dashboard:summary:v1:{_account_fingerprint()}"
+    # v2: analytics counts all non-cancelled orders (not only «paid»).
+    return f"moysklad:dashboard:summary:v2:{_account_fingerprint()}"
 
 
 def get_dashboard_summary_cached(catalog_synced_at: float) -> Optional[dict[str, Any]]:

@@ -55,3 +55,25 @@ def test_chat_reply_empty_llm_is_error(monkeypatch) -> None:
     out = cards_chat_reply([{"role": "user", "content": "?"}], month_report={})
     assert out["ok"] is False
     assert out["error"] == "empty_llm_response"
+
+
+def test_cards_advisor_context_and_prompt(monkeypatch) -> None:
+    from plugins.moysklad.cards_chat import cards_advisor_reply
+
+    captured: dict = {}
+    _stub_llm(monkeypatch, "Добавьте «Пионы» на Яндекс Маркет.", captured)
+    combined = [
+        {
+            "name": "Пионы",
+            "marketplaces": ["flowwow"],
+            "listings": {"flowwow": {"is_active": True, "images_count": 2, "price": "8990.00"}},
+        }
+    ]
+    out = cards_advisor_reply(
+        [{"role": "user", "content": "Что улучшить?"}], combined=combined
+    )
+    assert out["ok"] is True
+    messages = captured["messages"]
+    assert "размещение" in messages[0]["content"].lower() or "продвижени" in messages[0]["content"].lower()
+    assert "Пионы" in messages[1]["content"]
+    assert "фото 2" in messages[1]["content"]

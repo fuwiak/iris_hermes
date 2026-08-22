@@ -142,6 +142,68 @@ def _yandex_section(limit: int) -> dict[str, Any]:
         return {"configured": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
+_NAME_NOISE_RE = None
+
+
+def _normalize_card_name(name: str) -> str:
+    """Fold a card title for cross-marketplace matching."""
+    global _NAME_NOISE_RE
+    import re
+
+    if _NAME_NOISE_RE is None:
+        _NAME_NOISE_RE = re.compile(r"[^0-9a-zа-яё]+", re.IGNORECASE)
+    return " ".join(_NAME_NOISE_RE.sub(" ", (name or "").lower()).split())
+
+
+def _card_status(product: dict[str, Any]) -> str:
+    if product.get("is_archived"):
+        return "archived"
+    return "active" if product.get("is_active") else "hidden"
+
+
+def build_combined_cards(
+    flowwow: dict[str, Any],
+    yandex: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """One row per card; a card present on both marketplaces carries both.
+
+    Matching key: normalized name (lowercase, punctuation/emoji stripped).
+    Per-marketplace details stay under ``listings[marketplace]``.
+    """
+    combined: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def _add(marketplace: str, product: dict[str, Any]) -> None:
+        key = _normalize_card_name(str(product.get("name") or ""))
+        if not key:
+            key = f"{marketplace}:{product.get('offer_id') or product.get('product_id')}"
+        row = combined.get(key)
+        if row is None:
+            row = {
+                "name": product.get("name") or "",
+                "image": product.get("image") or "",
+                "marketplaces": [],
+                "statuses": [],
+                "listings": {},
+            }
+            combined[key] = row
+            order.append(key)
+        if not row["image"] and product.get("image"):
+            row["image"] = product["image"]
+        if marketplace not in row["marketplaces"]:
+            row["marketplaces"].append(marketplace)
+        status = _card_status(product)
+        if status not in row["statuses"]:
+            row["statuses"].append(status)
+        row["listings"][marketplace] = product
+
+    for product in flowwow.get("products") or []:
+        _add("flowwow", product)
+    for product in yandex.get("products") or []:
+        _add("yandex_market", product)
+    return [combined[key] for key in order]
+
+
 def cached_payload() -> dict[str, Any] | None:
     """Last built payload without triggering marketplace calls."""
     with _cache_lock:
@@ -173,9 +235,12 @@ def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[
                 _cache["payload"] = durable
                 _cache["key"] = key
             return durable
+    flowwow = _flowwow_section(limit)
+    yandex = _yandex_section(limit)
     payload = {
-        "flowwow": _flowwow_section(limit),
-        "yandex": _yandex_section(limit),
+        "flowwow": flowwow,
+        "yandex": yandex,
+        "combined": build_combined_cards(flowwow, yandex),
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     with _cache_lock:

@@ -1,14 +1,17 @@
 /**
- * «Карточки» tab — marketplace product cards in one place.
+ * «Карточки» tab — one list of ALL marketplace cards with filters.
  *
- * Reads GET /cards/marketplaces (moysklad plugin API): Flowwow is live,
- * Yandex Market shows a "needs token" placeholder until the Api-Key is
- * configured. First step of the card-autopublish flow (call 21.08.2026).
- * Styles reuse existing ms-* classes + local inline grid so this tab does
- * not touch moysklad.css.
+ * GET /cards/marketplaces returns per-marketplace sections plus `combined`:
+ * one row per card, matched across marketplaces by normalized name — a card
+ * living on both Flowwow and Яндекс Маркет carries both badges. Filters:
+ * marketplace (incl. «на обоих») and card status. Click opens a slide-out
+ * drawer with per-marketplace details; «Чат по карточкам» is a placement /
+ * promotion advisor (POST /cards/chat). The report analyst chat lives on the
+ * Дашборд page (ReportChatDrawer, POST /dashboard/chat).
+ * Styles reuse ms-* classes + inline styles so this tab avoids moysklad.css.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type CardsRest = <T>(
   path: string,
@@ -33,29 +36,35 @@ type MarketplaceProduct = {
   content_rating?: number | null
 }
 
-type FlowwowSection = {
+type SectionInfo = {
   configured?: boolean
   note?: string
   error?: string
   shop?: { shop_id?: number; name?: string; address?: string }
-  products?: MarketplaceProduct[]
-  total?: number
-}
-
-type YandexSection = {
-  configured?: boolean
-  note?: string
-  error?: string
   business?: { id?: number; name?: string }
   products?: MarketplaceProduct[]
   total?: number | null
 }
 
+type CombinedCard = {
+  name?: string
+  image?: string
+  marketplaces?: string[]
+  statuses?: string[]
+  listings?: Record<string, MarketplaceProduct>
+}
+
 type CardsPayload = {
   ok?: boolean
-  flowwow?: FlowwowSection
-  yandex?: YandexSection
+  flowwow?: SectionInfo
+  yandex?: SectionInfo
+  combined?: CombinedCard[]
   generated_at?: string
+}
+
+const MP_LABELS: Record<string, string> = {
+  flowwow: 'Flowwow',
+  yandex_market: 'Яндекс Маркет'
 }
 
 const GRID_STYLE: React.CSSProperties = {
@@ -71,7 +80,8 @@ const CARD_STYLE: React.CSSProperties = {
   overflow: 'hidden',
   display: 'flex',
   flexDirection: 'column',
-  minHeight: 240
+  minHeight: 240,
+  cursor: 'pointer'
 }
 
 const THUMB_STYLE: React.CSSProperties = {
@@ -80,6 +90,13 @@ const THUMB_STYLE: React.CSSProperties = {
   objectFit: 'cover',
   display: 'block',
   background: 'rgba(128,128,128,.12)'
+}
+
+const BADGE_STYLE: React.CSSProperties = {
+  fontSize: 11,
+  padding: '1px 7px',
+  borderRadius: 9,
+  border: '1px solid var(--hermes-border, rgba(128,128,128,.35))'
 }
 
 const OVERLAY_STYLE: React.CSSProperties = {
@@ -94,7 +111,7 @@ const DRAWER_STYLE: React.CSSProperties = {
   top: 0,
   right: 0,
   bottom: 0,
-  width: 'min(440px, 92vw)',
+  width: 'min(460px, 92vw)',
   zIndex: 41,
   display: 'flex',
   flexDirection: 'column',
@@ -114,90 +131,91 @@ function priceLabel(p: MarketplaceProduct): string {
   return discount > 0 ? `${base} · скидка ${discount}%` : base
 }
 
-function ProductCard({
-  product,
-  onSelect
-}: {
-  product: MarketplaceProduct
-  onSelect?: (product: MarketplaceProduct) => void
-}) {
+function statusLabel(p: MarketplaceProduct): string {
+  return p.is_archived ? 'в архиве' : p.is_active ? 'активна' : 'скрыта'
+}
+
+function CombinedCardTile({ card, onSelect }: { card: CombinedCard; onSelect: (card: CombinedCard) => void }) {
+  const listings = card.listings || {}
   return (
-    <div
-      onClick={() => onSelect?.(product)}
-      role={onSelect ? 'button' : undefined}
-      style={{ ...CARD_STYLE, cursor: onSelect ? 'pointer' : undefined }}
-    >
-      {product.image ? (
-        <img alt={product.name || ''} loading="lazy" src={product.image} style={THUMB_STYLE} />
+    <div onClick={() => onSelect(card)} role="button" style={CARD_STYLE}>
+      {card.image ? (
+        <img alt={card.name || ''} loading="lazy" src={card.image} style={THUMB_STYLE} />
       ) : (
         <div style={{ ...THUMB_STYLE, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="ms-muted">нет фото</span>
         </div>
       )}
-      <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-        <strong style={{ fontSize: 13, lineHeight: 1.3 }}>
-          {product.url ? (
-            <a href={product.url} onClick={ev => ev.stopPropagation()} rel="noreferrer" target="_blank">
-              {product.name || '—'}
-            </a>
-          ) : (
-            product.name || '—'
-          )}
-        </strong>
-        <span>{priceLabel(product)}</span>
-        <span className="ms-muted" style={{ fontSize: 12 }}>
-          {product.is_archived ? 'в архиве' : product.is_active ? 'активна' : 'скрыта'}
-          {product.images_count ? ` · фото: ${product.images_count}` : ''}
-          {product.content_rating != null ? ` · контент: ${product.content_rating}/100` : ''}
-        </span>
+      <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {(card.marketplaces || []).map(mp => (
+            <span key={mp} style={BADGE_STYLE}>
+              {MP_LABELS[mp] || mp}
+            </span>
+          ))}
+        </div>
+        <strong style={{ fontSize: 13, lineHeight: 1.3 }}>{card.name || '—'}</strong>
+        {Object.entries(listings).map(([mp, product]) => (
+          <span className="ms-muted" key={mp} style={{ fontSize: 12 }}>
+            {MP_LABELS[mp] || mp}: {priceLabel(product)} · {statusLabel(product)}
+            {product.content_rating != null ? ` · ${product.content_rating}/100` : ''}
+          </span>
+        ))}
       </div>
     </div>
   )
 }
 
-function ProductDrawer({
-  item,
-  onClose
-}: {
-  item: { product: MarketplaceProduct; marketplace: string }
-  onClose: () => void
-}) {
-  const { product, marketplace } = item
+function CombinedDrawer({ card, onClose }: { card: CombinedCard; onClose: () => void }) {
+  const listings = Object.entries(card.listings || {})
+  const first = listings[0]?.[1]
   return (
     <>
       <div onClick={onClose} style={OVERLAY_STYLE} />
       <aside style={DRAWER_STYLE}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
-          <strong style={{ flex: 1 }}>{marketplace}</strong>
+          <strong style={{ flex: 1 }}>{(card.marketplaces || []).map(mp => MP_LABELS[mp] || mp).join(' + ')}</strong>
           <button className="ms-btn" onClick={onClose} type="button">
             Закрыть
           </button>
         </div>
-        {product.image ? (
-          <img alt={product.name || ''} src={product.image} style={{ ...THUMB_STYLE, height: 260 }} />
+        {card.image ? (
+          <img alt={card.name || ''} src={card.image} style={{ ...THUMB_STYLE, height: 260 }} />
         ) : null}
-        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <h3 style={{ margin: 0 }}>{product.name || '—'}</h3>
-          <span>{priceLabel(product)}</span>
-          <span className="ms-muted">
-            {product.is_archived ? 'в архиве' : product.is_active ? 'активна' : 'скрыта'}
-            {product.images_count ? ` · фото: ${product.images_count}` : ''}
-            {product.content_rating != null ? ` · контент: ${product.content_rating}/100` : ''}
-            {product.card_status ? ` · ${product.card_status}` : ''}
-          </span>
-          {product.offer_id ? <span className="ms-muted">offerId: {product.offer_id}</span> : null}
-          {product.url ? (
-            <a href={product.url} rel="noreferrer" target="_blank">
-              Открыть на площадке ↗
-            </a>
-          ) : null}
-          {product.description || product.description_preview ? (
+        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <h3 style={{ margin: 0 }}>{card.name || '—'}</h3>
+          {listings.map(([mp, product]) => (
+            <div
+              key={mp}
+              style={{
+                border: '1px solid var(--hermes-border, rgba(128,128,128,.3))',
+                borderRadius: 8,
+                padding: '8px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4
+              }}
+            >
+              <strong>{MP_LABELS[mp] || mp}</strong>
+              <span>{priceLabel(product)}</span>
+              <span className="ms-muted" style={{ fontSize: 12 }}>
+                {statusLabel(product)}
+                {product.images_count ? ` · фото: ${product.images_count}` : ''}
+                {product.content_rating != null ? ` · контент: ${product.content_rating}/100` : ''}
+                {product.offer_id ? ` · ${product.offer_id}` : ''}
+              </span>
+              {product.url ? (
+                <a href={product.url} rel="noreferrer" target="_blank">
+                  Открыть на площадке ↗
+                </a>
+              ) : null}
+            </div>
+          ))}
+          {first?.description || first?.description_preview ? (
             <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.45, margin: 0 }}>
-              {product.description || product.description_preview}
+              {first.description || first.description_preview}
             </p>
-          ) : (
-            <p className="ms-muted">Описания нет.</p>
-          )}
+          ) : null}
         </div>
       </aside>
     </>
@@ -206,7 +224,21 @@ function ProductDrawer({
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
-function ChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest }) {
+export function ChatDrawer({
+  endpoint,
+  example,
+  hint,
+  onClose,
+  rest,
+  title
+}: {
+  endpoint: string
+  example: string
+  hint: string
+  onClose: () => void
+  rest: CardsRest
+  title: string
+}) {
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -224,7 +256,7 @@ function ChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest })
     setBusy(true)
     setError('')
     try {
-      const out = await rest<{ reply?: string }>('/cards/chat', {
+      const out = await rest<{ reply?: string }>(endpoint, {
         method: 'POST',
         body: { messages: next },
         timeoutMs: 120_000
@@ -235,29 +267,23 @@ function ChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest })
     } finally {
       setBusy(false)
     }
-  }, [busy, draft, rest, turns])
+  }, [busy, draft, endpoint, rest, turns])
 
   return (
     <>
       <div onClick={onClose} style={OVERLAY_STYLE} />
       <aside style={{ ...DRAWER_STYLE, width: 'min(520px, 94vw)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
-          <strong style={{ flex: 1 }}>Чат-аналитик отчёта</strong>
+          <strong style={{ flex: 1 }}>{title}</strong>
           <button className="ms-btn" onClick={onClose} type="button">
             Закрыть
           </button>
         </div>
         <p className="ms-muted" style={{ padding: '0 14px', margin: 0 }}>
-          Считает только из данных МоегоСклада. Попросите построить отчёт за
-          нужные месяцы — если цифр не хватает, он скажет каких; пришлите их
-          сообщением, и он пересчитает.
+          {hint}
         </p>
         <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {turns.length === 0 ? (
-            <p className="ms-muted">
-              Например: «Построй такой же отчёт по такой же форме за июль и август».
-            </p>
-          ) : null}
+          {turns.length === 0 ? <p className="ms-muted">Например: «{example}»</p> : null}
           {turns.map((turn, idx) => (
             <div
               key={idx}
@@ -287,7 +313,7 @@ function ChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest })
                 void send()
               }
             }}
-            placeholder="Вопрос по отчёту…"
+            placeholder="Вопрос…"
             rows={2}
             style={{ flex: 1, resize: 'vertical', font: 'inherit', padding: 8 }}
             value={draft}
@@ -301,81 +327,16 @@ function ChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest })
   )
 }
 
-function FlowwowBlock({
-  section,
-  onSelect
-}: {
-  section?: FlowwowSection
-  onSelect?: (product: MarketplaceProduct) => void
-}) {
-  if (!section) {
-    return null
-  }
-
-  if (!section.configured) {
-    return <p className="ms-muted">{section.note || 'Flowwow не настроен.'}</p>
-  }
-
-  if (section.error) {
-    return <p className="ms-error">Flowwow: {section.error}</p>
-  }
-
-  const products = section.products || []
+export function ReportChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest }) {
   return (
-    <>
-      <p className="ms-muted">
-        Магазин «{section.shop?.name || '—'}» ({section.shop?.address || '—'}) · карточек всего:{' '}
-        {section.total ?? products.length}
-      </p>
-      {products.length ? (
-        <div style={GRID_STYLE}>
-          {products.map(product => (
-            <ProductCard key={String(product.product_id ?? product.name)} onSelect={onSelect} product={product} />
-          ))}
-        </div>
-      ) : (
-        <p className="ms-muted">Карточек нет.</p>
-      )}
-    </>
-  )
-}
-
-function YandexBlock({
-  section,
-  onSelect
-}: {
-  section?: YandexSection
-  onSelect?: (product: MarketplaceProduct) => void
-}) {
-  if (!section) {
-    return null
-  }
-
-  if (!section.configured) {
-    return <p className="ms-muted">{section.note || 'Нет доступа — нужен API-токен.'}</p>
-  }
-
-  if (section.error) {
-    return <p className="ms-error">Яндекс Маркет: {section.error}</p>
-  }
-
-  const products = section.products || []
-  return (
-    <>
-      <p className="ms-muted">
-        Бизнес «{section.business?.name || '—'}» · показано карточек: {products.length}
-        {' · контент-рейтинг из кабинета (0–100)'}
-      </p>
-      {products.length ? (
-        <div style={GRID_STYLE}>
-          {products.map(product => (
-            <ProductCard key={String(product.offer_id ?? product.name)} onSelect={onSelect} product={product} />
-          ))}
-        </div>
-      ) : (
-        <p className="ms-muted">Карточек нет.</p>
-      )}
-    </>
+    <ChatDrawer
+      endpoint="/dashboard/chat"
+      example="Построй такой же отчёт по такой же форме за июль и август"
+      hint="Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает."
+      onClose={onClose}
+      rest={rest}
+      title="Чат-аналитик отчёта"
+    />
   )
 }
 
@@ -383,8 +344,10 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const [data, setData] = useState<CardsPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [selected, setSelected] = useState<{ product: MarketplaceProduct; marketplace: string } | null>(null)
+  const [selected, setSelected] = useState<CombinedCard | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [mpFilter, setMpFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const load = useCallback(
     async (force: boolean) => {
@@ -409,46 +372,102 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     void load(false)
   }, [load])
 
+  const combined = useMemo(() => data?.combined || [], [data])
+  const filtered = useMemo(
+    () =>
+      combined.filter(card => {
+        const mps = card.marketplaces || []
+        if (mpFilter === 'both' && mps.length < 2) {
+          return false
+        }
+
+        if (mpFilter !== 'all' && mpFilter !== 'both' && !mps.includes(mpFilter)) {
+          return false
+        }
+
+        return statusFilter === 'all' || (card.statuses || []).includes(statusFilter)
+      }),
+    [combined, mpFilter, statusFilter]
+  )
+
+  const summaryBits: string[] = []
+  if (data?.flowwow?.configured && !data.flowwow.error) {
+    summaryBits.push(`Flowwow «${data.flowwow.shop?.name || '—'}»: ${data.flowwow.total ?? 0}`)
+  }
+  if (data?.yandex?.configured && !data.yandex.error) {
+    summaryBits.push(`Яндекс «${data.yandex.business?.name || '—'}»: ${data.yandex.total ?? 0}`)
+  }
+  const problems = [data?.flowwow, data?.yandex]
+    .map(section => section?.error || (!section?.configured ? section?.note : ''))
+    .filter(Boolean)
+
+  const selectStyle: React.CSSProperties = { font: 'inherit', padding: '4px 8px' }
   return (
     <div className="ms-page ms-cards-page">
       <div className="ms-page-head">
         <h1>Карточки</h1>
         <button className="ms-btn" onClick={() => setChatOpen(true)} type="button">
-          Чат-аналитик
+          Чат по карточкам
         </button>
         <button className="ms-btn" disabled={loading} onClick={() => void load(true)} type="button">
           {loading ? 'Обновляем…' : 'Обновить'}
         </button>
       </div>
       <p className="ms-muted">
-        Карточки товаров на маркетплейсах. Дальше здесь появится создание карточки из букета
-        МоегоСклада и автопубликация на площадки.
+        Все карточки обеих площадок одним списком; одинаковая карточка на двух маркетплейсах помечена
+        обоими. {summaryBits.join(' · ')}
       </p>
+      {problems.map((text, idx) => (
+        <p className="ms-muted" key={idx}>
+          {text}
+        </p>
+      ))}
       {error ? <p className="ms-error">{error}</p> : null}
-      <section className="ms-card-section">
-        <h2>Flowwow</h2>
-        {loading && !data ? (
-          <p className="ms-muted">Загружаем…</p>
-        ) : (
-          <FlowwowBlock
-            onSelect={product => setSelected({ product, marketplace: 'Flowwow' })}
-            section={data?.flowwow}
-          />
-        )}
-      </section>
-      <section className="ms-card-section">
-        <h2>Яндекс Маркет</h2>
-        {loading && !data ? (
-          <p className="ms-muted">Загружаем…</p>
-        ) : (
-          <YandexBlock
-            onSelect={product => setSelected({ product, marketplace: 'Яндекс Маркет' })}
-            section={data?.yandex}
-          />
-        )}
-      </section>
-      {selected ? <ProductDrawer item={selected} onClose={() => setSelected(null)} /> : null}
-      {chatOpen ? <ChatDrawer onClose={() => setChatOpen(false)} rest={rest} /> : null}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="ms-muted">
+          Маркетплейс{' '}
+          <select onChange={ev => setMpFilter(ev.target.value)} style={selectStyle} value={mpFilter}>
+            <option value="all">Все</option>
+            <option value="flowwow">Flowwow</option>
+            <option value="yandex_market">Яндекс Маркет</option>
+            <option value="both">На обоих</option>
+          </select>
+        </label>
+        <label className="ms-muted">
+          Статус{' '}
+          <select onChange={ev => setStatusFilter(ev.target.value)} style={selectStyle} value={statusFilter}>
+            <option value="all">Все</option>
+            <option value="active">Активна</option>
+            <option value="hidden">Скрыта</option>
+            <option value="archived">В архиве</option>
+          </select>
+        </label>
+        <span className="ms-muted">
+          {filtered.length} из {combined.length}
+        </span>
+      </div>
+      {loading && !data ? (
+        <p className="ms-muted">Загружаем…</p>
+      ) : filtered.length ? (
+        <div style={GRID_STYLE}>
+          {filtered.map((card, idx) => (
+            <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
+          ))}
+        </div>
+      ) : (
+        <p className="ms-muted">Карточек по выбранным фильтрам нет.</p>
+      )}
+      {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+      {chatOpen ? (
+        <ChatDrawer
+          endpoint="/cards/chat"
+          example="Какие карточки стоит добавить на вторую площадку и что исправить в слабых?"
+          hint="Консультант по размещению и продвижению: смотрит статусы, фото и контент-рейтинг ваших карточек и говорит, что исправить или добавить — отдельно для каждой площадки."
+          onClose={() => setChatOpen(false)}
+          rest={rest}
+          title="Чат по карточкам"
+        />
+      ) : null}
     </div>
   )
 }

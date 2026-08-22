@@ -13,6 +13,7 @@ Does not touch getUpdates / webhook — gateway Telegram owns inbound.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, Optional
@@ -67,6 +68,7 @@ def telegram_api(
     token: str | None = None,
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
     timeout: float = 30.0,
 ) -> dict[str, Any]:
     """Call Bot API method. Returns parsed JSON ``{ok, ...}``; never raises for API errors."""
@@ -87,7 +89,15 @@ def telegram_api(
     url = f"{_API}/bot{token}/{method}"
     try:
         with httpx.Client(timeout=timeout) as client:
-            if json_body is not None:
+            if files:
+                # Multipart upload (sendPhoto etc.): scalars go as form fields.
+                form = {
+                    k: v if isinstance(v, str) else json.dumps(v)
+                    for k, v in ((json_body or params) or {}).items()
+                    if v is not None
+                }
+                resp = client.post(url, data=form, files=files)
+            elif json_body is not None:
                 resp = client.post(url, json=json_body)
             else:
                 resp = client.post(url, params=params or {})

@@ -32,7 +32,7 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
-import { CardsPage } from './cards-tab'
+import { CardsPage, ReportChatDrawer } from './cards-tab'
 import {
   audienceRetryDelayMs,
   clientSalesChannelTokens,
@@ -5851,6 +5851,7 @@ function CampaignsPage() {
 
   // ── Массовая рассылка: background job + per-recipient status ──
   const [massText, setMassText] = useState('')
+  const [massImage, setMassImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [massIds, setMassIds] = useState<string[]>([])
   const [massPicking, setMassPicking] = useState(false)
   const [massStarting, setMassStarting] = useState(false)
@@ -6154,7 +6155,9 @@ function CampaignsPage() {
           client_ids: massIds,
           channel,
           deliver: true,
-          stop_on_error: false
+          stop_on_error: false,
+          image_base64: massImage?.dataUrl || '',
+          image_name: massImage?.name || 'photo.jpg'
         }
       })
       if (data.job?.id) {
@@ -7465,6 +7468,52 @@ function CampaignsPage() {
             value={massText}
           />
         </label>
+        <div className="ms-compose-actions">
+          <label className="ms-btn" style={{ cursor: 'pointer' }}>
+            {massImage ? '🖼 Заменить картинку' : '🖼 Прикрепить картинку'}
+            <input
+              accept="image/*"
+              onChange={ev => {
+                const file = ev.target.files?.[0]
+
+                ev.target.value = ''
+
+                if (!file) {
+                  return
+                }
+
+                if (file.size > 9 * 1024 * 1024) {
+                  setError('Картинка больше 9 МБ — Telegram не примет.')
+
+                  return
+                }
+
+                const reader = new FileReader()
+
+                reader.onload = () =>
+                  setMassImage({ name: file.name, dataUrl: String(reader.result || '') })
+                reader.readAsDataURL(file)
+              }}
+              style={{ display: 'none' }}
+              type="file"
+            />
+          </label>
+          {massImage ? (
+            <>
+              <img
+                alt={massImage.name}
+                src={massImage.dataUrl}
+                style={{ height: 40, borderRadius: 6, objectFit: 'cover' }}
+              />
+              <span className="ms-muted">{massImage.name}</span>
+              <button className="ms-link-btn" onClick={() => setMassImage(null)} type="button">
+                убрать
+              </button>
+            </>
+          ) : (
+            <span className="ms-muted">Фото уйдёт каждому получателю, текст — подписью.</span>
+          )}
+        </div>
         <div className="ms-compose-actions">
           {offer.trim() ? (
             <button
@@ -8899,6 +8948,7 @@ function AiPlaygroundLegacyRoute() {
 
 function DashboardPage() {
   const call = useMsRest()
+  const [reportChatOpen, setReportChatOpen] = useState(false)
   const [data, setData] = useState<{
     clients?: Record<string, number>
     sends?: {
@@ -9024,6 +9074,9 @@ function DashboardPage() {
     <div className="ms-page ms-dashboard-page">
       <div className="ms-page-head">
         <h1>Дашборд</h1>
+        <button className="ms-btn" onClick={() => setReportChatOpen(true)} type="button">
+          Чат-аналитик
+        </button>
         <button className="ms-btn" disabled={loading} onClick={() => void load()} type="button">
           {loading ? 'Обновляем…' : 'Обновить'}
         </button>
@@ -9031,7 +9084,7 @@ function DashboardPage() {
       <p className="ms-muted">
         Формулы с листов Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау»: оборот, выручка
         после комиссии, маржа, ср. чек, прирост к прошлому периоду. Считаем по
-        оплаченным заказам МойСклад
+        заказам МойСклад без отменённых
         {data?.analytics?.order_count != null ? ` (${data.analytics.order_count})` : ''}.
       </p>
       {error ? <p className="ms-error">{error}</p> : null}
@@ -9046,6 +9099,9 @@ function DashboardPage() {
         }}
         overview={overview}
       />
+      {reportChatOpen ? (
+        <ReportChatDrawer onClose={() => setReportChatOpen(false)} rest={(path, opts) => call(path, opts)} />
+      ) : null}
     </div>
   )
 }

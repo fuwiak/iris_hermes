@@ -18,6 +18,7 @@ Formulas (do not re-derive):
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Optional
@@ -237,10 +238,27 @@ def _order_channel(order: dict[str, Any]) -> str:
     return str(order.get("channel") or order.get("Канал продаж") or "").strip()
 
 
+def analytics_paid_only() -> bool:
+    """Count only explicitly paid orders instead of all non-cancelled ones.
+
+    Off by default: the client's Excel counts every completed order, while
+    marketplace orders in MoySklad often carry no per-order payment stamp
+    (payout arrives as one transfer) — filtering on «paid» silently dropped
+    them and every dashboard figure came out short of the reference report.
+    """
+    raw = (os.getenv("MOYSKLAD_ANALYTICS_PAID_ONLY") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def iter_paid_orders(
     rows: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Flatten catalog ``_orders_context`` into paid analytic facts (deduped)."""
+    """Flatten catalog ``_orders_context`` into analytic facts (deduped).
+
+    Cancelled orders are always excluded; unpaid/unknown are counted unless
+    ``MOYSKLAD_ANALYTICS_PAID_ONLY`` restores the strict old behavior.
+    """
+    paid_only = analytics_paid_only()
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for row in rows or []:
@@ -253,7 +271,10 @@ def iter_paid_orders(
         for order in ctx:
             if not isinstance(order, dict):
                 continue
-            if classify_order_payment(order) != "paid":
+            payment = classify_order_payment(order)
+            if payment == "cancelled":
+                continue
+            if paid_only and payment != "paid":
                 continue
             amount = _order_amount(order)
             if amount <= 0:

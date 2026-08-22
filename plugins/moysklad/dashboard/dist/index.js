@@ -4657,6 +4657,7 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [tab, setTab] = useState("charts");
+    const [reportChatOpen, setReportChatOpen] = useState(false);
 
     function load() {
       setLoading(true);
@@ -4780,6 +4781,17 @@
         h("h1", { className: "ms-clients-title" }, "Дашборд"),
         h(
           "button",
+          {
+            type: "button",
+            className: "ms-btn",
+            onClick: function () {
+              setReportChatOpen(true);
+            },
+          },
+          "Чат-аналитик",
+        ),
+        h(
+          "button",
           { type: "button", className: "ms-btn", disabled: loading, onClick: load },
           loading ? "Обновляем…" : "Обновить",
         ),
@@ -4787,8 +4799,19 @@
       h(
         "p",
         { className: "ms-muted" },
-        "Формулы Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау» по оплаченным заказам МойСклад.",
+        "Формулы Excel «По дням / НЕДЕЛЯ / МЕСЯЦ / Флау» по заказам МойСклад без отменённых.",
       ),
+      reportChatOpen
+        ? h(MsChatDrawer, {
+            endpoint: "/dashboard/chat",
+            title: "Чат-аналитик отчёта",
+            hint: "Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает.",
+            example: "Построй такой же отчёт по такой же форме за июль и август",
+            onClose: function () {
+              setReportChatOpen(false);
+            },
+          })
+        : null,
       error ? h("p", { className: "ms-error" }, error) : null,
       data && data.cache_backend
         ? h(
@@ -4851,68 +4874,64 @@
     );
   }
 
-  function CardsProductCard({ product, onSelect }) {
-    var status = product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
-    var price = "—";
-    if (product.price) {
-      price = money(product.price);
-      var discount = Number(product.discount || 0);
-      if (discount > 0) price += " · скидка " + discount + "%";
-    }
+  var MP_LABELS = { flowwow: "Flowwow", yandex_market: "Яндекс Маркет" };
+
+  function cardStatusRu(product) {
+    return product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
+  }
+
+  function cardPriceRu(product) {
+    if (!product.price) return "—";
+    var base = money(product.price);
+    var discount = Number(product.discount || 0);
+    return discount > 0 ? base + " · скидка " + discount + "%" : base;
+  }
+
+  function CombinedCardTile({ card, onSelect }) {
+    var listings = card.listings || {};
     return h(
       "div",
       {
-        className: "ms-mp-card" + (onSelect ? " is-clickable" : ""),
-        onClick: onSelect
-          ? function () {
-              onSelect(product);
-            }
-          : undefined,
+        className: "ms-mp-card is-clickable",
+        onClick: function () {
+          onSelect(card);
+        },
       },
-      product.image
-        ? h("img", {
-            className: "ms-mp-card-img",
-            src: product.image,
-            alt: product.name || "",
-            loading: "lazy",
-          })
+      card.image
+        ? h("img", { className: "ms-mp-card-img", src: card.image, alt: card.name || "", loading: "lazy" })
         : h("div", { className: "ms-mp-card-img is-empty" }, "нет фото"),
       h(
         "div",
         { className: "ms-mp-card-body" },
         h(
-          "strong",
-          null,
-          product.url
-            ? h(
-                "a",
-                {
-                  href: product.url,
-                  target: "_blank",
-                  rel: "noreferrer",
-                  onClick: function (ev) {
-                    ev.stopPropagation();
-                  },
-                },
-                product.name || "—",
-              )
-            : product.name || "—",
+          "div",
+          { className: "ms-mp-badges" },
+          (card.marketplaces || []).map(function (mp) {
+            return h("span", { key: mp, className: "ms-mp-badge" }, MP_LABELS[mp] || mp);
+          }),
         ),
-        h("span", null, price),
-        h(
-          "span",
-          { className: "ms-muted" },
-          status +
-            (product.images_count ? " · фото: " + product.images_count : "") +
-            (product.content_rating != null ? " · контент: " + product.content_rating + "/100" : ""),
-        ),
+        h("strong", null, card.name || "—"),
+        Object.keys(listings).map(function (mp) {
+          var p = listings[mp];
+          return h(
+            "span",
+            { key: mp, className: "ms-muted" },
+            (MP_LABELS[mp] || mp) +
+              ": " +
+              cardPriceRu(p) +
+              " · " +
+              cardStatusRu(p) +
+              (p.content_rating != null ? " · " + p.content_rating + "/100" : ""),
+          );
+        }),
       ),
     );
   }
 
-  function CardsProductDrawer({ item, onClose }) {
-    var product = item.product;
-    var status = product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
+  function CombinedDrawer({ card, onClose }) {
+    var listings = card.listings || {};
+    var keys = Object.keys(listings);
+    var first = keys.length ? listings[keys[0]] : null;
     return h(
       React.Fragment,
       null,
@@ -4923,39 +4942,51 @@
         h(
           "div",
           { className: "ms-drawer-head" },
-          h("strong", null, item.marketplace),
+          h(
+            "strong",
+            null,
+            (card.marketplaces || [])
+              .map(function (mp) {
+                return MP_LABELS[mp] || mp;
+              })
+              .join(" + "),
+          ),
           h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
         ),
-        product.image
-          ? h("img", { className: "ms-drawer-img", src: product.image, alt: product.name || "" })
-          : null,
+        card.image ? h("img", { className: "ms-drawer-img", src: card.image, alt: card.name || "" }) : null,
         h(
           "div",
           { className: "ms-drawer-body" },
-          h("h3", null, product.name || "—"),
-          h(
-            "p",
-            { className: "ms-muted" },
-            status +
-              (product.images_count ? " · фото: " + product.images_count : "") +
-              (product.content_rating != null ? " · контент: " + product.content_rating + "/100" : "") +
-              (product.card_status ? " · " + product.card_status : ""),
-          ),
-          product.offer_id ? h("p", { className: "ms-muted" }, "offerId: " + product.offer_id) : null,
-          product.url
-            ? h("p", null, h("a", { href: product.url, target: "_blank", rel: "noreferrer" }, "Открыть на площадке ↗"))
+          h("h3", null, card.name || "—"),
+          keys.map(function (mp) {
+            var p = listings[mp];
+            return h(
+              "div",
+              { key: mp, className: "ms-mp-listing" },
+              h("strong", null, MP_LABELS[mp] || mp),
+              h("span", null, cardPriceRu(p)),
+              h(
+                "span",
+                { className: "ms-muted" },
+                cardStatusRu(p) +
+                  (p.images_count ? " · фото: " + p.images_count : "") +
+                  (p.content_rating != null ? " · контент: " + p.content_rating + "/100" : "") +
+                  (p.offer_id ? " · " + p.offer_id : ""),
+              ),
+              p.url
+                ? h("p", null, h("a", { href: p.url, target: "_blank", rel: "noreferrer" }, "Открыть на площадке ↗"))
+                : null,
+            );
+          }),
+          first && (first.description || first.description_preview)
+            ? h("p", { className: "ms-drawer-desc" }, first.description || first.description_preview)
             : null,
-          h(
-            "p",
-            { className: "ms-drawer-desc" },
-            product.description || product.description_preview || "Описания нет.",
-          ),
         ),
       ),
     );
   }
 
-  function CardsChatDrawer({ onClose }) {
+  function MsChatDrawer({ onClose, endpoint, title, hint, example }) {
     const [turns, setTurns] = useState([]);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
@@ -4969,7 +5000,7 @@
       setDraft("");
       setBusy(true);
       setError("");
-      api("/cards/chat", {
+      api(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next }),
@@ -4995,30 +5026,16 @@
         h(
           "div",
           { className: "ms-drawer-head" },
-          h("strong", null, "Чат-аналитик отчёта"),
+          h("strong", null, title),
           h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
         ),
-        h(
-          "p",
-          { className: "ms-muted ms-drawer-hint" },
-          "Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает.",
-        ),
+        h("p", { className: "ms-muted ms-drawer-hint" }, hint),
         h(
           "div",
           { className: "ms-chat-drawer-log" },
-          turns.length === 0
-            ? h(
-                "p",
-                { className: "ms-muted" },
-                "Например: «Построй такой же отчёт по такой же форме за июль и август».",
-              )
-            : null,
+          turns.length === 0 ? h("p", { className: "ms-muted" }, "Например: «" + example + "»") : null,
           turns.map(function (turn, idx) {
-            return h(
-              "div",
-              { key: idx, className: "ms-chat-bubble is-" + turn.role },
-              turn.content,
-            );
+            return h("div", { key: idx, className: "ms-chat-bubble is-" + turn.role }, turn.content);
           }),
           busy ? h("p", { className: "ms-muted" }, "Считает…") : null,
           error ? h("p", { className: "ms-error" }, error) : null,
@@ -5029,7 +5046,7 @@
           h("textarea", {
             rows: 2,
             value: draft,
-            placeholder: "Вопрос по отчёту…",
+            placeholder: "Вопрос…",
             onChange: function (ev) {
               setDraft(ev.target.value);
             },
@@ -5056,6 +5073,8 @@
     const [error, setError] = useState("");
     const [selected, setSelected] = useState(null);
     const [chatOpen, setChatOpen] = useState(false);
+    const [mpFilter, setMpFilter] = useState("all");
+    const [statusFilter, setStatusFilter] = useState("all");
 
     function load(force) {
       setLoading(true);
@@ -5077,91 +5096,21 @@
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    var combined = (data && data.combined) || [];
+    var filtered = combined.filter(function (card) {
+      var mps = card.marketplaces || [];
+      if (mpFilter === "both" && mps.length < 2) return false;
+      if (mpFilter !== "all" && mpFilter !== "both" && mps.indexOf(mpFilter) === -1) return false;
+      return statusFilter === "all" || (card.statuses || []).indexOf(statusFilter) !== -1;
+    });
+
+    var summary = [];
     var fw = (data && data.flowwow) || null;
     var ya = (data && data.yandex) || null;
-    var products = (fw && fw.products) || [];
-    var yaProducts = (ya && ya.products) || [];
-
-    var yandexBody;
-    if (!ya) {
-      yandexBody = h("p", { className: "ms-muted" }, loading ? "Загружаем…" : "Нет данных.");
-    } else if (!ya.configured) {
-      yandexBody = h(
-        "p",
-        { className: "ms-muted" },
-        ya.note || "Нет доступа — нужен API-токен Яндекс Маркета.",
-      );
-    } else if (ya.error) {
-      yandexBody = h("p", { className: "ms-error" }, "Яндекс Маркет: " + ya.error);
-    } else {
-      yandexBody = h(
-        React.Fragment,
-        null,
-        h(
-          "p",
-          { className: "ms-muted" },
-          "Бизнес «" +
-            ((ya.business && ya.business.name) || "—") +
-            "» · показано карточек: " +
-            yaProducts.length +
-            " · контент-рейтинг из кабинета (0–100)",
-        ),
-        yaProducts.length
-          ? h(
-              "div",
-              { className: "ms-mp-grid" },
-              yaProducts.map(function (p) {
-                return h(CardsProductCard, {
-                  key: String(p.offer_id || p.name),
-                  product: p,
-                  onSelect: function (prod) {
-                    setSelected({ product: prod, marketplace: "Яндекс Маркет" });
-                  },
-                });
-              }),
-            )
-          : h("p", { className: "ms-muted" }, "Карточек нет."),
-      );
-    }
-
-    var flowwowBody;
-    if (!fw) {
-      flowwowBody = h("p", { className: "ms-muted" }, loading ? "Загружаем…" : "Нет данных.");
-    } else if (!fw.configured) {
-      flowwowBody = h("p", { className: "ms-muted" }, fw.note || "Flowwow не настроен.");
-    } else if (fw.error) {
-      flowwowBody = h("p", { className: "ms-error" }, "Flowwow: " + fw.error);
-    } else {
-      flowwowBody = h(
-        React.Fragment,
-        null,
-        h(
-          "p",
-          { className: "ms-muted" },
-          "Магазин «" +
-            ((fw.shop && fw.shop.name) || "—") +
-            "» (" +
-            ((fw.shop && fw.shop.address) || "—") +
-            ") · карточек всего: " +
-            (fw.total != null ? fw.total : products.length),
-        ),
-        products.length
-          ? h(
-              "div",
-              { className: "ms-mp-grid" },
-              products.map(function (p) {
-                return h(CardsProductCard, {
-                  key: String(p.product_id || p.name),
-                  product: p,
-                  onSelect: function (prod) {
-                    setSelected({ product: prod, marketplace: "Flowwow" });
-                  },
-                });
-              }),
-            )
-          : h("p", { className: "ms-muted" }, "Карточек нет."),
-      );
-    }
+    if (fw && fw.configured && !fw.error)
+      summary.push("Flowwow «" + ((fw.shop && fw.shop.name) || "—") + "»: " + (fw.total != null ? fw.total : 0));
+    if (ya && ya.configured && !ya.error)
+      summary.push("Яндекс «" + ((ya.business && ya.business.name) || "—") + "»: " + (ya.total != null ? ya.total : 0));
 
     return h(
       "div",
@@ -5179,7 +5128,7 @@
               setChatOpen(true);
             },
           },
-          "Чат-аналитик",
+          "Чат по карточкам",
         ),
         h(
           "button",
@@ -5197,26 +5146,80 @@
       h(
         "p",
         { className: "ms-muted" },
-        "Карточки товаров на маркетплейсах. Дальше — создание карточки из букета МоегоСклада и автопубликация.",
+        "Все карточки обеих площадок одним списком; одинаковая карточка на двух маркетплейсах помечена обоими. " +
+          summary.join(" · "),
       ),
       error ? h("p", { className: "ms-error" }, error) : null,
-      h("section", { className: "ms-card-section" }, h("h2", null, "Flowwow"), flowwowBody),
       h(
-        "section",
-        { className: "ms-card-section" },
-        h("h2", null, "Яндекс Маркет"),
-        yandexBody,
+        "div",
+        { className: "ms-mp-filters" },
+        h(
+          "label",
+          { className: "ms-muted" },
+          "Маркетплейс ",
+          h(
+            "select",
+            {
+              value: mpFilter,
+              onChange: function (ev) {
+                setMpFilter(ev.target.value);
+              },
+            },
+            h("option", { value: "all" }, "Все"),
+            h("option", { value: "flowwow" }, "Flowwow"),
+            h("option", { value: "yandex_market" }, "Яндекс Маркет"),
+            h("option", { value: "both" }, "На обоих"),
+          ),
+        ),
+        h(
+          "label",
+          { className: "ms-muted" },
+          "Статус ",
+          h(
+            "select",
+            {
+              value: statusFilter,
+              onChange: function (ev) {
+                setStatusFilter(ev.target.value);
+              },
+            },
+            h("option", { value: "all" }, "Все"),
+            h("option", { value: "active" }, "Активна"),
+            h("option", { value: "hidden" }, "Скрыта"),
+            h("option", { value: "archived" }, "В архиве"),
+          ),
+        ),
+        h("span", { className: "ms-muted" }, filtered.length + " из " + combined.length),
       ),
+      loading && !data
+        ? h("p", { className: "ms-muted" }, "Загружаем…")
+        : filtered.length
+          ? h(
+              "div",
+              { className: "ms-mp-grid" },
+              filtered.map(function (card, idx) {
+                return h(CombinedCardTile, {
+                  key: String(card.name || idx),
+                  card: card,
+                  onSelect: setSelected,
+                });
+              }),
+            )
+          : h("p", { className: "ms-muted" }, "Карточек по выбранным фильтрам нет."),
       selected
-        ? h(CardsProductDrawer, {
-            item: selected,
+        ? h(CombinedDrawer, {
+            card: selected,
             onClose: function () {
               setSelected(null);
             },
           })
         : null,
       chatOpen
-        ? h(CardsChatDrawer, {
+        ? h(MsChatDrawer, {
+            endpoint: "/cards/chat",
+            title: "Чат по карточкам",
+            hint: "Консультант по размещению и продвижению: смотрит статусы, фото и контент-рейтинг карточек и говорит, что исправить или добавить — отдельно для каждой площадки.",
+            example: "Какие карточки стоит добавить на вторую площадку и что исправить в слабых?",
             onClose: function () {
               setChatOpen(false);
             },
@@ -5224,6 +5227,7 @@
         : null,
     );
   }
+
 
   function MoySkladApp() {
     const [view, setView] = useState(function () {

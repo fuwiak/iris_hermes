@@ -1307,6 +1307,9 @@ class MassSendStartBody(BaseModel):
     via: str = ""
     #: Stop the job as soon as one send fails (default: keep going).
     stop_on_error: bool = False
+    #: Optional photo (data-URL or bare base64) attached to every message.
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
 
 
 class OutreachContactBody(BaseModel):
@@ -2576,6 +2579,8 @@ def post_campaign_mass_send(body: MassSendStartBody) -> dict[str, Any]:
                     tg_conversation=target["tg_conversation"],
                     tg_chat_id=target["tg_chat_id"],
                     via=via,
+                    image_base64=body.image_base64,
+                    image_name=body.image_name or "photo.jpg",
                 )
             source = "campaign_send_mass"
             if delivery.get("ok"):
@@ -5148,7 +5153,38 @@ class CardsChatBody(BaseModel):
 
 @router.post("/cards/chat")
 def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
-    """Чат-аналитик над помесячным отчётом (методика созвона 22.08).
+    """Консультант по карточкам: размещение, продвижение, исправление,
+    добавление. Context = combined card list of both marketplaces."""
+    try:
+        from plugins.moysklad.cards_chat import cards_advisor_reply
+        from plugins.moysklad.marketplace_cards import (
+            cached_payload,
+            marketplace_cards_payload,
+        )
+
+        cards = cached_payload() or marketplace_cards_payload(limit=100)
+        combined = list((cards or {}).get("combined") or [])
+        out = cards_advisor_reply(
+            list(body.messages or []),
+            combined=combined,
+            provider=body.provider,
+            model=body.model,
+        )
+        if not out.get("ok"):
+            raise HTTPException(
+                status_code=502, detail=str(out.get("error") or "chat failed")
+            )
+        return {"ok": True, "reply": out["reply"]}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/chat failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/dashboard/chat")
+def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
+    """Чат-аналитик отчёта (методика созвона 22.08) — живёт в Дашборде.
 
     Context = report computed from the cached MoySklad catalog + last
     marketplace cards summary. The assistant must name missing figures
@@ -5200,5 +5236,5 @@ def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover
-        log.exception("moysklad /cards/chat failed")
+        log.exception("moysklad /dashboard/chat failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
