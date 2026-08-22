@@ -1,19 +1,62 @@
 """Marketplace cards feed for the «Карточки» dashboard tab.
 
 Aggregates product cards from connected marketplaces (Flowwow live,
-Yandex Market pending token) into one payload. Read-only; the future
+Yandex Market via Api-Key) into one payload. Read-only; the future
 card-autopublish flow (call 21.08.2026) builds on top of this.
+
+Caching: an in-process dict for the hot path plus the durable envelope
+layer of ``catalog_cache`` (memory → Elasticsearch → Redis → file), so
+a container restart or a second worker does not refetch both
+marketplaces. ``force=True`` bypasses every layer.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any
 
-_CACHE_TTL_S = 300.0
 _cache_lock = threading.Lock()
-_cache: dict[str, Any] = {"ts": 0.0, "payload": None}
+_cache: dict[str, Any] = {"ts": 0.0, "payload": None, "key": ""}
+
+_CACHE_KEY_VERSION = "v1"
+
+
+def _cache_ttl_s() -> float:
+    raw = (os.environ.get("MOYSKLAD_MARKETPLACE_CARDS_TTL_S") or "").strip()
+    try:
+        return max(60.0, float(raw)) if raw else 900.0
+    except ValueError:
+        return 900.0
+
+
+def _durable_key(limit: int) -> str:
+    return f"moysklad:marketplace:cards:{_CACHE_KEY_VERSION}:l{int(limit)}"
+
+
+def _durable_get(key: str) -> dict[str, Any] | None:
+    try:
+        from plugins.moysklad.catalog_cache import get_raw_envelope
+
+        envelope = get_raw_envelope(key, fresh=True)
+        payload = (envelope or {}).get("payload")
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _durable_set(key: str, payload: dict[str, Any]) -> None:
+    try:
+        from plugins.moysklad.catalog_cache import set_raw_envelope
+
+        set_raw_envelope(
+            key,
+            {"payload": payload, "ttl_seconds": _cache_ttl_s()},
+            kind="marketplace_cards",
+        )
+    except Exception:
+        pass
 
 
 def _slim_product(row: dict[str, Any]) -> dict[str, Any]:
@@ -103,16 +146,33 @@ def cached_payload() -> dict[str, Any] | None:
     """Last built payload without triggering marketplace calls."""
     with _cache_lock:
         payload = _cache.get("payload")
-    return payload if isinstance(payload, dict) else None
+        key = str(_cache.get("key") or "")
+    if isinstance(payload, dict):
+        return payload
+    return _durable_get(key) if key else None
 
 
 def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[str, Any]:
-    """Cards from all marketplaces, cached for 5 minutes."""
+    """Cards from all marketplaces, cached in-process + Elasticsearch/Redis/file."""
     now = time.time()
-    with _cache_lock:
-        cached = _cache.get("payload")
-        if not force and cached is not None and now - float(_cache["ts"]) < _CACHE_TTL_S:
+    key = _durable_key(limit)
+    if not force:
+        with _cache_lock:
+            cached = _cache.get("payload")
+            hit = (
+                cached is not None
+                and _cache.get("key") == key
+                and now - float(_cache["ts"]) < _cache_ttl_s()
+            )
+        if hit:
             return cached
+        durable = _durable_get(key)
+        if durable is not None:
+            with _cache_lock:
+                _cache["ts"] = now
+                _cache["payload"] = durable
+                _cache["key"] = key
+            return durable
     payload = {
         "flowwow": _flowwow_section(limit),
         "yandex": _yandex_section(limit),
@@ -121,4 +181,6 @@ def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[
     with _cache_lock:
         _cache["ts"] = now
         _cache["payload"] = payload
+        _cache["key"] = key
+    _durable_set(key, payload)
     return payload

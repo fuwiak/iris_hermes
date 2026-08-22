@@ -5,13 +5,18 @@ from __future__ import annotations
 import plugins.moysklad.marketplace_cards as mc
 
 
-def _reset_cache():
+def _reset_cache(monkeypatch=None):
     mc._cache["ts"] = 0.0
     mc._cache["payload"] = None
+    mc._cache["key"] = ""
+    if monkeypatch is not None:
+        # Keep unit tests off the real Elasticsearch/Redis/file layer.
+        monkeypatch.setattr(mc, "_durable_get", lambda key: None)
+        monkeypatch.setattr(mc, "_durable_set", lambda key, payload: None)
 
 
 def test_unconfigured_marketplaces(monkeypatch):
-    _reset_cache()
+    _reset_cache(monkeypatch)
     monkeypatch.delenv("FLOWWOW_API_TOKEN", raising=False)
     monkeypatch.delenv("YANDEX_MARKET_API_TOKEN", raising=False)
     monkeypatch.delenv("YANDEX_MARKET_TOKEN", raising=False)
@@ -45,7 +50,7 @@ def test_slim_product_trims_and_normalizes():
 
 
 def test_flowwow_section_maps_shop_and_products(monkeypatch):
-    _reset_cache()
+    _reset_cache(monkeypatch)
     monkeypatch.setenv("FLOWWOW_API_TOKEN", "tok")
     monkeypatch.delenv("YANDEX_MARKET_API_TOKEN", raising=False)
     monkeypatch.delenv("YANDEX_MARKET_TOKEN", raising=False)
@@ -71,9 +76,43 @@ def test_flowwow_section_maps_shop_and_products(monkeypatch):
 
 
 def test_payload_cached_between_calls(monkeypatch):
-    _reset_cache()
+    _reset_cache(monkeypatch)
     monkeypatch.delenv("FLOWWOW_API_TOKEN", raising=False)
     first = mc.marketplace_cards_payload(force=True)
     monkeypatch.setenv("FLOWWOW_API_TOKEN", "tok")  # would change the section…
     second = mc.marketplace_cards_payload()  # …but cache serves the old payload
     assert second is first
+
+
+def test_durable_cache_survives_process_restart(monkeypatch):
+    _reset_cache(monkeypatch)
+    stored: dict = {}
+    monkeypatch.setattr(mc, "_durable_get", lambda key: stored.get(key))
+    monkeypatch.setattr(mc, "_durable_set", lambda key, payload: stored.update({key: payload}))
+    monkeypatch.delenv("FLOWWOW_API_TOKEN", raising=False)
+    monkeypatch.delenv("YANDEX_MARKET_API_TOKEN", raising=False)
+    monkeypatch.delenv("YANDEX_MARKET_TOKEN", raising=False)
+
+    first = mc.marketplace_cards_payload(limit=7, force=True)
+    assert stored[mc._durable_key(7)] is first  # written to ES/Redis/file layer
+
+    # Simulate restart: in-process cache gone, durable layer still there.
+    mc._cache["ts"] = 0.0
+    mc._cache["payload"] = None
+    mc._cache["key"] = ""
+    calls = {"n": 0}
+    real_section = mc._flowwow_section
+    monkeypatch.setattr(
+        mc, "_flowwow_section", lambda limit: calls.__setitem__("n", calls["n"] + 1) or real_section(limit)
+    )
+    second = mc.marketplace_cards_payload(limit=7)
+    assert second is first
+    assert calls["n"] == 0  # nothing refetched
+
+
+def test_force_bypasses_durable_cache(monkeypatch):
+    _reset_cache(monkeypatch)
+    monkeypatch.setattr(mc, "_durable_get", lambda key: {"flowwow": {"stale": True}})
+    monkeypatch.delenv("FLOWWOW_API_TOKEN", raising=False)
+    payload = mc.marketplace_cards_payload(force=True)
+    assert "stale" not in payload["flowwow"]
