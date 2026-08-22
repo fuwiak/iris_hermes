@@ -1247,3 +1247,42 @@ td.ms-ai-added {
 .ms-mp-card-body strong { font-size: 0.86rem; line-height: 1.3; }
 .ms-mp-card-body a { color: inherit; }
 .ms-mp-card-body .ms-muted { font-size: 0.78rem; }
+
+/* «Карточки» — slide-out drawers + report chat */
+.ms-mp-card.is-clickable { cursor: pointer; }
+.ms-mp-card.is-clickable:hover { border-color: #8b3aa0; }
+.ms-drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 40;
+}
+.ms-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 92vw);
+  z-index: 41; display: flex; flex-direction: column; overflow-y: auto;
+  background: #241028; border-left: 1px solid #592466;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+.ms-chat-drawer { width: min(520px, 94vw); }
+.ms-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; padding: 0.65rem 0.9rem;
+}
+.ms-drawer-img { width: 100%; height: 260px; object-fit: cover; display: block; background: #3a1840; }
+.ms-drawer-body { padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.ms-drawer-body h3 { margin: 0; }
+.ms-drawer-desc { white-space: pre-wrap; line-height: 1.45; margin: 0; }
+.ms-drawer-hint { padding: 0 0.9rem; margin: 0; }
+.ms-chat-drawer-log {
+  flex: 1; overflow-y: auto; padding: 0.9rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
+}
+.ms-chat-bubble {
+  max-width: 92%; white-space: pre-wrap; line-height: 1.45;
+  border-radius: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid #592466;
+}
+.ms-chat-bubble.is-user { align-self: flex-end; background: #3a1840; }
+.ms-chat-bubble.is-assistant { align-self: flex-start; background: #2b1230; }
+.ms-chat-drawer-input { display: flex; gap: 0.5rem; padding: 0.9rem; }
+.ms-chat-drawer-input textarea {
+  flex: 1; resize: vertical; font: inherit; padding: 0.5rem;
+  background: #3a1840; border: 1px solid #592466; color: #f4ede4;
+  border-radius: 0.5rem;
+}

@@ -24,6 +24,7 @@ def _slim_product(row: dict[str, Any]) -> dict[str, Any]:
         "offer_id": row.get("offerId") or "",
         "name": row.get("name") or "",
         "description_preview": description[:200],
+        "description": description[:4000],
         "price": row.get("price"),
         "discount": row.get("discount"),
         "currency": row.get("currencyCode") or "RUB",
@@ -96,6 +97,13 @@ def _yandex_section(limit: int) -> dict[str, Any]:
         return {"configured": True, "error": str(exc)}
     except Exception as exc:  # pragma: no cover — defensive
         return {"configured": True, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def cached_payload() -> dict[str, Any] | None:
+    """Last built payload without triggering marketplace calls."""
+    with _cache_lock:
+        payload = _cache.get("payload")
+    return payload if isinstance(payload, dict) else None
 
 
 def marketplace_cards_payload(*, limit: int = 100, force: bool = False) -> dict[str, Any]:

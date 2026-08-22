@@ -184,11 +184,13 @@ def slim_card(mapping_row: dict[str, Any], ratings: dict[str, int]) -> dict[str,
             url += f"?sku={sku}"
     offer_id = str(offer.get("offerId") or "")
     card_status = str(offer.get("cardStatus") or "")
+    description = strip_html(str(offer.get("description") or ""))
     return {
         "product_id": sku,
         "offer_id": offer_id,
         "name": offer.get("name") or "",
-        "description_preview": strip_html(str(offer.get("description") or ""))[:200],
+        "description_preview": description[:200],
+        "description": description[:4000],
         "price": str(price) if price is not None else None,
         "discount": None,
         "currency": "RUB" if currency in ("RUR", "RUB") else currency,

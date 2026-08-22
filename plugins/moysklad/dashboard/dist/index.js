@@ -4851,7 +4851,7 @@
     );
   }
 
-  function CardsProductCard({ product }) {
+  function CardsProductCard({ product, onSelect }) {
     var status = product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
     var price = "—";
     if (product.price) {
@@ -4861,7 +4861,14 @@
     }
     return h(
       "div",
-      { className: "ms-mp-card" },
+      {
+        className: "ms-mp-card" + (onSelect ? " is-clickable" : ""),
+        onClick: onSelect
+          ? function () {
+              onSelect(product);
+            }
+          : undefined,
+      },
       product.image
         ? h("img", {
             className: "ms-mp-card-img",
@@ -4877,7 +4884,18 @@
           "strong",
           null,
           product.url
-            ? h("a", { href: product.url, target: "_blank", rel: "noreferrer" }, product.name || "—")
+            ? h(
+                "a",
+                {
+                  href: product.url,
+                  target: "_blank",
+                  rel: "noreferrer",
+                  onClick: function (ev) {
+                    ev.stopPropagation();
+                  },
+                },
+                product.name || "—",
+              )
             : product.name || "—",
         ),
         h("span", null, price),
@@ -4892,10 +4910,152 @@
     );
   }
 
+  function CardsProductDrawer({ item, onClose }) {
+    var product = item.product;
+    var status = product.is_archived ? "в архиве" : product.is_active ? "активна" : "скрыта";
+    return h(
+      React.Fragment,
+      null,
+      h("div", { className: "ms-drawer-overlay", onClick: onClose }),
+      h(
+        "aside",
+        { className: "ms-drawer" },
+        h(
+          "div",
+          { className: "ms-drawer-head" },
+          h("strong", null, item.marketplace),
+          h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
+        ),
+        product.image
+          ? h("img", { className: "ms-drawer-img", src: product.image, alt: product.name || "" })
+          : null,
+        h(
+          "div",
+          { className: "ms-drawer-body" },
+          h("h3", null, product.name || "—"),
+          h(
+            "p",
+            { className: "ms-muted" },
+            status +
+              (product.images_count ? " · фото: " + product.images_count : "") +
+              (product.content_rating != null ? " · контент: " + product.content_rating + "/100" : "") +
+              (product.card_status ? " · " + product.card_status : ""),
+          ),
+          product.offer_id ? h("p", { className: "ms-muted" }, "offerId: " + product.offer_id) : null,
+          product.url
+            ? h("p", null, h("a", { href: product.url, target: "_blank", rel: "noreferrer" }, "Открыть на площадке ↗"))
+            : null,
+          h(
+            "p",
+            { className: "ms-drawer-desc" },
+            product.description || product.description_preview || "Описания нет.",
+          ),
+        ),
+      ),
+    );
+  }
+
+  function CardsChatDrawer({ onClose }) {
+    const [turns, setTurns] = useState([]);
+    const [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+
+    function send() {
+      var content = draft.trim();
+      if (!content || busy) return;
+      var next = turns.concat([{ role: "user", content: content }]);
+      setTurns(next);
+      setDraft("");
+      setBusy(true);
+      setError("");
+      api("/cards/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: next }),
+      })
+        .then(function (out) {
+          setTurns(next.concat([{ role: "assistant", content: (out && out.reply) || "(пустой ответ)" }]));
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          setBusy(false);
+        });
+    }
+
+    return h(
+      React.Fragment,
+      null,
+      h("div", { className: "ms-drawer-overlay", onClick: onClose }),
+      h(
+        "aside",
+        { className: "ms-drawer ms-chat-drawer" },
+        h(
+          "div",
+          { className: "ms-drawer-head" },
+          h("strong", null, "Чат-аналитик отчёта"),
+          h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
+        ),
+        h(
+          "p",
+          { className: "ms-muted ms-drawer-hint" },
+          "Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает.",
+        ),
+        h(
+          "div",
+          { className: "ms-chat-drawer-log" },
+          turns.length === 0
+            ? h(
+                "p",
+                { className: "ms-muted" },
+                "Например: «Построй такой же отчёт по такой же форме за июль и август».",
+              )
+            : null,
+          turns.map(function (turn, idx) {
+            return h(
+              "div",
+              { key: idx, className: "ms-chat-bubble is-" + turn.role },
+              turn.content,
+            );
+          }),
+          busy ? h("p", { className: "ms-muted" }, "Считает…") : null,
+          error ? h("p", { className: "ms-error" }, error) : null,
+        ),
+        h(
+          "div",
+          { className: "ms-chat-drawer-input" },
+          h("textarea", {
+            rows: 2,
+            value: draft,
+            placeholder: "Вопрос по отчёту…",
+            onChange: function (ev) {
+              setDraft(ev.target.value);
+            },
+            onKeyDown: function (ev) {
+              if (ev.key === "Enter" && !ev.shiftKey) {
+                ev.preventDefault();
+                send();
+              }
+            },
+          }),
+          h(
+            "button",
+            { type: "button", className: "ms-btn", disabled: busy || !draft.trim(), onClick: send },
+            "Отправить",
+          ),
+        ),
+      ),
+    );
+  }
+
   function CardsPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [selected, setSelected] = useState(null);
+    const [chatOpen, setChatOpen] = useState(false);
 
     function load(force) {
       setLoading(true);
@@ -4951,7 +5111,13 @@
               "div",
               { className: "ms-mp-grid" },
               yaProducts.map(function (p) {
-                return h(CardsProductCard, { key: String(p.offer_id || p.name), product: p });
+                return h(CardsProductCard, {
+                  key: String(p.offer_id || p.name),
+                  product: p,
+                  onSelect: function (prod) {
+                    setSelected({ product: prod, marketplace: "Яндекс Маркет" });
+                  },
+                });
               }),
             )
           : h("p", { className: "ms-muted" }, "Карточек нет."),
@@ -4984,7 +5150,13 @@
               "div",
               { className: "ms-mp-grid" },
               products.map(function (p) {
-                return h(CardsProductCard, { key: String(p.product_id || p.name), product: p });
+                return h(CardsProductCard, {
+                  key: String(p.product_id || p.name),
+                  product: p,
+                  onSelect: function (prod) {
+                    setSelected({ product: prod, marketplace: "Flowwow" });
+                  },
+                });
               }),
             )
           : h("p", { className: "ms-muted" }, "Карточек нет."),
@@ -4998,6 +5170,17 @@
         "div",
         { className: "ms-card-head" },
         h("h1", { className: "ms-clients-title" }, "Карточки"),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-btn",
+            onClick: function () {
+              setChatOpen(true);
+            },
+          },
+          "Чат-аналитик",
+        ),
         h(
           "button",
           {
@@ -5024,6 +5207,21 @@
         h("h2", null, "Яндекс Маркет"),
         yandexBody,
       ),
+      selected
+        ? h(CardsProductDrawer, {
+            item: selected,
+            onClose: function () {
+              setSelected(null);
+            },
+          })
+        : null,
+      chatOpen
+        ? h(CardsChatDrawer, {
+            onClose: function () {
+              setChatOpen(false);
+            },
+          })
+        : null,
     );
   }
 

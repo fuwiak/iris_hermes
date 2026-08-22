@@ -5136,3 +5136,69 @@ def get_marketplace_cards(
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /cards/marketplaces failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class CardsChatBody(BaseModel):
+    """One chat turn of the «Карточки» report analyst."""
+
+    messages: list[dict[str, str]] = Field(default_factory=list)
+    provider: str = ""
+    model: str = ""
+
+
+@router.post("/cards/chat")
+def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
+    """Чат-аналитик над помесячным отчётом (методика созвона 22.08).
+
+    Context = report computed from the cached MoySklad catalog + last
+    marketplace cards summary. The assistant must name missing figures
+    instead of inventing them.
+    """
+    try:
+        from datetime import date as _date
+
+        from plugins.moysklad.cards_chat import cards_chat_reply
+        from plugins.moysklad.dashboard_analytics import build_analytics
+        from plugins.moysklad.marketplace_cards import cached_payload
+        from plugins.moysklad.report_backtest import extract_month_report
+
+        catalog, meta = _get_catalog(force=False, blocking=True)
+        rows = list((catalog or {}).get("rows") or [])
+        analytics = build_analytics(rows, today=_date.today())
+        month_report = extract_month_report(analytics)
+
+        cards_summary: dict[str, Any] | None = None
+        cards = cached_payload()
+        if cards:
+            fw = cards.get("flowwow") or {}
+            ya = cards.get("yandex") or {}
+            cards_summary = {
+                "flowwow": {
+                    "shop": fw.get("shop"),
+                    "cards_total": fw.get("total"),
+                    "configured": fw.get("configured"),
+                },
+                "yandex_market": {
+                    "business": ya.get("business"),
+                    "cards_total": ya.get("total"),
+                    "configured": ya.get("configured"),
+                },
+            }
+
+        out = cards_chat_reply(
+            list(body.messages or []),
+            month_report=month_report,
+            cards_summary=cards_summary,
+            provider=body.provider,
+            model=body.model,
+        )
+        if not out.get("ok"):
+            raise HTTPException(
+                status_code=502, detail=str(out.get("error") or "chat failed")
+            )
+        return _attach_cache_meta({"ok": True, "reply": out["reply"]}, meta)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/chat failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
