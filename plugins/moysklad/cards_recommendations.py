@@ -42,10 +42,51 @@ def _article(product: dict[str, Any], name: str) -> str:
     return ""
 
 
+def block_meta(
+    *,
+    rating_threshold: int = RATING_THRESHOLD,
+    min_photos: int = 3,
+    price_gap_min: float = PRICE_GAP_MIN,
+) -> dict[str, dict[str, str]]:
+    """Provenance + the exact rule behind every block (shown in the UI)."""
+    return {
+        "low_rating": {
+            "rule": f"contentRating < {rating_threshold}",
+            "source": "Яндекс Маркет API: offer-cards (contentRating каждой карточки)",
+        },
+        "few_photos": {
+            "rule": f"активна и фото < {min_photos}",
+            "source": "Flowwow products + Яндекс offer-mappings (число фото)",
+        },
+        "add_to_yandex": {
+            "rule": "активна и есть только на Flowwow; сортировка по цене",
+            "source": "объединённый список карточек (совпадение по названию)",
+        },
+        "add_to_flowwow": {
+            "rule": f"активна, только на Яндексе, рейтинг ≥ {rating_threshold}",
+            "source": "объединённый список + contentRating из offer-cards",
+        },
+        "duplicates": {
+            "rule": "один артикул «Veresk N» на 2+ карточках одной площадки",
+            "source": "артикул из offerId/названия карточки",
+        },
+        "price_gaps": {
+            "rule": f"карточка на обеих площадках, разница цен > {price_gap_min:.0%}",
+            "source": "цены из Flowwow products и Яндекс offer-mappings",
+        },
+        "hidden_candidates": {
+            "rule": f"скрыта (не архив), фото ≥ {min_photos}, есть цена",
+            "source": "статусы/фото/цены из API площадок",
+        },
+    }
+
+
 def build_recommendations(
     combined: list[dict[str, Any]],
     *,
     rating_threshold: int = RATING_THRESHOLD,
+    min_photos: int = 3,
+    price_gap_min: float = PRICE_GAP_MIN,
     cap: int = 25,
 ) -> dict[str, list[dict[str, Any]]]:
     low_rating: list[dict[str, Any]] = []
@@ -76,7 +117,7 @@ def build_recommendations(
             images = product.get("images_count")
             if (
                 images is not None
-                and images < 3
+                and images < min_photos
                 and product.get("is_active")
                 and not product.get("is_archived")
             ):
@@ -85,7 +126,7 @@ def build_recommendations(
                         "name": name,
                         "marketplace": marketplace,
                         "images": images,
-                        "action": "добавить 5–6 фото",
+                        "action": f"добавить фото (минимум {min_photos}, лучше 5–6)",
                     }
                 )
             article = _article(product, name)
@@ -114,7 +155,7 @@ def build_recommendations(
             prices = {mp: _price(p) for mp, p in listings.items() if _price(p) > 0}
             if len(prices) >= 2:
                 low, high = min(prices.values()), max(prices.values())
-                if high > 0 and (high - low) / high > PRICE_GAP_MIN:
+                if high > 0 and (high - low) / high > price_gap_min:
                     price_gaps.append(
                         {
                             "name": name,
@@ -130,7 +171,7 @@ def build_recommendations(
             and all(not p.get("is_archived") for p in listings.values())
         ):
             product = listings[marketplaces[0]]
-            if (product.get("images_count") or 0) >= 3 and _price(product) > 0:
+            if (product.get("images_count") or 0) >= min_photos and _price(product) > 0:
                 hidden_candidates.append(
                     {
                         "name": name,

@@ -70,3 +70,27 @@ def test_retrieve_cards_ranks_by_token_overlap():
     assert hits[0]["name"].startswith("101 пионовидные")
     assert len(hits) == 2
     assert retrieve_cards(combined, "", k=5) == []
+
+
+def test_params_are_modelable():
+    combined = [
+        _card("A", "yandex_market", content_rating=90, images_count=4),
+        _card("B", "yandex_market", content_rating=80, images_count=4),
+    ]
+    strict = mc_build = build_recommendations(combined, rating_threshold=95)
+    assert {r["name"] for r in strict["low_rating"]} == {"A", "B"}
+    loose = build_recommendations(combined, rating_threshold=75)
+    assert loose["low_rating"] == []
+    photos = build_recommendations(combined, min_photos=5)
+    assert {r["name"] for r in photos["few_photos"]} == {"A", "B"}
+    assert mc_build is strict
+
+
+def test_block_meta_reflects_params():
+    from plugins.moysklad.cards_recommendations import block_meta
+
+    meta = block_meta(rating_threshold=90, min_photos=5, price_gap_min=0.2)
+    assert "90" in meta["low_rating"]["rule"]
+    assert "5" in meta["few_photos"]["rule"]
+    assert "20%" in meta["price_gaps"]["rule"]
+    assert all("source" in v and v["source"] for v in meta.values())

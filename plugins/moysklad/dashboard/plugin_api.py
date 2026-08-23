@@ -5317,15 +5317,24 @@ def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
 
 
 @router.get("/cards/recommendations")
-def get_cards_recommendations(force: bool = Query(default=False)) -> dict[str, Any]:
+def get_cards_recommendations(
+    force: bool = Query(default=False),
+    rating_threshold: int = Query(default=85, ge=1, le=100),
+    min_photos: int = Query(default=3, ge=1, le=20),
+    price_gap_min: float = Query(default=0.10, ge=0.0, le=1.0),
+    cap: int = Query(default=25, ge=1, le=200),
+) -> dict[str, Any]:
     """Рекомендации по карточкам, посчитанные из данных (без LLM, мгновенно).
 
-    Blocks: low_rating, few_photos, add_to_yandex, add_to_flowwow,
-    duplicates, price_gaps, hidden_candidates — straight from the cached
-    combined card list.
+    Параметры модели настраиваются с фронта (порог рейтинга, минимум фото,
+    порог разницы цен, размер блока); ``meta`` объясняет правило и источник
+    данных каждого блока.
     """
     try:
-        from plugins.moysklad.cards_recommendations import build_recommendations
+        from plugins.moysklad.cards_recommendations import (
+            block_meta,
+            build_recommendations,
+        )
         from plugins.moysklad.marketplace_cards import marketplace_cards_payload
 
         cards = marketplace_cards_payload(limit=1000, force=force)
@@ -5334,7 +5343,24 @@ def get_cards_recommendations(force: bool = Query(default=False)) -> dict[str, A
             "ok": True,
             "cards_total": len(combined),
             "generated_at": cards.get("generated_at"),
-            **build_recommendations(combined),
+            "params": {
+                "rating_threshold": rating_threshold,
+                "min_photos": min_photos,
+                "price_gap_min": price_gap_min,
+                "cap": cap,
+            },
+            "meta": block_meta(
+                rating_threshold=rating_threshold,
+                min_photos=min_photos,
+                price_gap_min=price_gap_min,
+            ),
+            **build_recommendations(
+                combined,
+                rating_threshold=rating_threshold,
+                min_photos=min_photos,
+                price_gap_min=price_gap_min,
+                cap=cap,
+            ),
         }
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /cards/recommendations failed")
@@ -5391,7 +5417,10 @@ def post_cards_draft(body: CardDraftBody) -> dict[str, Any]:
 
 
 @router.get("/cards/orders")
-def get_cards_orders(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, Any]:
+def get_cards_orders(
+    limit: int = Query(default=25, ge=1, le=100),
+    status: str = Query(default=""),
+) -> dict[str, Any]:
     """Живые заказы и статусы из кабинета Яндекс Маркета (новые сверху).
 
     Заказы уже попадают в МойСклад родной интеграцией МС↔Яндекс; Flowwow
@@ -5400,14 +5429,26 @@ def get_cards_orders(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, 
     try:
         from plugins.moysklad.cards_studio import recent_yandex_orders
 
-        return {"ok": True, **recent_yandex_orders(limit=limit)}
+        out = recent_yandex_orders(limit=limit if not status else 100)
+        rows = out.get("orders") or []
+        if status.strip():
+            wanted = status.strip().upper()
+            rows = [r for r in rows if str(r.get("status") or "").upper() == wanted][:limit]
+        return {
+            "ok": True,
+            "configured": out.get("configured"),
+            "source": "Яндекс Маркет API /campaigns/{id}/orders — живой кабинет, без кэша",
+            "orders": rows,
+        }
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /cards/orders failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/cards/analytics")
-def get_cards_analytics() -> dict[str, Any]:
+def get_cards_analytics(
+    months: int = Query(default=4, ge=2, le=14),
+) -> dict[str, Any]:
     """Аналитика для вкладки: динамика каналов из МС + сверка с Яндексом."""
     try:
         from datetime import date as _date
@@ -5425,15 +5466,26 @@ def get_cards_analytics() -> dict[str, Any]:
         )
         month_report = extract_month_report(analytics)
         dynamics: dict[str, Any] = {}
-        for month_id in sorted(month_report)[-4:]:
+        for month_id in sorted(month_report)[-max(2, months):]:
             dynamics[month_id] = {
                 ch: {"turnover": cell.get("turnover"), "orders": cell.get("orders")}
                 for ch, cell in sorted(month_report[month_id].items())
                 if cell.get("orders")
             }
-        stats = yandex_monthly_stats_cached(months=3)
+        stats = yandex_monthly_stats_cached(months=max(2, months) - 1)
         return {
             "ok": True,
+            "months": months,
+            "sources": {
+                "channel_dynamics": (
+                    "МойСклад: оплаченные и неоплаченные заказы без отменённых, "
+                    "канал из поля «Канал продаж», формулы листов Excel"
+                ),
+                "yandex_reconciliation": (
+                    "Яндекс Маркет API stats/orders: фактические продажи "
+                    "(покупательская цена и выплата продавцу) по всем кампаниям"
+                ),
+            },
             "channel_dynamics": dynamics,
             "yandex_reconciliation": build_reconciliation(month_report, stats),
         }

@@ -238,6 +238,8 @@ type RecRow = {
 type RecPayload = {
   ok?: boolean
   cards_total?: number
+  generated_at?: string
+  meta?: Record<string, { rule?: string; source?: string }>
   low_rating?: RecRow[]
   few_photos?: RecRow[]
   add_to_yandex?: RecRow[]
@@ -245,6 +247,33 @@ type RecPayload = {
   duplicates?: RecRow[]
   price_gaps?: RecRow[]
   hidden_candidates?: RecRow[]
+}
+
+type RecParams = {
+  ratingThreshold: number
+  minPhotos: number
+  priceGapPct: number
+  cap: number
+  months: number
+  ordersLimit: number
+  ordersStatus: string
+}
+
+const DEFAULT_PARAMS: RecParams = {
+  ratingThreshold: 85,
+  minPhotos: 3,
+  priceGapPct: 10,
+  cap: 25,
+  months: 4,
+  ordersLimit: 25,
+  ordersStatus: ''
+}
+
+function recQuery(params: RecParams): string {
+  return (
+    `rating_threshold=${params.ratingThreshold}&min_photos=${params.minPhotos}` +
+    `&price_gap_min=${(params.priceGapPct / 100).toFixed(2)}&cap=${params.cap}`
+  )
 }
 
 const REC_BLOCKS: [keyof RecPayload, string][] = [
@@ -358,6 +387,7 @@ type YandexOrderRow = {
 }
 
 type CardsAnalyticsPayload = {
+  sources?: Record<string, string>
   channel_dynamics?: Record<string, Record<string, { turnover?: number; orders?: number }>>
   yandex_reconciliation?: {
     month?: string
@@ -386,18 +416,24 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
 
   const nonEmpty = blocks.filter(([key]) => ((data[key] as RecRow[] | undefined) || []).length)
   if (!nonEmpty.length) {
-    return <p className="ms-muted">Замечаний нет — всё чисто.</p>
+    return <p className="ms-muted">Замечаний нет — всё чисто (при текущих параметрах).</p>
   }
 
   return (
     <>
       {nonEmpty.map(([key, label]) => {
         const rows = (data[key] as RecRow[] | undefined) || []
+        const meta = data.meta?.[key as string]
         return (
           <section key={key} style={{ marginTop: 10 }}>
             <strong>
               {label} ({rows.length})
             </strong>
+            {meta ? (
+              <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+                Правило: {meta.rule} · Источник: {meta.source}
+              </p>
+            ) : null}
             <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
               {rows.map((row, idx) => (
                 <li key={idx} style={{ lineHeight: 1.35 }}>
@@ -410,6 +446,125 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
           </section>
         )
       })}
+    </>
+  )
+}
+
+function NumberField({
+  label,
+  max,
+  min,
+  onChange,
+  value
+}: {
+  label: string
+  max: number
+  min: number
+  onChange: (value: number) => void
+  value: number
+}) {
+  return (
+    <label className="ms-muted" style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+      {label}
+      <input
+        max={max}
+        min={min}
+        onChange={ev => {
+          const parsed = Number(ev.target.value)
+
+          if (Number.isFinite(parsed)) {
+            onChange(Math.max(min, Math.min(max, parsed)))
+          }
+        }}
+        style={{ width: 90, font: 'inherit', padding: 4 }}
+        type="number"
+        value={value}
+      />
+    </label>
+  )
+}
+
+function ParamsDrawer({
+  onApply,
+  onClose,
+  params
+}: {
+  onApply: (params: RecParams) => void
+  onClose: () => void
+  params: RecParams
+}) {
+  const [draft, setDraft] = useState<RecParams>(params)
+
+  const set = (patch: Partial<RecParams>) => setDraft(prev => ({ ...prev, ...patch }))
+  return (
+    <>
+      <div onClick={onClose} style={OVERLAY_STYLE} />
+      <aside style={{ ...DRAWER_STYLE, width: 'min(380px, 92vw)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
+          <strong style={{ flex: 1 }}>Параметры модели</strong>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        <p className="ms-muted" style={{ padding: '0 14px', margin: 0 }}>
+          Пороги, по которым считаются рекомендации. Меняете — блоки пересчитываются из тех же данных.
+        </p>
+        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <NumberField
+            label="Порог контент-рейтинга (Яндекс)"
+            max={100}
+            min={1}
+            onChange={v => set({ ratingThreshold: v })}
+            value={draft.ratingThreshold}
+          />
+          <NumberField label="Минимум фото" max={20} min={1} onChange={v => set({ minPhotos: v })} value={draft.minPhotos} />
+          <NumberField
+            label="Порог разницы цен, %"
+            max={100}
+            min={0}
+            onChange={v => set({ priceGapPct: v })}
+            value={draft.priceGapPct}
+          />
+          <NumberField label="Строк в блоке (cap)" max={200} min={1} onChange={v => set({ cap: v })} value={draft.cap} />
+          <NumberField label="Месяцев динамики (Аналитика)" max={14} min={2} onChange={v => set({ months: v })} value={draft.months} />
+          <NumberField
+            label="Лимит заказов (Заказы)"
+            max={100}
+            min={1}
+            onChange={v => set({ ordersLimit: v })}
+            value={draft.ordersLimit}
+          />
+          <label className="ms-muted" style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            Статус заказов
+            <select
+              onChange={ev => set({ ordersStatus: ev.target.value })}
+              style={{ font: 'inherit', padding: 4 }}
+              value={draft.ordersStatus}
+            >
+              <option value="">Все</option>
+              <option value="PROCESSING">PROCESSING</option>
+              <option value="DELIVERY">DELIVERY</option>
+              <option value="DELIVERED">DELIVERED</option>
+              <option value="CANCELLED">CANCELLED</option>
+            </select>
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="ms-btn ms-btn-primary"
+              onClick={() => {
+                onApply(draft)
+                onClose()
+              }}
+              type="button"
+            >
+              Применить
+            </button>
+            <button className="ms-btn" onClick={() => setDraft(DEFAULT_PARAMS)} type="button">
+              Сбросить
+            </button>
+          </div>
+        </div>
+      </aside>
     </>
   )
 }
@@ -516,21 +671,26 @@ function CreateTab({ rest }: { rest: CardsRest }) {
   )
 }
 
-function OrdersTab({ rest }: { rest: CardsRest }) {
+function OrdersTab({ limit, rest, status }: { limit: number; rest: CardsRest; status: string }) {
   const [orders, setOrders] = useState<YandexOrderRow[] | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    rest<{ orders?: YandexOrderRow[]; configured?: boolean }>('/cards/orders', { timeoutMs: 120_000 })
+    setOrders(null)
+    rest<{ orders?: YandexOrderRow[]; configured?: boolean }>(
+      `/cards/orders?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ''}`,
+      { timeoutMs: 120_000 }
+    )
       .then(out => setOrders(out.orders || []))
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [rest])
+  }, [rest, limit, status])
 
   return (
     <div style={{ marginTop: 12 }}>
       <p className="ms-muted">
-        Живые заказы из кабинета Яндекс Маркета (заказы уже заносятся в МойСклад родной интеграцией;
-        Flowwow заказов по API не отдаёт).
+        Живые заказы из кабинета Яндекс Маркета — источник: API /campaigns/…/orders, без кэша (заказы
+        заносятся в МойСклад родной интеграцией; Flowwow заказов по API не отдаёт). Лимит {limit}
+        {status ? `, статус ${status}` : ''} — меняется в «Параметрах».
       </p>
       {error ? <p className="ms-error">{error}</p> : null}
       {!orders && !error ? <p className="ms-muted">Загружаем…</p> : null}
@@ -567,33 +727,39 @@ function OrdersTab({ rest }: { rest: CardsRest }) {
   )
 }
 
-function AnalyticsTab({ rest }: { rest: CardsRest }) {
+function AnalyticsTab({ months, rest }: { months: number; rest: CardsRest }) {
   const [data, setData] = useState<CardsAnalyticsPayload | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    rest<CardsAnalyticsPayload>('/cards/analytics', { timeoutMs: 180_000 })
+    setData(null)
+    rest<CardsAnalyticsPayload>(`/cards/analytics?months=${months}`, { timeoutMs: 180_000 })
       .then(setData)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [rest])
+  }, [rest, months])
 
-  const months = Object.keys(data?.channel_dynamics || {})
+  const monthIds = Object.keys(data?.channel_dynamics || {})
   const channels = Array.from(
-    new Set(months.flatMap(month => Object.keys(data?.channel_dynamics?.[month] || {})))
+    new Set(monthIds.flatMap(month => Object.keys(data?.channel_dynamics?.[month] || {})))
   )
   return (
     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
       {error ? <p className="ms-error">{error}</p> : null}
       {!data && !error ? <p className="ms-muted">Считаем…</p> : null}
-      {months.length ? (
+      {monthIds.length ? (
         <section>
-          <strong>Динамика каналов из МоегоСклада (оборот ₽ / заказы)</strong>
+          <strong>Динамика каналов из МоегоСклада (оборот ₽ / заказы) · {months} мес.</strong>
+          {data?.sources?.channel_dynamics ? (
+            <p className="ms-muted" style={{ margin: '2px 0 4px', fontSize: 12 }}>
+              Источник: {data.sources.channel_dynamics}
+            </p>
+          ) : null}
           <div className="ms-table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Канал</th>
-                  {months.map(month => (
+                  {monthIds.map(month => (
                     <th key={month}>{month}</th>
                   ))}
                 </tr>
@@ -602,7 +768,7 @@ function AnalyticsTab({ rest }: { rest: CardsRest }) {
                 {channels.map(channel => (
                   <tr key={channel}>
                     <td>{MP_LABELS[channel] || channel}</td>
-                    {months.map(month => {
+                    {monthIds.map(month => {
                       const cell = data?.channel_dynamics?.[month]?.[channel]
                       return (
                         <td key={month}>
@@ -622,7 +788,10 @@ function AnalyticsTab({ rest }: { rest: CardsRest }) {
       {data?.yandex_reconciliation?.length ? (
         <section>
           <strong>Сверка с кабинетом Яндекс Маркета</strong>
-          <p className="ms-muted">МойСклад пишет цены до скидок — в кабинете фактические продажи.</p>
+          <p className="ms-muted">
+            МойСклад пишет цены до скидок — в кабинете фактические продажи.
+            {data?.sources?.yandex_reconciliation ? ` Источник: ${data.sources.yandex_reconciliation}` : ''}
+          </p>
           <div className="ms-table-wrap">
             <table>
               <thead>
@@ -784,14 +953,18 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const [recsOpen, setRecsOpen] = useState(false)
   const [subTab, setSubTab] = useState('list')
   const [recData, setRecData] = useState<RecPayload | null>(null)
+  const [params, setParams] = useState<RecParams>(DEFAULT_PARAMS)
+  const [paramsOpen, setParamsOpen] = useState(false)
 
   useEffect(() => {
-    if ((subTab === 'seo' || subTab === 'placement') && !recData) {
-      rest<RecPayload>('/cards/recommendations', { timeoutMs: 120_000 })
+    if (subTab === 'seo' || subTab === 'placement') {
+      setRecData(null)
+      rest<RecPayload>(`/cards/recommendations?${recQuery(params)}`, { timeoutMs: 120_000 })
         .then(setRecData)
         .catch(() => setRecData({}))
     }
-  }, [subTab, recData, rest])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTab, params])
   const [mpFilter, setMpFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -852,6 +1025,9 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     <div className="ms-page ms-cards-page">
       <div className="ms-page-head">
         <h1>Карточки</h1>
+        <button className="ms-btn" onClick={() => setParamsOpen(true)} type="button">
+          Параметры
+        </button>
         <button className="ms-btn" onClick={() => setRecsOpen(true)} type="button">
           Рекомендации
         </button>
@@ -955,8 +1131,9 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
           />
         </div>
       ) : null}
-      {subTab === 'orders' ? <OrdersTab rest={rest} /> : null}
-      {subTab === 'analytics' ? <AnalyticsTab rest={rest} /> : null}
+      {subTab === 'orders' ? <OrdersTab limit={params.ordersLimit} rest={rest} status={params.ordersStatus} /> : null}
+      {subTab === 'analytics' ? <AnalyticsTab months={params.months} rest={rest} /> : null}
+      {paramsOpen ? <ParamsDrawer onApply={setParams} onClose={() => setParamsOpen(false)} params={params} /> : null}
       {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
       {recsOpen ? <RecommendationsDrawer onClose={() => setRecsOpen(false)} rest={rest} /> : null}
       {chatOpen ? (

@@ -5300,10 +5300,18 @@
       null,
       nonEmpty.map(function (block) {
         var rows = data[block[0]] || [];
+        var meta = (data.meta || {})[block[0]];
         return h(
           "section",
           { key: block[0] },
           h("strong", null, block[1] + " (" + rows.length + ")"),
+          meta
+            ? h(
+                "p",
+                { className: "ms-muted ms-rec-meta" },
+                "Правило: " + (meta.rule || "—") + " · Источник: " + (meta.source || "—"),
+              )
+            : null,
           h(
             "ul",
             { className: "ms-rec-list" },
@@ -5443,20 +5451,28 @@
     );
   }
 
-  function CardsOrdersTab() {
+  function CardsOrdersTab({ limit, status }) {
     const [orders, setOrders] = useState(null);
     const [error, setError] = useState("");
 
-    useEffect(function () {
-      api("/cards/orders")
-        .then(function (out) {
-          setOrders(out.orders || []);
-        })
-        .catch(function (err) {
-          setError(String((err && err.message) || err));
-        });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    useEffect(
+      function () {
+        setOrders(null);
+        api(
+          "/cards/orders?limit=" +
+            (limit || 25) +
+            (status ? "&status=" + encodeURIComponent(status) : ""),
+        )
+          .then(function (out) {
+            setOrders(out.orders || []);
+          })
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+          });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      },
+      [limit, status],
+    );
 
     return h(
       "div",
@@ -5464,7 +5480,7 @@
       h(
         "p",
         { className: "ms-muted" },
-        "Живые заказы из кабинета Яндекс Маркета (в МойСклад заносятся родной интеграцией; Flowwow заказов по API не отдаёт).",
+        "Живые заказы из кабинета Яндекс Маркета — источник: API /campaigns/…/orders, без кэша (в МойСклад заносятся родной интеграцией; Flowwow заказов по API не отдаёт). Лимит и статус меняются в «Параметрах».",
       ),
       error ? h("p", { className: "ms-error" }, error) : null,
       !orders && !error ? h("p", { className: "ms-muted" }, "Загружаем…") : null,
@@ -5515,18 +5531,22 @@
     );
   }
 
-  function CardsAnalyticsTab() {
+  function CardsAnalyticsTab({ months }) {
     const [data, setData] = useState(null);
     const [error, setError] = useState("");
 
-    useEffect(function () {
-      api("/cards/analytics")
-        .then(setData)
-        .catch(function (err) {
-          setError(String((err && err.message) || err));
-        });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    useEffect(
+      function () {
+        setData(null);
+        api("/cards/analytics?months=" + (months || 4))
+          .then(setData)
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+          });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      },
+      [months],
+    );
 
     var months = Object.keys((data && data.channel_dynamics) || {});
     var channelSet = {};
@@ -5547,7 +5567,10 @@
         ? h(
             "section",
             null,
-            h("strong", null, "Динамика каналов из МоегоСклада (оборот ₽ / заказы)"),
+            h("strong", null, "Динамика каналов из МоегоСклада (оборот ₽ / заказы) · " + (months || 4) + " мес."),
+            data && data.sources && data.sources.channel_dynamics
+              ? h("p", { className: "ms-muted ms-rec-meta" }, "Источник: " + data.sources.channel_dynamics)
+              : null,
             h(
               "div",
               { className: "ms-table-wrap" },
@@ -5603,7 +5626,10 @@
             h(
               "p",
               { className: "ms-muted" },
-              "МойСклад пишет цены до скидок — в кабинете фактические продажи.",
+              "МойСклад пишет цены до скидок — в кабинете фактические продажи." +
+                (data && data.sources && data.sources.yandex_reconciliation
+                  ? " Источник: " + data.sources.yandex_reconciliation
+                  : ""),
             ),
             h(
               "div",
@@ -5666,6 +5692,184 @@
     );
   }
 
+  var DEFAULT_REC_PARAMS = {
+    ratingThreshold: 85,
+    minPhotos: 3,
+    priceGapPct: 10,
+    cap: 25,
+    months: 4,
+    ordersLimit: 25,
+    ordersStatus: "",
+  };
+
+  function recQuery(p) {
+    return (
+      "rating_threshold=" +
+      p.ratingThreshold +
+      "&min_photos=" +
+      p.minPhotos +
+      "&price_gap_min=" +
+      (p.priceGapPct / 100).toFixed(2) +
+      "&cap=" +
+      p.cap
+    );
+  }
+
+  function ParamsField({ label, value, min, max, onChange }) {
+    return h(
+      "label",
+      { className: "ms-muted ms-params-row" },
+      label,
+      h("input", {
+        type: "number",
+        min: min,
+        max: max,
+        value: value,
+        onChange: function (ev) {
+          var parsed = Number(ev.target.value);
+          if (isFinite(parsed)) onChange(Math.max(min, Math.min(max, parsed)));
+        },
+      }),
+    );
+  }
+
+  function CardsParamsDrawer({ params, onApply, onClose }) {
+    const [draft, setDraft] = useState(params);
+
+    function set(key, value) {
+      setDraft(function (prev) {
+        var next = Object.assign({}, prev);
+        next[key] = value;
+        return next;
+      });
+    }
+
+    return h(
+      React.Fragment,
+      null,
+      h("div", { className: "ms-drawer-overlay", onClick: onClose }),
+      h(
+        "aside",
+        { className: "ms-drawer" },
+        h(
+          "div",
+          { className: "ms-drawer-head" },
+          h("strong", null, "Параметры модели"),
+          h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
+        ),
+        h(
+          "p",
+          { className: "ms-muted ms-drawer-hint" },
+          "Пороги, по которым считаются рекомендации. Меняете — блоки пересчитываются из тех же данных.",
+        ),
+        h(
+          "div",
+          { className: "ms-params-body" },
+          h(ParamsField, {
+            label: "Порог контент-рейтинга (Яндекс)",
+            value: draft.ratingThreshold,
+            min: 1,
+            max: 100,
+            onChange: function (v) {
+              set("ratingThreshold", v);
+            },
+          }),
+          h(ParamsField, {
+            label: "Минимум фото",
+            value: draft.minPhotos,
+            min: 1,
+            max: 20,
+            onChange: function (v) {
+              set("minPhotos", v);
+            },
+          }),
+          h(ParamsField, {
+            label: "Порог разницы цен, %",
+            value: draft.priceGapPct,
+            min: 0,
+            max: 100,
+            onChange: function (v) {
+              set("priceGapPct", v);
+            },
+          }),
+          h(ParamsField, {
+            label: "Строк в блоке (cap)",
+            value: draft.cap,
+            min: 1,
+            max: 200,
+            onChange: function (v) {
+              set("cap", v);
+            },
+          }),
+          h(ParamsField, {
+            label: "Месяцев динамики (Аналитика)",
+            value: draft.months,
+            min: 2,
+            max: 14,
+            onChange: function (v) {
+              set("months", v);
+            },
+          }),
+          h(ParamsField, {
+            label: "Лимит заказов (Заказы)",
+            value: draft.ordersLimit,
+            min: 1,
+            max: 100,
+            onChange: function (v) {
+              set("ordersLimit", v);
+            },
+          }),
+          h(
+            "label",
+            { className: "ms-muted ms-params-row" },
+            "Статус заказов",
+            h(
+              "select",
+              {
+                value: draft.ordersStatus,
+                onChange: function (ev) {
+                  set("ordersStatus", ev.target.value);
+                },
+              },
+              h("option", { value: "" }, "Все"),
+              h("option", { value: "PROCESSING" }, "PROCESSING"),
+              h("option", { value: "DELIVERY" }, "DELIVERY"),
+              h("option", { value: "DELIVERED" }, "DELIVERED"),
+              h("option", { value: "CANCELLED" }, "CANCELLED"),
+            ),
+          ),
+          h(
+            "div",
+            { className: "ms-params-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-btn ms-btn-primary",
+                onClick: function () {
+                  onApply(draft);
+                  onClose();
+                },
+              },
+              "Применить",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "ms-btn",
+                onClick: function () {
+                  setDraft(DEFAULT_REC_PARAMS);
+                },
+              },
+              "Сбросить",
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   function CardsPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -5675,13 +5879,16 @@
     const [recsOpen, setRecsOpen] = useState(false);
     const [subTab, setSubTab] = useState("list");
     const [recData, setRecData] = useState(null);
+    const [recParams, setRecParams] = useState(DEFAULT_REC_PARAMS);
+    const [paramsOpen, setParamsOpen] = useState(false);
     const [mpFilter, setMpFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
 
     useEffect(
       function () {
-        if ((subTab === "seo" || subTab === "placement") && !recData) {
-          api("/cards/recommendations")
+        if (subTab === "seo" || subTab === "placement") {
+          setRecData(null);
+          api("/cards/recommendations?" + recQuery(recParams))
             .then(setRecData)
             .catch(function () {
               setRecData({});
@@ -5689,7 +5896,7 @@
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
       },
-      [subTab],
+      [subTab, recParams],
     );
 
     function load(force) {
@@ -5735,6 +5942,17 @@
         "div",
         { className: "ms-card-head" },
         h("h1", { className: "ms-clients-title" }, "Карточки"),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-btn",
+            onClick: function () {
+              setParamsOpen(true);
+            },
+          },
+          "Параметры",
+        ),
         h(
           "button",
           {
@@ -5898,8 +6116,19 @@
             }),
           )
         : null,
-      subTab === "orders" ? h(CardsOrdersTab) : null,
-      subTab === "analytics" ? h(CardsAnalyticsTab) : null,
+      subTab === "orders"
+        ? h(CardsOrdersTab, { limit: recParams.ordersLimit, status: recParams.ordersStatus })
+        : null,
+      subTab === "analytics" ? h(CardsAnalyticsTab, { months: recParams.months }) : null,
+      paramsOpen
+        ? h(CardsParamsDrawer, {
+            params: recParams,
+            onApply: setRecParams,
+            onClose: function () {
+              setParamsOpen(false);
+            },
+          })
+        : null,
       selected
         ? h(CombinedDrawer, {
             card: selected,

@@ -1314,3 +1314,13 @@ td.ms-ai-added {
   flex: 1; font: inherit; padding: 0.5rem; background: #3a1840;
   border: 1px solid #592466; color: #f4ede4; border-radius: 0.4rem;
 }
+
+/* «Карточки» — params drawer + rule/source lines */
+.ms-rec-meta { margin: 0.15rem 0 0.3rem; font-size: 0.78rem; }
+.ms-params-body { padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.ms-params-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.ms-params-row input, .ms-params-row select {
+  width: 6rem; font: inherit; padding: 0.25rem 0.4rem; background: #3a1840;
+  border: 1px solid #592466; color: #f4ede4; border-radius: 0.4rem;
+}
+.ms-params-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
