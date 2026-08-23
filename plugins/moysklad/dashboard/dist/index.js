@@ -5280,6 +5280,392 @@
     );
   }
 
+  var CARD_TABS = [
+    ["list", "Список"],
+    ["create", "Создание"],
+    ["seo", "СЕО"],
+    ["placement", "Куда добавить"],
+    ["orders", "Заказы"],
+    ["analytics", "Аналитика"],
+  ];
+
+  function RecBlockList({ blocks, data }) {
+    if (!data) return h("p", { className: "ms-muted" }, "Считаем…");
+    var nonEmpty = blocks.filter(function (b) {
+      return (data[b[0]] || []).length;
+    });
+    if (!nonEmpty.length) return h("p", { className: "ms-muted" }, "Замечаний нет — всё чисто.");
+    return h(
+      React.Fragment,
+      null,
+      nonEmpty.map(function (block) {
+        var rows = data[block[0]] || [];
+        return h(
+          "section",
+          { key: block[0] },
+          h("strong", null, block[1] + " (" + rows.length + ")"),
+          h(
+            "ul",
+            { className: "ms-rec-list" },
+            rows.map(function (row, idx) {
+              var line = recLine(row);
+              return h(
+                "li",
+                { key: idx },
+                row.name || (row.names || []).join(" / ") || row.article || "—",
+                line ? h("span", { className: "ms-muted" }, " — " + line) : null,
+                row.action ? h("span", { className: "ms-muted" }, " → " + row.action) : null,
+              );
+            }),
+          ),
+        );
+      }),
+    );
+  }
+
+  function CardsCreateTab() {
+    const [query, setQuery] = useState("");
+    const [rows, setRows] = useState([]);
+    const [picked, setPicked] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [busy, setBusy] = useState("");
+    const [error, setError] = useState("");
+
+    function search() {
+      if (!query.trim()) return;
+      setBusy("search");
+      setError("");
+      api("/cards/ms-search?query=" + encodeURIComponent(query.trim()))
+        .then(function (out) {
+          setRows(out.rows || []);
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          setBusy("");
+        });
+    }
+
+    function generate(row) {
+      setPicked(row);
+      setDraft(null);
+      setBusy("draft");
+      setError("");
+      api("/cards/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: row.name, price: row.price }),
+      })
+        .then(setDraft)
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          setBusy("");
+        });
+    }
+
+    return h(
+      "div",
+      { className: "ms-cards-subtab" },
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Шаг 1: найдите букет в каталоге МоегоСклада → шаг 2: система сгенерирует описания под каждую площадку. Публикация — следующий этап.",
+      ),
+      h(
+        "div",
+        { className: "ms-cards-search" },
+        h("input", {
+          value: query,
+          placeholder: "Название букета в МоемСкладе…",
+          onChange: function (ev) {
+            setQuery(ev.target.value);
+          },
+          onKeyDown: function (ev) {
+            if (ev.key === "Enter") search();
+          },
+        }),
+        h(
+          "button",
+          { type: "button", className: "ms-btn", disabled: busy === "search" || !query.trim(), onClick: search },
+          busy === "search" ? "Ищем…" : "Найти в МС",
+        ),
+      ),
+      error ? h("p", { className: "ms-error" }, error) : null,
+      rows.length
+        ? h(
+            "ul",
+            { className: "ms-rec-list" },
+            rows.map(function (row) {
+              return h(
+                "li",
+                { key: row.id },
+                row.name + " ",
+                h(
+                  "span",
+                  { className: "ms-muted" },
+                  (row.type === "bundle" ? "комплект" : row.type) +
+                    " · " +
+                    (row.price ? Math.round(row.price).toLocaleString("ru-RU") + " ₽" : "без цены") +
+                    " ",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-link-btn",
+                    disabled: busy === "draft",
+                    onClick: function () {
+                      generate(row);
+                    },
+                  },
+                  "сгенерировать описание",
+                ),
+              );
+            }),
+          )
+        : null,
+      busy === "draft"
+        ? h("p", { className: "ms-muted" }, "Генерируем описания для «" + ((picked && picked.name) || "") + "»…")
+        : null,
+      draft && draft.drafts
+        ? Object.keys(draft.drafts).map(function (mp) {
+            return h(
+              "section",
+              { key: mp },
+              h("strong", null, MP_LABELS[mp] || mp),
+              h("p", { className: "ms-drawer-desc" }, draft.drafts[mp]),
+            );
+          })
+        : null,
+    );
+  }
+
+  function CardsOrdersTab() {
+    const [orders, setOrders] = useState(null);
+    const [error, setError] = useState("");
+
+    useEffect(function () {
+      api("/cards/orders")
+        .then(function (out) {
+          setOrders(out.orders || []);
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return h(
+      "div",
+      { className: "ms-cards-subtab" },
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Живые заказы из кабинета Яндекс Маркета (в МойСклад заносятся родной интеграцией; Flowwow заказов по API не отдаёт).",
+      ),
+      error ? h("p", { className: "ms-error" }, error) : null,
+      !orders && !error ? h("p", { className: "ms-muted" }, "Загружаем…") : null,
+      orders
+        ? h(
+            "div",
+            { className: "ms-table-wrap" },
+            h(
+              "table",
+              null,
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  h("th", null, "Создан"),
+                  h("th", null, "Статус"),
+                  h("th", null, "Сумма"),
+                  h("th", null, "Точка"),
+                  h("th", null, "Состав"),
+                ),
+              ),
+              h(
+                "tbody",
+                null,
+                orders.map(function (order) {
+                  return h(
+                    "tr",
+                    { key: order.id },
+                    h("td", null, order.created || "—"),
+                    h("td", null, (order.status || "") + (order.substatus ? " · " + order.substatus : "")),
+                    h(
+                      "td",
+                      null,
+                      order.buyer_total != null
+                        ? Math.round(order.buyer_total).toLocaleString("ru-RU") + " ₽"
+                        : "—",
+                    ),
+                    h("td", null, order.campaign || "—"),
+                    h("td", null, (order.items || []).join("; ")),
+                  );
+                }),
+              ),
+            ),
+          )
+        : null,
+    );
+  }
+
+  function CardsAnalyticsTab() {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+
+    useEffect(function () {
+      api("/cards/analytics")
+        .then(setData)
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    var months = Object.keys((data && data.channel_dynamics) || {});
+    var channelSet = {};
+    months.forEach(function (m) {
+      Object.keys(data.channel_dynamics[m] || {}).forEach(function (ch) {
+        channelSet[ch] = true;
+      });
+    });
+    var channels = Object.keys(channelSet);
+    var recon = (data && data.yandex_reconciliation) || [];
+
+    return h(
+      "div",
+      { className: "ms-cards-subtab" },
+      error ? h("p", { className: "ms-error" }, error) : null,
+      !data && !error ? h("p", { className: "ms-muted" }, "Считаем…") : null,
+      months.length
+        ? h(
+            "section",
+            null,
+            h("strong", null, "Динамика каналов из МоегоСклада (оборот ₽ / заказы)"),
+            h(
+              "div",
+              { className: "ms-table-wrap" },
+              h(
+                "table",
+                null,
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    [h("th", { key: "ch" }, "Канал")].concat(
+                      months.map(function (m) {
+                        return h("th", { key: m }, m);
+                      }),
+                    ),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  channels.map(function (ch) {
+                    return h(
+                      "tr",
+                      { key: ch },
+                      [h("td", { key: "n" }, MP_LABELS[ch] || ch)].concat(
+                        months.map(function (m) {
+                          var cell = (data.channel_dynamics[m] || {})[ch];
+                          return h(
+                            "td",
+                            { key: m },
+                            cell
+                              ? Math.round(cell.turnover || 0).toLocaleString("ru-RU") +
+                                  " / " +
+                                  (cell.orders || 0)
+                              : "—",
+                          );
+                        }),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+          )
+        : null,
+      recon.length
+        ? h(
+            "section",
+            null,
+            h("strong", null, "Сверка с кабинетом Яндекс Маркета"),
+            h(
+              "p",
+              { className: "ms-muted" },
+              "МойСклад пишет цены до скидок — в кабинете фактические продажи.",
+            ),
+            h(
+              "div",
+              { className: "ms-table-wrap" },
+              h(
+                "table",
+                null,
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    h("th", null, "Месяц"),
+                    h("th", null, "МС"),
+                    h("th", null, "Кабинет (покупатели)"),
+                    h("th", null, "К выплате"),
+                    h("th", null, "Δ"),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  recon.map(function (row) {
+                    return h(
+                      "tr",
+                      { key: row.month },
+                      h("td", null, row.month),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.ms_turnover || 0).toLocaleString("ru-RU") +
+                          " ₽ / " +
+                          (row.ms_orders != null ? row.ms_orders : "—"),
+                      ),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.cabinet_buyer_total || 0).toLocaleString("ru-RU") +
+                          " ₽ / " +
+                          (row.cabinet_orders != null ? row.cabinet_orders : "—"),
+                      ),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.cabinet_payout_total || 0).toLocaleString("ru-RU") + " ₽",
+                      ),
+                      h(
+                        "td",
+                        null,
+                        row.delta_pct != null ? Math.round(row.delta_pct * 100) + "%" : "—",
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+          )
+        : null,
+    );
+  }
+
   function CardsPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -5287,8 +5673,24 @@
     const [selected, setSelected] = useState(null);
     const [chatOpen, setChatOpen] = useState(false);
     const [recsOpen, setRecsOpen] = useState(false);
+    const [subTab, setSubTab] = useState("list");
+    const [recData, setRecData] = useState(null);
     const [mpFilter, setMpFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
+
+    useEffect(
+      function () {
+        if ((subTab === "seo" || subTab === "placement") && !recData) {
+          api("/cards/recommendations")
+            .then(setRecData)
+            .catch(function () {
+              setRecData({});
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      },
+      [subTab],
+    );
 
     function load(force) {
       setLoading(true);
@@ -5377,60 +5779,127 @@
       error ? h("p", { className: "ms-error" }, error) : null,
       h(
         "div",
-        { className: "ms-mp-filters" },
-        h(
-          "label",
-          { className: "ms-muted" },
-          "Маркетплейс ",
-          h(
-            "select",
+        { className: "ms-filter-tabs", role: "tablist" },
+        CARD_TABS.map(function (tab) {
+          return h(
+            "button",
             {
-              value: mpFilter,
-              onChange: function (ev) {
-                setMpFilter(ev.target.value);
+              key: tab[0],
+              type: "button",
+              role: "tab",
+              className: "ms-filter-tab" + (subTab === tab[0] ? " is-active" : ""),
+              onClick: function () {
+                setSubTab(tab[0]);
               },
             },
-            h("option", { value: "all" }, "Все"),
-            h("option", { value: "flowwow" }, "Flowwow"),
-            h("option", { value: "yandex_market" }, "Яндекс Маркет"),
-            h("option", { value: "both" }, "На обоих"),
-          ),
-        ),
-        h(
-          "label",
-          { className: "ms-muted" },
-          "Статус ",
-          h(
-            "select",
-            {
-              value: statusFilter,
-              onChange: function (ev) {
-                setStatusFilter(ev.target.value);
-              },
-            },
-            h("option", { value: "all" }, "Все"),
-            h("option", { value: "active" }, "Активна"),
-            h("option", { value: "hidden" }, "Скрыта"),
-            h("option", { value: "archived" }, "В архиве"),
-          ),
-        ),
-        h("span", { className: "ms-muted" }, filtered.length + " из " + combined.length),
+            tab[1],
+          );
+        }),
       ),
-      loading && !data
-        ? h("p", { className: "ms-muted" }, "Загружаем…")
-        : filtered.length
-          ? h(
+      subTab === "list"
+        ? h(
+            React.Fragment,
+            null,
+            h(
               "div",
-              { className: "ms-mp-grid" },
-              filtered.map(function (card, idx) {
-                return h(CombinedCardTile, {
-                  key: String(card.name || idx),
-                  card: card,
-                  onSelect: setSelected,
-                });
-              }),
-            )
-          : h("p", { className: "ms-muted" }, "Карточек по выбранным фильтрам нет."),
+              { className: "ms-mp-filters" },
+              h(
+                "label",
+                { className: "ms-muted" },
+                "Маркетплейс ",
+                h(
+                  "select",
+                  {
+                    value: mpFilter,
+                    onChange: function (ev) {
+                      setMpFilter(ev.target.value);
+                    },
+                  },
+                  h("option", { value: "all" }, "Все"),
+                  h("option", { value: "flowwow" }, "Flowwow"),
+                  h("option", { value: "yandex_market" }, "Яндекс Маркет"),
+                  h("option", { value: "both" }, "На обоих"),
+                ),
+              ),
+              h(
+                "label",
+                { className: "ms-muted" },
+                "Статус ",
+                h(
+                  "select",
+                  {
+                    value: statusFilter,
+                    onChange: function (ev) {
+                      setStatusFilter(ev.target.value);
+                    },
+                  },
+                  h("option", { value: "all" }, "Все"),
+                  h("option", { value: "active" }, "Активна"),
+                  h("option", { value: "hidden" }, "Скрыта"),
+                  h("option", { value: "archived" }, "В архиве"),
+                ),
+              ),
+              h("span", { className: "ms-muted" }, filtered.length + " из " + combined.length),
+            ),
+            loading && !data
+              ? h("p", { className: "ms-muted" }, "Загружаем…")
+              : filtered.length
+                ? h(
+                    "div",
+                    { className: "ms-mp-grid" },
+                    filtered.map(function (card, idx) {
+                      return h(CombinedCardTile, {
+                        key: String(card.name || idx),
+                        card: card,
+                        onSelect: setSelected,
+                      });
+                    }),
+                  )
+                : h("p", { className: "ms-muted" }, "Карточек по выбранным фильтрам нет."),
+          )
+        : null,
+      subTab === "create" ? h(CardsCreateTab) : null,
+      subTab === "seo"
+        ? h(
+            "div",
+            { className: "ms-cards-subtab" },
+            h(
+              "p",
+              { className: "ms-muted" },
+              "Контент-рейтинг Яндекса и полнота контента — что поднять, чтобы получать больше показов.",
+            ),
+            h(RecBlockList, {
+              data: recData,
+              blocks: [
+                ["low_rating", "Низкий контент-рейтинг (Яндекс)"],
+                ["few_photos", "Мало фото (< 3)"],
+              ],
+            }),
+          )
+        : null,
+      subTab === "placement"
+        ? h(
+            "div",
+            { className: "ms-cards-subtab" },
+            h(
+              "p",
+              { className: "ms-muted" },
+              "Что добавить на вторую площадку и что привести в порядок — посчитано из данных обеих площадок.",
+            ),
+            h(RecBlockList, {
+              data: recData,
+              blocks: [
+                ["add_to_yandex", "Добавить на Яндекс Маркет (есть только на Flowwow)"],
+                ["add_to_flowwow", "Добавить на Flowwow (есть только на Яндексе)"],
+                ["hidden_candidates", "Скрыты, но контент готов"],
+                ["duplicates", "Дубли артикулов"],
+                ["price_gaps", "Разные цены на площадках"],
+              ],
+            }),
+          )
+        : null,
+      subTab === "orders" ? h(CardsOrdersTab) : null,
+      subTab === "analytics" ? h(CardsAnalyticsTab) : null,
       selected
         ? h(CombinedDrawer, {
             card: selected,

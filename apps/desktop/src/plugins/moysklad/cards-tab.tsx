@@ -343,6 +343,320 @@ function RecommendationsDrawer({ onClose, rest }: { onClose: () => void; rest: C
   )
 }
 
+type MsAssortmentRow = { id?: string; type?: string; name?: string; price?: number; archived?: boolean }
+
+type CardDraft = { ok?: boolean; name?: string; price?: number | null; drafts?: Record<string, string> }
+
+type YandexOrderRow = {
+  id?: number
+  campaign?: string
+  status?: string
+  substatus?: string
+  created?: string
+  buyer_total?: number
+  items?: string[]
+}
+
+type CardsAnalyticsPayload = {
+  channel_dynamics?: Record<string, Record<string, { turnover?: number; orders?: number }>>
+  yandex_reconciliation?: {
+    month?: string
+    ms_turnover?: number
+    ms_orders?: number
+    cabinet_buyer_total?: number
+    cabinet_payout_total?: number
+    cabinet_orders?: number
+    delta_pct?: number
+  }[]
+}
+
+const CARD_TABS: [string, string][] = [
+  ['list', 'Список'],
+  ['create', 'Создание'],
+  ['seo', 'СЕО'],
+  ['placement', 'Куда добавить'],
+  ['orders', 'Заказы'],
+  ['analytics', 'Аналитика']
+]
+
+function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; data: RecPayload | null }) {
+  if (!data) {
+    return <p className="ms-muted">Считаем…</p>
+  }
+
+  const nonEmpty = blocks.filter(([key]) => ((data[key] as RecRow[] | undefined) || []).length)
+  if (!nonEmpty.length) {
+    return <p className="ms-muted">Замечаний нет — всё чисто.</p>
+  }
+
+  return (
+    <>
+      {nonEmpty.map(([key, label]) => {
+        const rows = (data[key] as RecRow[] | undefined) || []
+        return (
+          <section key={key} style={{ marginTop: 10 }}>
+            <strong>
+              {label} ({rows.length})
+            </strong>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {rows.map((row, idx) => (
+                <li key={idx} style={{ lineHeight: 1.35 }}>
+                  {row.name || (row.names || []).join(' / ') || row.article}
+                  {recLine(row) ? <span className="ms-muted"> — {recLine(row)}</span> : null}
+                  {row.action ? <span className="ms-muted"> → {row.action}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      })}
+    </>
+  )
+}
+
+function CreateTab({ rest }: { rest: CardsRest }) {
+  const [query, setQuery] = useState('')
+  const [rows, setRows] = useState<MsAssortmentRow[]>([])
+  const [picked, setPicked] = useState<MsAssortmentRow | null>(null)
+  const [draft, setDraft] = useState<CardDraft | null>(null)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  const search = useCallback(async () => {
+    if (!query.trim()) {
+      return
+    }
+
+    setBusy('search')
+    setError('')
+    try {
+      const out = await rest<{ rows?: MsAssortmentRow[] }>(
+        `/cards/ms-search?query=${encodeURIComponent(query.trim())}`,
+        { timeoutMs: 60_000 }
+      )
+      setRows(out.rows || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy('')
+    }
+  }, [query, rest])
+
+  const generate = useCallback(
+    async (row: MsAssortmentRow) => {
+      setPicked(row)
+      setDraft(null)
+      setBusy('draft')
+      setError('')
+      try {
+        const out = await rest<CardDraft>('/cards/draft', {
+          method: 'POST',
+          body: { name: row.name, price: row.price },
+          timeoutMs: 120_000
+        })
+        setDraft(out)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBusy('')
+      }
+    },
+    [rest]
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+      <p className="ms-muted">
+        Шаг 1: найдите букет в каталоге МоегоСклада → шаг 2: система сгенерирует описания под каждую
+        площадку. Публикация на площадки — следующий этап.
+      </p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          onChange={ev => setQuery(ev.target.value)}
+          onKeyDown={ev => {
+            if (ev.key === 'Enter') {
+              void search()
+            }
+          }}
+          placeholder="Название букета в МоемСкладе…"
+          style={{ flex: 1, font: 'inherit', padding: 8 }}
+          value={query}
+        />
+        <button className="ms-btn" disabled={busy === 'search' || !query.trim()} onClick={() => void search()} type="button">
+          {busy === 'search' ? 'Ищем…' : 'Найти в МС'}
+        </button>
+      </div>
+      {error ? <p className="ms-error">{error}</p> : null}
+      {rows.length ? (
+        <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rows.map(row => (
+            <li key={row.id}>
+              {row.name}{' '}
+              <span className="ms-muted">
+                {row.type === 'bundle' ? 'комплект' : row.type} ·{' '}
+                {row.price ? `${Math.round(row.price).toLocaleString('ru-RU')} ₽` : 'без цены'}
+              </span>{' '}
+              <button className="ms-link-btn" disabled={busy === 'draft'} onClick={() => void generate(row)} type="button">
+                сгенерировать описание
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {busy === 'draft' ? <p className="ms-muted">Генерируем описания для «{picked?.name}»…</p> : null}
+      {draft?.drafts
+        ? Object.entries(draft.drafts).map(([mp, text]) => (
+            <section key={mp}>
+              <strong>{MP_LABELS[mp] || mp}</strong>
+              <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.45, marginTop: 4 }}>{text}</p>
+            </section>
+          ))
+        : null}
+    </div>
+  )
+}
+
+function OrdersTab({ rest }: { rest: CardsRest }) {
+  const [orders, setOrders] = useState<YandexOrderRow[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    rest<{ orders?: YandexOrderRow[]; configured?: boolean }>('/cards/orders', { timeoutMs: 120_000 })
+      .then(out => setOrders(out.orders || []))
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="ms-muted">
+        Живые заказы из кабинета Яндекс Маркета (заказы уже заносятся в МойСклад родной интеграцией;
+        Flowwow заказов по API не отдаёт).
+      </p>
+      {error ? <p className="ms-error">{error}</p> : null}
+      {!orders && !error ? <p className="ms-muted">Загружаем…</p> : null}
+      {orders ? (
+        <div className="ms-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Создан</th>
+                <th>Статус</th>
+                <th>Сумма</th>
+                <th>Точка</th>
+                <th>Состав</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map(order => (
+                <tr key={order.id}>
+                  <td>{order.created}</td>
+                  <td>
+                    {order.status}
+                    {order.substatus ? ` · ${order.substatus}` : ''}
+                  </td>
+                  <td>{order.buyer_total != null ? `${Math.round(order.buyer_total).toLocaleString('ru-RU')} ₽` : '—'}</td>
+                  <td>{order.campaign}</td>
+                  <td>{(order.items || []).join('; ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function AnalyticsTab({ rest }: { rest: CardsRest }) {
+  const [data, setData] = useState<CardsAnalyticsPayload | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    rest<CardsAnalyticsPayload>('/cards/analytics', { timeoutMs: 180_000 })
+      .then(setData)
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  const months = Object.keys(data?.channel_dynamics || {})
+  const channels = Array.from(
+    new Set(months.flatMap(month => Object.keys(data?.channel_dynamics?.[month] || {})))
+  )
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {error ? <p className="ms-error">{error}</p> : null}
+      {!data && !error ? <p className="ms-muted">Считаем…</p> : null}
+      {months.length ? (
+        <section>
+          <strong>Динамика каналов из МоегоСклада (оборот ₽ / заказы)</strong>
+          <div className="ms-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Канал</th>
+                  {months.map(month => (
+                    <th key={month}>{month}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {channels.map(channel => (
+                  <tr key={channel}>
+                    <td>{MP_LABELS[channel] || channel}</td>
+                    {months.map(month => {
+                      const cell = data?.channel_dynamics?.[month]?.[channel]
+                      return (
+                        <td key={month}>
+                          {cell
+                            ? `${Math.round(cell.turnover || 0).toLocaleString('ru-RU')} / ${cell.orders ?? 0}`
+                            : '—'}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+      {data?.yandex_reconciliation?.length ? (
+        <section>
+          <strong>Сверка с кабинетом Яндекс Маркета</strong>
+          <p className="ms-muted">МойСклад пишет цены до скидок — в кабинете фактические продажи.</p>
+          <div className="ms-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Месяц</th>
+                  <th>МС</th>
+                  <th>Кабинет (покупатели)</th>
+                  <th>К выплате</th>
+                  <th>Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.yandex_reconciliation.map(row => (
+                  <tr key={row.month}>
+                    <td>{row.month}</td>
+                    <td>
+                      {Math.round(row.ms_turnover || 0).toLocaleString('ru-RU')} ₽ / {row.ms_orders ?? '—'}
+                    </td>
+                    <td>
+                      {Math.round(row.cabinet_buyer_total || 0).toLocaleString('ru-RU')} ₽ / {row.cabinet_orders ?? '—'}
+                    </td>
+                    <td>{Math.round(row.cabinet_payout_total || 0).toLocaleString('ru-RU')} ₽</td>
+                    <td>{row.delta_pct != null ? `${Math.round(row.delta_pct * 100)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
 export function ChatDrawer({
@@ -468,6 +782,16 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const [selected, setSelected] = useState<CombinedCard | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [recsOpen, setRecsOpen] = useState(false)
+  const [subTab, setSubTab] = useState('list')
+  const [recData, setRecData] = useState<RecPayload | null>(null)
+
+  useEffect(() => {
+    if ((subTab === 'seo' || subTab === 'placement') && !recData) {
+      rest<RecPayload>('/cards/recommendations', { timeoutMs: 120_000 })
+        .then(setRecData)
+        .catch(() => setRecData({}))
+    }
+  }, [subTab, recData, rest])
   const [mpFilter, setMpFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -548,40 +872,91 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
         </p>
       ))}
       {error ? <p className="ms-error">{error}</p> : null}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label className="ms-muted">
-          Маркетплейс{' '}
-          <select onChange={ev => setMpFilter(ev.target.value)} style={selectStyle} value={mpFilter}>
-            <option value="all">Все</option>
-            <option value="flowwow">Flowwow</option>
-            <option value="yandex_market">Яндекс Маркет</option>
-            <option value="both">На обоих</option>
-          </select>
-        </label>
-        <label className="ms-muted">
-          Статус{' '}
-          <select onChange={ev => setStatusFilter(ev.target.value)} style={selectStyle} value={statusFilter}>
-            <option value="all">Все</option>
-            <option value="active">Активна</option>
-            <option value="hidden">Скрыта</option>
-            <option value="archived">В архиве</option>
-          </select>
-        </label>
-        <span className="ms-muted">
-          {filtered.length} из {combined.length}
-        </span>
+      <div className="ms-filter-tabs" role="tablist">
+        {CARD_TABS.map(([id, label]) => (
+          <button
+            className={`ms-filter-tab${subTab === id ? ' is-active' : ''}`}
+            key={id}
+            onClick={() => setSubTab(id)}
+            role="tab"
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {loading && !data ? (
-        <p className="ms-muted">Загружаем…</p>
-      ) : filtered.length ? (
-        <div style={GRID_STYLE}>
-          {filtered.map((card, idx) => (
-            <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
-          ))}
+      {subTab === 'list' ? (
+        <>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+            <label className="ms-muted">
+              Маркетплейс{' '}
+              <select onChange={ev => setMpFilter(ev.target.value)} style={selectStyle} value={mpFilter}>
+                <option value="all">Все</option>
+                <option value="flowwow">Flowwow</option>
+                <option value="yandex_market">Яндекс Маркет</option>
+                <option value="both">На обоих</option>
+              </select>
+            </label>
+            <label className="ms-muted">
+              Статус{' '}
+              <select onChange={ev => setStatusFilter(ev.target.value)} style={selectStyle} value={statusFilter}>
+                <option value="all">Все</option>
+                <option value="active">Активна</option>
+                <option value="hidden">Скрыта</option>
+                <option value="archived">В архиве</option>
+              </select>
+            </label>
+            <span className="ms-muted">
+              {filtered.length} из {combined.length}
+            </span>
+          </div>
+          {loading && !data ? (
+            <p className="ms-muted">Загружаем…</p>
+          ) : filtered.length ? (
+            <div style={GRID_STYLE}>
+              {filtered.map((card, idx) => (
+                <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
+              ))}
+            </div>
+          ) : (
+            <p className="ms-muted">Карточек по выбранным фильтрам нет.</p>
+          )}
+        </>
+      ) : null}
+      {subTab === 'create' ? <CreateTab rest={rest} /> : null}
+      {subTab === 'seo' ? (
+        <div style={{ marginTop: 12 }}>
+          <p className="ms-muted">
+            Контент-рейтинг Яндекса и полнота контента — что поднять, чтобы получать больше показов.
+          </p>
+          <RecBlockList
+            blocks={[
+              ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
+              ['few_photos', 'Мало фото (< 3)']
+            ]}
+            data={recData}
+          />
         </div>
-      ) : (
-        <p className="ms-muted">Карточек по выбранным фильтрам нет.</p>
-      )}
+      ) : null}
+      {subTab === 'placement' ? (
+        <div style={{ marginTop: 12 }}>
+          <p className="ms-muted">
+            Что добавить на вторую площадку и что привести в порядок — посчитано из данных обеих площадок.
+          </p>
+          <RecBlockList
+            blocks={[
+              ['add_to_yandex', 'Добавить на Яндекс Маркет (есть только на Flowwow)'],
+              ['add_to_flowwow', 'Добавить на Flowwow (есть только на Яндексе)'],
+              ['hidden_candidates', 'Скрыты, но контент готов'],
+              ['duplicates', 'Дубли артикулов'],
+              ['price_gaps', 'Разные цены на площадках']
+            ]}
+            data={recData}
+          />
+        </div>
+      ) : null}
+      {subTab === 'orders' ? <OrdersTab rest={rest} /> : null}
+      {subTab === 'analytics' ? <AnalyticsTab rest={rest} /> : null}
       {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
       {recsOpen ? <RecommendationsDrawer onClose={() => setRecsOpen(false)} rest={rest} /> : null}
       {chatOpen ? (

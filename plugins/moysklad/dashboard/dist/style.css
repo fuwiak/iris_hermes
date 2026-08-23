@@ -1306,3 +1306,11 @@ td.ms-ai-added {
 /* «Карточки» — recommendations drawer */
 .ms-rec-list { margin: 0.35rem 0 0.8rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; }
 .ms-rec-list li { line-height: 1.35; }
+
+/* «Карточки» — sub-tabs (Создание/СЕО/Куда добавить/Заказы/Аналитика) */
+.ms-cards-subtab { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.ms-cards-search { display: flex; gap: 0.5rem; }
+.ms-cards-search input {
+  flex: 1; font: inherit; padding: 0.5rem; background: #3a1840;
+  border: 1px solid #592466; color: #f4ede4; border-radius: 0.4rem;
+}

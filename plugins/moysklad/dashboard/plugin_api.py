@@ -5339,3 +5339,104 @@ def get_cards_recommendations(force: bool = Query(default=False)) -> dict[str, A
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /cards/recommendations failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class CardDraftBody(BaseModel):
+    """Generate per-marketplace descriptions for one MS bouquet."""
+
+    name: str = ""
+    price: float | None = None
+    composition: str = ""
+    provider: str = ""
+    model: str = ""
+
+
+@router.get("/cards/ms-search")
+def get_cards_ms_search(query: str = Query(default=""), limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
+    """Поиск букета в каталоге МоегоСклада (шаг 1 создания карточки)."""
+    try:
+        from plugins.moysklad.cards_studio import search_ms_assortment
+
+        return {"ok": True, "rows": search_ms_assortment(query, limit=limit)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/ms-search failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/cards/draft")
+def post_cards_draft(body: CardDraftBody) -> dict[str, Any]:
+    """Описания под каждую площадку для выбранного букета (шаг 3).
+
+    Публикация на площадки (products/create / offer-mappings) — следующий
+    этап; сейчас возвращаются готовые тексты для ручной публикации.
+    """
+    try:
+        from plugins.moysklad.cards_studio import generate_card_draft
+
+        out = generate_card_draft(
+            name=body.name,
+            price=body.price,
+            composition=body.composition,
+            provider=body.provider,
+            model=body.model,
+        )
+        if not out.get("ok"):
+            raise HTTPException(status_code=502, detail=str(out.get("error") or "draft failed"))
+        return out
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/draft failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/cards/orders")
+def get_cards_orders(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, Any]:
+    """Живые заказы и статусы из кабинета Яндекс Маркета (новые сверху).
+
+    Заказы уже попадают в МойСклад родной интеграцией МС↔Яндекс; Flowwow
+    заказов в открытом API не отдаёт.
+    """
+    try:
+        from plugins.moysklad.cards_studio import recent_yandex_orders
+
+        return {"ok": True, **recent_yandex_orders(limit=limit)}
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/orders failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/cards/analytics")
+def get_cards_analytics() -> dict[str, Any]:
+    """Аналитика для вкладки: динамика каналов из МС + сверка с Яндексом."""
+    try:
+        from datetime import date as _date
+
+        from plugins.moysklad.dashboard_analytics import build_analytics
+        from plugins.moysklad.report_backtest import extract_month_report
+        from plugins.moysklad.yandex_stats import (
+            build_reconciliation,
+            yandex_monthly_stats_cached,
+        )
+
+        catalog, _meta = _get_catalog(force=False, blocking=True)
+        analytics = build_analytics(
+            list((catalog or {}).get("rows") or []), today=_date.today()
+        )
+        month_report = extract_month_report(analytics)
+        dynamics: dict[str, Any] = {}
+        for month_id in sorted(month_report)[-4:]:
+            dynamics[month_id] = {
+                ch: {"turnover": cell.get("turnover"), "orders": cell.get("orders")}
+                for ch, cell in sorted(month_report[month_id].items())
+                if cell.get("orders")
+            }
+        stats = yandex_monthly_stats_cached(months=3)
+        return {
+            "ok": True,
+            "channel_dynamics": dynamics,
+            "yandex_reconciliation": build_reconciliation(month_report, stats),
+        }
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/analytics failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
