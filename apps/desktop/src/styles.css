@@ -1721,10 +1721,14 @@ text-* variant utilities. */ .btn-arc {
 }
 
 /* The dock column owns the composer's width; the composer keeps the 5px
-   transparent grab margin that the peel-out drag needs. +10px width compensates
-   that padding so the visible surface keeps its exact width/position. */
+   transparent grab margin that the peel-out drag needs.
+   Asymmetric insets: keep a full right lane for the corner kebab FAB so
+   «Отправить» never sits under «Быстрые действия». When the pane is wide
+   enough, both sides resolve to the same centering inset. */
 [data-slot='composer-dock'] {
-  width: calc(min(var(--composer-width), calc(100% - 1rem - var(--corner-chrome-reserve))) + 10px);
+  left: max(0.5rem, calc(50% - (var(--composer-width) + 10px) / 2));
+  right: max(var(--corner-chrome-reserve), calc(50% - (var(--composer-width) + 10px) / 2));
+  width: auto;
   padding-bottom: var(--composer-shell-pad-block-end);
 }
 
@@ -1737,6 +1741,8 @@ text-* variant utilities. */ .btn-arc {
    platform. The higher-specificity selector resets the base rule's padding-bottom
    so the inset is equal on all four sides (not 5px sides / shell-pad bottom). */
 [data-slot='composer-dock'][data-popped-out] {
+  left: auto;
+  right: auto;
   width: var(--composer-popout-width, 24rem);
   max-width: calc(100vw - 1.5rem);
   padding-bottom: 0;

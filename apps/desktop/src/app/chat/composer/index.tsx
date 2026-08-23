@@ -1055,7 +1055,9 @@ export function ChatBar({
         <div
           className={cn(
             'z-30 flex flex-col',
-            poppedOut ? 'fixed max-w-[calc(100vw-1.5rem)]' : 'absolute bottom-0 left-1/2 max-w-full -translate-x-1/2'
+            // Docked: left/right insets come from styles.css so the send control
+            // stays clear of the fixed corner kebab (Быстрые действия).
+            poppedOut ? 'fixed max-w-[calc(100vw-1.5rem)]' : 'absolute bottom-0 max-w-full'
           )}
           data-popped-out={poppedOut ? '' : undefined}
           data-slot="composer-dock"
@@ -1292,7 +1294,8 @@ export function ChatBarFallback() {
   return (
     <div
       className={cn(
-        'group/composer absolute bottom-0 left-1/2 z-30 w-[min(var(--composer-width),calc(100%-1rem-var(--corner-chrome-reserve)))] max-w-full -translate-x-1/2 rounded-2xl pt-2 pb-[var(--composer-shell-pad-block-end)]',
+        'group/composer absolute bottom-0 z-30 max-w-full rounded-2xl pt-2 pb-[var(--composer-shell-pad-block-end)]',
+        'left-[max(0.5rem,calc(50%-(var(--composer-width)+10px)/2))] right-[max(var(--corner-chrome-reserve),calc(50%-(var(--composer-width)+10px)/2))]',
         'bg-linear-to-b from-transparent to-background/55'
       )}
       data-slot="composer-root"
