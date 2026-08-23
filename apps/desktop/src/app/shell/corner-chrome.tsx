@@ -174,8 +174,11 @@ export function CornerChrome() {
   return createPortal(
     <div
       className={cn(
+        // Sit above the composer dock so «Быстрые действия» never covers «Отправить».
         'pointer-events-none fixed z-(--z-over-modal) right-3 flex flex-col items-end gap-2 [-webkit-app-region:no-drag]',
-        statusbarVisible ? 'bottom-8' : 'bottom-3'
+        statusbarVisible
+          ? 'bottom-[calc(var(--composer-measured-height,3.5rem)+2rem)]'
+          : 'bottom-[calc(var(--composer-measured-height,3.5rem)+0.5rem)]'
       )}
       data-slot="corner-chrome"
     >
