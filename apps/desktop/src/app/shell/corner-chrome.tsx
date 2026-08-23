@@ -35,8 +35,9 @@ const PLUGINS_SETTINGS_ROUTE = `${SETTINGS_ROUTE}?tab=plugins`
 
 /** Single dock FAB width — plugin corner panels offset via --corner-chrome-width. */
 const CORNER_CHROME_WIDTH = '2.25rem'
-/** Horizontal clearance for the dock FAB (right-3 + FAB + gap) — composer dock uses this. */
-const CORNER_CHROME_RESERVE = `calc(0.75rem + ${CORNER_CHROME_WIDTH} + 0.5rem)`
+/** Horizontal clearance for the dock FAB (+ optional plugin FAB via --corner-plugin-fab-extra). */
+const CORNER_CHROME_RESERVE =
+  'calc(0.75rem + var(--corner-chrome-width, 2.25rem) + 0.5rem + var(--corner-plugin-fab-extra, 0px))'
 
 /**
  * Bottom-right chrome — one FAB opens a drawer with nav + chrome actions.
