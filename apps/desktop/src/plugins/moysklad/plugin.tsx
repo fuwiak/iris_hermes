@@ -8534,7 +8534,7 @@ function AiPlaygroundChrome() {
     <div
       className={cn(
         'pointer-events-none fixed z-[200] flex flex-col items-end gap-2',
-        'right-[calc(0.75rem+var(--corner-chrome-width,10.5rem)+0.5rem)] bottom-3',
+        'right-[calc(0.75rem+var(--corner-chrome-width,2.25rem)+0.5rem)] bottom-3',
         '[-webkit-app-region:no-drag]'
       )}
       data-slot="ms-ai-playground-panel"

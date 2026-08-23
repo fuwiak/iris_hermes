@@ -35,6 +35,8 @@ const PLUGINS_SETTINGS_ROUTE = `${SETTINGS_ROUTE}?tab=plugins`
 
 /** Single dock FAB width — plugin corner panels offset via --corner-chrome-width. */
 const CORNER_CHROME_WIDTH = '2.25rem'
+/** Horizontal clearance for the dock FAB (right-3 + FAB + gap) — composer dock uses this. */
+const CORNER_CHROME_RESERVE = `calc(0.75rem + ${CORNER_CHROME_WIDTH} + 0.5rem)`
 
 /**
  * Bottom-right chrome — one FAB opens a drawer with nav + chrome actions.
@@ -94,16 +96,31 @@ export function CornerChrome() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [capturing, dockOpen, keybindsOpen])
 
+  const hidden = !embed && isOverlayView(appViewForPath(location.pathname))
+
   useEffect(() => {
     const root = document.documentElement
+
+    if (hidden) {
+      root.style.setProperty('--corner-chrome-width', '0px')
+      root.style.setProperty('--corner-chrome-reserve', '0px')
+
+      return () => {
+        root.style.removeProperty('--corner-chrome-width')
+        root.style.removeProperty('--corner-chrome-reserve')
+      }
+    }
+
     root.style.setProperty('--corner-chrome-width', CORNER_CHROME_WIDTH)
+    root.style.setProperty('--corner-chrome-reserve', CORNER_CHROME_RESERVE)
 
     return () => {
       root.style.removeProperty('--corner-chrome-width')
+      root.style.removeProperty('--corner-chrome-reserve')
     }
-  }, [])
+  }, [hidden])
 
-  if (!embed && isOverlayView(appViewForPath(location.pathname))) {
+  if (hidden) {
     return null
   }
 
