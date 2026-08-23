@@ -1302,3 +1302,7 @@ td.ms-ai-added {
   border: 1px solid #592466; border-radius: 0.5rem; padding: 0.5rem 0.65rem;
   display: flex; flex-direction: column; gap: 0.25rem;
 }
+
+/* «Карточки» — recommendations drawer */
+.ms-rec-list { margin: 0.35rem 0 0.8rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.ms-rec-list li { line-height: 1.35; }

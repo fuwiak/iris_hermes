@@ -5187,12 +5187,106 @@
     );
   }
 
+  var REC_BLOCKS = [
+    ["low_rating", "Низкий контент-рейтинг (Яндекс)"],
+    ["few_photos", "Мало фото (< 3)"],
+    ["add_to_yandex", "Добавить на Яндекс Маркет (есть только на Flowwow)"],
+    ["add_to_flowwow", "Добавить на Flowwow (есть только на Яндексе)"],
+    ["duplicates", "Дубли артикулов"],
+    ["price_gaps", "Разные цены на площадках"],
+    ["hidden_candidates", "Скрыты, но контент готов"],
+  ];
+
+  function recLine(row) {
+    var bits = [];
+    if (row.marketplace) bits.push(MP_LABELS[row.marketplace] || row.marketplace);
+    if (row.rating != null) bits.push("рейтинг " + row.rating + "/100");
+    if (row.images != null) bits.push("фото: " + row.images);
+    if (row.price != null) bits.push(Math.round(row.price).toLocaleString("ru-RU") + " ₽");
+    if (row.prices)
+      bits.push(
+        Object.keys(row.prices)
+          .map(function (mp) {
+            return (MP_LABELS[mp] || mp) + ": " + Math.round(row.prices[mp]).toLocaleString("ru-RU") + " ₽";
+          })
+          .join(" / "),
+      );
+    return bits.join(" · ");
+  }
+
+  function RecommendationsDrawer({ onClose }) {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+
+    useEffect(function () {
+      api("/cards/recommendations")
+        .then(setData)
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return h(
+      React.Fragment,
+      null,
+      h("div", { className: "ms-drawer-overlay", onClick: onClose }),
+      h(
+        "aside",
+        { className: "ms-drawer ms-chat-drawer" },
+        h(
+          "div",
+          { className: "ms-drawer-head" },
+          h("strong", null, "Рекомендации по данным"),
+          h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
+        ),
+        h(
+          "p",
+          { className: "ms-muted ms-drawer-hint" },
+          "Посчитано из карточек обеих площадок без ИИ — рейтинг, фото, цены, дубли.",
+        ),
+        h(
+          "div",
+          { className: "ms-chat-drawer-log" },
+          error ? h("p", { className: "ms-error" }, error) : null,
+          !data && !error ? h("p", { className: "ms-muted" }, "Считаем…") : null,
+          data
+            ? REC_BLOCKS.map(function (block) {
+                var rows = data[block[0]] || [];
+                if (!rows.length) return null;
+                return h(
+                  "section",
+                  { key: block[0] },
+                  h("strong", null, block[1] + " (" + rows.length + ")"),
+                  h(
+                    "ul",
+                    { className: "ms-rec-list" },
+                    rows.map(function (row, idx) {
+                      var line = recLine(row);
+                      return h(
+                        "li",
+                        { key: idx },
+                        row.name || (row.names || []).join(" / ") || row.article || "—",
+                        line ? h("span", { className: "ms-muted" }, " — " + line) : null,
+                        row.action ? h("span", { className: "ms-muted" }, " → " + row.action) : null,
+                      );
+                    }),
+                  ),
+                );
+              })
+            : null,
+        ),
+      ),
+    );
+  }
+
   function CardsPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [selected, setSelected] = useState(null);
     const [chatOpen, setChatOpen] = useState(false);
+    const [recsOpen, setRecsOpen] = useState(false);
     const [mpFilter, setMpFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
 
@@ -5239,6 +5333,17 @@
         "div",
         { className: "ms-card-head" },
         h("h1", { className: "ms-clients-title" }, "Карточки"),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "ms-btn",
+            onClick: function () {
+              setRecsOpen(true);
+            },
+          },
+          "Рекомендации",
+        ),
         h(
           "button",
           {
@@ -5331,6 +5436,13 @@
             card: selected,
             onClose: function () {
               setSelected(null);
+            },
+          })
+        : null,
+      recsOpen
+        ? h(RecommendationsDrawer, {
+            onClose: function () {
+              setRecsOpen(false);
             },
           })
         : null,

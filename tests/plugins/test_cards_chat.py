@@ -70,10 +70,15 @@ def test_cards_advisor_context_and_prompt(monkeypatch) -> None:
         }
     ]
     out = cards_advisor_reply(
-        [{"role": "user", "content": "Что улучшить?"}], combined=combined
+        [{"role": "user", "content": "Что улучшить в карточке Пионы?"}], combined=combined
     )
     assert out["ok"] is True
     messages = captured["messages"]
-    assert "размещение" in messages[0]["content"].lower() or "продвижени" in messages[0]["content"].lower()
-    assert "Пионы" in messages[1]["content"]
-    assert "фото 2" in messages[1]["content"]
+    system = messages[0]["content"]
+    assert "размещение" in system.lower() or "продвижени" in system.lower()
+    assert "Никаких заголовков" in system  # anti-slop format rules
+    context = messages[1]["content"]
+    # precomputed recommendations carry the card as an add-to-yandex candidate…
+    assert "add_to_yandex" in context and "Пионы" in context
+    # …and the retrieval block found it by the question tokens
+    assert "Карточки, найденные по вопросу" in context

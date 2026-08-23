@@ -222,6 +222,127 @@ function CombinedDrawer({ card, onClose }: { card: CombinedCard; onClose: () => 
   )
 }
 
+type RecRow = {
+  name?: string
+  names?: string[]
+  marketplace?: string
+  article?: string
+  rating?: number | null
+  images?: number | null
+  price?: number | null
+  prices?: Record<string, number>
+  gap_pct?: number
+  action?: string
+}
+
+type RecPayload = {
+  ok?: boolean
+  cards_total?: number
+  low_rating?: RecRow[]
+  few_photos?: RecRow[]
+  add_to_yandex?: RecRow[]
+  add_to_flowwow?: RecRow[]
+  duplicates?: RecRow[]
+  price_gaps?: RecRow[]
+  hidden_candidates?: RecRow[]
+}
+
+const REC_BLOCKS: [keyof RecPayload, string][] = [
+  ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
+  ['few_photos', 'Мало фото (< 3)'],
+  ['add_to_yandex', 'Добавить на Яндекс Маркет (есть только на Flowwow)'],
+  ['add_to_flowwow', 'Добавить на Flowwow (есть только на Яндексе)'],
+  ['duplicates', 'Дубли артикулов'],
+  ['price_gaps', 'Разные цены на площадках'],
+  ['hidden_candidates', 'Скрыты, но контент готов']
+]
+
+function recLine(row: RecRow): string {
+  const bits: string[] = []
+  if (row.marketplace) {
+    bits.push(MP_LABELS[row.marketplace] || row.marketplace)
+  }
+
+  if (row.rating != null) {
+    bits.push(`рейтинг ${row.rating}/100`)
+  }
+
+  if (row.images != null) {
+    bits.push(`фото: ${row.images}`)
+  }
+
+  if (row.price != null) {
+    bits.push(`${Math.round(row.price).toLocaleString('ru-RU')} ₽`)
+  }
+
+  if (row.prices) {
+    bits.push(
+      Object.entries(row.prices)
+        .map(([mp, value]) => `${MP_LABELS[mp] || mp}: ${Math.round(value).toLocaleString('ru-RU')} ₽`)
+        .join(' / ')
+    )
+  }
+
+  return bits.join(' · ')
+}
+
+function RecommendationsDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest }) {
+  const [data, setData] = useState<RecPayload | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    rest<RecPayload>('/cards/recommendations', { timeoutMs: 120_000 })
+      .then(setData)
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  return (
+    <>
+      <div onClick={onClose} style={OVERLAY_STYLE} />
+      <aside style={{ ...DRAWER_STYLE, width: 'min(560px, 94vw)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
+          <strong style={{ flex: 1 }}>Рекомендации по данным</strong>
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        <p className="ms-muted" style={{ padding: '0 14px', margin: 0 }}>
+          Посчитано из карточек обеих площадок без ИИ — рейтинг, фото, цены, дубли.
+        </p>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {error ? <p className="ms-error">{error}</p> : null}
+          {!data && !error ? <p className="ms-muted">Считаем…</p> : null}
+          {data
+            ? REC_BLOCKS.map(([key, label]) => {
+                const rows = (data[key] as RecRow[] | undefined) || []
+                if (!rows.length) {
+                  return null
+                }
+
+                return (
+                  <section key={key}>
+                    <strong>
+                      {label} ({rows.length})
+                    </strong>
+                    <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {rows.map((row, idx) => (
+                        <li key={idx} style={{ lineHeight: 1.35 }}>
+                          {row.name || (row.names || []).join(' / ') || row.article}
+                          {recLine(row) ? <span className="ms-muted"> — {recLine(row)}</span> : null}
+                          {row.action ? <span className="ms-muted"> → {row.action}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              })
+            : null}
+        </div>
+      </aside>
+    </>
+  )
+}
+
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
 export function ChatDrawer({
@@ -346,6 +467,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<CombinedCard | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [recsOpen, setRecsOpen] = useState(false)
   const [mpFilter, setMpFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -406,6 +528,9 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     <div className="ms-page ms-cards-page">
       <div className="ms-page-head">
         <h1>Карточки</h1>
+        <button className="ms-btn" onClick={() => setRecsOpen(true)} type="button">
+          Рекомендации
+        </button>
         <button className="ms-btn" onClick={() => setChatOpen(true)} type="button">
           Чат по карточкам
         </button>
@@ -458,6 +583,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
         <p className="ms-muted">Карточек по выбранным фильтрам нет.</p>
       )}
       {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+      {recsOpen ? <RecommendationsDrawer onClose={() => setRecsOpen(false)} rest={rest} /> : null}
       {chatOpen ? (
         <ChatDrawer
           endpoint="/cards/chat"

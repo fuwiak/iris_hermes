@@ -5314,3 +5314,28 @@ def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /dashboard/chat failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/cards/recommendations")
+def get_cards_recommendations(force: bool = Query(default=False)) -> dict[str, Any]:
+    """Рекомендации по карточкам, посчитанные из данных (без LLM, мгновенно).
+
+    Blocks: low_rating, few_photos, add_to_yandex, add_to_flowwow,
+    duplicates, price_gaps, hidden_candidates — straight from the cached
+    combined card list.
+    """
+    try:
+        from plugins.moysklad.cards_recommendations import build_recommendations
+        from plugins.moysklad.marketplace_cards import marketplace_cards_payload
+
+        cards = marketplace_cards_payload(limit=1000, force=force)
+        combined = list((cards or {}).get("combined") or [])
+        return {
+            "ok": True,
+            "cards_total": len(combined),
+            "generated_at": cards.get("generated_at"),
+            **build_recommendations(combined),
+        }
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/recommendations failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
