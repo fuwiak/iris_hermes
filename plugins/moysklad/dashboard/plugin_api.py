@@ -5250,7 +5250,7 @@ def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
             raise HTTPException(
                 status_code=502, detail=str(out.get("error") or "chat failed")
             )
-        return {"ok": True, "reply": out["reply"]}
+        return {"ok": True, "reply": out["reply"], "followups": out.get("followups") or []}
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover
@@ -5308,7 +5308,10 @@ def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
             raise HTTPException(
                 status_code=502, detail=str(out.get("error") or "chat failed")
             )
-        return _attach_cache_meta({"ok": True, "reply": out["reply"]}, meta)
+        return _attach_cache_meta(
+            {"ok": True, "reply": out["reply"], "followups": out.get("followups") or []},
+            meta,
+        )
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover

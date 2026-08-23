@@ -1324,3 +1324,12 @@ td.ms-ai-added {
   border: 1px solid #592466; color: #f4ede4; border-radius: 0.4rem;
 }
 .ms-params-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+
+/* chat follow-up chips */
+.ms-chat-followups { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.ms-chat-followup {
+  font: inherit; font-size: 0.78rem; padding: 0.3rem 0.65rem; text-align: left;
+  border-radius: 0.75rem; border: 1px dashed #8b3aa0; background: transparent;
+  color: #e8c7f0; cursor: pointer;
+}
+.ms-chat-followup:hover { background: #3a1840; }

@@ -834,6 +834,7 @@ export function ChatDrawer({
   hint,
   onClose,
   rest,
+  seedFollowups,
   title
 }: {
   endpoint: string
@@ -841,37 +842,44 @@ export function ChatDrawer({
   hint: string
   onClose: () => void
   rest: CardsRest
+  seedFollowups?: string[]
   title: string
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [followups, setFollowups] = useState<string[]>(seedFollowups || [example])
 
-  const send = useCallback(async () => {
-    const content = draft.trim()
-    if (!content || busy) {
-      return
-    }
+  const send = useCallback(
+    async (text?: string) => {
+      const content = (text ?? draft).trim()
+      if (!content || busy) {
+        return
+      }
 
-    const next: ChatTurn[] = [...turns, { role: 'user', content }]
-    setTurns(next)
-    setDraft('')
-    setBusy(true)
-    setError('')
-    try {
-      const out = await rest<{ reply?: string }>(endpoint, {
-        method: 'POST',
-        body: { messages: next },
-        timeoutMs: 120_000
-      })
-      setTurns([...next, { role: 'assistant', content: out.reply || '(пустой ответ)' }])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, draft, endpoint, rest, turns])
+      const next: ChatTurn[] = [...turns, { role: 'user', content }]
+      setTurns(next)
+      setDraft('')
+      setFollowups([])
+      setBusy(true)
+      setError('')
+      try {
+        const out = await rest<{ reply?: string; followups?: string[] }>(endpoint, {
+          method: 'POST',
+          body: { messages: next },
+          timeoutMs: 120_000
+        })
+        setTurns([...next, { role: 'assistant', content: out.reply || '(пустой ответ)' }])
+        setFollowups((out.followups || []).filter(Boolean).slice(0, 3))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, draft, endpoint, rest, turns]
+  )
 
   return (
     <>
@@ -887,7 +895,10 @@ export function ChatDrawer({
           {hint}
         </p>
         <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {turns.length === 0 ? <p className="ms-muted">Например: «{example}»</p> : null}
+          {turns.length === 0 && !followups.length ? <p className="ms-muted">Например: «{example}»</p> : null}
+          {turns.length === 0 && followups.length ? (
+            <p className="ms-muted">С чего начать — выберите вопрос или напишите свой:</p>
+          ) : null}
           {turns.map((turn, idx) => (
             <div
               key={idx}
@@ -907,6 +918,30 @@ export function ChatDrawer({
           ))}
           {busy ? <p className="ms-muted">Считает…</p> : null}
           {error ? <p className="ms-error">{error}</p> : null}
+          {!busy && followups.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {followups.map(question => (
+                <button
+                  key={question}
+                  onClick={() => void send(question)}
+                  style={{
+                    font: 'inherit',
+                    fontSize: 12,
+                    padding: '5px 10px',
+                    borderRadius: 12,
+                    border: '1px dashed var(--hermes-border, rgba(128,128,128,.45))',
+                    background: 'transparent',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  type="button"
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div style={{ display: 'flex', gap: 8, padding: 14 }}>
           <textarea
@@ -939,6 +974,11 @@ export function ReportChatDrawer({ onClose, rest }: { onClose: () => void; rest:
       hint="Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает."
       onClose={onClose}
       rest={rest}
+      seedFollowups={[
+        'Построй отчёт за последний месяц по всем каналам',
+        'Какой канал просел сильнее всего к прошлому месяцу?',
+        'Сойдись с кабинетом Яндекса — где расхождение?'
+      ]}
       title="Чат-аналитик отчёта"
     />
   )
@@ -1143,6 +1183,11 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
           hint="Консультант по размещению и продвижению: смотрит статусы, фото и контент-рейтинг ваших карточек и говорит, что исправить или добавить — отдельно для каждой площадки."
           onClose={() => setChatOpen(false)}
           rest={rest}
+          seedFollowups={[
+            'Какие карточки стоит добавить на вторую площадку?',
+            'Что исправить в карточках с низким рейтингом?',
+            'Где у нас дубли и разные цены на площадках?'
+          ]}
           title="Чат по карточкам"
         />
       ) : null}

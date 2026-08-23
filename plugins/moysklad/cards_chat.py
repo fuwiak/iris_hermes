@@ -208,6 +208,33 @@ def cards_chat_reply(
     )
 
 
+_FOLLOWUP_MARKER = "[ДАЛЬШЕ]"
+
+_FOLLOWUP_RULES = f"""
+
+В самом конце ответа добавь блок:
+{_FOLLOWUP_MARKER}
+и ровно 3 коротких (до 80 знаков) follow-up вопроса, каждый с новой строки —
+что оператор логично спросит ДАЛЬШЕ, исходя из твоего ответа (уточнение,
+следующий шаг, соседняя проблема из данных). Без нумерации и маркеров.
+"""
+
+
+def split_followups(text: str) -> tuple[str, list[str]]:
+    """Reply text → (clean reply, ≤3 follow-up questions)."""
+    if _FOLLOWUP_MARKER not in text:
+        return text.strip(), []
+    reply, _, tail = text.partition(_FOLLOWUP_MARKER)
+    followups: list[str] = []
+    for line in tail.splitlines():
+        line = line.strip().lstrip("-–—•*0123456789. ").strip()
+        if line:
+            followups.append(line[:120])
+        if len(followups) == 3:
+            break
+    return reply.strip(), followups
+
+
 def _chat_turn(
     messages: list[dict[str, str]],
     *,
@@ -218,7 +245,7 @@ def _chat_turn(
     model: str = "",
 ) -> dict[str, Any]:
     prompt_messages: list[dict[str, str]] = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": system + _FOLLOWUP_RULES},
         {"role": "user", "content": context},
         {"role": "assistant", "content": ack},
     ]
@@ -247,4 +274,5 @@ def _chat_turn(
     text = (extract_content_or_reasoning(response) or "").strip()
     if not text:
         return {"ok": False, "error": "empty_llm_response", "reply": ""}
-    return {"ok": True, "reply": text}
+    reply, followups = split_followups(text)
+    return {"ok": True, "reply": reply, "followups": followups}

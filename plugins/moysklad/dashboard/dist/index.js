@@ -4851,6 +4851,11 @@
       reportChatOpen
         ? h(MsChatDrawer, {
             endpoint: "/dashboard/chat",
+            seedFollowups: [
+              "Построй отчёт за последний месяц по всем каналам",
+              "Какой канал просел сильнее всего к прошлому месяцу?",
+              "Сойдись с кабинетом Яндекса — где расхождение?",
+            ],
             title: "Чат-аналитик отчёта",
             hint: "Считает только из данных МоегоСклада. Если цифр не хватает — скажет каких; пришлите их сообщением, и он пересчитает.",
             example: "Построй такой же отчёт по такой же форме за июль и август",
@@ -5106,18 +5111,20 @@
     );
   }
 
-  function MsChatDrawer({ onClose, endpoint, title, hint, example }) {
+  function MsChatDrawer({ onClose, endpoint, title, hint, example, seedFollowups }) {
     const [turns, setTurns] = useState([]);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
+    const [followups, setFollowups] = useState(seedFollowups || [example]);
 
-    function send() {
-      var content = draft.trim();
+    function send(text) {
+      var content = String(text != null ? text : draft).trim();
       if (!content || busy) return;
       var next = turns.concat([{ role: "user", content: content }]);
       setTurns(next);
       setDraft("");
+      setFollowups([]);
       setBusy(true);
       setError("");
       api(endpoint, {
@@ -5127,6 +5134,7 @@
       })
         .then(function (out) {
           setTurns(next.concat([{ role: "assistant", content: (out && out.reply) || "(пустой ответ)" }]));
+          setFollowups(((out && out.followups) || []).filter(Boolean).slice(0, 3));
         })
         .catch(function (err) {
           setError(String((err && err.message) || err));
@@ -5153,12 +5161,37 @@
         h(
           "div",
           { className: "ms-chat-drawer-log" },
-          turns.length === 0 ? h("p", { className: "ms-muted" }, "Например: «" + example + "»") : null,
+          turns.length === 0 && !followups.length
+            ? h("p", { className: "ms-muted" }, "Например: «" + example + "»")
+            : null,
+          turns.length === 0 && followups.length
+            ? h("p", { className: "ms-muted" }, "С чего начать — выберите вопрос или напишите свой:")
+            : null,
           turns.map(function (turn, idx) {
             return h("div", { key: idx, className: "ms-chat-bubble is-" + turn.role }, turn.content);
           }),
           busy ? h("p", { className: "ms-muted" }, "Считает…") : null,
           error ? h("p", { className: "ms-error" }, error) : null,
+          !busy && followups.length
+            ? h(
+                "div",
+                { className: "ms-chat-followups" },
+                followups.map(function (question) {
+                  return h(
+                    "button",
+                    {
+                      key: question,
+                      type: "button",
+                      className: "ms-chat-followup",
+                      onClick: function () {
+                        send(question);
+                      },
+                    },
+                    question,
+                  );
+                }),
+              )
+            : null,
         ),
         h(
           "div",
@@ -6147,6 +6180,11 @@
       chatOpen
         ? h(MsChatDrawer, {
             endpoint: "/cards/chat",
+            seedFollowups: [
+              "Какие карточки стоит добавить на вторую площадку?",
+              "Что исправить в карточках с низким рейтингом?",
+              "Где у нас дубли и разные цены на площадках?",
+            ],
             title: "Чат по карточкам",
             hint: "Консультант по размещению и продвижению: смотрит статусы, фото и контент-рейтинг карточек и говорит, что исправить или добавить — отдельно для каждой площадки.",
             example: "Какие карточки стоит добавить на вторую площадку и что исправить в слабых?",

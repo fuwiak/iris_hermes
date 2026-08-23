@@ -82,3 +82,25 @@ def test_cards_advisor_context_and_prompt(monkeypatch) -> None:
     assert "add_to_yandex" in context and "Пионы" in context
     # …and the retrieval block found it by the question tokens
     assert "Карточки, найденные по вопросу" in context
+
+
+def test_split_followups_parses_marker():
+    from plugins.moysklad.cards_chat import split_followups
+
+    reply, followups = split_followups(
+        "«Пионы» — 2 фото → добавить.\n[ДАЛЬШЕ]\n- Что с рейтингом?\n2. Где дубли?\nЧто скрыто?\nлишний четвёртый"
+    )
+    assert reply == "«Пионы» — 2 фото → добавить."
+    assert followups == ["Что с рейтингом?", "Где дубли?", "Что скрыто?"]
+    plain, none = split_followups("просто ответ")
+    assert plain == "просто ответ" and none == []
+
+
+def test_chat_turn_returns_followups(monkeypatch):
+    captured: dict = {}
+    _stub_llm(monkeypatch, "Ответ.\n[ДАЛЬШЕ]\nВопрос раз?\nВопрос два?", captured)
+    out = cards_chat_reply([{"role": "user", "content": "?"}], month_report={})
+    assert out["ok"] is True
+    assert out["reply"] == "Ответ."
+    assert out["followups"] == ["Вопрос раз?", "Вопрос два?"]
+    assert "[ДАЛЬШЕ]" in captured["messages"][0]["content"]  # rule reached the system prompt
