@@ -1923,6 +1923,7 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [title, setTitle] = useState("Рассылка по фильтрам");
+    const [sendImage, setSendImage] = useState(null); // {name, dataUrl}
     const [channel, setChannel] = useState("telegram");
     const [channelKind, setChannelKind] = useState("");
     const [group, setGroup] = useState("");
@@ -2626,6 +2627,8 @@
           client_id: selectedClientId,
           open_deep_link: true,
           deliver: true,
+          image_base64: (sendImage && sendImage.dataUrl) || "",
+          image_name: (sendImage && sendImage.name) || "photo.jpg",
         }),
       })
         .then(function (data) {
@@ -3767,6 +3770,50 @@
                   "Отправить в Telegram",
                 )
               : null,
+            selectedClientId
+              ? h(
+                  "label",
+                  { className: "ms-btn", style: { cursor: "pointer" } },
+                  sendImage ? "🖼 Заменить картинку" : "🖼 Картинка",
+                  h("input", {
+                    type: "file",
+                    accept: "image/*",
+                    style: { display: "none" },
+                    onChange: function (ev) {
+                      var file = ev.target.files && ev.target.files[0];
+                      ev.target.value = "";
+                      if (!file) return;
+                      if (file.size > 9 * 1024 * 1024) {
+                        setError("Картинка больше 9 МБ — Telegram не примет.");
+                        return;
+                      }
+                      var reader = new FileReader();
+                      reader.onload = function () {
+                        setSendImage({ name: file.name, dataUrl: String(reader.result || "") });
+                      };
+                      reader.readAsDataURL(file);
+                    },
+                  }),
+                )
+              : null,
+            sendImage
+              ? h(
+                  "span",
+                  { className: "ms-muted" },
+                  "🖼 " + sendImage.name + " ",
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-link-btn",
+                      onClick: function () {
+                        setSendImage(null);
+                      },
+                    },
+                    "убрать",
+                  ),
+                )
+              : null,
             h(
               "button",
               {
@@ -4811,6 +4858,79 @@
               setReportChatOpen(false);
             },
           })
+        : null,
+      data && data.yandex_reconciliation && data.yandex_reconciliation.length
+        ? h(
+            "section",
+            { className: "ms-card-section" },
+            h("h2", null, "Сверка с кабинетом Яндекс Маркета"),
+            h(
+              "p",
+              { className: "ms-muted" },
+              "МойСклад пишет цены до скидок Яндекса; в кабинете — фактические продажи. Обе цифры ниже.",
+            ),
+            h(
+              "div",
+              { className: "ms-table-wrap" },
+              h(
+                "table",
+                null,
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    h("th", null, "Месяц"),
+                    h("th", null, "МС: оборот / заказы"),
+                    h("th", null, "Кабинет: покупатели / заказы"),
+                    h("th", null, "Кабинет: к выплате"),
+                    h("th", null, "Δ МС − кабинет"),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  data.yandex_reconciliation.map(function (row) {
+                    return h(
+                      "tr",
+                      { key: row.month },
+                      h("td", null, row.month),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.ms_turnover || 0).toLocaleString("ru-RU") +
+                          " ₽ / " +
+                          (row.ms_orders != null ? row.ms_orders : "—"),
+                      ),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.cabinet_buyer_total || 0).toLocaleString("ru-RU") +
+                          " ₽ / " +
+                          (row.cabinet_orders != null ? row.cabinet_orders : "—"),
+                      ),
+                      h(
+                        "td",
+                        null,
+                        Math.round(row.cabinet_payout_total || 0).toLocaleString("ru-RU") + " ₽",
+                      ),
+                      h(
+                        "td",
+                        null,
+                        row.delta != null
+                          ? Math.round(row.delta).toLocaleString("ru-RU") +
+                              " ₽ (" +
+                              Math.round((row.delta_pct || 0) * 100) +
+                              "%)"
+                          : "—",
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+          )
         : null,
       error ? h("p", { className: "ms-error" }, error) : null,
       data && data.cache_backend

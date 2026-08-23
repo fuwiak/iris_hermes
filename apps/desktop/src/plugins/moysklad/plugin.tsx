@@ -8979,6 +8979,16 @@ function DashboardPage() {
     stale?: boolean
     synced_at_label?: string
     analytics_cached?: boolean
+    yandex_reconciliation?: {
+      month?: string
+      ms_turnover?: number
+      ms_orders?: number
+      cabinet_buyer_total?: number
+      cabinet_payout_total?: number
+      cabinet_orders?: number
+      delta?: number
+      delta_pct?: number
+    }[]
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -9099,6 +9109,47 @@ function DashboardPage() {
         }}
         overview={overview}
       />
+      {data?.yandex_reconciliation?.length ? (
+        <section className="ms-card-section">
+          <h2>Сверка с кабинетом Яндекс Маркета</h2>
+          <p className="ms-muted">
+            МойСклад пишет цены до скидок Яндекса; в кабинете — фактические продажи. Обе цифры ниже.
+          </p>
+          <div className="ms-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Месяц</th>
+                  <th>МС: оборот / заказы</th>
+                  <th>Кабинет: покупатели / заказы</th>
+                  <th>Кабинет: к выплате</th>
+                  <th>Δ МС − кабинет</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.yandex_reconciliation.map(row => (
+                  <tr key={row.month}>
+                    <td>{row.month}</td>
+                    <td>
+                      {Math.round(row.ms_turnover || 0).toLocaleString('ru-RU')} ₽ / {row.ms_orders ?? '—'}
+                    </td>
+                    <td>
+                      {Math.round(row.cabinet_buyer_total || 0).toLocaleString('ru-RU')} ₽ /{' '}
+                      {row.cabinet_orders ?? '—'}
+                    </td>
+                    <td>{Math.round(row.cabinet_payout_total || 0).toLocaleString('ru-RU')} ₽</td>
+                    <td>
+                      {row.delta != null
+                        ? `${Math.round(row.delta).toLocaleString('ru-RU')} ₽ (${Math.round((row.delta_pct || 0) * 100)}%)`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       {reportChatOpen ? (
         <ReportChatDrawer onClose={() => setReportChatOpen(false)} rest={(path, opts) => call(path, opts)} />
       ) : null}

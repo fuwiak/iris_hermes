@@ -1219,6 +1219,9 @@ class ConversationAppendBody(BaseModel):
     label: str = ""
     source: str = "manual"
     open_deep_link: bool = False
+    #: Optional photo (data-URL or bare base64) — delivered via sendPhoto.
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
 
 
 class ConversationSyncBody(BaseModel):
@@ -1266,6 +1269,9 @@ class MarkSentBody(BaseModel):
     deliver: bool = True
     #: ``bot`` | ``user`` | ``auto`` — overrides MOYSKLAD_TELEGRAM_SEND_VIA.
     via: str = ""
+    #: Optional photo (data-URL or bare base64) — delivered via sendPhoto.
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
 
 
 # Per HTTP request — UI chunks larger audiences into several calls.
@@ -2125,6 +2131,8 @@ def post_client_conversation(
                 tg_nick=tg_nick,
                 tg_conversation=tg_conversation,
                 tg_chat_id=tg_chat_id,
+                image_base64=body.image_base64,
+                image_name=body.image_name or "photo.jpg",
             )
             if delivery.get("ok"):
                 source = "client_card_telegram_bot"
@@ -2234,6 +2242,8 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 tg_conversation=tg_conversation,
                 tg_chat_id=tg_chat_id,
                 via=body.via,
+                image_base64=body.image_base64,
+                image_name=body.image_name or "photo.jpg",
             )
 
         source = "campaign_send"
@@ -2674,6 +2684,30 @@ def get_campaign_mass_send_history(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _yandex_reconciliation(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """«МС vs кабинет Яндекса» — real cabinet numbers next to computed ones.
+
+    MoySklad orders carry pre-discount list prices, so the yandex_market
+    channel runs above what buyers actually paid; this block makes the gap
+    explicit instead of leaving the dashboard silently off the reference.
+    """
+    try:
+        from plugins.moysklad.report_backtest import extract_month_report
+        from plugins.moysklad.yandex_stats import (
+            build_reconciliation,
+            yandex_monthly_stats_cached,
+        )
+
+        stats = yandex_monthly_stats_cached(months=3)
+        if not stats:
+            return []
+        month_report = extract_month_report(summary.get("analytics") or {})
+        return build_reconciliation(month_report, stats)
+    except Exception:  # pragma: no cover — reconciliation must never break дашборд
+        log.warning("yandex reconciliation failed", exc_info=True)
+        return []
+
+
 @router.get("/dashboard")
 def get_dashboard(recompute: bool = Query(False)) -> dict[str, Any]:
     """Дашборд: CRM-виталс + аналитика Вереск (день/неделя/месяц/Флау).
@@ -2691,7 +2725,12 @@ def get_dashboard(recompute: bool = Query(False)) -> dict[str, Any]:
             cached_summary = get_dashboard_summary_cached(synced)
             if cached_summary:
                 return _attach_cache_meta(
-                    {"ok": True, "analytics_cached": True, **cached_summary},
+                    {
+                        "ok": True,
+                        "analytics_cached": True,
+                        **cached_summary,
+                        "yandex_reconciliation": _yandex_reconciliation(cached_summary),
+                    },
                     meta,
                 )
         rows = list((catalog or {}).get("rows") or [])
@@ -2700,7 +2739,12 @@ def get_dashboard(recompute: bool = Query(False)) -> dict[str, Any]:
         )
         set_dashboard_summary_cached(summary, catalog_synced_at=synced)
         return _attach_cache_meta(
-            {"ok": True, "analytics_cached": False, **summary},
+            {
+                "ok": True,
+                "analytics_cached": False,
+                **summary,
+                "yandex_reconciliation": _yandex_reconciliation(summary),
+            },
             meta,
         )
     except HTTPException:
@@ -5156,17 +5200,49 @@ def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
     """Консультант по карточкам: размещение, продвижение, исправление,
     добавление. Context = combined card list of both marketplaces."""
     try:
-        from plugins.moysklad.cards_chat import cards_advisor_reply
-        from plugins.moysklad.marketplace_cards import (
-            cached_payload,
-            marketplace_cards_payload,
-        )
+        from datetime import date as _date
 
-        cards = cached_payload() or marketplace_cards_payload(limit=100)
+        from plugins.moysklad.cards_chat import cards_advisor_reply
+        from plugins.moysklad.marketplace_cards import marketplace_cards_payload
+
+        # Full catalog (not the 100-card page) — the advisor must see everything.
+        cards = marketplace_cards_payload(limit=1000)
         combined = list((cards or {}).get("combined") or [])
+
+        channel_dynamics: dict[str, Any] = {}
+        try:
+            from plugins.moysklad.dashboard_analytics import build_analytics
+            from plugins.moysklad.report_backtest import extract_month_report
+
+            catalog, _meta = _get_catalog(force=False, blocking=True)
+            analytics = build_analytics(
+                list((catalog or {}).get("rows") or []), today=_date.today()
+            )
+            month_report = extract_month_report(analytics)
+            for month_id in sorted(month_report)[-3:]:
+                channel_dynamics[month_id] = {
+                    ch: [cell.get("turnover"), cell.get("orders")]
+                    for ch, cell in sorted(month_report[month_id].items())
+                    if cell.get("orders")
+                }
+        except Exception:
+            log.warning("cards chat: channel dynamics unavailable", exc_info=True)
+
+        yandex_stats = None
+        try:
+            from plugins.moysklad.yandex_stats import yandex_monthly_stats_cached
+
+            stats = yandex_monthly_stats_cached(months=3)
+            if stats:
+                yandex_stats = stats.get("months")
+        except Exception:
+            log.warning("cards chat: yandex stats unavailable", exc_info=True)
+
         out = cards_advisor_reply(
             list(body.messages or []),
             combined=combined,
+            channel_dynamics=channel_dynamics or None,
+            yandex_stats=yandex_stats,
             provider=body.provider,
             model=body.model,
         )
