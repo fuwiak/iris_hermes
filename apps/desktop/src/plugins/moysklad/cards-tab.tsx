@@ -152,11 +152,19 @@ export function cardMessageBlock(card: CombinedCard): { block: string; image: st
 }
 
 export function cardDragPayload(card: CombinedCard): string {
+  const entry = cardMessageBlock(card)
   const listings = card.listings || {}
   const url = Object.values(listings)
     .map(product => product.url || '')
     .find(Boolean)
-  return JSON.stringify({ kind: 'ms-card', name: card.name || '', image: card.image || '', url: url || '' })
+
+  return JSON.stringify({
+    kind: 'ms-card',
+    name: entry.name,
+    image: entry.image,
+    block: entry.block,
+    url: url || ''
+  })
 }
 
 const PLUS_STYLE: React.CSSProperties = {
@@ -1154,7 +1162,7 @@ export function CardPhotoPicker({
   rest
 }: {
   onClose: () => void
-  onPick: (name: string, url: string) => void
+  onPick: (card: CombinedCard, photoUrl: string) => void
   rest: CardsRest
 }) {
   const [cards, setCards] = useState<CombinedCard[] | null>(null)
@@ -1225,7 +1233,7 @@ export function CardPhotoPicker({
                   <button
                     key={idx}
                     onClick={() => {
-                      onPick(card.name || 'card.jpg', src)
+                      onPick(card, src)
                       onClose()
                     }}
                     style={{ ...CARD_STYLE, minHeight: 0, padding: 4, background: 'transparent' }}

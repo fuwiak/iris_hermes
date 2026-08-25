@@ -33,10 +33,10 @@ import {
   seedFactsFromAudienceRow
 } from './audience-pick'
 import {
+  cardMessageBlock,
   CardPhotoPicker,
   CardsPage,
   CardsSidePanel,
-  cardMessageBlock,
   type CombinedCard,
   ReportChatDrawer
 } from './cards-tab'
@@ -4135,6 +4135,25 @@ function CampaignsPage() {
   const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
+  const insertMenuRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!insertMenuOpen) {
+      return
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (insertMenuRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setInsertMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown, true)
+
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [insertMenuOpen])
   const [actionStatus, setActionStatus] = useState('')
   const offerRef = useRef('')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -5895,35 +5914,38 @@ function CampaignsPage() {
     reader.readAsDataURL(file)
   }, [])
 
-  const addCardToMessage = useCallback(
-    (card: CombinedCard) => {
-      const entry = cardMessageBlock(card)
+  const addCardToMessage = useCallback((card: CombinedCard, photoUrl?: string) => {
+    const entry = cardMessageBlock(card)
 
-      setMassCards(prev => {
-        if (prev.some(existing => existing.name === entry.name)) {
-          return prev
-        }
+    setMassCards(prev => (prev.some(e => e.name === entry.name) ? prev : [...prev, entry]))
 
-        return [...prev, entry]
-      })
-
-      // Primary: 1:1 «Текст сообщения» — card + MUST land here (not only mass panel).
-      setOffer(prev => {
-        const next = prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
-        offerRef.current = next
-
-        return next
-      })
-      setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block))
-
-      if (entry.image) {
-        const photo = { name: entry.name, url: entry.image }
-        setSendImage(photo)
-        setMassImage(photo)
+    setOffer(prev => {
+      if (prev.includes(entry.block)) {
+        return prev
       }
-    },
-    []
-  )
+
+      const next = prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
+      offerRef.current = next
+
+      return next
+    })
+
+    setMassText(prev => {
+      if (prev.includes(entry.block)) {
+        return prev
+      }
+
+      return prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
+    })
+
+    const imageUrl = photoUrl || entry.image
+
+    if (imageUrl) {
+      const photo = { name: entry.name, url: imageUrl }
+      setSendImage(photo)
+      setMassImage(photo)
+    }
+  }, [])
 
   const removeCardFromMessage = useCallback((name: string) => {
     setMassCards(prev => {
@@ -7647,6 +7669,35 @@ function CampaignsPage() {
           ) : null}
           <textarea
             onChange={e => setMassText(e.target.value)}
+            onDragOver={e => {
+              if (e.dataTransfer.types.includes('application/x-ms-card')) {
+                e.preventDefault()
+              }
+            }}
+            onDrop={e => {
+              const raw = e.dataTransfer.getData('application/x-ms-card')
+
+              if (!raw) {
+                return
+              }
+
+              e.preventDefault()
+
+              try {
+                const card = JSON.parse(raw) as { name?: string; image?: string; url?: string; block?: string }
+                const addition = card.block || [card.name, card.url].filter(Boolean).join('\n')
+
+                if (addition) {
+                  setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${addition}` : addition))
+                }
+
+                if (card.image) {
+                  setMassImage({ name: card.name || 'card.jpg', url: card.image })
+                }
+              } catch {
+                // not our payload — ignore
+              }
+            }}
             onPaste={e => {
               const file = Array.from(e.clipboardData?.items || [])
                 .find(item => item.type.startsWith('image/'))
@@ -7672,35 +7723,6 @@ function CampaignsPage() {
                   dataUrl: String(reader.result || '')
                 })
               reader.readAsDataURL(file)
-            }}
-            onDragOver={e => {
-              if (e.dataTransfer.types.includes('application/x-ms-card')) {
-                e.preventDefault()
-              }
-            }}
-            onDrop={e => {
-              const raw = e.dataTransfer.getData('application/x-ms-card')
-
-              if (!raw) {
-                return
-              }
-
-              e.preventDefault()
-
-              try {
-                const card = JSON.parse(raw) as { name?: string; image?: string; url?: string }
-                const addition = [card.name, card.url].filter(Boolean).join('\n')
-
-                if (addition) {
-                  setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${addition}` : addition))
-                }
-
-                if (card.image) {
-                  setMassImage({ name: card.name || 'card.jpg', url: card.image })
-                }
-              } catch {
-                // not our payload — ignore
-              }
             }}
             placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку, карточку можно перетащить из списка справа. (возьмите текст из черновика или напишите здесь)"
             rows={5}
@@ -8239,7 +8261,7 @@ function CampaignsPage() {
           <div className="ms-msg-field">
             <span className="ms-muted">Текст сообщения</span>
             <div className="ms-msg-row">
-              <span className="ms-insert-wrap">
+              <span className="ms-insert-wrap ms-msg-insert-tools" ref={insertMenuRef}>
                 <button
                   className="ms-msg-plus"
                   onClick={() => setInsertMenuOpen(open => !open)}
@@ -8247,6 +8269,14 @@ function CampaignsPage() {
                   type="button"
                 >
                   +
+                </button>
+                <button
+                  className="ms-btn ms-insert-btn"
+                  onClick={() => setInsertMenuOpen(open => !open)}
+                  title="Вставить фото в текст сообщения"
+                  type="button"
+                >
+                  Вставить ▾
                 </button>
                 {insertMenuOpen ? (
                   <div className="ms-insert-menu">
@@ -8323,11 +8353,29 @@ function CampaignsPage() {
                         name?: string
                         image?: string
                         url?: string
+                        block?: string
                         listings?: CombinedCard['listings']
                       }
 
                       if (card.listings) {
                         addCardToMessage(card as CombinedCard)
+                      } else if (card.block) {
+                        setOffer(prev => {
+                          if (prev.includes(card.block!)) {
+                            return prev
+                          }
+
+                          const next = prev.trim() ? `${prev.trimEnd()}\n\n${card.block}` : card.block!
+                          offerRef.current = next
+
+                          return next
+                        })
+
+                        if (card.image) {
+                          const photo = { name: card.name || 'card.jpg', url: card.image }
+                          setSendImage(photo)
+                          setMassImage(photo)
+                        }
                       } else {
                         const addition = [card.name, card.url].filter(Boolean).join('\n')
 
@@ -8468,16 +8516,6 @@ function CampaignsPage() {
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
-            <span className="ms-insert-wrap">
-              <button
-                className="ms-btn"
-                onClick={() => setInsertMenuOpen(open => !open)}
-                title="Вставить фото в текст сообщения"
-                type="button"
-              >
-                Вставить ▾
-              </button>
-            </span>
             <details className="ms-more-actions">
               <summary>Другие действия</summary>
               <div className="ms-compose-actions">
@@ -8588,10 +8626,8 @@ function CampaignsPage() {
             setMassPhotoPicker(false)
             setPhotoPickerOpen(false)
           }}
-          onPick={(name, url) => {
-            const photo = { name, url }
-            setSendImage(photo)
-            setMassImage(photo)
+          onPick={(card, url) => {
+            addCardToMessage(card, url)
           }}
           rest={pluginRest}
         />

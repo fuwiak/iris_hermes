@@ -1051,6 +1051,22 @@ td.ms-tg-active-unknown {
   align-items: stretch;
 }
 
+.ms-msg-insert-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-self: stretch;
+}
+
+.ms-insert-btn {
+  flex: 1;
+  min-height: 0;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .ms-msg-plus {
   display: flex;
   align-items: center;
