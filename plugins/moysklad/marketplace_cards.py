@@ -20,7 +20,7 @@ from typing import Any
 _cache_lock = threading.Lock()
 _cache: dict[str, Any] = {"ts": 0.0, "payload": None, "key": ""}
 
-_CACHE_KEY_VERSION = "v1"
+_CACHE_KEY_VERSION = "v2"  # v2: slim products carry the full images list
 
 
 def _cache_ttl_s() -> float:
@@ -75,6 +75,7 @@ def _slim_product(row: dict[str, Any]) -> dict[str, Any]:
         "is_archived": bool(row.get("isArchived")),
         "url": row.get("url") or "",
         "image": images[0] if images else "",
+        "images": list(images[:10]),
         "images_count": len(images),
     }
 

@@ -1984,6 +1984,44 @@
     const [title, setTitle] = useState("Рассылка по фильтрам");
     const [sendImage, setSendImage] = useState(null); // {name, dataUrl?, url?}
     const [sendCards, setSendCards] = useState([]); // [{name, block, image}]
+    const [insertMenuOpen, setInsertMenuOpen] = useState(false);
+    const [pickerCards, setPickerCards] = useState(null); // combined list for the photo picker
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerCard, setPickerCard] = useState(null); // card chosen inside the picker
+
+    function openCardPicker() {
+      setInsertMenuOpen(false);
+      setPickerCard(null);
+      setPickerOpen(true);
+      if (!pickerCards) {
+        api("/cards/marketplaces?limit=100")
+          .then(function (payload) {
+            setPickerCards(payload.combined || []);
+          })
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+            setPickerOpen(false);
+          });
+      }
+    }
+
+    function cardPhotos(card) {
+      var out = [];
+      var listings = (card && card.listings) || {};
+      Object.keys(listings).forEach(function (mp) {
+        ((listings[mp] && listings[mp].images) || []).forEach(function (src) {
+          if (src && out.indexOf(src) === -1) out.push(src);
+        });
+      });
+      if (!out.length && card && card.image) out.push(card.image);
+      return out;
+    }
+
+    function pickPhoto(card, src) {
+      setSendImage({ name: (card && card.name) || "card.jpg", url: src });
+      setPickerOpen(false);
+      setPickerCard(null);
+    }
 
     function addCardToMessage(card) {
       var entry = cardMessageBlock(card);
@@ -3967,6 +4005,57 @@
                 )
               : null,
             h(
+              "span",
+              { className: "ms-insert-wrap" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "ms-btn",
+                  onClick: function () {
+                    setInsertMenuOpen(!insertMenuOpen);
+                  },
+                },
+                "Вставить ▾",
+              ),
+              insertMenuOpen
+                ? h(
+                    "div",
+                    { className: "ms-insert-menu" },
+                    h(
+                      "button",
+                      { type: "button", className: "ms-insert-item", onClick: openCardPicker },
+                      "Вставить из карточки…",
+                    ),
+                    h(
+                      "label",
+                      { className: "ms-insert-item" },
+                      "Вставить другое…",
+                      h("input", {
+                        type: "file",
+                        accept: "image/*",
+                        style: { display: "none" },
+                        onChange: function (ev) {
+                          setInsertMenuOpen(false);
+                          var file = ev.target.files && ev.target.files[0];
+                          ev.target.value = "";
+                          if (!file) return;
+                          if (file.size > 9 * 1024 * 1024) {
+                            setError("Картинка больше 9 МБ — Telegram не примет.");
+                            return;
+                          }
+                          var reader = new FileReader();
+                          reader.onload = function () {
+                            setSendImage({ name: file.name || "photo.jpg", dataUrl: String(reader.result || "") });
+                          };
+                          reader.readAsDataURL(file);
+                        },
+                      }),
+                    ),
+                  )
+                : null,
+            ),
+            h(
               "button",
               {
                 type: "button",
@@ -4040,6 +4129,105 @@
             return entry.name;
           }),
         }),
+        pickerOpen
+          ? h(
+              React.Fragment,
+              null,
+              h("div", {
+                className: "ms-drawer-overlay",
+                onClick: function () {
+                  setPickerOpen(false);
+                  setPickerCard(null);
+                },
+              }),
+              h(
+                "aside",
+                { className: "ms-drawer ms-photo-picker" },
+                h(
+                  "div",
+                  { className: "ms-drawer-head" },
+                  pickerCard
+                    ? h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "ms-btn",
+                          onClick: function () {
+                            setPickerCard(null);
+                          },
+                        },
+                        "← Карточки",
+                      )
+                    : h("strong", null, "Выберите карточку"),
+                  pickerCard ? h("strong", { className: "ms-photo-picker-title" }, String(pickerCard.name || "").slice(0, 48)) : null,
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-btn",
+                      onClick: function () {
+                        setPickerOpen(false);
+                        setPickerCard(null);
+                      },
+                    },
+                    "Закрыть",
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "ms-photo-picker-body" },
+                  !pickerCards ? h("p", { className: "ms-muted" }, "Загружаем карточки…") : null,
+                  pickerCards && !pickerCard
+                    ? h(
+                        "div",
+                        { className: "ms-photo-picker-grid" },
+                        pickerCards.map(function (card, idx) {
+                          return h(
+                            "button",
+                            {
+                              key: String(card.name || idx),
+                              type: "button",
+                              className: "ms-photo-pick-card",
+                              onClick: function () {
+                                setPickerCard(card);
+                              },
+                            },
+                            card.image
+                              ? h("img", { src: card.image, alt: card.name || "", loading: "lazy" })
+                              : h("span", { className: "ms-muted" }, "нет фото"),
+                            h("span", { className: "ms-photo-pick-name" }, String(card.name || "—").slice(0, 60)),
+                          );
+                        }),
+                      )
+                    : null,
+                  pickerCard
+                    ? h(
+                        "div",
+                        { className: "ms-photo-picker-grid" },
+                        cardPhotos(pickerCard).map(function (src, idx) {
+                          return h(
+                            "button",
+                            {
+                              key: idx,
+                              type: "button",
+                              className: "ms-photo-pick-card",
+                              title: "Вставить это фото в сообщение",
+                              onClick: function () {
+                                pickPhoto(pickerCard, src);
+                              },
+                            },
+                            h("img", { src: src, alt: "", loading: "lazy" }),
+                          );
+                        }),
+                      )
+                    : null,
+                  pickerCard && !cardPhotos(pickerCard).length
+                    ? h("p", { className: "ms-muted" }, "У карточки нет фото.")
+                    : null,
+                ),
+              ),
+            )
+          : null,
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "История отправок"),
