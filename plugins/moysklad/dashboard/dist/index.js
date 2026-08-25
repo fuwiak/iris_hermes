@@ -1799,6 +1799,59 @@
     );
   }
 
+  function CardsSideList() {
+    const [cards, setCards] = useState(null);
+    const [selected, setSelected] = useState(null);
+    const [error, setError] = useState("");
+
+    useEffect(function () {
+      api("/cards/marketplaces?limit=100")
+        .then(function (payload) {
+          setCards(payload.combined || []);
+        })
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return h(
+      "aside",
+      { className: "ms-cards-side" },
+      h(
+        "div",
+        { className: "ms-cards-side-head" },
+        h("strong", null, "Карточки"),
+        h(
+          "p",
+          { className: "ms-muted" },
+          "Обе площадки одним списком" + (cards ? " · " + cards.length : "") + " — листайте вниз",
+        ),
+      ),
+      h(
+        "div",
+        { className: "ms-cards-side-list" },
+        error ? h("p", { className: "ms-error" }, error) : null,
+        !cards && !error ? h("p", { className: "ms-muted" }, "Загружаем…") : null,
+        (cards || []).map(function (card, idx) {
+          return h(CombinedCardTile, {
+            key: String(card.name || idx),
+            card: card,
+            onSelect: setSelected,
+          });
+        }),
+      ),
+      selected
+        ? h(CombinedDrawer, {
+            card: selected,
+            onClose: function () {
+              setSelected(null);
+            },
+          })
+        : null,
+    );
+  }
+
   function CampaignsPage() {
     const [chatTurns, setChatTurns] = useState([]);
     const [chatInput, setChatInput] = useState("");
@@ -3858,6 +3911,7 @@
             : null,
         ),
         h(FactsPanel, { facts: facts, notes: groundingNotes, sanity: sanity }),
+        h(CardsSideList),
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "История отправок"),

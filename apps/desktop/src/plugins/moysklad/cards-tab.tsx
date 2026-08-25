@@ -966,6 +966,52 @@ export function ChatDrawer({
   )
 }
 
+/** Narrow scrollable card feed for the Рассылки compose area: the combined
+ * list of both marketplaces, first card on top, scroll down for the rest. */
+export function CardsSidePanel({ rest }: { rest: CardsRest }) {
+  const [cards, setCards] = useState<CombinedCard[] | null>(null)
+  const [selected, setSelected] = useState<CombinedCard | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    rest<CardsPayload>('/cards/marketplaces?limit=100', { timeoutMs: 120_000 })
+      .then(payload => setCards(payload.combined || []))
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  return (
+    <aside
+      style={{
+        width: 260,
+        flexShrink: 0,
+        position: 'sticky',
+        top: 8,
+        maxHeight: 'calc(100vh - 120px)',
+        display: 'flex',
+        flexDirection: 'column',
+        border: '1px solid var(--hermes-border, rgba(128,128,128,.3))',
+        borderRadius: 8,
+        overflow: 'hidden'
+      }}
+    >
+      <div style={{ padding: '8px 10px' }}>
+        <strong>Карточки</strong>
+        <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+          Обе площадки одним списком{cards ? ` · ${cards.length}` : ''} — листайте вниз
+        </p>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {error ? <p className="ms-error">{error}</p> : null}
+        {!cards && !error ? <p className="ms-muted">Загружаем…</p> : null}
+        {(cards || []).map((card, idx) => (
+          <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
+        ))}
+      </div>
+      {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+    </aside>
+  )
+}
+
 export function ReportChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest }) {
   return (
     <ChatDrawer

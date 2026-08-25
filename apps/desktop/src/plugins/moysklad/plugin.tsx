@@ -32,7 +32,7 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
-import { CardsPage, ReportChatDrawer } from './cards-tab'
+import { CardsPage, CardsSidePanel, ReportChatDrawer } from './cards-tab'
 import {
   audienceRetryDelayMs,
   clientSalesChannelTokens,
@@ -7417,6 +7417,9 @@ function CampaignsPage() {
 
       <h2 className="ms-section-title">2. Текст и отправка</h2>
 
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+
       <details className="ms-hidden-panel">
         <summary>Массовая рассылка (скрыто — открыть при необходимости)</summary>
       <section aria-label="Массовая рассылка" className="ms-mass-panel">
@@ -8211,6 +8214,19 @@ function CampaignsPage() {
         </form>
         <FactsPanel facts={facts} notes={groundingNotes} sanity={sanity} />
       </div>
+
+      </div>
+      <CardsSidePanel
+        rest={(path, opts) => {
+          if (!rest) {
+            throw new Error('MoySklad plugin REST not bound')
+          }
+
+          return rest(path, opts)
+        }}
+      />
+      </div>
+
       <h2 className="ms-section-title">3. История отправок</h2>
       <section aria-label="История отправок" className="ms-mass-panel ms-history-panel">
         <div className="ms-card-head">
