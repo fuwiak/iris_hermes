@@ -14,6 +14,7 @@ import {
   type ComponentType,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { rootErrorOptions } from "@/diagnostics";
 import { MemoryRouter } from "react-router";
 
 import { installHermesDesktopStub } from "@/lib/hermesDesktopStub";
@@ -172,7 +173,7 @@ export default function DesktopSettingsHost({
         };
         modsRef.current = mods;
 
-        const next = createRoot(el);
+        const next = createRoot(el, rootErrorOptions);
         if (cancelled) {
           next.unmount();
           return;

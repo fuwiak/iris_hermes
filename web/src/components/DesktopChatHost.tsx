@@ -13,6 +13,7 @@ import {
   type CSSProperties,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { rootErrorOptions } from "@/diagnostics";
 import { MemoryRouter, useNavigate } from "react-router";
 
 import { isDesktopOverlayRoute } from "@/lib/desktop-path";
@@ -200,7 +201,7 @@ export default function DesktopChatHost({
         };
         modsRef.current = mods;
 
-        const next = createRoot(el);
+        const next = createRoot(el, rootErrorOptions);
         if (cancelled) {
           next.unmount();
           return;
