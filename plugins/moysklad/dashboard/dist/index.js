@@ -1799,21 +1799,77 @@
     );
   }
 
+  // The card rail starts CLOSED (same as desktop): compose is the work surface,
+  // the feed is an occasional lookup. Closed also skips /cards/marketplaces.
+  var CARDS_RAIL_OPEN_KEY = "moysklad.cardsRail.open";
+
+  function storedCardsRailOpen() {
+    try {
+      return window.localStorage.getItem(CARDS_RAIL_OPEN_KEY) === "1";
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function persistCardsRailOpen(open) {
+    try {
+      window.localStorage.setItem(CARDS_RAIL_OPEN_KEY, open ? "1" : "0");
+    } catch (err) {
+      /* private mode / storage off — the rail just forgets its state */
+    }
+  }
+
   function CardsSideList({ onAdd, onRemove, addedNames }) {
+    const [open, setOpen] = useState(storedCardsRailOpen);
     const [cards, setCards] = useState(null);
     const [selected, setSelected] = useState(null);
     const [error, setError] = useState("");
 
-    useEffect(function () {
-      api("/cards/marketplaces?limit=100")
-        .then(function (payload) {
-          setCards(payload.combined || []);
-        })
-        .catch(function (err) {
-          setError(String((err && err.message) || err));
-        });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    useEffect(
+      function () {
+        if (!open) {
+          return;
+        }
+
+        api("/cards/marketplaces?limit=100")
+          .then(function (payload) {
+            setCards(payload.combined || []);
+          })
+          .catch(function (err) {
+            setError(String((err && err.message) || err));
+          });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      },
+      [open],
+    );
+
+    function toggle(next) {
+      setOpen(next);
+      persistCardsRailOpen(next);
+
+      if (!next) {
+        setSelected(null);
+      }
+    }
+
+    if (!open) {
+      return h(
+        "aside",
+        { className: "ms-cards-side ms-cards-side-collapsed" },
+        h(
+          "button",
+          {
+            className: "ms-link-btn",
+            type: "button",
+            title: "Показать карточки маркетплейсов",
+            onClick: function () {
+              toggle(true);
+            },
+          },
+          "Карточки ▸",
+        ),
+      );
+    }
 
     return h(
       "aside",
@@ -1821,7 +1877,23 @@
       h(
         "div",
         { className: "ms-cards-side-head" },
-        h("strong", null, "Карточки"),
+        h(
+          "div",
+          { className: "ms-cards-side-head-row" },
+          h("strong", null, "Карточки"),
+          h(
+            "button",
+            {
+              className: "ms-link-btn",
+              type: "button",
+              title: "Скрыть",
+              onClick: function () {
+                toggle(false);
+              },
+            },
+            "✕",
+          ),
+        ),
         h(
           "p",
           { className: "ms-muted" },
@@ -2913,7 +2985,7 @@
           "div",
           null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
-          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.1"),
+          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.2"),
           h(
             "p",
             { className: "ms-muted" },

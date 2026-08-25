@@ -1346,7 +1346,14 @@ td.ms-ai-added {
   border: 1px solid #592466; border-radius: 0.5rem; overflow: hidden;
   display: flex; flex-direction: column; max-height: 78vh; position: sticky; top: 0.5rem;
 }
+/* свёрнутый вид: только кнопка «Карточки ▸», без рамки и высоты */
+.ms-cards-side-collapsed {
+  border: 0; max-height: none; padding: 0.35rem 0; align-items: flex-start;
+}
 .ms-cards-side-head { padding: 0.5rem 0.65rem; }
+.ms-cards-side-head-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+}
 .ms-cards-side-head p { margin: 0.1rem 0 0; font-size: 0.78rem; }
 .ms-cards-side-list {
   flex: 1; overflow-y: auto; padding: 0 0.65rem 0.65rem;

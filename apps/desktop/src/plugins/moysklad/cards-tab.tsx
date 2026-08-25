@@ -1084,8 +1084,30 @@ export function ChatDrawer({
   )
 }
 
+const CARDS_RAIL_OPEN_KEY = 'moysklad.cardsRail.open'
+
+/** The rail starts CLOSED: the compose area is the work surface, the card feed
+ *  is an occasional lookup. Collapsed also means no /cards/marketplaces call
+ *  (that request runs up to 120s), so opening Рассылки costs nothing. */
+function storedCardsRailOpen(): boolean {
+  try {
+    return window.localStorage.getItem(CARDS_RAIL_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistCardsRailOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(CARDS_RAIL_OPEN_KEY, open ? '1' : '0')
+  } catch {
+    /* private mode / storage off — the rail just forgets its state */
+  }
+}
+
 /** Narrow scrollable card feed for the Рассылки compose area: the combined
- * list of both marketplaces, first card on top, scroll down for the rest. */
+ * list of both marketplaces, first card on top, scroll down for the rest.
+ * Collapsed by default — a thin «Карточки» button holds its place. */
 export function CardsSidePanel({
   addedNames,
   onAddCard,
@@ -1097,15 +1119,44 @@ export function CardsSidePanel({
   onRemoveCard?: (name: string) => void
   rest: CardsRest
 }) {
+  const [open, setOpen] = useState(storedCardsRailOpen)
   const [cards, setCards] = useState<CombinedCard[] | null>(null)
   const [selected, setSelected] = useState<CombinedCard | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
+    if (!open) {
+      return
+    }
+
     rest<CardsPayload>('/cards/marketplaces?limit=100', { timeoutMs: 120_000 })
       .then(payload => setCards(payload.combined || []))
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [rest])
+  }, [open, rest])
+
+  const toggle = (next: boolean) => {
+    setOpen(next)
+    persistCardsRailOpen(next)
+
+    if (!next) {
+      setSelected(null)
+    }
+  }
+
+  if (!open) {
+    return (
+      <aside style={{ flexShrink: 0, position: 'sticky', top: 8 }}>
+        <button
+          className="ms-link-btn"
+          onClick={() => toggle(true)}
+          title="Показать карточки маркетплейсов"
+          type="button"
+        >
+          Карточки ▸
+        </button>
+      </aside>
+    )
+  }
 
   return (
     <aside
@@ -1123,7 +1174,12 @@ export function CardsSidePanel({
       }}
     >
       <div style={{ padding: '8px 10px' }}>
-        <strong>Карточки</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+          <strong>Карточки</strong>
+          <button className="ms-link-btn" onClick={() => toggle(false)} title="Скрыть" type="button">
+            ✕
+          </button>
+        </div>
         <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
           Обе площадки одним списком{cards ? ` · ${cards.length}` : ''} — листайте вниз
         </p>
