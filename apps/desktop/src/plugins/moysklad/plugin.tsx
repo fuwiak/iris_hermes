@@ -4131,6 +4131,10 @@ function CampaignsPage() {
   const [, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
   const [offerTick, setOfferTick] = useState(0)
+  /** Photo shown inside «Текст сообщения» and sent with mark-sent / mass. */
+  const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
+  const [insertMenuOpen, setInsertMenuOpen] = useState(false)
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
   const [actionStatus, setActionStatus] = useState('')
   const offerRef = useRef('')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -5874,6 +5878,23 @@ function CampaignsPage() {
   const [massInsertMenu, setMassInsertMenu] = useState(false)
   const [massPhotoPicker, setMassPhotoPicker] = useState(false)
 
+  const applyImageFile = useCallback((file: File) => {
+    if (file.size > 9 * 1024 * 1024) {
+      setError('Картинка больше 9 МБ — Telegram не примет.')
+
+      return
+    }
+
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      const next = { name: file.name || 'photo.jpg', dataUrl: String(reader.result || '') }
+      setSendImage(next)
+      setMassImage(next)
+    }
+    reader.readAsDataURL(file)
+  }, [])
+
   const addCardToMessage = useCallback(
     (card: CombinedCard) => {
       const entry = cardMessageBlock(card)
@@ -5885,11 +5906,20 @@ function CampaignsPage() {
 
         return [...prev, entry]
       })
+
+      // Primary: 1:1 «Текст сообщения» — card + MUST land here (not only mass panel).
+      setOffer(prev => {
+        const next = prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
+        offerRef.current = next
+
+        return next
+      })
       setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block))
 
       if (entry.image) {
-        // Photo MUST travel with the card — the freshly added card wins.
-        setMassImage({ name: entry.name, url: entry.image })
+        const photo = { name: entry.name, url: entry.image }
+        setSendImage(photo)
+        setMassImage(photo)
       }
     },
     []
@@ -5901,10 +5931,19 @@ function CampaignsPage() {
       const rest = prev.filter(item => item.name !== name)
 
       if (entry) {
-        setMassText(text =>
+        const strip = (text: string) =>
           text.replace(`\n\n${entry.block}`, '').replace(entry.block, '').trim()
-        )
-        setMassImage(image => {
+
+        setMassText(strip)
+        setOffer(text => {
+          const next = strip(text)
+          offerRef.current = next
+
+          return next
+        })
+        const clearPhoto = (
+          image: { name: string; dataUrl?: string; url?: string } | null
+        ) => {
           if (image?.url && image.url === entry.image) {
             const next = rest.find(item => item.image)
 
@@ -5912,7 +5951,9 @@ function CampaignsPage() {
           }
 
           return image
-        })
+        }
+        setMassImage(clearPhoto)
+        setSendImage(clearPhoto)
       }
 
       return rest
@@ -6359,7 +6400,10 @@ function CampaignsPage() {
           channel,
           client_id: clientId,
           open_deep_link: true,
-          deliver: true
+          deliver: true,
+          image_base64: sendImage?.dataUrl || '',
+          image_url: sendImage?.url || '',
+          image_name: sendImage?.name || 'photo.jpg'
         }
       })
 
@@ -6373,6 +6417,8 @@ function CampaignsPage() {
 
       if (data.delivery?.ok) {
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
+        setSendImage(null)
+        setMassImage(null)
         setActionStatus('✓ Ушло. Выберите другого клиента или соберите ответы.')
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
@@ -7483,7 +7529,7 @@ function CampaignsPage() {
       </section>
 
       <h2 className="ms-section-title">
-        2. Текст и отправка <span className="ms-muted" style={{ fontSize: 12 }}>v1.17.1</span>
+        2. Текст и отправка <span className="ms-muted" style={{ fontSize: 12 }}>v1.18.0</span>
       </h2>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -7718,8 +7764,11 @@ function CampaignsPage() {
 
                       const reader = new FileReader()
 
-                      reader.onload = () =>
-                        setMassImage({ name: file.name, dataUrl: String(reader.result || '') })
+                      reader.onload = () => {
+                        const next = { name: file.name, dataUrl: String(reader.result || '') }
+                        setSendImage(next)
+                        setMassImage(next)
+                      }
                       reader.readAsDataURL(file)
                     }}
                     style={{ display: 'none' }}
@@ -8187,24 +8236,143 @@ function CampaignsPage() {
               />
             </label>
           </details>
-          <label>
-            Текст сообщения
-            <textarea
-              key={`offer-${offerTick}`}
-              onChange={e => {
-                const v = e.target.value
-                setOffer(v)
-                offerRef.current = v
-              }}
-              placeholder={
-                selectedClientId
-                  ? 'Нажмите «Сгенерировать AI» или введите текст…'
-                  : 'Сначала выберите клиента в списке аудитории'
-              }
-              rows={8}
-              value={offer}
-            />
-          </label>
+          <div className="ms-msg-field">
+            <span className="ms-muted">Текст сообщения</span>
+            <div className="ms-msg-row">
+              <span className="ms-insert-wrap">
+                <button
+                  className="ms-msg-plus"
+                  onClick={() => setInsertMenuOpen(open => !open)}
+                  title="Вставить фото"
+                  type="button"
+                >
+                  +
+                </button>
+                {insertMenuOpen ? (
+                  <div className="ms-insert-menu">
+                    <button
+                      className="ms-insert-item"
+                      onClick={() => {
+                        setInsertMenuOpen(false)
+                        setPhotoPickerOpen(true)
+                      }}
+                      type="button"
+                    >
+                      Вставить из карточки…
+                    </button>
+                    <label className="ms-insert-item">
+                      Вставить другое…
+                      <input
+                        accept="image/*"
+                        onChange={ev => {
+                          setInsertMenuOpen(false)
+                          const file = ev.target.files?.[0]
+                          ev.target.value = ''
+
+                          if (file) {
+                            applyImageFile(file)
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                        type="file"
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </span>
+              <div className="ms-msg-box">
+                {sendImage ? (
+                  <div className="ms-msg-photo">
+                    <img alt={sendImage.name} src={sendImage.dataUrl || sendImage.url} />
+                    <button
+                      className="ms-msg-photo-x"
+                      onClick={() => {
+                        setSendImage(null)
+                        setMassImage(null)
+                      }}
+                      title="Убрать фото"
+                      type="button"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : null}
+                <textarea
+                  key={`offer-${offerTick}`}
+                  onChange={e => {
+                    const v = e.target.value
+                    setOffer(v)
+                    offerRef.current = v
+                  }}
+                  onDragOver={e => {
+                    if (e.dataTransfer.types.includes('application/x-ms-card')) {
+                      e.preventDefault()
+                    }
+                  }}
+                  onDrop={e => {
+                    const raw = e.dataTransfer.getData('application/x-ms-card')
+
+                    if (!raw) {
+                      return
+                    }
+
+                    e.preventDefault()
+
+                    try {
+                      const card = JSON.parse(raw) as {
+                        name?: string
+                        image?: string
+                        url?: string
+                        listings?: CombinedCard['listings']
+                      }
+
+                      if (card.listings) {
+                        addCardToMessage(card as CombinedCard)
+                      } else {
+                        const addition = [card.name, card.url].filter(Boolean).join('\n')
+
+                        if (addition) {
+                          setOffer(prev => {
+                            const next = prev.trim() ? `${prev.trimEnd()}\n\n${addition}` : addition
+                            offerRef.current = next
+
+                            return next
+                          })
+                        }
+
+                        if (card.image) {
+                          const photo = { name: card.name || 'card.jpg', url: card.image }
+                          setSendImage(photo)
+                          setMassImage(photo)
+                        }
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  onPaste={e => {
+                    const file = Array.from(e.clipboardData?.items || [])
+                      .find(item => item.type.startsWith('image/'))
+                      ?.getAsFile()
+
+                    if (!file) {
+                      return
+                    }
+
+                    e.preventDefault()
+                    applyImageFile(file)
+                  }}
+                  placeholder={
+                    selectedClientId
+                      ? 'Нажмите «Сгенерировать AI» или введите текст… «+» / «Вставить» — фото в это поле.'
+                      : 'Сначала выберите клиента в списке аудитории'
+                  }
+                  rows={8}
+                  value={offer}
+                />
+              </div>
+            </div>
+          </div>
           {selectedClientId ? (
             <div className="ms-chat-panel">
               <div className="ms-chat-head">
@@ -8300,6 +8468,16 @@ function CampaignsPage() {
                 {generating ? 'Генерация…' : 'Сгенерировать AI'}
               </button>
             ) : null}
+            <span className="ms-insert-wrap">
+              <button
+                className="ms-btn"
+                onClick={() => setInsertMenuOpen(open => !open)}
+                title="Вставить фото в текст сообщения"
+                type="button"
+              >
+                Вставить ▾
+              </button>
+            </span>
             <details className="ms-more-actions">
               <summary>Другие действия</summary>
               <div className="ms-compose-actions">
@@ -8404,11 +8582,18 @@ function CampaignsPage() {
       </div>
 
       </div>
-      {massPhotoPicker ? (
+      {massPhotoPicker || photoPickerOpen ? (
         <CardPhotoPicker
-          onClose={() => setMassPhotoPicker(false)}
-          onPick={(name, url) => setMassImage({ name, url })}
-                    rest={pluginRest}
+          onClose={() => {
+            setMassPhotoPicker(false)
+            setPhotoPickerOpen(false)
+          }}
+          onPick={(name, url) => {
+            const photo = { name, url }
+            setSendImage(photo)
+            setMassImage(photo)
+          }}
+          rest={pluginRest}
         />
       ) : null}
       <CardsSidePanel

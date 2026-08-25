@@ -3742,31 +3742,59 @@
               "div",
               { className: "ms-msg-row" },
               h(
-                "label",
-                {
-                  className: "ms-msg-plus",
-                  title: sendImage ? "Заменить картинку" : "Вставить картинку в сообщение",
-                },
-                "+",
-                h("input", {
-                  type: "file",
-                  accept: "image/*",
-                  style: { display: "none" },
-                  onChange: function (ev) {
-                    var file = ev.target.files && ev.target.files[0];
-                    ev.target.value = "";
-                    if (!file) return;
-                    if (file.size > 9 * 1024 * 1024) {
-                      setError("Картинка больше 9 МБ — Telegram не примет.");
-                      return;
-                    }
-                    var reader = new FileReader();
-                    reader.onload = function () {
-                      setSendImage({ name: file.name || "photo.jpg", dataUrl: String(reader.result || "") });
-                    };
-                    reader.readAsDataURL(file);
+                "span",
+                { className: "ms-insert-wrap" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-msg-plus",
+                    title: "Вставить фото",
+                    onClick: function () {
+                      setInsertMenuOpen(!insertMenuOpen);
+                    },
                   },
-                }),
+                  "+",
+                ),
+                insertMenuOpen
+                  ? h(
+                      "div",
+                      { className: "ms-insert-menu" },
+                      h(
+                        "button",
+                        { type: "button", className: "ms-insert-item", onClick: openCardPicker },
+                        "Вставить из карточки…",
+                      ),
+                      h(
+                        "label",
+                        { className: "ms-insert-item" },
+                        "Вставить другое…",
+                        h("input", {
+                          type: "file",
+                          accept: "image/*",
+                          style: { display: "none" },
+                          onChange: function (ev) {
+                            setInsertMenuOpen(false);
+                            var file = ev.target.files && ev.target.files[0];
+                            ev.target.value = "";
+                            if (!file) return;
+                            if (file.size > 9 * 1024 * 1024) {
+                              setError("Картинка больше 9 МБ — Telegram не примет.");
+                              return;
+                            }
+                            var reader = new FileReader();
+                            reader.onload = function () {
+                              setSendImage({
+                                name: file.name || "photo.jpg",
+                                dataUrl: String(reader.result || ""),
+                              });
+                            };
+                            reader.readAsDataURL(file);
+                          },
+                        }),
+                      ),
+                    )
+                  : null,
               ),
               h(
                 "div",
@@ -3794,8 +3822,8 @@
               rows: 8,
               value: offer,
               placeholder: selectedClientId
-                ? "Сгенерируйте AI или введите текст… Ctrl+V вставляет картинку, карточку можно перетащить из списка."
-                : "Общий текст для фильтрованной аудитории… Ctrl+V вставляет картинку, карточку можно перетащить из списка.",
+                ? "Сгенерируйте AI или введите текст… «+» / «Вставить» — фото в это поле."
+                : "Общий текст для фильтрованной аудитории… «+» / «Вставить» — фото в это поле.",
               onChange: function (e) {
                 var v = e.target.value;
                 setOffer(v);
