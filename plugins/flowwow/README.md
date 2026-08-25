@@ -36,6 +36,29 @@ hermes plugins list | grep flowwow   # expect: enabled
 - ⚠️ The open API **has no orders/clients endpoints** as of 0.0.1 — only
   shops, products, stocks, prices. Orders flow needs another channel.
 
+## Full capability matrix (probed live 24.08.2026)
+
+| Operation | Endpoint | Status |
+|---|---|---|
+| Shops list | `POST /apiseller/shops` | ✅ works |
+| Products read | `POST /apiseller/products` | ✅ works |
+| Product create | `POST /apiseller/products/create` | ✅ exists (400 validation on empty body) |
+| Product update | `POST /apiseller/products/update` | ✅ exists |
+| Hide / unhide / archive | `POST /apiseller/products/hide` … | ✅ exists |
+| Top-18 showcase | `POST /apiseller/products/setTop18` | ✅ exists |
+| Prices read/write | `POST /apiseller/prices/get`, `PUT /apiseller/prices/put` | ✅ exists |
+| Stocks read/write | `POST /apiseller/stocks/get`, `PUT /apiseller/stocks/put` | ✅ exists |
+| Category properties | `POST /apiseller/categories/subCategoryProperties` | ✅ exists |
+| **Orders read** | `/apiseller/orders*` (all variants) | ❌ 404 — not in the API |
+| **Orders create** | `/apiseller/orders/create` | ❌ 404 |
+| Reviews / statistics | `/apiseller/reviews`, `/apiseller/statistics` | ❌ 404 |
+
+Bottom line: the integration is **one-way catalog management** — we can
+fully manage cards, prices, stocks and the showcase from our side, but
+orders never come back through this API (no push, no pull). Order flow
+from Flowwow needs the cabinet UI, e-mail parsing, or a partner-level API
+they have not exposed.
+
 ## Agent tools
 
 | Tool | Purpose |

@@ -7463,7 +7463,33 @@ function CampaignsPage() {
           Текст для всех получателей
           <textarea
             onChange={e => setMassText(e.target.value)}
-            placeholder="Одно сообщение для всей выборки… (возьмите текст из черновика или напишите здесь)"
+            onPaste={e => {
+              const file = Array.from(e.clipboardData?.items || [])
+                .find(item => item.type.startsWith('image/'))
+                ?.getAsFile()
+
+              if (!file) {
+                return
+              }
+
+              e.preventDefault()
+
+              if (file.size > 9 * 1024 * 1024) {
+                setError('Картинка больше 9 МБ — Telegram не примет.')
+
+                return
+              }
+
+              const reader = new FileReader()
+
+              reader.onload = () =>
+                setMassImage({
+                  name: file.name || 'clipboard.png',
+                  dataUrl: String(reader.result || '')
+                })
+              reader.readAsDataURL(file)
+            }}
+            placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку. (возьмите текст из черновика или напишите здесь)"
             rows={5}
             value={massText}
           />
@@ -9000,6 +9026,8 @@ function DashboardPage() {
       cabinet_orders?: number
       delta?: number
       delta_pct?: number
+      ms_month_total?: number
+      adjusted_month_total?: number
     }[]
   } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -9125,17 +9153,20 @@ function DashboardPage() {
         <section className="ms-card-section">
           <h2>Сверка с кабинетом Яндекс Маркета</h2>
           <p className="ms-muted">
-            МойСклад пишет цены до скидок Яндекса; в кабинете — фактические продажи. Обе цифры ниже.
+            МойСклад пишет цены до скидок Яндекса; в кабинете — фактические продажи. «Оборот к Excel» =
+            весь месяц с Яндексом по ценам кабинета — эта колонка должна сходиться с отчётом.
           </p>
           <div className="ms-table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Месяц</th>
-                  <th>МС: оборот / заказы</th>
-                  <th>Кабинет: покупатели / заказы</th>
-                  <th>Кабинет: к выплате</th>
-                  <th>Δ МС − кабинет</th>
+                  <th>Яндекс МС / заказы</th>
+                  <th>Яндекс кабинет / заказы</th>
+                  <th>К выплате</th>
+                  <th>Δ Яндекс</th>
+                  <th>Оборот МС (все каналы)</th>
+                  <th>Оборот к Excel</th>
                 </tr>
               </thead>
               <tbody>
@@ -9155,6 +9186,10 @@ function DashboardPage() {
                         ? `${Math.round(row.delta).toLocaleString('ru-RU')} ₽ (${Math.round((row.delta_pct || 0) * 100)}%)`
                         : '—'}
                     </td>
+                    <td>{Math.round(row.ms_month_total || 0).toLocaleString('ru-RU')} ₽</td>
+                    <td>
+                      <strong>{Math.round(row.adjusted_month_total || 0).toLocaleString('ru-RU')} ₽</strong>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -9162,6 +9197,19 @@ function DashboardPage() {
           </div>
         </section>
       ) : null}
+      <section className="ms-card-section">
+        <details>
+          <summary style={{ cursor: 'pointer' }}>Как посчитано (метод и границы периодов)</summary>
+          <ul className="ms-muted" style={{ lineHeight: 1.5, marginTop: 6 }}>
+            <li>Дата заказа = момент создания в МоемСкладе (moment), не дата доставки.</li>
+            <li>Месяц — календарный по этой дате; неделя — понедельник–воскресенье.</li>
+            <li>Считаются все заказы кроме отменённых; неоплаченные входят (маркетплейсы не пишут оплату в заказ).</li>
+            <li>Суммы — цены заказов МоегоСклада; для Яндекса это цены ДО его скидок, фактические продажи — в сверке выше.</li>
+            <li>Каналы: все из поля «Канал продаж» (включая Яндекс Еду и Ozon) — если Excel их не учитывает, будет расхождение.</li>
+            <li>Выручка = оборот × (1 − комиссия площадки); в Excel «оборот» и «выручка» — разные строки.</li>
+          </ul>
+        </details>
+      </section>
       {reportChatOpen ? (
         <ReportChatDrawer onClose={() => setReportChatOpen(false)} rest={(path, opts) => call(path, opts)} />
       ) : null}

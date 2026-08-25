@@ -1333,3 +1333,7 @@ td.ms-ai-added {
   color: #e8c7f0; cursor: pointer;
 }
 .ms-chat-followup:hover { background: #3a1840; }
+
+/* dashboard method block */
+.ms-dash-method-summary { cursor: pointer; }
+.ms-dash-method { line-height: 1.5; margin-top: 0.4rem; padding-left: 1.2rem; }

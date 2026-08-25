@@ -128,8 +128,12 @@ def build_reconciliation(
         return []
     out: list[dict[str, Any]] = []
     for month_id, real in (stats.get("months") or {}).items():
-        ms_cell = (month_report.get(month_id) or {}).get("yandex_market") or {}
+        month_cells = month_report.get(month_id) or {}
+        ms_cell = month_cells.get("yandex_market") or {}
         ms_turnover = float(ms_cell.get("turnover") or 0)
+        month_total = sum(
+            float((cell or {}).get("turnover") or 0) for cell in month_cells.values()
+        )
         buyer = float(real.get("buyer_total") or 0)
         row = {
             "month": month_id,
@@ -138,6 +142,11 @@ def build_reconciliation(
             "cabinet_buyer_total": buyer,
             "cabinet_payout_total": real.get("payout_total"),
             "cabinet_orders": real.get("orders"),
+            # Whole-dashboard оборот for the month, and the same figure with
+            # the Yandex channel re-priced to what buyers actually paid —
+            # this is the number that should line up with the client's Excel.
+            "ms_month_total": round(month_total, 2),
+            "adjusted_month_total": round(month_total - ms_turnover + buyer, 2),
         }
         if buyer > 0:
             row["delta"] = round(ms_turnover - buyer, 2)

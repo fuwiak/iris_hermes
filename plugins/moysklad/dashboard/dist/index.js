@@ -3573,12 +3573,33 @@
               rows: 8,
               value: offer,
               placeholder: selectedClientId
-                ? "Сгенерируйте AI или введите текст…"
-                : "Общий текст для фильтрованной аудитории…",
+                ? "Сгенерируйте AI или введите текст… Ctrl+V вставляет картинку."
+                : "Общий текст для фильтрованной аудитории… Ctrl+V вставляет картинку.",
               onChange: function (e) {
                 var v = e.target.value;
                 setOffer(v);
                 offerRef.current = v;
+              },
+              onPaste: function (e) {
+                var items = (e.clipboardData && e.clipboardData.items) || [];
+                var file = null;
+                for (var i = 0; i < items.length; i++) {
+                  if (items[i].type && items[i].type.indexOf("image/") === 0) {
+                    file = items[i].getAsFile();
+                    break;
+                  }
+                }
+                if (!file) return;
+                e.preventDefault();
+                if (file.size > 9 * 1024 * 1024) {
+                  setError("Картинка больше 9 МБ — Telegram не примет.");
+                  return;
+                }
+                var reader = new FileReader();
+                reader.onload = function () {
+                  setSendImage({ name: file.name || "clipboard.png", dataUrl: String(reader.result || "") });
+                };
+                reader.readAsDataURL(file);
               },
             }),
           ),
@@ -4864,6 +4885,25 @@
             },
           })
         : null,
+      h(
+        "section",
+        { className: "ms-card-section" },
+        h(
+          "details",
+          null,
+          h("summary", { className: "ms-dash-method-summary" }, "Как посчитано (метод и границы периодов)"),
+          h(
+            "ul",
+            { className: "ms-muted ms-dash-method" },
+            h("li", null, "Дата заказа = момент создания в МоемСкладе (moment), не дата доставки."),
+            h("li", null, "Месяц — календарный по этой дате; неделя — понедельник–воскресенье."),
+            h("li", null, "Считаются все заказы кроме отменённых; неоплаченные входят (маркетплейсы не пишут оплату в заказ)."),
+            h("li", null, "Суммы — цены заказов МоегоСклада; для Яндекса это цены ДО его скидок, фактические продажи — в сверке."),
+            h("li", null, "Каналы: все из поля «Канал продаж» (включая Яндекс Еду и Ozon) — если Excel их не учитывает, будет расхождение."),
+            h("li", null, "Выручка = оборот × (1 − комиссия площадки); «оборот» и «выручка» — разные строки."),
+          ),
+        ),
+      ),
       data && data.yandex_reconciliation && data.yandex_reconciliation.length
         ? h(
             "section",
@@ -4872,7 +4912,7 @@
             h(
               "p",
               { className: "ms-muted" },
-              "МойСклад пишет цены до скидок Яндекса; в кабинете — фактические продажи. Обе цифры ниже.",
+              "МойСклад пишет цены до скидок Яндекса; «Оборот к Excel» = месяц с Яндексом по ценам кабинета — эта колонка должна сходиться с отчётом.",
             ),
             h(
               "div",
@@ -4887,10 +4927,12 @@
                     "tr",
                     null,
                     h("th", null, "Месяц"),
-                    h("th", null, "МС: оборот / заказы"),
-                    h("th", null, "Кабинет: покупатели / заказы"),
-                    h("th", null, "Кабинет: к выплате"),
-                    h("th", null, "Δ МС − кабинет"),
+                    h("th", null, "Яндекс МС / заказы"),
+                    h("th", null, "Яндекс кабинет / заказы"),
+                    h("th", null, "К выплате"),
+                    h("th", null, "Δ Яндекс"),
+                    h("th", null, "Оборот МС (все каналы)"),
+                    h("th", null, "Оборот к Excel"),
                   ),
                 ),
                 h(
@@ -4929,6 +4971,12 @@
                               Math.round((row.delta_pct || 0) * 100) +
                               "%)"
                           : "—",
+                      ),
+                      h("td", null, Math.round(row.ms_month_total || 0).toLocaleString("ru-RU") + " ₽"),
+                      h(
+                        "td",
+                        null,
+                        h("strong", null, Math.round(row.adjusted_month_total || 0).toLocaleString("ru-RU") + " ₽"),
                       ),
                     );
                   }),

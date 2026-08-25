@@ -110,3 +110,21 @@ def test_business_picks_first_with_id(monkeypatch):
 
     monkeypatch.setattr(ym.httpx, "Client", _fake_client(handler))
     assert ym.YandexMarketClient().business() == {"id": 104054570, "name": "Veresk"}
+
+
+def test_reconciliation_adjusted_month_total():
+    from plugins.moysklad.yandex_stats import build_reconciliation
+
+    month_report = {
+        "2026-07": {
+            "yandex_market": {"turnover": 1278924.0, "orders": 102},
+            "flowwow": {"turnover": 628388.0, "orders": 51},
+            "direct": {"turnover": 123270.0, "orders": 10},
+        }
+    }
+    stats = {"months": {"2026-07": {"orders": 104, "buyer_total": 732178.0, "payout_total": 566663.0}}}
+    row = build_reconciliation(month_report, stats)[0]
+    assert row["ms_month_total"] == 2030582.0
+    # whole month with Yandex re-priced to cabinet buyer totals
+    assert row["adjusted_month_total"] == 2030582.0 - 1278924.0 + 732178.0
+    assert row["delta_pct"] > 0.7
