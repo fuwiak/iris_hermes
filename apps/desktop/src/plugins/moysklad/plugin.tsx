@@ -815,6 +815,17 @@ type RestStream = (
 let rest: null | Rest = null
 let restStream: null | RestStream = null
 
+/** Referentially STABLE module-level rest — inline arrows passed as props
+ * change identity every render and make child useEffect([rest]) refetch in a
+ * loop. Always pass THIS to CardsSidePanel/CardsPage/CardPhotoPicker. */
+const pluginRest: Rest = (path, opts) => {
+  if (!rest) {
+    throw new Error('MoySklad plugin REST not bound')
+  }
+
+  return rest(path, opts)
+}
+
 function useMsRest(): Rest {
   return useCallback(async <T,>(path: string, opts?: { method?: string; body?: unknown; timeoutMs?: number }) => {
     if (!rest) {
@@ -8397,26 +8408,14 @@ function CampaignsPage() {
         <CardPhotoPicker
           onClose={() => setMassPhotoPicker(false)}
           onPick={(name, url) => setMassImage({ name, url })}
-          rest={(path, opts) => {
-            if (!rest) {
-              throw new Error('MoySklad plugin REST not bound')
-            }
-
-            return rest(path, opts)
-          }}
+                    rest={pluginRest}
         />
       ) : null}
       <CardsSidePanel
         addedNames={massCards.map(entry => entry.name)}
         onAddCard={addCardToMessage}
         onRemoveCard={removeCardFromMessage}
-        rest={(path, opts) => {
-          if (!rest) {
-            throw new Error('MoySklad plugin REST not bound')
-          }
-
-          return rest(path, opts)
-        }}
+        rest={pluginRest}
       />
       </div>
 
@@ -9420,7 +9419,7 @@ function DashboardPage() {
         </details>
       </section>
       {reportChatOpen ? (
-        <ReportChatDrawer onClose={() => setReportChatOpen(false)} rest={(path, opts) => call(path, opts)} />
+        <ReportChatDrawer onClose={() => setReportChatOpen(false)} rest={pluginRest} />
       ) : null}
     </div>
   )
@@ -9476,13 +9475,7 @@ const plugin: HermesPlugin = {
         data: { path: '/cards' } satisfies RouteContribution,
         render: () => (
           <CardsPage
-            rest={(path, opts) => {
-              if (!rest) {
-                throw new Error('MoySklad plugin REST not bound')
-              }
-
-              return rest(path, opts)
-            }}
+rest={pluginRest}
           />
         )
       },
