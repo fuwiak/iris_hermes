@@ -617,6 +617,9 @@
   :root[data-hermes-theme='iris'] body,
   :root[data-hermes-theme='iris'] #root {
     font-weight: 300;
+    background-image: var(--slacc-mesh);
+    background-color: #f6f3fc;
+    color: #3d2a5c;
   }
 
   :root[data-hermes-theme='iris'] :where(.font-black, .font-extrabold, .font-bold) {
@@ -629,13 +632,6 @@
 
   :root[data-hermes-theme='iris'] :where(h1, h2, h3, h4, h5, h6, strong, b, th, label, button) {
     font-weight: 500;
-  }
-
-  :root[data-hermes-theme='iris'] body,
-  :root[data-hermes-theme='iris'] #root {
-    background-image: var(--slacc-mesh);
-    background-color: #f6f3fc;
-    color: #3d2a5c;
   }
 
   /* Chat transcript — soft plum ink on white floral canvas. */
