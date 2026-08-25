@@ -1364,3 +1364,12 @@ td.ms-ai-added {
   display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
   padding: 0.15rem 0.5rem; border-radius: 0.6rem; border: 1px solid #592466;
 }
+
+/* «+ Картинка» под текстом сообщения */
+.ms-image-attach { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.4rem 0 0.6rem; }
+.ms-image-attach-btn { cursor: pointer; }
+.ms-image-attach-preview { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ms-image-attach-preview img {
+  height: 84px; max-width: 140px; object-fit: cover;
+  border-radius: 0.5rem; border: 1px solid #592466; display: block;
+}

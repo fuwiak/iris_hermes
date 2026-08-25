@@ -3756,6 +3756,61 @@
               },
             }),
           ),
+          h(
+            "div",
+            { className: "ms-image-attach" },
+            h(
+              "label",
+              { className: "ms-btn ms-image-attach-btn", title: "Вставить картинку в сообщение" },
+              "+ Картинка",
+              h("input", {
+                type: "file",
+                accept: "image/*",
+                style: { display: "none" },
+                onChange: function (ev) {
+                  var file = ev.target.files && ev.target.files[0];
+                  ev.target.value = "";
+                  if (!file) return;
+                  if (file.size > 9 * 1024 * 1024) {
+                    setError("Картинка больше 9 МБ — Telegram не примет.");
+                    return;
+                  }
+                  var reader = new FileReader();
+                  reader.onload = function () {
+                    setSendImage({ name: file.name || "photo.jpg", dataUrl: String(reader.result || "") });
+                  };
+                  reader.readAsDataURL(file);
+                },
+              }),
+            ),
+            sendImage
+              ? h(
+                  "div",
+                  { className: "ms-image-attach-preview" },
+                  h("img", { src: sendImage.dataUrl || sendImage.url, alt: sendImage.name || "" }),
+                  h(
+                    "span",
+                    { className: "ms-muted" },
+                    (sendImage.name || "картинка") + " — уйдёт фотографией в Telegram",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "ms-link-btn",
+                      onClick: function () {
+                        setSendImage(null);
+                      },
+                    },
+                    "убрать",
+                  ),
+                )
+              : h(
+                  "span",
+                  { className: "ms-muted" },
+                  "Картинка вставится в сообщение и уйдёт фотографией при «Отправить в Telegram».",
+                ),
+          ),
           selectedClientId
             ? h(
                 "div",
@@ -3942,50 +3997,6 @@
                     onClick: markSentToConversation,
                   },
                   "Отправить в Telegram",
-                )
-              : null,
-            selectedClientId
-              ? h(
-                  "label",
-                  { className: "ms-btn", style: { cursor: "pointer" } },
-                  sendImage ? "🖼 Заменить картинку" : "🖼 Картинка",
-                  h("input", {
-                    type: "file",
-                    accept: "image/*",
-                    style: { display: "none" },
-                    onChange: function (ev) {
-                      var file = ev.target.files && ev.target.files[0];
-                      ev.target.value = "";
-                      if (!file) return;
-                      if (file.size > 9 * 1024 * 1024) {
-                        setError("Картинка больше 9 МБ — Telegram не примет.");
-                        return;
-                      }
-                      var reader = new FileReader();
-                      reader.onload = function () {
-                        setSendImage({ name: file.name, dataUrl: String(reader.result || "") });
-                      };
-                      reader.readAsDataURL(file);
-                    },
-                  }),
-                )
-              : null,
-            sendImage
-              ? h(
-                  "span",
-                  { className: "ms-muted" },
-                  "🖼 " + sendImage.name + " ",
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "ms-link-btn",
-                      onClick: function () {
-                        setSendImage(null);
-                      },
-                    },
-                    "убрать",
-                  ),
                 )
               : null,
             h(
