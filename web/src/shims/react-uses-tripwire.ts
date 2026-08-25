@@ -18,7 +18,6 @@
 import * as ReactActual from "react";
 
 export * from "react";
-export default ReactActual;
 
 const REAL_USES = ReactActual.useSyncExternalStore;
 
@@ -29,28 +28,28 @@ interface Track {
   reported: boolean;
 }
 
-// Keyed by the subscribe function — per HOOK INSTANCE, not per source text
-// (every nanostores useStore shares one minified getSnapshot body, so a
-// source-text key aggregates the whole app and reports false positives).
-const tracks = new WeakMap<object, Track>();
-
 export function useSyncExternalStore<T>(
   subscribe: (onStoreChange: () => void) => () => void,
   getSnapshot: () => T,
   getServerSnapshot?: () => T,
 ): T {
+  // Per HOOK INSTANCE via useRef — keying by getSnapshot source or by the
+  // subscribe fn both aggregate unrelated hooks (minified nanostores bodies
+  // are identical; assistant-ui shares one bound subscribe) and cry wolf.
+  const trackRef = ReactActual.useRef<Track | null>(null);
+
   const wrapped = (): T => {
     const value = getSnapshot();
     const now = Date.now();
-    const track = tracks.get(subscribe);
+    const track = trackRef.current;
 
     if (!track || now - track.windowStart > 1000) {
-      tracks.set(subscribe, {
+      trackRef.current = {
         last: value,
         flips: 0,
         windowStart: now,
         reported: track?.reported ?? false,
-      });
+      };
       return value;
     }
 
@@ -58,7 +57,7 @@ export function useSyncExternalStore<T>(
       track.last = value;
       track.flips += 1;
 
-      if (track.flips > 50 && !track.reported) {
+      if (track.flips > 100 && !track.reported) {
         track.reported = true;
         let preview = "";
         try {
@@ -74,7 +73,7 @@ export function useSyncExternalStore<T>(
           stack: String(new Error("uses-loop").stack).slice(0, 3000),
         };
         // eslint-disable-next-line no-console
-        console.error("[uses-loop] one hook's snapshot flips every call — the infinite loop:", JSON.stringify(report));
+        console.error("[uses-loop] ONE hook instance flips >100x/s — the infinite loop:", JSON.stringify(report));
         try {
           sessionStorage.setItem("hermesUsesLoop", JSON.stringify(report));
         } catch {
@@ -88,3 +87,9 @@ export function useSyncExternalStore<T>(
 
   return REAL_USES(subscribe, wrapped, getServerSnapshot ?? wrapped);
 }
+
+// Default import consumers call React.useSyncExternalStore as a PROPERTY —
+// a plain namespace default would hand them the unwrapped original and the
+// tripwire would stay silent (exactly what happened on prod).
+const patched = { ...ReactActual, useSyncExternalStore };
+export default patched;

@@ -145,7 +145,14 @@ function reactUsesTripwire(): Plugin {
     name: "hermes:react-uses-tripwire",
     enforce: "pre",
     resolveId(source, importer) {
-      if (source !== "react" || !importer) {
+      if (!importer) {
+        return null;
+      }
+      // react-arborist etc. import the standalone shim package — same wrap.
+      if (source === "use-sync-external-store/shim" || source === "use-sync-external-store/shim/index.js") {
+        return path.resolve(__dirname, "src/shims/uses-shim-tripwire.ts");
+      }
+      if (source !== "react") {
         return null;
       }
       const from = importer.split("?")[0].replace(/\\/g, "/");
