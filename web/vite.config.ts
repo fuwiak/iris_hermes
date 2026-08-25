@@ -132,9 +132,36 @@ function hermesDevToken(): Plugin {
   };
 }
 
+/**
+ * TEMPORARY diagnostics: alias every bare `react` import (app + deps —
+ * nanostores, react-router, the embedded desktop tree) to a re-export that
+ * wraps useSyncExternalStore with a loop tripwire. See
+ * src/shims/react-uses-tripwire.ts; remove once the prod getSnapshot loop
+ * is identified and fixed.
+ */
+function reactUsesTripwire(): Plugin {
+  const SHIM = path.resolve(__dirname, "src/shims/react-uses-tripwire.ts");
+  return {
+    name: "hermes:react-uses-tripwire",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (source !== "react" || !importer) {
+        return null;
+      }
+      const from = importer.split("?")[0].replace(/\\/g, "/");
+      // The shim itself (and react's own internals) must reach the real react.
+      if (from === SHIM.replace(/\\/g, "/") || from.includes("/node_modules/react/") || from.includes("/node_modules/react-dom/")) {
+        return null;
+      }
+      return SHIM;
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    reactUsesTripwire(),
     tailwindcss(),
     hermesDevToken(),
     desktopAtAlias(),
