@@ -1424,3 +1424,19 @@ td.ms-ai-added {
 .ms-photo-pick-card:hover { border-color: #8b3aa0; }
 .ms-photo-pick-card img { width: 100%; height: 110px; object-fit: cover; border-radius: 0.35rem; display: block; }
 .ms-photo-pick-name { font-size: 0.72rem; line-height: 1.25; text-align: left; }
+
+/* фото ВНУТРИ поля «Текст сообщения» */
+.ms-msg-box {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  background: #3a1840; border: 1px solid #592466; border-radius: 0.5rem;
+}
+.ms-msg-box textarea { border: 0; border-radius: 0; background: transparent; }
+.ms-msg-photo { position: relative; padding: 0.45rem 0.45rem 0; }
+.ms-msg-photo img {
+  display: block; max-height: 200px; max-width: 100%; border-radius: 0.4rem;
+}
+.ms-msg-photo-x {
+  position: absolute; top: 0.7rem; left: 0.7rem; width: 1.6rem; height: 1.6rem;
+  border-radius: 50%; border: 1px solid #8b3aa0; background: rgba(36,16,40,.92);
+  color: #f4ede4; cursor: pointer; font-size: 0.85rem; line-height: 1;
+}

@@ -56,6 +56,22 @@ docker compose build hermes
 docker compose up -d --force-recreate hermes
 docker compose up -d
 
+# The /opt/data volume survives every deploy. A stale user-plugin copy at
+# /opt/data/plugins/moysklad SHADOWS the freshly baked bundled plugin
+# (user source wins in the dashboard plugin scan), so pushes stop being
+# visible in the UI. The moysklad plugin ships with the repo — a volume
+# copy is never intentional. Remove it and show what the server will serve.
+docker exec selectel-hermes-1 sh -c '
+  if [ -d /opt/data/plugins/moysklad ]; then
+    echo "!! removing stale shadow copy /opt/data/plugins/moysklad"
+    rm -rf /opt/data/plugins/moysklad
+  fi
+  echo "user plugins on volume:"; ls /opt/data/plugins 2>/dev/null || echo "(none)"
+  echo "bundled moysklad manifest version:"
+  grep -o "\"version\": \"[^\"]*\"" /opt/hermes/plugins/moysklad/dashboard/manifest.json 2>/dev/null \
+    || find /opt -name manifest.json -path "*moysklad*" -exec grep -o "\"version\": \"[^\"]*\"" {} \; 2>/dev/null | head -2
+' || true
+
 # Persist Telegram Desktop export into the hermes volume when present on host.
 # Place the file at /var/lib/iris/telegram_export.json (outside rsync --delete).
 EXPORT_SRC="${TELEGRAM_EXPORT_SRC:-/var/lib/iris/telegram_export.json}"

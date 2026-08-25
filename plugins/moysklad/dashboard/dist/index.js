@@ -3767,6 +3767,28 @@
                   },
                 }),
               ),
+              h(
+                "div",
+                { className: "ms-msg-box" },
+                sendImage
+                  ? h(
+                      "div",
+                      { className: "ms-msg-photo" },
+                      h("img", { src: sendImage.dataUrl || sendImage.url, alt: sendImage.name || "" }),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "ms-msg-photo-x",
+                          title: "Убрать фото",
+                          onClick: function () {
+                            setSendImage(null);
+                          },
+                        },
+                        "✕",
+                      ),
+                    )
+                  : null,
               h("textarea", {
               rows: 8,
               value: offer,
@@ -3827,38 +3849,8 @@
                 reader.readAsDataURL(file);
               },
             }),
+              ),
             ),
-          ),
-          h(
-            "div",
-            { className: "ms-image-attach" },
-            sendImage
-              ? h(
-                  "div",
-                  { className: "ms-image-attach-preview" },
-                  h("img", { src: sendImage.dataUrl || sendImage.url, alt: sendImage.name || "" }),
-                  h(
-                    "span",
-                    { className: "ms-muted" },
-                    (sendImage.name || "картинка") + " — уйдёт фотографией в Telegram",
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "ms-link-btn",
-                      onClick: function () {
-                        setSendImage(null);
-                      },
-                    },
-                    "убрать",
-                  ),
-                )
-              : h(
-                  "span",
-                  { className: "ms-muted" },
-                  "«+» слева от текста вставляет картинку — она уйдёт фотографией при «Отправить в Telegram».",
-                ),
           ),
           selectedClientId
             ? h(
@@ -5453,7 +5445,8 @@
     if (price) lines.push("Цена: " + Math.round(Number(price)).toLocaleString("ru-RU") + " ₽");
     var desc = String(withText.description || withText.description_preview || "").trim();
     if (desc) lines.push(desc);
-    if (url) lines.push(url);
+    // No URL line: Sasha wants the PHOTO in the message, not a link.
+    void url;
     return { block: lines.join("\n"), image: card.image || "", name: card.name || "—" };
   }
 

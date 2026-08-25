@@ -141,11 +141,12 @@ export function cardMessageBlock(card: CombinedCard): { block: string; image: st
   const withText = listings.find(p => p.description || p.description_preview) || listings[0]
   const price = listings.map(p => p.price).find(Boolean)
   const url = listings.map(p => p.url || '').find(Boolean) || ''
+  // No URL line — the photo travels as the actual photo attachment.
+  void url
   const lines = [
     `«${card.name || '—'}»`,
     price ? `Цена: ${Math.round(Number(price)).toLocaleString('ru-RU')} ₽` : '',
-    (withText?.description || withText?.description_preview || '').trim(),
-    url
+    (withText?.description || withText?.description_preview || '').trim()
   ].filter(Boolean)
   return { block: lines.join('\n'), image: card.image || '', name: card.name || '—' }
 }
