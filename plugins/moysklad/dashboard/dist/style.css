@@ -1385,3 +1385,16 @@ td.ms-ai-added {
 }
 .ms-msg-plus:hover { background: #4a2050; }
 .ms-msg-field { display: flex; flex-direction: column; gap: 0.3rem; }
+
+/* «+» слева на каждой карточке-объявлении */
+.ms-mp-card { position: relative; }
+.ms-mp-plus {
+  position: absolute; left: 0.4rem; top: 0.4rem; z-index: 2;
+  width: 1.9rem; height: 1.9rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.15rem; line-height: 1; cursor: pointer;
+  background: rgba(36, 16, 40, 0.92); color: #e8c7f0;
+  border: 1px solid #8b3aa0;
+}
+.ms-mp-plus:hover { background: #4a2050; }
+.ms-mp-plus.is-added { background: #2c5a2c; border-color: #4c8a4c; color: #dff0df; }

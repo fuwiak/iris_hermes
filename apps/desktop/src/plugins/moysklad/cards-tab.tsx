@@ -158,15 +158,36 @@ export function cardDragPayload(card: CombinedCard): string {
   return JSON.stringify({ kind: 'ms-card', name: card.name || '', image: card.image || '', url: url || '' })
 }
 
+const PLUS_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  left: 6,
+  top: 6,
+  zIndex: 2,
+  width: 30,
+  height: 30,
+  borderRadius: '50%',
+  border: '1px solid var(--hermes-border, rgba(139,58,160,.9))',
+  background: 'rgba(36,16,40,.92)',
+  color: 'inherit',
+  fontSize: 18,
+  lineHeight: 1,
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
+}
+
 function CombinedCardTile({
   added,
   card,
   onAdd,
+  onRemove,
   onSelect
 }: {
   added?: boolean
   card: CombinedCard
   onAdd?: (card: CombinedCard) => void
+  onRemove?: (name: string) => void
   onSelect: (card: CombinedCard) => void
 }) {
   const listings = card.listings || {}
@@ -180,8 +201,26 @@ function CombinedCardTile({
         ev.dataTransfer.effectAllowed = 'copy'
       }}
       role="button"
-      style={CARD_STYLE}
+      style={{ ...CARD_STYLE, position: 'relative' }}
     >
+      {onAdd ? (
+        <button
+          onClick={ev => {
+            ev.stopPropagation()
+
+            if (added && onRemove) {
+              onRemove(card.name || '')
+            } else if (!added) {
+              onAdd(card)
+            }
+          }}
+          style={PLUS_STYLE}
+          title={added ? 'Убрать из сообщения' : 'В сообщение (текст + фото)'}
+          type="button"
+        >
+          {added ? '✓' : '+'}
+        </button>
+      ) : null}
       {card.image ? (
         <img alt={card.name || ''} loading="lazy" src={card.image} style={THUMB_STYLE} />
       ) : (
@@ -204,26 +243,24 @@ function CombinedCardTile({
             {product.content_rating != null ? ` · ${product.content_rating}/100` : ''}
           </span>
         ))}
-        {onAdd ? (
-          <button
-            className="ms-btn"
-            disabled={added}
-            onClick={ev => {
-              ev.stopPropagation()
-              onAdd(card)
-            }}
-            style={{ marginTop: 4, fontSize: 12 }}
-            type="button"
-          >
-            {added ? '✓ В сообщении' : '+ В сообщение'}
-          </button>
-        ) : null}
       </div>
     </div>
   )
 }
 
-function CombinedDrawer({ card, onClose }: { card: CombinedCard; onClose: () => void }) {
+function CombinedDrawer({
+  added,
+  card,
+  onAdd,
+  onClose,
+  onRemove
+}: {
+  added?: boolean
+  card: CombinedCard
+  onAdd?: (card: CombinedCard) => void
+  onClose: () => void
+  onRemove?: (name: string) => void
+}) {
   const listings = Object.entries(card.listings || {})
   const first = listings[0]?.[1]
   return (
@@ -232,6 +269,21 @@ function CombinedDrawer({ card, onClose }: { card: CombinedCard; onClose: () => 
       <aside style={DRAWER_STYLE}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
           <strong style={{ flex: 1 }}>{(card.marketplaces || []).map(mp => MP_LABELS[mp] || mp).join(' + ')}</strong>
+          {onAdd ? (
+            <button
+              className="ms-btn ms-btn-primary"
+              onClick={() => {
+                if (added && onRemove) {
+                  onRemove(card.name || '')
+                } else if (!added) {
+                  onAdd(card)
+                }
+              }}
+              type="button"
+            >
+              {added ? '✓ Убрать из сообщения' : '+ В сообщение'}
+            </button>
+          ) : null}
           <button className="ms-btn" onClick={onClose} type="button">
             Закрыть
           </button>
@@ -1028,10 +1080,12 @@ export function ChatDrawer({
 export function CardsSidePanel({
   addedNames,
   onAddCard,
+  onRemoveCard,
   rest
 }: {
   addedNames?: string[]
   onAddCard?: (card: CombinedCard) => void
+  onRemoveCard?: (name: string) => void
   rest: CardsRest
 }) {
   const [cards, setCards] = useState<CombinedCard[] | null>(null)
@@ -1074,11 +1128,20 @@ export function CardsSidePanel({
             card={card}
             key={`${card.name || idx}`}
             onAdd={onAddCard}
+            onRemove={onRemoveCard}
             onSelect={setSelected}
           />
         ))}
       </div>
-      {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? (
+        <CombinedDrawer
+          added={addedNames?.includes(selected.name || '')}
+          card={selected}
+          onAdd={onAddCard}
+          onClose={() => setSelected(null)}
+          onRemove={onRemoveCard}
+        />
+      ) : null}
     </aside>
   )
 }

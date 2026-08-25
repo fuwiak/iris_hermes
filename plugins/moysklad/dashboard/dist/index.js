@@ -1799,7 +1799,7 @@
     );
   }
 
-  function CardsSideList({ onAdd, addedNames }) {
+  function CardsSideList({ onAdd, onRemove, addedNames }) {
     const [cards, setCards] = useState(null);
     const [selected, setSelected] = useState(null);
     const [error, setError] = useState("");
@@ -1839,6 +1839,7 @@
             card: card,
             onSelect: setSelected,
             onAdd: onAdd,
+            onRemove: onRemove,
             added: addedNames ? addedNames.indexOf(card.name || "") !== -1 : false,
           });
         }),
@@ -1849,6 +1850,9 @@
             onClose: function () {
               setSelected(null);
             },
+            onAdd: onAdd,
+            onRemove: onRemove,
+            added: addedNames ? addedNames.indexOf(selected.name || "") !== -1 : false,
           })
         : null,
     );
@@ -4031,6 +4035,7 @@
         h(FactsPanel, { facts: facts, notes: groundingNotes, sanity: sanity }),
         h(CardsSideList, {
           onAdd: addCardToMessage,
+          onRemove: removeCardFromMessage,
           addedNames: sendCards.map(function (entry) {
             return entry.name;
           }),
@@ -5273,7 +5278,7 @@
     return JSON.stringify({ kind: "ms-card", name: card.name || "", image: card.image || "", url: url });
   }
 
-  function CombinedCardTile({ card, onSelect, onAdd, added }) {
+  function CombinedCardTile({ card, onSelect, onAdd, onRemove, added }) {
     var listings = card.listings || {};
     return h(
       "div",
@@ -5293,6 +5298,22 @@
           onSelect(card);
         },
       },
+      onAdd
+        ? h(
+            "button",
+            {
+              type: "button",
+              className: "ms-mp-plus" + (added ? " is-added" : ""),
+              title: added ? "Убрать из сообщения" : "В сообщение (текст + фото)",
+              onClick: function (ev) {
+                ev.stopPropagation();
+                if (added && onRemove) onRemove(card.name || "");
+                else if (!added) onAdd(card);
+              },
+            },
+            added ? "✓" : "+",
+          )
+        : null,
       card.image
         ? h("img", { className: "ms-mp-card-img", src: card.image, alt: card.name || "", loading: "lazy" })
         : h("div", { className: "ms-mp-card-img is-empty" }, "нет фото"),
@@ -5320,26 +5341,11 @@
               (p.content_rating != null ? " · " + p.content_rating + "/100" : ""),
           );
         }),
-        onAdd
-          ? h(
-              "button",
-              {
-                type: "button",
-                className: "ms-btn ms-card-add-btn",
-                disabled: !!added,
-                onClick: function (ev) {
-                  ev.stopPropagation();
-                  onAdd(card);
-                },
-              },
-              added ? "✓ В сообщении" : "+ В сообщение",
-            )
-          : null,
       ),
     );
   }
 
-  function CombinedDrawer({ card, onClose }) {
+  function CombinedDrawer({ card, onClose, onAdd, onRemove, added }) {
     var listings = card.listings || {};
     var keys = Object.keys(listings);
     var first = keys.length ? listings[keys[0]] : null;
@@ -5362,6 +5368,20 @@
               })
               .join(" + "),
           ),
+          onAdd
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "ms-btn ms-btn-primary",
+                  onClick: function () {
+                    if (added && onRemove) onRemove(card.name || "");
+                    else if (!added) onAdd(card);
+                  },
+                },
+                added ? "✓ Убрать из сообщения" : "+ В сообщение",
+              )
+            : null,
           h("button", { type: "button", className: "ms-btn", onClick: onClose }, "Закрыть"),
         ),
         card.image ? h("img", { className: "ms-drawer-img", src: card.image, alt: card.name || "" }) : null,

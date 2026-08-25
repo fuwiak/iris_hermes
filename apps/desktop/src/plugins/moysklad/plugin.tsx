@@ -8320,6 +8320,7 @@ function CampaignsPage() {
       <CardsSidePanel
         addedNames={massCards.map(entry => entry.name)}
         onAddCard={addCardToMessage}
+        onRemoveCard={removeCardFromMessage}
         rest={(path, opts) => {
           if (!rest) {
             throw new Error('MoySklad plugin REST not bound')
