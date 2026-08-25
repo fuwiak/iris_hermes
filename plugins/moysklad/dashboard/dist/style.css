@@ -1356,3 +1356,11 @@ td.ms-ai-added {
   .ms-compose-split { grid-template-columns: 1fr; }
   .ms-cards-side { max-height: 24rem; position: static; }
 }
+
+/* карточки, добавленные в текст сообщения */
+.ms-card-add-btn { margin-top: 0.25rem; font-size: 0.75rem; padding: 0.2rem 0.5rem; }
+.ms-send-cards { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.ms-send-card-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
+  padding: 0.15rem 0.5rem; border-radius: 0.6rem; border: 1px solid #592466;
+}

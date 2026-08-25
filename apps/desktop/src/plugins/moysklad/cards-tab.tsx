@@ -46,7 +46,7 @@ type SectionInfo = {
   total?: number | null
 }
 
-type CombinedCard = {
+export type CombinedCard = {
   name?: string
   image?: string
   marketplaces?: string[]
@@ -135,6 +135,21 @@ function statusLabel(p: MarketplaceProduct): string {
   return p.is_archived ? 'в архиве' : p.is_active ? 'активна' : 'скрыта'
 }
 
+/** The whole listing as message text: name, price, description, URL. */
+export function cardMessageBlock(card: CombinedCard): { block: string; image: string; name: string } {
+  const listings = Object.values(card.listings || {})
+  const withText = listings.find(p => p.description || p.description_preview) || listings[0]
+  const price = listings.map(p => p.price).find(Boolean)
+  const url = listings.map(p => p.url || '').find(Boolean) || ''
+  const lines = [
+    `«${card.name || '—'}»`,
+    price ? `Цена: ${Math.round(Number(price)).toLocaleString('ru-RU')} ₽` : '',
+    (withText?.description || withText?.description_preview || '').trim(),
+    url
+  ].filter(Boolean)
+  return { block: lines.join('\n'), image: card.image || '', name: card.name || '—' }
+}
+
 export function cardDragPayload(card: CombinedCard): string {
   const listings = card.listings || {}
   const url = Object.values(listings)
@@ -143,7 +158,17 @@ export function cardDragPayload(card: CombinedCard): string {
   return JSON.stringify({ kind: 'ms-card', name: card.name || '', image: card.image || '', url: url || '' })
 }
 
-function CombinedCardTile({ card, onSelect }: { card: CombinedCard; onSelect: (card: CombinedCard) => void }) {
+function CombinedCardTile({
+  added,
+  card,
+  onAdd,
+  onSelect
+}: {
+  added?: boolean
+  card: CombinedCard
+  onAdd?: (card: CombinedCard) => void
+  onSelect: (card: CombinedCard) => void
+}) {
   const listings = card.listings || {}
   return (
     <div
@@ -179,6 +204,20 @@ function CombinedCardTile({ card, onSelect }: { card: CombinedCard; onSelect: (c
             {product.content_rating != null ? ` · ${product.content_rating}/100` : ''}
           </span>
         ))}
+        {onAdd ? (
+          <button
+            className="ms-btn"
+            disabled={added}
+            onClick={ev => {
+              ev.stopPropagation()
+              onAdd(card)
+            }}
+            style={{ marginTop: 4, fontSize: 12 }}
+            type="button"
+          >
+            {added ? '✓ В сообщении' : '+ В сообщение'}
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -986,7 +1025,15 @@ export function ChatDrawer({
 
 /** Narrow scrollable card feed for the Рассылки compose area: the combined
  * list of both marketplaces, first card on top, scroll down for the rest. */
-export function CardsSidePanel({ rest }: { rest: CardsRest }) {
+export function CardsSidePanel({
+  addedNames,
+  onAddCard,
+  rest
+}: {
+  addedNames?: string[]
+  onAddCard?: (card: CombinedCard) => void
+  rest: CardsRest
+}) {
   const [cards, setCards] = useState<CombinedCard[] | null>(null)
   const [selected, setSelected] = useState<CombinedCard | null>(null)
   const [error, setError] = useState('')
@@ -1022,7 +1069,13 @@ export function CardsSidePanel({ rest }: { rest: CardsRest }) {
         {error ? <p className="ms-error">{error}</p> : null}
         {!cards && !error ? <p className="ms-muted">Загружаем…</p> : null}
         {(cards || []).map((card, idx) => (
-          <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
+          <CombinedCardTile
+            added={addedNames?.includes(card.name || '')}
+            card={card}
+            key={`${card.name || idx}`}
+            onAdd={onAddCard}
+            onSelect={setSelected}
+          />
         ))}
       </div>
       {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}

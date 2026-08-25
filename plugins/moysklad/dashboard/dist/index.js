@@ -1799,7 +1799,7 @@
     );
   }
 
-  function CardsSideList() {
+  function CardsSideList({ onAdd, addedNames }) {
     const [cards, setCards] = useState(null);
     const [selected, setSelected] = useState(null);
     const [error, setError] = useState("");
@@ -1838,6 +1838,8 @@
             key: String(card.name || idx),
             card: card,
             onSelect: setSelected,
+            onAdd: onAdd,
+            added: addedNames ? addedNames.indexOf(card.name || "") !== -1 : false,
           });
         }),
       ),
@@ -1976,7 +1978,51 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [title, setTitle] = useState("Рассылка по фильтрам");
-    const [sendImage, setSendImage] = useState(null); // {name, dataUrl}
+    const [sendImage, setSendImage] = useState(null); // {name, dataUrl?, url?}
+    const [sendCards, setSendCards] = useState([]); // [{name, block, image}]
+
+    function addCardToMessage(card) {
+      var entry = cardMessageBlock(card);
+      setSendCards(function (prev) {
+        for (var i = 0; i < prev.length; i++) if (prev[i].name === entry.name) return prev;
+        return prev.concat([entry]);
+      });
+      var current = String(offerRef.current || "");
+      var nextText = current.trim() ? current.replace(/\s+$/, "") + "\n\n" + entry.block : entry.block;
+      setOffer(nextText);
+      offerRef.current = nextText;
+      setSendImage(function (prev) {
+        if (prev) return prev;
+        return entry.image ? { name: entry.name, url: entry.image } : prev;
+      });
+    }
+
+    function removeCardFromMessage(name) {
+      setSendCards(function (prev) {
+        var entry = null;
+        var rest = [];
+        prev.forEach(function (item) {
+          if (item.name === name) entry = item;
+          else rest.push(item);
+        });
+        if (entry) {
+          var current = String(offerRef.current || "");
+          var nextText = current.split("\n\n" + entry.block).join("").split(entry.block).join("").trim();
+          setOffer(nextText);
+          offerRef.current = nextText;
+          setSendImage(function (image) {
+            if (image && image.url && image.url === entry.image) {
+              for (var i = 0; i < rest.length; i++) {
+                if (rest[i].image) return { name: rest[i].name, url: rest[i].image };
+              }
+              return null;
+            }
+            return image;
+          });
+        }
+        return rest;
+      });
+    }
     const [channel, setChannel] = useState("telegram");
     const [channelKind, setChannelKind] = useState("");
     const [group, setGroup] = useState("");
@@ -3619,6 +3665,32 @@
               },
             }),
           ),
+          sendCards.length
+            ? h(
+                "div",
+                { className: "ms-send-cards" },
+                h("span", { className: "ms-muted" }, "Карточки в сообщении:"),
+                sendCards.map(function (entry) {
+                  return h(
+                    "span",
+                    { key: entry.name, className: "ms-send-card-chip" },
+                    String(entry.name).slice(0, 40),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "ms-link-btn",
+                        title: "Убрать карточку из текста",
+                        onClick: function () {
+                          removeCardFromMessage(entry.name);
+                        },
+                      },
+                      "✕",
+                    ),
+                  );
+                }),
+              )
+            : null,
           h(
             "label",
             null,
@@ -3939,7 +4011,12 @@
             : null,
         ),
         h(FactsPanel, { facts: facts, notes: groundingNotes, sanity: sanity }),
-        h(CardsSideList),
+        h(CardsSideList, {
+          onAdd: addCardToMessage,
+          addedNames: sendCards.map(function (entry) {
+            return entry.name;
+          }),
+        }),
       ),
       error ? h("div", { className: "ms-error" }, error) : null,
       h("h2", { className: "ms-section-title" }, "История отправок"),
@@ -5142,6 +5219,33 @@
     return discount > 0 ? base + " · скидка " + discount + "%" : base;
   }
 
+  function cardMessageBlock(card) {
+    var listings = card.listings || {};
+    var vals = Object.keys(listings).map(function (mp) {
+      return listings[mp] || {};
+    });
+    var withText = null;
+    for (var i = 0; i < vals.length; i++) {
+      if (vals[i].description || vals[i].description_preview) {
+        withText = vals[i];
+        break;
+      }
+    }
+    if (!withText) withText = vals[0] || {};
+    var price = "";
+    var url = "";
+    vals.forEach(function (v) {
+      if (!price && v.price) price = v.price;
+      if (!url && v.url) url = v.url;
+    });
+    var lines = ["«" + (card.name || "—") + "»"];
+    if (price) lines.push("Цена: " + Math.round(Number(price)).toLocaleString("ru-RU") + " ₽");
+    var desc = String(withText.description || withText.description_preview || "").trim();
+    if (desc) lines.push(desc);
+    if (url) lines.push(url);
+    return { block: lines.join("\n"), image: card.image || "", name: card.name || "—" };
+  }
+
   function cardDragPayload(card) {
     var listings = card.listings || {};
     var url = "";
@@ -5151,7 +5255,7 @@
     return JSON.stringify({ kind: "ms-card", name: card.name || "", image: card.image || "", url: url });
   }
 
-  function CombinedCardTile({ card, onSelect }) {
+  function CombinedCardTile({ card, onSelect, onAdd, added }) {
     var listings = card.listings || {};
     return h(
       "div",
@@ -5198,6 +5302,21 @@
               (p.content_rating != null ? " · " + p.content_rating + "/100" : ""),
           );
         }),
+        onAdd
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: "ms-btn ms-card-add-btn",
+                disabled: !!added,
+                onClick: function (ev) {
+                  ev.stopPropagation();
+                  onAdd(card);
+                },
+              },
+              added ? "✓ В сообщении" : "+ В сообщение",
+            )
+          : null,
       ),
     );
   }

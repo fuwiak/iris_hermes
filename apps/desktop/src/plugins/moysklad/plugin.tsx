@@ -32,7 +32,7 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
-import { CardsPage, CardsSidePanel, ReportChatDrawer } from './cards-tab'
+import { CardsPage, CardsSidePanel, cardMessageBlock, type CombinedCard, ReportChatDrawer } from './cards-tab'
 import {
   audienceRetryDelayMs,
   clientSalesChannelTokens,
@@ -5852,6 +5852,48 @@ function CampaignsPage() {
   // ── Массовая рассылка: background job + per-recipient status ──
   const [massText, setMassText] = useState('')
   const [massImage, setMassImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
+  const [massCards, setMassCards] = useState<{ name: string; block: string; image: string }[]>([])
+
+  const addCardToMessage = useCallback(
+    (card: CombinedCard) => {
+      const entry = cardMessageBlock(card)
+
+      setMassCards(prev => {
+        if (prev.some(existing => existing.name === entry.name)) {
+          return prev
+        }
+
+        return [...prev, entry]
+      })
+      setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block))
+      setMassImage(prev => (prev ? prev : entry.image ? { name: entry.name, url: entry.image } : prev))
+    },
+    []
+  )
+
+  const removeCardFromMessage = useCallback((name: string) => {
+    setMassCards(prev => {
+      const entry = prev.find(item => item.name === name)
+      const rest = prev.filter(item => item.name !== name)
+
+      if (entry) {
+        setMassText(text =>
+          text.replace(`\n\n${entry.block}`, '').replace(entry.block, '').trim()
+        )
+        setMassImage(image => {
+          if (image?.url && image.url === entry.image) {
+            const next = rest.find(item => item.image)
+
+            return next ? { name: next.name, url: next.image } : null
+          }
+
+          return image
+        })
+      }
+
+      return rest
+    })
+  }, [])
   const [massIds, setMassIds] = useState<string[]>([])
   const [massPicking, setMassPicking] = useState(false)
   const [massStarting, setMassStarting] = useState(false)
@@ -7463,6 +7505,35 @@ function CampaignsPage() {
             </button>
           ) : null}
         </div>
+        {massCards.length ? (
+          <div className="ms-compose-actions" style={{ flexWrap: 'wrap' }}>
+            <span className="ms-muted">Карточки в сообщении:</span>
+            {massCards.map(entry => (
+              <span
+                key={entry.name}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  padding: '3px 8px',
+                  borderRadius: 10,
+                  border: '1px solid var(--hermes-border, rgba(128,128,128,.4))'
+                }}
+              >
+                {entry.name.slice(0, 40)}
+                <button
+                  className="ms-link-btn"
+                  onClick={() => removeCardFromMessage(entry.name)}
+                  title="Убрать карточку из текста"
+                  type="button"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <label>
           Текст для всех получателей
           <textarea
@@ -8247,6 +8318,8 @@ function CampaignsPage() {
 
       </div>
       <CardsSidePanel
+        addedNames={massCards.map(entry => entry.name)}
+        onAddCard={addCardToMessage}
         rest={(path, opts) => {
           if (!rest) {
             throw new Error('MoySklad plugin REST not bound')
