@@ -1222,6 +1222,8 @@ class ConversationAppendBody(BaseModel):
     #: Optional photo (data-URL or bare base64) — delivered via sendPhoto.
     image_base64: str = ""
     image_name: str = "photo.jpg"
+    #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
+    image_url: str = ""
 
 
 class ConversationSyncBody(BaseModel):
@@ -1272,6 +1274,8 @@ class MarkSentBody(BaseModel):
     #: Optional photo (data-URL or bare base64) — delivered via sendPhoto.
     image_base64: str = ""
     image_name: str = "photo.jpg"
+    #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
+    image_url: str = ""
 
 
 # Per HTTP request — UI chunks larger audiences into several calls.
@@ -1316,6 +1320,8 @@ class MassSendStartBody(BaseModel):
     #: Optional photo (data-URL or bare base64) attached to every message.
     image_base64: str = ""
     image_name: str = "photo.jpg"
+    #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
+    image_url: str = ""
 
 
 class OutreachContactBody(BaseModel):
@@ -2133,6 +2139,7 @@ def post_client_conversation(
                 tg_chat_id=tg_chat_id,
                 image_base64=body.image_base64,
                 image_name=body.image_name or "photo.jpg",
+                image_url=body.image_url,
             )
             if delivery.get("ok"):
                 source = "client_card_telegram_bot"
@@ -2244,6 +2251,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 via=body.via,
                 image_base64=body.image_base64,
                 image_name=body.image_name or "photo.jpg",
+                image_url=body.image_url,
             )
 
         source = "campaign_send"
@@ -2591,6 +2599,7 @@ def post_campaign_mass_send(body: MassSendStartBody) -> dict[str, Any]:
                     via=via,
                     image_base64=body.image_base64,
                     image_name=body.image_name or "photo.jpg",
+                    image_url=body.image_url,
                 )
             source = "campaign_send_mass"
             if delivery.get("ok"):

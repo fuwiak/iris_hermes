@@ -2681,6 +2681,7 @@
           open_deep_link: true,
           deliver: true,
           image_base64: (sendImage && sendImage.dataUrl) || "",
+          image_url: (sendImage && sendImage.url) || "",
           image_name: (sendImage && sendImage.name) || "photo.jpg",
         }),
       })
@@ -3626,12 +3627,39 @@
               rows: 8,
               value: offer,
               placeholder: selectedClientId
-                ? "Сгенерируйте AI или введите текст… Ctrl+V вставляет картинку."
-                : "Общий текст для фильтрованной аудитории… Ctrl+V вставляет картинку.",
+                ? "Сгенерируйте AI или введите текст… Ctrl+V вставляет картинку, карточку можно перетащить из списка."
+                : "Общий текст для фильтрованной аудитории… Ctrl+V вставляет картинку, карточку можно перетащить из списка.",
               onChange: function (e) {
                 var v = e.target.value;
                 setOffer(v);
                 offerRef.current = v;
+              },
+              onDragOver: function (e) {
+                var types = (e.dataTransfer && e.dataTransfer.types) || [];
+                for (var i = 0; i < types.length; i++) {
+                  if (types[i] === "application/x-ms-card") {
+                    e.preventDefault();
+                    return;
+                  }
+                }
+              },
+              onDrop: function (e) {
+                var raw = e.dataTransfer && e.dataTransfer.getData("application/x-ms-card");
+                if (!raw) return;
+                e.preventDefault();
+                try {
+                  var card = JSON.parse(raw);
+                  var addition = [card.name, card.url].filter(Boolean).join("\n");
+                  if (addition) {
+                    var current = String(offerRef.current || offer || "");
+                    var nextText = current.trim() ? current.replace(/\s+$/, "") + "\n\n" + addition : addition;
+                    setOffer(nextText);
+                    offerRef.current = nextText;
+                  }
+                  if (card.image) {
+                    setSendImage({ name: card.name || "card.jpg", url: card.image });
+                  }
+                } catch (_) {}
               },
               onPaste: function (e) {
                 var items = (e.clipboardData && e.clipboardData.items) || [];
@@ -5114,12 +5142,31 @@
     return discount > 0 ? base + " · скидка " + discount + "%" : base;
   }
 
+  function cardDragPayload(card) {
+    var listings = card.listings || {};
+    var url = "";
+    Object.keys(listings).forEach(function (mp) {
+      if (!url && listings[mp] && listings[mp].url) url = listings[mp].url;
+    });
+    return JSON.stringify({ kind: "ms-card", name: card.name || "", image: card.image || "", url: url });
+  }
+
   function CombinedCardTile({ card, onSelect }) {
     var listings = card.listings || {};
     return h(
       "div",
       {
         className: "ms-mp-card is-clickable",
+        draggable: true,
+        onDragStart: function (ev) {
+          ev.dataTransfer.setData("application/x-ms-card", cardDragPayload(card));
+          var dragUrl = "";
+          Object.keys(listings).forEach(function (mp) {
+            if (!dragUrl && listings[mp] && listings[mp].url) dragUrl = listings[mp].url;
+          });
+          ev.dataTransfer.setData("text/plain", dragUrl || card.name || "");
+          ev.dataTransfer.effectAllowed = "copy";
+        },
         onClick: function () {
           onSelect(card);
         },

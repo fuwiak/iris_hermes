@@ -5851,7 +5851,7 @@ function CampaignsPage() {
 
   // ── Массовая рассылка: background job + per-recipient status ──
   const [massText, setMassText] = useState('')
-  const [massImage, setMassImage] = useState<{ name: string; dataUrl: string } | null>(null)
+  const [massImage, setMassImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
   const [massIds, setMassIds] = useState<string[]>([])
   const [massPicking, setMassPicking] = useState(false)
   const [massStarting, setMassStarting] = useState(false)
@@ -6157,6 +6157,7 @@ function CampaignsPage() {
           deliver: true,
           stop_on_error: false,
           image_base64: massImage?.dataUrl || '',
+          image_url: massImage?.url || '',
           image_name: massImage?.name || 'photo.jpg'
         }
       })
@@ -7492,7 +7493,36 @@ function CampaignsPage() {
                 })
               reader.readAsDataURL(file)
             }}
-            placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку. (возьмите текст из черновика или напишите здесь)"
+            onDragOver={e => {
+              if (e.dataTransfer.types.includes('application/x-ms-card')) {
+                e.preventDefault()
+              }
+            }}
+            onDrop={e => {
+              const raw = e.dataTransfer.getData('application/x-ms-card')
+
+              if (!raw) {
+                return
+              }
+
+              e.preventDefault()
+
+              try {
+                const card = JSON.parse(raw) as { name?: string; image?: string; url?: string }
+                const addition = [card.name, card.url].filter(Boolean).join('\n')
+
+                if (addition) {
+                  setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${addition}` : addition))
+                }
+
+                if (card.image) {
+                  setMassImage({ name: card.name || 'card.jpg', url: card.image })
+                }
+              } catch {
+                // not our payload — ignore
+              }
+            }}
+            placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку, карточку можно перетащить из списка справа. (возьмите текст из черновика или напишите здесь)"
             rows={5}
             value={massText}
           />
@@ -7531,7 +7561,7 @@ function CampaignsPage() {
             <>
               <img
                 alt={massImage.name}
-                src={massImage.dataUrl}
+                src={massImage.dataUrl || massImage.url}
                 style={{ height: 40, borderRadius: 6, objectFit: 'cover' }}
               />
               <span className="ms-muted">{massImage.name}</span>

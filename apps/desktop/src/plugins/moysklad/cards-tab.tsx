@@ -135,10 +135,28 @@ function statusLabel(p: MarketplaceProduct): string {
   return p.is_archived ? 'в архиве' : p.is_active ? 'активна' : 'скрыта'
 }
 
+export function cardDragPayload(card: CombinedCard): string {
+  const listings = card.listings || {}
+  const url = Object.values(listings)
+    .map(product => product.url || '')
+    .find(Boolean)
+  return JSON.stringify({ kind: 'ms-card', name: card.name || '', image: card.image || '', url: url || '' })
+}
+
 function CombinedCardTile({ card, onSelect }: { card: CombinedCard; onSelect: (card: CombinedCard) => void }) {
   const listings = card.listings || {}
   return (
-    <div onClick={() => onSelect(card)} role="button" style={CARD_STYLE}>
+    <div
+      draggable
+      onClick={() => onSelect(card)}
+      onDragStart={ev => {
+        ev.dataTransfer.setData('application/x-ms-card', cardDragPayload(card))
+        ev.dataTransfer.setData('text/plain', Object.values(listings).map(p => p.url || '').find(Boolean) || card.name || '')
+        ev.dataTransfer.effectAllowed = 'copy'
+      }}
+      role="button"
+      style={CARD_STYLE}
+    >
       {card.image ? (
         <img alt={card.name || ''} loading="lazy" src={card.image} style={THUMB_STYLE} />
       ) : (

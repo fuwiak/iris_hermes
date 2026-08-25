@@ -480,25 +480,29 @@ def send_telegram_message(
     via: str = "",
     image_base64: str = "",
     image_name: str = "photo.jpg",
+    image_url: str = "",
 ) -> dict[str, Any]:
     """Send outreach. Returns ``{ok, ...}``; never raises for API errors.
 
     ``via`` overrides ``MOYSKLAD_TELEGRAM_SEND_VIA`` for one call.
-    ``image_base64`` attaches a photo — delivered through the Business bot
-    (personal-account path has no file support yet); text rides as the
-    caption (split into a follow-up message when longer than 1024).
+    ``image_base64`` attaches an uploaded photo, ``image_url`` a remote one
+    (e.g. a marketplace card image — Telegram fetches the URL itself) —
+    both delivered through the Business bot (personal-account path has no
+    file support yet); text rides as the caption (split into a follow-up
+    message when longer than 1024).
     """
     mode = (via or telegram_send_mode()).strip().lower()
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
 
     image_bytes = _decode_image(image_base64)
-    if image_bytes:
+    if image_bytes or (image_url or "").strip().startswith(("http://", "https://")):
         return _send_photo_via_bot(
             text=text,
             chat_id=chat_id,
             image_bytes=image_bytes,
             image_name=image_name or "photo.jpg",
+            image_url=(image_url or "").strip(),
             business_connection_id=business_connection_id,
             token=token,
             timeout=max(timeout, 60.0),
@@ -641,13 +645,14 @@ def _send_photo_via_bot(
     *,
     text: str,
     chat_id: str,
-    image_bytes: bytes,
-    image_name: str,
+    image_bytes: bytes | None = None,
+    image_name: str = "photo.jpg",
+    image_url: str = "",
     business_connection_id: Optional[str] = None,
     token: str | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """``sendPhoto`` through the Business bot (multipart upload)."""
+    """``sendPhoto`` through the Business bot (multipart upload or URL)."""
     token = (token or outreach_bot_token()).strip()
     chat_id = str(chat_id or "").strip()
     if not token:
@@ -661,8 +666,10 @@ def _send_photo_via_bot(
         }
     if not chat_id:
         return {"ok": False, "error": "telegram_chat_missing", "detail": "Client needs ТГ ник / chat id"}
-    if len(image_bytes) > 10 * 1024 * 1024:
+    if image_bytes and len(image_bytes) > 10 * 1024 * 1024:
         return {"ok": False, "error": "image_too_large", "detail": "Фото больше 10 МБ"}
+    if not image_bytes and not image_url:
+        return {"ok": False, "error": "image_missing", "detail": "Нет фото (bytes/url)"}
 
     if business_connection_id is None:
         biz = resolve_business_connection_id()
@@ -681,13 +688,17 @@ def _send_photo_via_bot(
         payload["caption"] = caption
     if biz:
         payload["business_connection_id"] = biz
-    data = telegram_api(
-        "sendPhoto",
-        token=token,
-        json_body=payload,
-        files={"photo": (image_name, image_bytes)},
-        timeout=timeout,
-    )
+    if image_bytes:
+        data = telegram_api(
+            "sendPhoto",
+            token=token,
+            json_body=payload,
+            files={"photo": (image_name, image_bytes)},
+            timeout=timeout,
+        )
+    else:
+        payload["photo"] = image_url
+        data = telegram_api("sendPhoto", token=token, json_body=payload, timeout=timeout)
     if not data.get("ok"):
         return data
     result = data.get("result") or {}
@@ -720,6 +731,7 @@ def send_outreach_to_client(
     via: str = "",
     image_base64: str = "",
     image_name: str = "photo.jpg",
+    image_url: str = "",
 ) -> dict[str, Any]:
     """Resolve client TG target and send. Returns send_telegram_message result."""
     chat_id = resolve_telegram_chat_id(
@@ -733,4 +745,5 @@ def send_outreach_to_client(
         via=via,
         image_base64=image_base64,
         image_name=image_name,
+        image_url=image_url,
     )
