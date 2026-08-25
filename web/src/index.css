@@ -88,6 +88,7 @@
    the font stack, base size, and letter spacing without explicit calls. */
 html {
   font-family: var(--theme-font-sans);
+  font-weight: 300;
   font-size: var(--theme-base-size);
   line-height: var(--theme-line-height);
   letter-spacing: var(--theme-letter-spacing);
@@ -98,6 +99,7 @@ html {
 
 body {
   font-family: var(--theme-font-sans);
+  font-weight: 300;
   min-height: 0;
   height: 100%;
   margin: 0;

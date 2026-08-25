@@ -581,7 +581,8 @@
     --ui-sidebar-surface-background: #fbf9fe;
     --ui-chat-surface-background: #f6f3fc;
     --ui-editor-surface-background: #f6f3fc;
-    --ui-terminal-surface-background: #1a0a24;
+    /* Soft plum terminal — not near-black. */
+    --ui-terminal-surface-background: #4a3568;
     --ui-widget-surface-background: #ffffff;
     --ui-chat-bubble-background: #efeaf8;
     --ui-chat-bubble-opaque-background: #efeaf8;
@@ -609,6 +610,25 @@
       radial-gradient(ellipse 50% 40% at 50% 100%, rgba(246, 243, 252, 0.9), transparent 55%),
       linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
     color-scheme: light;
+    font-weight: 300;
+  }
+
+  /* Thin type across Iris — remap Tailwind weight utilities. */
+  :root[data-hermes-theme='iris'] body,
+  :root[data-hermes-theme='iris'] #root {
+    font-weight: 300;
+  }
+
+  :root[data-hermes-theme='iris'] :where(.font-black, .font-extrabold, .font-bold) {
+    font-weight: 500;
+  }
+
+  :root[data-hermes-theme='iris'] :where(.font-semibold, .font-medium) {
+    font-weight: 400;
+  }
+
+  :root[data-hermes-theme='iris'] :where(h1, h2, h3, h4, h5, h6, strong, b, th, label, button) {
+    font-weight: 500;
   }
 
   :root[data-hermes-theme='iris'] body,
@@ -647,15 +667,16 @@
   }
 
   :root.dark[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #1a0a24;
-    --theme-neutral-sidebar: #14081c;
-    --theme-neutral-card: #261436;
-    --ui-bg-chrome: #1a0a24;
-    --ui-bg-sidebar: #14081c;
-    --ui-bg-editor: #261436;
-    --ui-bg-elevated: #322044;
-    --ui-surface-background: #261436;
-    --ui-widget-surface-background: #261436;
+    --theme-neutral-chrome: #322448;
+    --theme-neutral-sidebar: #2a1e3c;
+    --theme-neutral-card: #3d3054;
+    --ui-bg-chrome: #322448;
+    --ui-bg-sidebar: #2a1e3c;
+    --ui-bg-editor: #3d3054;
+    --ui-bg-elevated: #4a3a62;
+    --ui-surface-background: #3d3054;
+    --ui-widget-surface-background: #3d3054;
+    --ui-terminal-surface-background: #4a3568;
     --ui-text-primary: #f6f3fc;
     --ui-text-secondary: #c9b8e0;
     --ui-text-tertiary: #a894c4;
@@ -1602,12 +1623,12 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-mark span {
   font-size: 1.3rem;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .hermes-one-mark strong {
   font-size: 2.25rem;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 [data-hermes-one-intro] h1 {
@@ -1615,7 +1636,7 @@ text-* variant utilities. */ .btn-arc {
   color: var(--ui-text-primary, #3d2a5c);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: -0.035em;
 }
 
@@ -1647,7 +1668,7 @@ text-* variant utilities. */ .btn-arc {
   background: var(--theme-accent-soft, #ffffff);
   color: var(--ui-text-primary, #3d2a5c);
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: 0.2px;
   transition:
     border-color 120ms ease,

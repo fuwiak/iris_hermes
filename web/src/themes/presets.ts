@@ -213,7 +213,7 @@ export const nousBlueTheme: DashboardTheme = {
 export const irisTheme: DashboardTheme = {
   name: "iris",
   label: "Iris",
-  description: "White floral canvas, violet CTAs — like crmiris.ru",
+  description: "White floral canvas, thin type, violet CTAs — like crmiris.ru",
   palette: {
     background: { hex: "#f6f3fc", alpha: 1 },
     midground: { hex: "#6e36ca", alpha: 1 },
@@ -226,7 +226,7 @@ export const irisTheme: DashboardTheme = {
     fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
+      "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap",
     letterSpacing: "-0.005em",
     lineHeight: "1.55",
   },
@@ -253,7 +253,7 @@ export const irisTheme: DashboardTheme = {
     destructive: "#cc4117",
     ring: "#6e36ca",
   },
-  terminalBackground: "#1a0a24",
+  terminalBackground: "#4a3568",
   terminalForeground: "#f6f3fc",
   seriesColors: {
     inputTokenAccent: "#6e36ca",

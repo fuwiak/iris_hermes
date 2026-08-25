@@ -9,7 +9,7 @@ const TEXT_ACTION_ICON = '[&_.codicon]:no-underline [&_svg]:no-underline'
 
 // Slacc (DESIGN.md): text buttons are pills (90px); icon buttons stay compact.
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[90px] text-xs leading-4 font-bold whitespace-nowrap shadow-none transition-all duration-100 outline-none focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-default disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[90px] text-xs leading-4 font-medium whitespace-nowrap shadow-none transition-all duration-100 outline-none focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-default disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       variant: {
@@ -24,7 +24,7 @@ const buttonVariants = cva(
         ghost: 'text-(--ui-text-secondary) hover:bg-[#efeaf8] hover:text-[#3d2a5c]',
         link: `text-[#003cde] underline-offset-4 decoration-current/20 hover:text-[#6e36ca] hover:underline ${TEXT_ACTION_ICON}`,
         text: `text-[#5c4d72] underline-offset-4 hover:text-[#3d2a5c] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-semibold text-[#5c4d72] underline underline-offset-4 hover:text-[#3d2a5c] ${TEXT_ACTION_ICON}`
+        textStrong: `font-medium text-[#5c4d72] underline underline-offset-4 hover:text-[#3d2a5c] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill

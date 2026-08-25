@@ -540,7 +540,7 @@ export default function App() {
       className={cn(
         "flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden antialiased",
         isDesktopEmbedRoute
-          ? "bg-[#0e0e0e] text-[#eaeaea]"
+          ? "bg-[#f6f3fc] text-[#3d2a5c]"
           : "bg-background-base text-text-primary",
       )}
     >
@@ -592,7 +592,7 @@ export default function App() {
           onClick={closeMobile}
           className={cn(
             "lg:hidden fixed inset-0 z-40 p-0 block",
-            "bg-black/70",
+            "bg-[#3d2a5c]/45",
           )}
         />
       )}

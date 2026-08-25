@@ -308,46 +308,46 @@ const irisLightColors = {
   userBubbleBorder: 'color-mix(in srgb, #6e36ca 22%, #ffffff)'
 } satisfies DesktopThemeColors
 
-/** Optional dark band — soft aubergine, still floral (not forced). */
+/** Optional dark band — soft plum floral (never near-black). */
 const irisDarkColors = {
-  background: '#1a0a24',
+  background: '#322448',
   foreground: '#f6f3fc',
-  card: '#261436',
+  card: '#3d3054',
   cardForeground: '#f6f3fc',
-  muted: '#322044',
+  muted: '#4a3a62',
   mutedForeground: '#c9b8e0',
-  popover: '#261436',
+  popover: '#3d3054',
   popoverForeground: '#f6f3fc',
   primary: '#b750f3',
   primaryForeground: '#3d2a5c',
-  secondary: '#322044',
+  secondary: '#4a3a62',
   secondaryForeground: '#f6f3fc',
-  accent: '#4a2a6a',
+  accent: '#5c4a78',
   accentForeground: '#f0e8ff',
-  border: '#4a2a6a',
-  input: '#322044',
+  border: '#5c4a78',
+  input: '#4a3a62',
   ring: '#b750f3',
   midground: '#b750f3',
   composerRing: '#dd4ef2',
   destructive: '#ff6b3d',
   destructiveForeground: '#ffffff',
-  sidebarBackground: '#14081c',
-  sidebarBorder: '#322044',
-  userBubble: '#322044',
+  sidebarBackground: '#2a1e3c',
+  sidebarBorder: '#4a3a62',
+  userBubble: '#4a3a62',
   userBubbleBorder: '#6e36ca'
 } satisfies DesktopThemeColors
 
 export const irisTheme: DesktopTheme = {
   name: 'iris',
   label: 'Iris',
-  description: 'White floral canvas, violet CTAs — like crmiris.ru',
+  description: 'White floral canvas, thin type, violet CTAs — like crmiris.ru',
   colors: irisLightColors,
   darkColors: irisDarkColors,
   typography: {
     fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
+      'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap'
   }
 }
 

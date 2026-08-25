@@ -38,6 +38,7 @@
   color: var(--iris-ink);
   background: var(--iris-canvas);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 300;
 }
 
 [data-desktop-chat-host] [data-slot="desktop-titlebar"] {
@@ -82,7 +83,7 @@
   border-radius: 90px;
   color: var(--iris-ink);
   font-size: 1.02rem;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 [data-desktop-chat-host]
@@ -103,7 +104,7 @@
   margin-bottom: 0.2rem;
   background: var(--iris-primary);
   color: var(--iris-on-primary);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 [data-desktop-chat-host] [data-slot="sidebar-menu-item"]:first-child [data-slot="context-menu-trigger"] svg,
@@ -130,7 +131,7 @@
   flex: 1;
   color: var(--iris-primary);
   font-size: 0.9rem;
-  font-weight: 700;
+  font-weight: 500;
   content: "Iris";
 }
 
@@ -170,12 +171,12 @@
 
 [data-desktop-chat-host] .hermes-one-mark span {
   font-size: 1.3rem;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 [data-desktop-chat-host] .hermes-one-mark strong {
   font-size: 2.25rem;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 [data-desktop-chat-host] [data-hermes-one-intro] h1 {
@@ -183,7 +184,7 @@
   color: var(--iris-ink) !important;
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.035em;
 }
 
@@ -216,7 +217,7 @@
   background: var(--iris-lavender);
   color: var(--iris-ink) !important;
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.2px;
   transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
 }
@@ -261,7 +262,7 @@
   border-radius: 90px;
   background: var(--iris-primary);
   color: var(--iris-on-primary);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 [data-desktop-chat-host] [data-slot="composer-surface"] button[data-slot="composer-send"]:hover,
