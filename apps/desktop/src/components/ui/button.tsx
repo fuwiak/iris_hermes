@@ -14,17 +14,17 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // button-primary-pill — violet + white (crmiris.ru)
-        default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#6e36ca_88%,#3d2a5c)]',
+        default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#6e36ca_88%,#1f1438)]',
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
         // button-outline — white surface, violet ring
-        outline: 'bg-white text-[#3d2a5c] shadow-[inset_0_0_0_2px_#6e36ca] hover:bg-[#f0e8ff] hover:text-[#6e36ca]',
+        outline: 'bg-white text-[#1f1438] shadow-[inset_0_0_0_2px_#6e36ca] hover:bg-[#f0e8ff] hover:text-[#6e36ca]',
         // button-secondary-pill — soft lavender + ink
-        secondary: 'bg-[#efeaf8] text-[#3d2a5c] hover:bg-[color-mix(in_srgb,#6e36ca_12%,#efeaf8)] hover:text-[#3d2a5c]',
-        ghost: 'text-(--ui-text-secondary) hover:bg-[#efeaf8] hover:text-[#3d2a5c]',
+        secondary: 'bg-[#efeaf8] text-[#1f1438] hover:bg-[color-mix(in_srgb,#6e36ca_12%,#efeaf8)] hover:text-[#1f1438]',
+        ghost: 'text-(--ui-text-secondary) hover:bg-[#efeaf8] hover:text-[#1f1438]',
         link: `text-[#003cde] underline-offset-4 decoration-current/20 hover:text-[#6e36ca] hover:underline ${TEXT_ACTION_ICON}`,
-        text: `text-[#5c4d72] underline-offset-4 hover:text-[#3d2a5c] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-medium text-[#5c4d72] underline underline-offset-4 hover:text-[#3d2a5c] ${TEXT_ACTION_ICON}`
+        text: `text-[#3d2a5c] underline-offset-4 hover:text-[#1f1438] hover:underline ${TEXT_ACTION_ICON}`,
+        textStrong: `font-medium text-[#3d2a5c] underline underline-offset-4 hover:text-[#1f1438] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill

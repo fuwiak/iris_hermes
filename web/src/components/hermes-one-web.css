@@ -1,18 +1,18 @@
 /* Hermes One presentation for the browser-hosted desktop client.
-   Iris white floral (crmiris.ru): lavender canvas + violet CTAs + soft plum ink. */
+   Iris white floral (crmiris.ru): lavender canvas + violet CTAs + high-contrast plum ink. */
 
 [data-desktop-chat-host] {
   --iris-primary: #6e36ca;
   --iris-primary-press: #b750f3;
-  --iris-ink: #3d2a5c;
-  --iris-ink-mute: #7a6b8f;
+  --iris-ink: #1f1438;
+  --iris-ink-mute: #3d2a5c;
   --iris-canvas: #f6f3fc;
   --iris-lavender: #efeaf8;
   --iris-surface: #ffffff;
   --iris-hairline: #e4dcf2;
   --iris-on-primary: #ffffff;
   --iris-link: #003cde;
-  --iris-on-aubergine-mute: #7a6b8f;
+  --iris-on-aubergine-mute: #5a4a72;
 
   --ui-chat-surface-background: var(--iris-canvas);
   --ui-editor-surface-background: var(--iris-surface);
@@ -22,7 +22,7 @@
   --ui-bg-editor: var(--iris-surface);
   --ui-text-primary: var(--iris-ink);
   --ui-text-secondary: var(--iris-ink-mute);
-  --ui-text-tertiary: #9585a8;
+  --ui-text-tertiary: #6e5d88;
   --ui-stroke-secondary: rgba(16, 6, 39, 0.1);
   --ui-stroke-tertiary: rgba(16, 6, 39, 0.06);
   --sidebar-edge-border: rgba(110, 54, 202, 0.16);
@@ -38,7 +38,7 @@
   color: var(--iris-ink);
   background: var(--iris-canvas);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-weight: 300;
+  font-weight: 400;
 }
 
 [data-desktop-chat-host] [data-slot="desktop-titlebar"] {

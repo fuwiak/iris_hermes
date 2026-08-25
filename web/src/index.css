@@ -52,8 +52,8 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  --foreground: #3d2a5c;
-  --foreground-base: #3d2a5c;
+  --foreground: #1f1438;
+  --foreground-base: #1f1438;
   --foreground-alpha: 1;
   --midground: color-mix(in srgb, #6e36ca 100%, transparent);
   --midground-base: #6e36ca;
@@ -88,7 +88,7 @@
    the font stack, base size, and letter spacing without explicit calls. */
 html {
   font-family: var(--theme-font-sans);
-  font-weight: 300;
+  font-weight: 400;
   font-size: var(--theme-base-size);
   line-height: var(--theme-line-height);
   letter-spacing: var(--theme-letter-spacing);
@@ -99,12 +99,12 @@ html {
 
 body {
   font-family: var(--theme-font-sans);
-  font-weight: 300;
+  font-weight: 400;
   min-height: 0;
   height: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground-base, #3d2a5c);
+  color: var(--foreground-base, #1f1438);
   background-color: #f6f3fc;
   background-image:
     radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
@@ -168,7 +168,7 @@ code { font-size: 0.875rem; }
   --color-secondary-foreground: var(--foreground-base);
   --color-muted: #efeaf8;
   /* Soft mute on white floral — readable captions. */
-  --color-muted-foreground: #7a6b8f;
+  --color-muted-foreground: #5a4a72;
   --color-accent: #f0e8ff;
   --color-accent-foreground: #6e36ca;
   --color-destructive: #cc4117;
@@ -187,15 +187,15 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
-/* Kanban + plugin tabs — white floral chrome, soft plum ink. */
+/* Kanban + plugin tabs — white floral chrome, high-contrast plum ink. */
 .hermes-kanban {
   background: #f6f3fc !important;
-  color: #3d2a5c !important;
+  color: #1f1438 !important;
 }
 
 .hermes-kanban-drawer {
   background: #ffffff !important;
-  color: #3d2a5c !important;
+  color: #1f1438 !important;
   border-left-color: #e4dcf2 !important;
   box-shadow: -4px 0 18px rgba(16, 6, 39, 0.08) !important;
 }
@@ -210,7 +210,7 @@ code { font-size: 0.875rem; }
     radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 22%, transparent), transparent 34%),
     linear-gradient(180deg, rgba(110, 54, 202, 0.04), transparent),
     #ffffff !important;
-  color: #3d2a5c;
+  color: #1f1438;
 }
 
 .ha-progress-track,
@@ -220,14 +220,14 @@ code { font-size: 0.875rem; }
 
 .ha-share-dialog {
   background: #ffffff !important;
-  color: #3d2a5c !important;
+  color: #1f1438 !important;
   box-shadow: 0 24px 60px rgba(16, 6, 39, 0.12) !important;
 }
 
 /* Plugins page — white floral panel. */
 .iris-plugins-page {
-  --iris-plugins-ink: #3d2a5c;
-  --iris-plugins-mute: #7a6b8f;
+  --iris-plugins-ink: #1f1438;
+  --iris-plugins-mute: #3d2a5c;
   --iris-plugins-canvas: #f6f3fc;
   --iris-plugins-lavender: #efeaf8;
   --iris-plugins-surface: #ffffff;

@@ -177,7 +177,7 @@ const PLUS_STYLE: React.CSSProperties = {
   borderRadius: '50%',
   border: '1px solid var(--hermes-border, #e4dcf2)',
   background: 'rgba(255,255,255,.95)',
-  color: '#3d2a5c',
+  color: '#1f1438',
   fontSize: 18,
   lineHeight: 1,
   cursor: 'pointer',

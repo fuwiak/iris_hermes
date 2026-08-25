@@ -142,7 +142,7 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #3d2a5c;
+    --theme-foreground: #1f1438;
     --theme-primary: #6e36ca;
     --theme-secondary: #efeaf8;
     --theme-accent-soft: #f0e8ff;
@@ -555,12 +555,12 @@
     --theme-mix-bubble: 100%;
     --ui-link: #003cde;
     --ui-link-hover: #6e36ca;
-    --ui-text-primary: #3d2a5c;
-    --ui-text-secondary: #5c4d72;
-    --ui-text-tertiary: #7a6b8f;
-    --ui-text-quaternary: #9585a8;
-    --conversation-scaffold-text: #5c4d72;
-    --conversation-scaffold-meta: #7a6b8f;
+    --ui-text-primary: #1f1438;
+    --ui-text-secondary: #3d2a5c;
+    --ui-text-tertiary: #5a4a72;
+    --ui-text-quaternary: #6e5d88;
+    --conversation-scaffold-text: #3d2a5c;
+    --conversation-scaffold-meta: #5a4a72;
     --conversation-text-font-size: 0.9375rem;
     --ui-bg-chrome: #f6f3fc;
     --ui-bg-sidebar: #fbf9fe;
@@ -587,22 +587,22 @@
     --ui-chat-bubble-background: #efeaf8;
     --ui-chat-bubble-opaque-background: #efeaf8;
     --ui-inline-code-background: #efeaf8;
-    --ui-inline-code-foreground: #3d2a5c;
+    --ui-inline-code-foreground: #1f1438;
     --dt-background: #f6f3fc;
-    --dt-foreground: #3d2a5c;
+    --dt-foreground: #1f1438;
     --dt-card: #ffffff;
-    --dt-card-foreground: #3d2a5c;
+    --dt-card-foreground: #1f1438;
     --dt-popover: #ffffff;
-    --dt-popover-foreground: #3d2a5c;
+    --dt-popover-foreground: #1f1438;
     --dt-muted: #efeaf8;
-    --dt-muted-foreground: #7a6b8f;
+    --dt-muted-foreground: #5a4a72;
     --dt-secondary: #efeaf8;
-    --dt-secondary-foreground: #3d2a5c;
+    --dt-secondary-foreground: #1f1438;
     --dt-accent: #f0e8ff;
     --dt-accent-foreground: #6e36ca;
     --dt-primary-foreground: #ffffff;
     --dt-user-bubble: #efeaf8;
-    --muted-foreground: #7a6b8f;
+    --muted-foreground: #5a4a72;
     --chrome-action-hover: color-mix(in srgb, #6e36ca 8%, #ffffff);
     --slacc-mesh:
       radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
@@ -610,31 +610,31 @@
       radial-gradient(ellipse 50% 40% at 50% 100%, rgba(246, 243, 252, 0.9), transparent 55%),
       linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
     color-scheme: light;
-    font-weight: 300;
+    font-weight: 400;
   }
 
   /* Thin type across Iris — remap Tailwind weight utilities. */
   :root[data-hermes-theme='iris'] body,
   :root[data-hermes-theme='iris'] #root {
-    font-weight: 300;
+    font-weight: 400;
     background-image: var(--slacc-mesh);
     background-color: #f6f3fc;
-    color: #3d2a5c;
+    color: #1f1438;
   }
 
   :root[data-hermes-theme='iris'] :where(.font-black, .font-extrabold, .font-bold) {
-    font-weight: 500;
+    font-weight: 600;
   }
 
   :root[data-hermes-theme='iris'] :where(.font-semibold, .font-medium) {
-    font-weight: 400;
-  }
-
-  :root[data-hermes-theme='iris'] :where(h1, h2, h3, h4, h5, h6, strong, b, th, label, button) {
     font-weight: 500;
   }
 
-  /* Chat transcript — soft plum ink on white floral canvas. */
+  :root[data-hermes-theme='iris'] :where(h1, h2, h3, h4, h5, h6, strong, b, th, label, button) {
+    font-weight: 600;
+  }
+
+  /* Chat transcript — high-contrast plum ink on white floral canvas. */
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'],
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md,
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md :where(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th),
@@ -643,17 +643,17 @@
   :root[data-hermes-theme='iris'] [data-slot='composer-rich-input'],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] h1 {
-    color: #3d2a5c !important;
+    color: #1f1438 !important;
   }
 
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
-    color: #5c4d72 !important;
+    color: #3d2a5c !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
     background: #ffffff;
     border-color: color-mix(in srgb, #6e36ca 28%, #ffffff);
-    color: #3d2a5c !important;
+    color: #1f1438 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
@@ -686,14 +686,14 @@
   :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
   :root[data-hermes-theme='iris'] [data-settings-view] {
     background-color: #ffffff;
-    color: #3d2a5c;
+    color: #1f1438;
   }
 
   :root[data-hermes-theme='iris']
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
     opacity: 0.95;
-    color: #5c4d72;
+    color: #3d2a5c;
   }
 
   :root[data-hermes-theme='iris'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -709,20 +709,20 @@
   :root[data-hermes-theme='iris'] [data-slot='popover-content'],
   :root[data-hermes-theme='iris'] [data-slot='card'] {
     background-color: #ffffff !important;
-    color: #3d2a5c !important;
+    color: #1f1438 !important;
     border-color: color-mix(in srgb, #6e36ca 16%, #ffffff) !important;
   }
 
   :root[data-hermes-theme='iris'] input::placeholder,
   :root[data-hermes-theme='iris'] textarea::placeholder {
-    color: #9585a8 !important;
+    color: #6e5d88 !important;
     opacity: 1;
   }
 
   :root[data-hermes-theme='iris'] .standalone-glass,
   :root[data-hermes-theme='iris'] .composer-human-message {
     background: #efeaf8 !important;
-    color: #3d2a5c !important;
+    color: #1f1438 !important;
   }
 
   :root[data-hermes-theme='iris'] {
@@ -731,16 +731,16 @@
 
   /* Settings ▸ Plugins — white floral panel. */
   .iris-plugins-settings {
-    color: #3d2a5c;
+    color: #1f1438;
     color-scheme: light;
   }
 
   .iris-plugins-settings,
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
-    --ui-text-primary: #3d2a5c;
-    --ui-text-secondary: #5c4d72;
-    --ui-text-tertiary: #7a6b8f;
+    --ui-text-primary: #1f1438;
+    --ui-text-secondary: #3d2a5c;
+    --ui-text-tertiary: #5a4a72;
   }
 
   .iris-plugins-settings {
@@ -749,7 +749,7 @@
     background:
       radial-gradient(circle at 10% 0%, rgba(183, 80, 243, 0.12), transparent 45%),
       linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
-    color: #3d2a5c;
+    color: #1f1438;
   }
 
   .iris-plugins-settings p,
@@ -759,7 +759,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #7a6b8f !important;
+    color: #5a4a72 !important;
   }
 
   * {
@@ -1595,10 +1595,10 @@ text-* variant utilities. */ .btn-arc {
 
 /* ── Hermes One intro ──────────────────────────────────────────────────────
    New-chat empty state. Tokens follow Iris white floral (crmiris.ru):
-   lavender canvas, violet primary, soft plum ink. Electron + web embed share these. */
+   lavender canvas, violet primary, high-contrast plum ink. Electron + web embed share these. */
 [data-hermes-one-intro] {
   gap: 0;
-  color: var(--ui-text-primary, #3d2a5c);
+  color: var(--ui-text-primary, #1f1438);
 }
 
 .hermes-one-mark {
@@ -1619,27 +1619,27 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-mark span {
   font-size: 1.3rem;
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .hermes-one-mark strong {
   font-size: 2.25rem;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 [data-hermes-one-intro] h1 {
   margin: 0;
-  color: var(--ui-text-primary, #3d2a5c);
+  color: var(--ui-text-primary, #1f1438);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: -0.035em;
 }
 
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--ui-text-secondary, #5c4d72);
+  color: var(--ui-text-secondary, #3d2a5c);
   font-size: 1.05rem;
   line-height: 1.55;
 }
@@ -1662,7 +1662,7 @@ text-* variant utilities. */ .btn-arc {
   border: 2px solid var(--theme-primary, #6e36ca);
   border-radius: 90px;
   background: var(--theme-accent-soft, #ffffff);
-  color: var(--ui-text-primary, #3d2a5c);
+  color: var(--ui-text-primary, #1f1438);
   font-size: 1rem;
   font-weight: 400;
   letter-spacing: 0.2px;

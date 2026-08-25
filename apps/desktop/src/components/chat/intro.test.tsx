@@ -109,7 +109,7 @@ describe('Hermes One intro — styles ship with the desktop app', () => {
   it('keeps suggestion chip text readable (ink on white floral)', () => {
     const block = css.slice(css.indexOf('.hermes-one-suggestions button {'))
 
-    expect(block).toContain('color: var(--ui-text-primary, #3d2a5c)')
+    expect(block).toContain('color: var(--ui-text-primary, #1f1438)')
     expect(block).not.toContain('background: #1a1a1a')
   })
 })

@@ -7657,7 +7657,7 @@ function CampaignsPage() {
                   borderRadius: '50%',
                   border: '1px solid var(--hermes-border, rgba(139,58,160,.9))',
                   background: 'rgba(255,255,255,.95)',
-                  color: '#3d2a5c',
+                  color: '#1f1438',
                   cursor: 'pointer'
                 }}
                 title="Убрать фото"
@@ -7751,7 +7751,7 @@ function CampaignsPage() {
                   border: '1px solid var(--hermes-border, #e4dcf2)',
                   borderRadius: 8,
                   overflow: 'hidden',
-                  color: '#3d2a5c'
+                  color: '#1f1438'
                 }}
               >
                 <button
