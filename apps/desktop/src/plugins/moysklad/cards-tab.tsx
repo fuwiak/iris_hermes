@@ -102,7 +102,7 @@ const BADGE_STYLE: React.CSSProperties = {
 const OVERLAY_STYLE: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  background: 'rgba(0,0,0,.45)',
+  background: 'rgba(61,42,92,.28)',
   zIndex: 40
 }
 
@@ -115,9 +115,9 @@ const DRAWER_STYLE: React.CSSProperties = {
   zIndex: 41,
   display: 'flex',
   flexDirection: 'column',
-  background: 'var(--hermes-bg, #241028)',
-  borderLeft: '1px solid var(--hermes-border, rgba(128,128,128,.35))',
-  boxShadow: '-8px 0 24px rgba(0,0,0,.35)',
+  background: 'var(--hermes-bg, #ffffff)',
+  borderLeft: '1px solid var(--hermes-border, #e4dcf2)',
+  boxShadow: '-8px 0 24px rgba(61,42,92,.12)',
   overflowY: 'auto'
 }
 
@@ -175,9 +175,9 @@ const PLUS_STYLE: React.CSSProperties = {
   width: 30,
   height: 30,
   borderRadius: '50%',
-  border: '1px solid var(--hermes-border, rgba(139,58,160,.9))',
-  background: 'rgba(36,16,40,.92)',
-  color: 'inherit',
+  border: '1px solid var(--hermes-border, #e4dcf2)',
+  background: 'rgba(255,255,255,.95)',
+  color: '#3d2a5c',
   fontSize: 18,
   lineHeight: 1,
   cursor: 'pointer',

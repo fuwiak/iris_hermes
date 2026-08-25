@@ -219,7 +219,7 @@ export function buildHeatmapOption(
       left: 'center',
       bottom: 0,
       textStyle: { color: MUTED },
-      inRange: { color: ['#2f1236', '#7c3a8c', '#e8b86d'] }
+      inRange: { color: ['#f6f3fc', '#b750f3', '#6e36ca'] }
     },
     series: [{ type: 'heatmap', data, emphasis: { itemStyle: { shadowBlur: 8 } } }]
   }
