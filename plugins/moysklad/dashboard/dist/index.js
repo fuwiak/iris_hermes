@@ -2913,6 +2913,7 @@
           "div",
           null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
+          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.1"),
           h(
             "p",
             { className: "ms-muted" },

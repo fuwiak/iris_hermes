@@ -1147,6 +1147,102 @@ export function CardsSidePanel({
   )
 }
 
+/** Two-step picker: choose a card, then one of its photos. */
+export function CardPhotoPicker({
+  onClose,
+  onPick,
+  rest
+}: {
+  onClose: () => void
+  onPick: (name: string, url: string) => void
+  rest: CardsRest
+}) {
+  const [cards, setCards] = useState<CombinedCard[] | null>(null)
+  const [card, setCard] = useState<CombinedCard | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    rest<CardsPayload>('/cards/marketplaces?limit=100', { timeoutMs: 120_000 })
+      .then(payload => setCards(payload.combined || []))
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  const photos = useMemo(() => {
+    const out: string[] = []
+    Object.values(card?.listings || {}).forEach(product => {
+      ;((product as MarketplaceProduct & { images?: string[] }).images || []).forEach(src => {
+        if (src && !out.includes(src)) {
+          out.push(src)
+        }
+      })
+    })
+
+    if (!out.length && card?.image) {
+      out.push(card.image)
+    }
+
+    return out
+  }, [card])
+
+  return (
+    <>
+      <div onClick={onClose} style={OVERLAY_STYLE} />
+      <aside style={{ ...DRAWER_STYLE, width: 'min(640px, 96vw)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
+          {card ? (
+            <button className="ms-btn" onClick={() => setCard(null)} type="button">
+              ← Карточки
+            </button>
+          ) : (
+            <strong>Выберите карточку</strong>
+          )}
+          {card ? <strong style={{ flex: 1, textAlign: 'center', fontSize: 13 }}>{(card.name || '').slice(0, 48)}</strong> : <span style={{ flex: 1 }} />}
+          <button className="ms-btn" onClick={onClose} type="button">
+            Закрыть
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+          {error ? <p className="ms-error">{error}</p> : null}
+          {!cards && !error ? <p className="ms-muted">Загружаем карточки…</p> : null}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {!card
+              ? (cards || []).map((item, idx) => (
+                  <button
+                    key={`${item.name || idx}`}
+                    onClick={() => setCard(item)}
+                    style={{ ...CARD_STYLE, minHeight: 0, padding: 4, background: 'transparent', color: 'inherit', font: 'inherit' }}
+                    type="button"
+                  >
+                    {item.image ? (
+                      <img alt="" loading="lazy" src={item.image} style={{ ...THUMB_STYLE, height: 110, borderRadius: 6 }} />
+                    ) : (
+                      <span className="ms-muted">нет фото</span>
+                    )}
+                    <span style={{ fontSize: 11, lineHeight: 1.25, textAlign: 'left' }}>{(item.name || '—').slice(0, 60)}</span>
+                  </button>
+                ))
+              : photos.map((src, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      onPick(card.name || 'card.jpg', src)
+                      onClose()
+                    }}
+                    style={{ ...CARD_STYLE, minHeight: 0, padding: 4, background: 'transparent' }}
+                    title="Вставить это фото в сообщение"
+                    type="button"
+                  >
+                    <img alt="" loading="lazy" src={src} style={{ ...THUMB_STYLE, height: 110, borderRadius: 6 }} />
+                  </button>
+                ))}
+          </div>
+          {card && !photos.length ? <p className="ms-muted">У карточки нет фото.</p> : null}
+        </div>
+      </aside>
+    </>
+  )
+}
+
 export function ReportChatDrawer({ onClose, rest }: { onClose: () => void; rest: CardsRest }) {
   return (
     <ChatDrawer

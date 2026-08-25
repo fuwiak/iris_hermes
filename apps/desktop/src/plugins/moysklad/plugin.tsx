@@ -32,7 +32,14 @@ import {
   salesFilterTabsDisabled,
   seedFactsFromAudienceRow
 } from './audience-pick'
-import { CardsPage, CardsSidePanel, cardMessageBlock, type CombinedCard, ReportChatDrawer } from './cards-tab'
+import {
+  CardPhotoPicker,
+  CardsPage,
+  CardsSidePanel,
+  cardMessageBlock,
+  type CombinedCard,
+  ReportChatDrawer
+} from './cards-tab'
 import {
   audienceRetryDelayMs,
   clientSalesChannelTokens,
@@ -5853,6 +5860,8 @@ function CampaignsPage() {
   const [massText, setMassText] = useState('')
   const [massImage, setMassImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
   const [massCards, setMassCards] = useState<{ name: string; block: string; image: string }[]>([])
+  const [massInsertMenu, setMassInsertMenu] = useState(false)
+  const [massPhotoPicker, setMassPhotoPicker] = useState(false)
 
   const addCardToMessage = useCallback(
     (card: CombinedCard) => {
@@ -7462,7 +7471,9 @@ function CampaignsPage() {
 
       </section>
 
-      <h2 className="ms-section-title">2. Текст и отправка</h2>
+      <h2 className="ms-section-title">
+        2. Текст и отправка <span className="ms-muted" style={{ fontSize: 12 }}>v1.17.1</span>
+      </h2>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -7540,6 +7551,43 @@ function CampaignsPage() {
         ) : null}
         <label>
           Текст для всех получателей
+          <div
+            style={{
+              border: '1px solid var(--hermes-border, rgba(128,128,128,.35))',
+              borderRadius: 8,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+          {massImage ? (
+            <div style={{ position: 'relative', padding: '6px 6px 0' }}>
+              <img
+                alt={massImage.name}
+                src={massImage.dataUrl || massImage.url}
+                style={{ display: 'block', maxHeight: 200, maxWidth: '100%', borderRadius: 6 }}
+              />
+              <button
+                onClick={() => setMassImage(null)}
+                style={{
+                  position: 'absolute',
+                  top: 10,
+                  left: 10,
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  border: '1px solid var(--hermes-border, rgba(139,58,160,.9))',
+                  background: 'rgba(36,16,40,.92)',
+                  color: 'inherit',
+                  cursor: 'pointer'
+                }}
+                title="Убрать фото"
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
           <textarea
             onChange={e => setMassText(e.target.value)}
             onPaste={e => {
@@ -7599,54 +7647,78 @@ function CampaignsPage() {
             }}
             placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку, карточку можно перетащить из списка справа. (возьмите текст из черновика или напишите здесь)"
             rows={5}
+            style={{ border: 0, background: 'transparent' }}
             value={massText}
           />
+          </div>
         </label>
         <div className="ms-compose-actions">
-          <label className="ms-btn" style={{ cursor: 'pointer' }}>
-            {massImage ? '🖼 Заменить картинку' : '🖼 Прикрепить картинку'}
-            <input
-              accept="image/*"
-              onChange={ev => {
-                const file = ev.target.files?.[0]
+          <span style={{ position: 'relative', display: 'inline-block' }}>
+            <button className="ms-btn" onClick={() => setMassInsertMenu(open => !open)} type="button">
+              Вставить ▾
+            </button>
+            {massInsertMenu ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '100%',
+                  marginTop: 4,
+                  zIndex: 30,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: 220,
+                  background: 'var(--hermes-bg, #2b1230)',
+                  border: '1px solid var(--hermes-border, rgba(139,58,160,.7))',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setMassInsertMenu(false)
+                    setMassPhotoPicker(true)
+                  }}
+                  style={{ padding: '9px 12px', textAlign: 'left', background: 'none', border: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+                  type="button"
+                >
+                  Вставить из карточки…
+                </button>
+                <label style={{ padding: '9px 12px', cursor: 'pointer' }}>
+                  Вставить другое…
+                  <input
+                    accept="image/*"
+                    onChange={ev => {
+                      setMassInsertMenu(false)
 
-                ev.target.value = ''
+                      const file = ev.target.files?.[0]
 
-                if (!file) {
-                  return
-                }
+                      ev.target.value = ''
 
-                if (file.size > 9 * 1024 * 1024) {
-                  setError('Картинка больше 9 МБ — Telegram не примет.')
+                      if (!file) {
+                        return
+                      }
 
-                  return
-                }
+                      if (file.size > 9 * 1024 * 1024) {
+                        setError('Картинка больше 9 МБ — Telegram не примет.')
 
-                const reader = new FileReader()
+                        return
+                      }
 
-                reader.onload = () =>
-                  setMassImage({ name: file.name, dataUrl: String(reader.result || '') })
-                reader.readAsDataURL(file)
-              }}
-              style={{ display: 'none' }}
-              type="file"
-            />
-          </label>
-          {massImage ? (
-            <>
-              <img
-                alt={massImage.name}
-                src={massImage.dataUrl || massImage.url}
-                style={{ height: 40, borderRadius: 6, objectFit: 'cover' }}
-              />
-              <span className="ms-muted">{massImage.name}</span>
-              <button className="ms-link-btn" onClick={() => setMassImage(null)} type="button">
-                убрать
-              </button>
-            </>
-          ) : (
-            <span className="ms-muted">Фото уйдёт каждому получателю, текст — подписью.</span>
-          )}
+                      const reader = new FileReader()
+
+                      reader.onload = () =>
+                        setMassImage({ name: file.name, dataUrl: String(reader.result || '') })
+                      reader.readAsDataURL(file)
+                    }}
+                    style={{ display: 'none' }}
+                    type="file"
+                  />
+                </label>
+              </div>
+            ) : null}
+          </span>
+          <span className="ms-muted">Фото показывается в поле сообщения и уйдёт фотографией в Telegram.</span>
         </div>
         <div className="ms-compose-actions">
           {offer.trim() ? (
@@ -8321,6 +8393,19 @@ function CampaignsPage() {
       </div>
 
       </div>
+      {massPhotoPicker ? (
+        <CardPhotoPicker
+          onClose={() => setMassPhotoPicker(false)}
+          onPick={(name, url) => setMassImage({ name, url })}
+          rest={(path, opts) => {
+            if (!rest) {
+              throw new Error('MoySklad plugin REST not bound')
+            }
+
+            return rest(path, opts)
+          }}
+        />
+      ) : null}
       <CardsSidePanel
         addedNames={massCards.map(entry => entry.name)}
         onAddCard={addCardToMessage}

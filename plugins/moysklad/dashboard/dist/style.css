@@ -1440,3 +1440,4 @@ td.ms-ai-added {
   border-radius: 50%; border: 1px solid #8b3aa0; background: rgba(36,16,40,.92);
   color: #f4ede4; cursor: pointer; font-size: 0.85rem; line-height: 1;
 }
+.ms-plugin-ver { font-size: 0.72rem; align-self: center; }
