@@ -1,18 +1,18 @@
 /* Hermes One presentation for the browser-hosted desktop client.
-   Iris white floral (crmiris.ru): lavender canvas + violet CTAs + deep ink. */
+   Iris white floral (crmiris.ru): lavender canvas + violet CTAs + soft plum ink. */
 
 [data-desktop-chat-host] {
   --iris-primary: #6e36ca;
   --iris-primary-press: #b750f3;
-  --iris-ink: #100627;
-  --iris-ink-mute: #636363;
+  --iris-ink: #3d2a5c;
+  --iris-ink-mute: #7a6b8f;
   --iris-canvas: #f6f3fc;
   --iris-lavender: #efeaf8;
   --iris-surface: #ffffff;
   --iris-hairline: #e4dcf2;
   --iris-on-primary: #ffffff;
   --iris-link: #003cde;
-  --iris-on-aubergine-mute: #636363;
+  --iris-on-aubergine-mute: #7a6b8f;
 
   --ui-chat-surface-background: var(--iris-canvas);
   --ui-editor-surface-background: var(--iris-surface);
@@ -22,7 +22,7 @@
   --ui-bg-editor: var(--iris-surface);
   --ui-text-primary: var(--iris-ink);
   --ui-text-secondary: var(--iris-ink-mute);
-  --ui-text-tertiary: #828282;
+  --ui-text-tertiary: #9585a8;
   --ui-stroke-secondary: rgba(16, 6, 39, 0.1);
   --ui-stroke-tertiary: rgba(16, 6, 39, 0.06);
   --sidebar-edge-border: rgba(110, 54, 202, 0.16);

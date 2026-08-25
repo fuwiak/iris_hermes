@@ -52,8 +52,8 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  --foreground: #100627;
-  --foreground-base: #100627;
+  --foreground: #3d2a5c;
+  --foreground-base: #3d2a5c;
   --foreground-alpha: 1;
   --midground: color-mix(in srgb, #6e36ca 100%, transparent);
   --midground-base: #6e36ca;
@@ -102,7 +102,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground-base, #100627);
+  color: var(--foreground-base, #3d2a5c);
   background-color: #f6f3fc;
   background-image:
     radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
@@ -166,7 +166,7 @@ code { font-size: 0.875rem; }
   --color-secondary-foreground: var(--foreground-base);
   --color-muted: #efeaf8;
   /* Soft mute on white floral — readable captions. */
-  --color-muted-foreground: #636363;
+  --color-muted-foreground: #7a6b8f;
   --color-accent: #f0e8ff;
   --color-accent-foreground: #6e36ca;
   --color-destructive: #cc4117;
@@ -185,15 +185,15 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
-/* Kanban + plugin tabs — white floral chrome, deep ink. */
+/* Kanban + plugin tabs — white floral chrome, soft plum ink. */
 .hermes-kanban {
   background: #f6f3fc !important;
-  color: #100627 !important;
+  color: #3d2a5c !important;
 }
 
 .hermes-kanban-drawer {
   background: #ffffff !important;
-  color: #100627 !important;
+  color: #3d2a5c !important;
   border-left-color: #e4dcf2 !important;
   box-shadow: -4px 0 18px rgba(16, 6, 39, 0.08) !important;
 }
@@ -208,7 +208,7 @@ code { font-size: 0.875rem; }
     radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 22%, transparent), transparent 34%),
     linear-gradient(180deg, rgba(110, 54, 202, 0.04), transparent),
     #ffffff !important;
-  color: #100627;
+  color: #3d2a5c;
 }
 
 .ha-progress-track,
@@ -218,14 +218,14 @@ code { font-size: 0.875rem; }
 
 .ha-share-dialog {
   background: #ffffff !important;
-  color: #100627 !important;
+  color: #3d2a5c !important;
   box-shadow: 0 24px 60px rgba(16, 6, 39, 0.12) !important;
 }
 
 /* Plugins page — white floral panel. */
 .iris-plugins-page {
-  --iris-plugins-ink: #100627;
-  --iris-plugins-mute: #636363;
+  --iris-plugins-ink: #3d2a5c;
+  --iris-plugins-mute: #7a6b8f;
   --iris-plugins-canvas: #f6f3fc;
   --iris-plugins-lavender: #efeaf8;
   --iris-plugins-surface: #ffffff;

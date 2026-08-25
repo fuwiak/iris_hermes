@@ -142,7 +142,7 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #100627;
+    --theme-foreground: #3d2a5c;
     --theme-primary: #6e36ca;
     --theme-secondary: #efeaf8;
     --theme-accent-soft: #f0e8ff;
@@ -555,12 +555,12 @@
     --theme-mix-bubble: 100%;
     --ui-link: #003cde;
     --ui-link-hover: #6e36ca;
-    --ui-text-primary: #100627;
-    --ui-text-secondary: #404040;
-    --ui-text-tertiary: #636363;
-    --ui-text-quaternary: #828282;
-    --conversation-scaffold-text: #404040;
-    --conversation-scaffold-meta: #636363;
+    --ui-text-primary: #3d2a5c;
+    --ui-text-secondary: #5c4d72;
+    --ui-text-tertiary: #7a6b8f;
+    --ui-text-quaternary: #9585a8;
+    --conversation-scaffold-text: #5c4d72;
+    --conversation-scaffold-meta: #7a6b8f;
     --conversation-text-font-size: 0.9375rem;
     --ui-bg-chrome: #f6f3fc;
     --ui-bg-sidebar: #fbf9fe;
@@ -581,27 +581,27 @@
     --ui-sidebar-surface-background: #fbf9fe;
     --ui-chat-surface-background: #f6f3fc;
     --ui-editor-surface-background: #f6f3fc;
-    --ui-terminal-surface-background: #100627;
+    --ui-terminal-surface-background: #1a0a24;
     --ui-widget-surface-background: #ffffff;
     --ui-chat-bubble-background: #efeaf8;
     --ui-chat-bubble-opaque-background: #efeaf8;
     --ui-inline-code-background: #efeaf8;
-    --ui-inline-code-foreground: #100627;
+    --ui-inline-code-foreground: #3d2a5c;
     --dt-background: #f6f3fc;
-    --dt-foreground: #100627;
+    --dt-foreground: #3d2a5c;
     --dt-card: #ffffff;
-    --dt-card-foreground: #100627;
+    --dt-card-foreground: #3d2a5c;
     --dt-popover: #ffffff;
-    --dt-popover-foreground: #100627;
+    --dt-popover-foreground: #3d2a5c;
     --dt-muted: #efeaf8;
-    --dt-muted-foreground: #636363;
+    --dt-muted-foreground: #7a6b8f;
     --dt-secondary: #efeaf8;
-    --dt-secondary-foreground: #100627;
+    --dt-secondary-foreground: #3d2a5c;
     --dt-accent: #f0e8ff;
     --dt-accent-foreground: #6e36ca;
     --dt-primary-foreground: #ffffff;
     --dt-user-bubble: #efeaf8;
-    --muted-foreground: #636363;
+    --muted-foreground: #7a6b8f;
     --chrome-action-hover: color-mix(in srgb, #6e36ca 8%, #ffffff);
     --slacc-mesh:
       radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
@@ -615,10 +615,10 @@
   :root[data-hermes-theme='iris'] #root {
     background-image: var(--slacc-mesh);
     background-color: #f6f3fc;
-    color: #100627;
+    color: #3d2a5c;
   }
 
-  /* Chat transcript — deep ink on white floral canvas. */
+  /* Chat transcript — soft plum ink on white floral canvas. */
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'],
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md,
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md :where(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th),
@@ -627,17 +627,17 @@
   :root[data-hermes-theme='iris'] [data-slot='composer-rich-input'],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] h1 {
-    color: #100627 !important;
+    color: #3d2a5c !important;
   }
 
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
-    color: #404040 !important;
+    color: #5c4d72 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
     background: #ffffff;
     border-color: color-mix(in srgb, #6e36ca 28%, #ffffff);
-    color: #100627 !important;
+    color: #3d2a5c !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
@@ -669,14 +669,14 @@
   :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
   :root[data-hermes-theme='iris'] [data-settings-view] {
     background-color: #ffffff;
-    color: #100627;
+    color: #3d2a5c;
   }
 
   :root[data-hermes-theme='iris']
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
     opacity: 0.95;
-    color: #404040;
+    color: #5c4d72;
   }
 
   :root[data-hermes-theme='iris'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -692,20 +692,20 @@
   :root[data-hermes-theme='iris'] [data-slot='popover-content'],
   :root[data-hermes-theme='iris'] [data-slot='card'] {
     background-color: #ffffff !important;
-    color: #100627 !important;
+    color: #3d2a5c !important;
     border-color: color-mix(in srgb, #6e36ca 16%, #ffffff) !important;
   }
 
   :root[data-hermes-theme='iris'] input::placeholder,
   :root[data-hermes-theme='iris'] textarea::placeholder {
-    color: #828282 !important;
+    color: #9585a8 !important;
     opacity: 1;
   }
 
   :root[data-hermes-theme='iris'] .standalone-glass,
   :root[data-hermes-theme='iris'] .composer-human-message {
     background: #efeaf8 !important;
-    color: #100627 !important;
+    color: #3d2a5c !important;
   }
 
   :root[data-hermes-theme='iris'] {
@@ -714,16 +714,16 @@
 
   /* Settings ▸ Plugins — white floral panel. */
   .iris-plugins-settings {
-    color: #100627;
+    color: #3d2a5c;
     color-scheme: light;
   }
 
   .iris-plugins-settings,
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
-    --ui-text-primary: #100627;
-    --ui-text-secondary: #404040;
-    --ui-text-tertiary: #636363;
+    --ui-text-primary: #3d2a5c;
+    --ui-text-secondary: #5c4d72;
+    --ui-text-tertiary: #7a6b8f;
   }
 
   .iris-plugins-settings {
@@ -732,7 +732,7 @@
     background:
       radial-gradient(circle at 10% 0%, rgba(183, 80, 243, 0.12), transparent 45%),
       linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
-    color: #100627;
+    color: #3d2a5c;
   }
 
   .iris-plugins-settings p,
@@ -742,7 +742,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #636363 !important;
+    color: #7a6b8f !important;
   }
 
   * {
@@ -1578,10 +1578,10 @@ text-* variant utilities. */ .btn-arc {
 
 /* ── Hermes One intro ──────────────────────────────────────────────────────
    New-chat empty state. Tokens follow Iris white floral (crmiris.ru):
-   lavender canvas, violet primary, deep ink. Electron + web embed share these. */
+   lavender canvas, violet primary, soft plum ink. Electron + web embed share these. */
 [data-hermes-one-intro] {
   gap: 0;
-  color: var(--ui-text-primary, #100627);
+  color: var(--ui-text-primary, #3d2a5c);
 }
 
 .hermes-one-mark {
@@ -1612,7 +1612,7 @@ text-* variant utilities. */ .btn-arc {
 
 [data-hermes-one-intro] h1 {
   margin: 0;
-  color: var(--ui-text-primary, #100627);
+  color: var(--ui-text-primary, #3d2a5c);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
   font-weight: 700;
@@ -1622,7 +1622,7 @@ text-* variant utilities. */ .btn-arc {
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--ui-text-secondary, #404040);
+  color: var(--ui-text-secondary, #5c4d72);
   font-size: 1.05rem;
   line-height: 1.55;
 }
@@ -1645,7 +1645,7 @@ text-* variant utilities. */ .btn-arc {
   border: 2px solid var(--theme-primary, #6e36ca);
   border-radius: 90px;
   background: var(--theme-accent-soft, #ffffff);
-  color: var(--ui-text-primary, #100627);
+  color: var(--ui-text-primary, #3d2a5c);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.2px;

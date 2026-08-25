@@ -37,7 +37,7 @@ export function visibleChannels<T extends { key: string }>(channels: T[], hidden
   return channels.filter(ch => !hidden.has(ch.key))
 }
 
-const TEXT = '#100627'
+const TEXT = '#3d2a5c'
 const MUTED = '#f0daf5'
 const GRID = '#592466'
 const AXIS = '#7c3a8c'

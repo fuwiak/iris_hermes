@@ -674,7 +674,7 @@ export function TaskDrawer({
   }
 
   return (
-    <div className="absolute inset-y-0 right-0 z-20 flex w-[26rem] flex-col border-l border-[#e4dcf2] bg-white text-[#100627] duration-150 ease-out animate-in fade-in slide-in-from-right-4">
+    <div className="absolute inset-y-0 right-0 z-20 flex w-[26rem] flex-col border-l border-[#e4dcf2] bg-white text-[#3d2a5c] duration-150 ease-out animate-in fade-in slide-in-from-right-4">
       <header className="flex flex-col gap-2 px-4 pt-3.5 pb-3">
         <div className="flex items-center gap-2">
           {task ? (

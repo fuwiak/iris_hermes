@@ -278,21 +278,21 @@ export const slateTheme: DesktopTheme = {
 
 /**
  * Iris CRM — white floral canvas matching crmiris.ru:
- * soft lavender-white #f6f3fc, violet CTAs #6e36ca / #b750f3, deep ink #100627.
+ * soft lavender-white #f6f3fc, violet CTAs #6e36ca / #b750f3, soft plum ink #3d2a5c.
  */
 const irisLightColors = {
   background: '#f6f3fc',
-  foreground: '#100627',
+  foreground: '#3d2a5c',
   card: '#ffffff',
-  cardForeground: '#100627',
+  cardForeground: '#3d2a5c',
   muted: '#efeaf8',
-  mutedForeground: '#636363',
+  mutedForeground: '#7a6b8f',
   popover: '#ffffff',
-  popoverForeground: '#100627',
+  popoverForeground: '#3d2a5c',
   primary: '#6e36ca',
   primaryForeground: '#ffffff',
   secondary: '#efeaf8',
-  secondaryForeground: '#100627',
+  secondaryForeground: '#3d2a5c',
   accent: '#f0e8ff',
   accentForeground: '#6e36ca',
   border: 'color-mix(in srgb, #6e36ca 14%, #ffffff)',
@@ -319,7 +319,7 @@ const irisDarkColors = {
   popover: '#261436',
   popoverForeground: '#f6f3fc',
   primary: '#b750f3',
-  primaryForeground: '#100627',
+  primaryForeground: '#3d2a5c',
   secondary: '#322044',
   secondaryForeground: '#f6f3fc',
   accent: '#4a2a6a',
