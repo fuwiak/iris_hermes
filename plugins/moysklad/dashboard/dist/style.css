@@ -1373,3 +1373,15 @@ td.ms-ai-added {
   height: 84px; max-width: 140px; object-fit: cover;
   border-radius: 0.5rem; border: 1px solid #592466; display: block;
 }
+
+/* «+» слева от текста сообщения */
+.ms-msg-row { display: flex; gap: 0.5rem; align-items: stretch; }
+.ms-msg-row textarea { flex: 1; }
+.ms-msg-plus {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.2rem; align-self: stretch; cursor: pointer; user-select: none;
+  font-size: 1.4rem; line-height: 1; color: #e8c7f0;
+  background: #3a1840; border: 1px dashed #8b3aa0; border-radius: 0.5rem;
+}
+.ms-msg-plus:hover { background: #4a2050; }
+.ms-msg-field { display: flex; flex-direction: column; gap: 0.3rem; }
