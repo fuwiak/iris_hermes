@@ -1995,10 +1995,10 @@
       var nextText = current.trim() ? current.replace(/\s+$/, "") + "\n\n" + entry.block : entry.block;
       setOffer(nextText);
       offerRef.current = nextText;
-      setSendImage(function (prev) {
-        if (prev) return prev;
-        return entry.image ? { name: entry.name, url: entry.image } : prev;
-      });
+      if (entry.image) {
+        // Photo MUST travel with the card — the freshly added card wins.
+        setSendImage({ name: entry.name, url: entry.image });
+      }
     }
 
     function removeCardFromMessage(name) {

@@ -5866,7 +5866,11 @@ function CampaignsPage() {
         return [...prev, entry]
       })
       setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block))
-      setMassImage(prev => (prev ? prev : entry.image ? { name: entry.name, url: entry.image } : prev))
+
+      if (entry.image) {
+        // Photo MUST travel with the card — the freshly added card wins.
+        setMassImage({ name: entry.name, url: entry.image })
+      }
     },
     []
   )
