@@ -208,17 +208,17 @@ export const nousBlueTheme: DashboardTheme = {
 };
 
 /**
- * Iris / Slacc — deep aubergine chrome + cream ink (expressive dark band).
+ * Iris CRM — white floral canvas (crmiris.ru): lavender-white + violet CTAs.
  */
 export const irisTheme: DashboardTheme = {
   name: "iris",
-  label: "Iris (Slacc)",
-  description: "Deep aubergine chrome, cream ink, vivid violet CTAs",
+  label: "Iris",
+  description: "White floral canvas, violet CTAs — like crmiris.ru",
   palette: {
-    background: { hex: "#2a0f2e", alpha: 1 },
-    midground: { hex: "#c084fc", alpha: 1 },
-    foreground: { hex: "#f4ede4", alpha: 1 },
-    warmGlow: "rgba(192, 132, 252, 0.22)",
+    background: { hex: "#f6f3fc", alpha: 1 },
+    midground: { hex: "#6e36ca", alpha: 1 },
+    foreground: { hex: "#100627", alpha: 1 },
+    warmGlow: "rgba(183, 80, 243, 0.18)",
     noiseOpacity: 0,
   },
   typography: {
@@ -239,28 +239,28 @@ export const irisTheme: DashboardTheme = {
     crest: "/apple-touch-icon.png",
   },
   colorOverrides: {
-    primary: "#c084fc",
-    primaryForeground: "#1a0a1c",
-    accent: "#611f69",
-    accentForeground: "#f9f0ff",
-    muted: "#481a54",
-    mutedForeground: "#e4c8ea",
-    border: "#592466",
-    card: "#3a1840",
-    cardForeground: "#f4ede4",
-    success: "#3fb97d",
-    warning: "#d4b348",
-    destructive: "#ff6b3d",
-    ring: "#c084fc",
+    primary: "#6e36ca",
+    primaryForeground: "#ffffff",
+    accent: "#f0e8ff",
+    accentForeground: "#6e36ca",
+    muted: "#efeaf8",
+    mutedForeground: "#636363",
+    border: "#e4dcf2",
+    card: "#ffffff",
+    cardForeground: "#100627",
+    success: "#206b22",
+    warning: "#a67c00",
+    destructive: "#cc4117",
+    ring: "#6e36ca",
   },
-  terminalBackground: "#2a0f2e",
-  terminalForeground: "#f4ede4",
+  terminalBackground: "#100627",
+  terminalForeground: "#f6f3fc",
   seriesColors: {
-    inputTokenAccent: "#c084fc",
-    outputTokenAccent: "#3fb97d",
+    inputTokenAccent: "#6e36ca",
+    outputTokenAccent: "#b750f3",
   },
   // [background, midground, warmGlow] — ThemeList swatch is a fixed triple.
-  swatchColors: ["#2a0f2e", "#c084fc", "#f4ede4"],
+  swatchColors: ["#f6f3fc", "#6e36ca", "#b750f3"],
 };
 
 /**

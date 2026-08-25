@@ -25,7 +25,7 @@ import "./hermes-one-web.css";
 /** Iris aubergine chrome — apps/desktop/src/themes/presets.ts irisTheme */
 const WEB_DESKTOP_SKIN = "iris";
 const WEB_DESKTOP_MODE = "dark";
-const BOOT_BG = "#2a0f2e";
+const BOOT_BG = "#f6f3fc";
 const BOOT_FG = "#f4ede4";
 
 function preferDesktopTheme(): void {

@@ -13,18 +13,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // button-primary-pill — aubergine + white
-        default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#611f69_100%,transparent)]',
+        // button-primary-pill — violet + white (crmiris.ru)
+        default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#6e36ca_88%,#100627)]',
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
-        // button-outline — aubergine surface, violet ring
-        outline: 'bg-[#3a1840] text-[#f4ede4] shadow-[inset_0_0_0_2px_#d8b4fe] hover:bg-[#481a54] hover:text-[#f4ede4]',
-        // button-secondary-pill — deep lavender + cream
-        secondary: 'bg-[#481a54] text-[#f4ede4] hover:bg-[color-mix(in_srgb,#d8b4fe_22%,#481a54)] hover:text-[#f4ede4]',
-        ghost: 'text-(--ui-text-secondary) hover:bg-[#481a54] hover:text-[#f4ede4]',
-        link: `text-[#7dd3fc] underline-offset-4 decoration-current/20 hover:text-[#bae6fd] hover:underline ${TEXT_ACTION_ICON}`,
-        text: `text-[#f0daf5] underline-offset-4 hover:text-[#f4ede4] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-semibold text-[#f0daf5] underline underline-offset-4 hover:text-[#f4ede4] ${TEXT_ACTION_ICON}`
+        // button-outline — white surface, violet ring
+        outline: 'bg-white text-[#100627] shadow-[inset_0_0_0_2px_#6e36ca] hover:bg-[#f0e8ff] hover:text-[#6e36ca]',
+        // button-secondary-pill — soft lavender + ink
+        secondary: 'bg-[#efeaf8] text-[#100627] hover:bg-[color-mix(in_srgb,#6e36ca_12%,#efeaf8)] hover:text-[#100627]',
+        ghost: 'text-(--ui-text-secondary) hover:bg-[#efeaf8] hover:text-[#100627]',
+        link: `text-[#003cde] underline-offset-4 decoration-current/20 hover:text-[#6e36ca] hover:underline ${TEXT_ACTION_ICON}`,
+        text: `text-[#404040] underline-offset-4 hover:text-[#100627] hover:underline ${TEXT_ACTION_ICON}`,
+        textStrong: `font-semibold text-[#404040] underline underline-offset-4 hover:text-[#100627] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill

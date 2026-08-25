@@ -23,7 +23,7 @@ import "@desktop/styles.css";
 import "./hermes-one-web.css";
 
 /** Iris aubergine — match DesktopChatHost / irisTheme */
-const BOOT_BG = "#2a0f2e";
+const BOOT_BG = "#f6f3fc";
 const BOOT_FG = "#f4ede4";
 
 type SettingsViewProps = {

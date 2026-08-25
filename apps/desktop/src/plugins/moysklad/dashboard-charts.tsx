@@ -162,7 +162,7 @@ function PlotlyHeatmap({
             }
           ],
           {
-            title: { text: title, font: { color: '#f4ede4', size: 13 } },
+            title: { text: title, font: { color: '#100627', size: 13 } },
             margin: { l: 110, r: 48, t: 36, b: 64 },
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: '#2f1236',

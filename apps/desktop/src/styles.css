@@ -142,20 +142,20 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #f4ede4;
-    --theme-primary: #d8b4fe;
-    --theme-secondary: #481a54;
-    --theme-accent-soft: #611f69;
-    --theme-midground: #d8b4fe;
-    --theme-warm: #d8b4fe;
-    --theme-background-seed: #2a0f2e;
-    --theme-sidebar-seed: #220c26;
-    --theme-card-seed: #3a1840;
-    --theme-elevated-seed: #3a1840;
-    --theme-bubble-seed: #481a54;
-    --theme-neutral-chrome: #2a0f2e;
-    --theme-neutral-sidebar: #220c26;
-    --theme-neutral-card: #3a1840;
+    --theme-foreground: #100627;
+    --theme-primary: #6e36ca;
+    --theme-secondary: #efeaf8;
+    --theme-accent-soft: #f0e8ff;
+    --theme-midground: #b750f3;
+    --theme-warm: #6e36ca;
+    --theme-background-seed: #f6f3fc;
+    --theme-sidebar-seed: #fbf9fe;
+    --theme-card-seed: #ffffff;
+    --theme-elevated-seed: #ffffff;
+    --theme-bubble-seed: #efeaf8;
+    --theme-neutral-chrome: #f6f3fc;
+    --theme-neutral-sidebar: #fbf9fe;
+    --theme-neutral-card: #ffffff;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 22%;
@@ -184,8 +184,8 @@
     --ui-yellow: #c08532;
     --ui-green: #1f8a65;
     --ui-cyan: #4c7f8c;
-    --ui-blue: #0053fd;
-    --ui-purple: #9e94d5;
+    --ui-blue: #003cde;
+    --ui-purple: #6e36ca;
     --context-usage-system: color-mix(in srgb, var(--ui-base) 55%, transparent);
     --context-usage-tools: var(--ui-purple);
     --context-usage-rules: var(--ui-green);
@@ -543,82 +543,82 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris / Slacc — deep aubergine chrome + cream ink (chat must stay readable). */
+  /* Iris CRM — white floral canvas (crmiris.ru): lavender-white + violet CTAs. */
   :root[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #2a0f2e;
-    --theme-neutral-sidebar: #220c26;
-    --theme-neutral-card: #3a1840;
+    --theme-neutral-chrome: #f6f3fc;
+    --theme-neutral-sidebar: #fbf9fe;
+    --theme-neutral-card: #ffffff;
     --theme-mix-chrome: 100%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 100%;
     --theme-mix-elevated: 100%;
     --theme-mix-bubble: 100%;
-    --ui-link: #7dd3fc;
-    --ui-link-hover: #bae6fd;
-    --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #f0daf5;
-    --ui-text-tertiary: #d9bdde;
-    --ui-text-quaternary: #c9a8d0;
-    --conversation-scaffold-text: #f0daf5;
-    --conversation-scaffold-meta: #d9bdde;
+    --ui-link: #003cde;
+    --ui-link-hover: #6e36ca;
+    --ui-text-primary: #100627;
+    --ui-text-secondary: #404040;
+    --ui-text-tertiary: #636363;
+    --ui-text-quaternary: #828282;
+    --conversation-scaffold-text: #404040;
+    --conversation-scaffold-meta: #636363;
     --conversation-text-font-size: 0.9375rem;
-    --ui-bg-chrome: #2a0f2e;
-    --ui-bg-sidebar: #220c26;
-    --ui-bg-editor: #3a1840;
-    --ui-bg-elevated: #421c4a;
-    --ui-bg-card: #3a1840;
-    --ui-bg-input: #481a54;
-    --ui-bg-primary: color-mix(in srgb, #d8b4fe 22%, #3a1840);
-    --ui-bg-secondary: #481a54;
-    --ui-bg-tertiary: #3a1840;
-    --ui-bg-quaternary: #481a54;
-    --ui-bg-quinary: #3a1840;
-    --ui-row-hover-background: color-mix(in srgb, #d8b4fe 14%, #3a1840);
-    --ui-row-active-background: color-mix(in srgb, #d8b4fe 22%, #3a1840);
-    --ui-control-hover-background: color-mix(in srgb, #d8b4fe 18%, #3a1840);
-    --ui-control-active-background: color-mix(in srgb, #d8b4fe 26%, #3a1840);
-    --ui-surface-background: #3a1840;
-    --ui-sidebar-surface-background: #220c26;
-    --ui-chat-surface-background: #2a0f2e;
-    --ui-editor-surface-background: #2a0f2e;
-    --ui-terminal-surface-background: #2a0f2e;
-    --ui-widget-surface-background: #3a1840;
-    --ui-chat-bubble-background: #481a54;
-    --ui-chat-bubble-opaque-background: #481a54;
-    --ui-inline-code-background: #481a54;
-    --ui-inline-code-foreground: #f4ede4;
-    --dt-background: #2a0f2e;
-    --dt-foreground: #f4ede4;
-    --dt-card: #3a1840;
-    --dt-card-foreground: #f4ede4;
-    --dt-popover: #3a1840;
-    --dt-popover-foreground: #f4ede4;
-    --dt-muted: #481a54;
-    --dt-muted-foreground: #f0daf5;
-    --dt-secondary: #481a54;
-    --dt-secondary-foreground: #f4ede4;
-    --dt-accent: #611f69;
-    --dt-accent-foreground: #f9f0ff;
-    --dt-primary-foreground: #1a0a1c;
-    --dt-user-bubble: #481a54;
-    --muted-foreground: #f0daf5;
-    --chrome-action-hover: color-mix(in srgb, #d8b4fe 18%, #3a1840);
+    --ui-bg-chrome: #f6f3fc;
+    --ui-bg-sidebar: #fbf9fe;
+    --ui-bg-editor: #ffffff;
+    --ui-bg-elevated: #ffffff;
+    --ui-bg-card: #ffffff;
+    --ui-bg-input: #ffffff;
+    --ui-bg-primary: color-mix(in srgb, #6e36ca 10%, #ffffff);
+    --ui-bg-secondary: #efeaf8;
+    --ui-bg-tertiary: #f6f3fc;
+    --ui-bg-quaternary: #efeaf8;
+    --ui-bg-quinary: #ffffff;
+    --ui-row-hover-background: color-mix(in srgb, #6e36ca 6%, #ffffff);
+    --ui-row-active-background: color-mix(in srgb, #6e36ca 12%, #ffffff);
+    --ui-control-hover-background: color-mix(in srgb, #6e36ca 8%, #ffffff);
+    --ui-control-active-background: color-mix(in srgb, #6e36ca 14%, #ffffff);
+    --ui-surface-background: #ffffff;
+    --ui-sidebar-surface-background: #fbf9fe;
+    --ui-chat-surface-background: #f6f3fc;
+    --ui-editor-surface-background: #f6f3fc;
+    --ui-terminal-surface-background: #100627;
+    --ui-widget-surface-background: #ffffff;
+    --ui-chat-bubble-background: #efeaf8;
+    --ui-chat-bubble-opaque-background: #efeaf8;
+    --ui-inline-code-background: #efeaf8;
+    --ui-inline-code-foreground: #100627;
+    --dt-background: #f6f3fc;
+    --dt-foreground: #100627;
+    --dt-card: #ffffff;
+    --dt-card-foreground: #100627;
+    --dt-popover: #ffffff;
+    --dt-popover-foreground: #100627;
+    --dt-muted: #efeaf8;
+    --dt-muted-foreground: #636363;
+    --dt-secondary: #efeaf8;
+    --dt-secondary-foreground: #100627;
+    --dt-accent: #f0e8ff;
+    --dt-accent-foreground: #6e36ca;
+    --dt-primary-foreground: #ffffff;
+    --dt-user-bubble: #efeaf8;
+    --muted-foreground: #636363;
+    --chrome-action-hover: color-mix(in srgb, #6e36ca 8%, #ffffff);
     --slacc-mesh:
-      radial-gradient(ellipse 70% 50% at 12% 8%, rgba(192, 132, 252, 0.28), transparent 55%),
-      radial-gradient(ellipse 60% 45% at 88% 18%, rgba(97, 31, 105, 0.55), transparent 50%),
-      radial-gradient(ellipse 50% 40% at 50% 100%, rgba(74, 21, 75, 0.65), transparent 55%),
-      linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
-    color-scheme: dark;
+      radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
+      radial-gradient(ellipse 60% 45% at 88% 18%, rgba(110, 54, 202, 0.1), transparent 50%),
+      radial-gradient(ellipse 50% 40% at 50% 100%, rgba(246, 243, 252, 0.9), transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
+    color-scheme: light;
   }
 
   :root[data-hermes-theme='iris'] body,
   :root[data-hermes-theme='iris'] #root {
     background-image: var(--slacc-mesh);
-    background-color: #2a0f2e;
-    color: #f4ede4;
+    background-color: #f6f3fc;
+    color: #100627;
   }
 
-  /* Chat transcript — force cream ink (questions + answers). */
+  /* Chat transcript — deep ink on white floral canvas. */
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'],
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md,
   :root[data-hermes-theme='iris'] [data-slot='aui_assistant-message-content'] .aui-md :where(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th),
@@ -627,70 +627,56 @@
   :root[data-hermes-theme='iris'] [data-slot='composer-rich-input'],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] h1 {
-    color: #f4ede4 !important;
+    color: #100627 !important;
   }
 
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
-    color: #f0daf5 !important;
+    color: #404040 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
-    background: #481a54;
-    border-color: #d8b4fe;
-    color: #f4ede4 !important;
+    background: #ffffff;
+    border-color: color-mix(in srgb, #6e36ca 28%, #ffffff);
+    color: #100627 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:focus-visible {
-    background: #d8b4fe;
-    color: #1a0a1c !important;
+    background: #6e36ca;
+    color: #ffffff !important;
   }
 
   :root.dark[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #2a0f2e;
-    --theme-neutral-sidebar: #220c26;
-    --theme-neutral-card: #3a1840;
-    --ui-bg-chrome: #2a0f2e;
-    --ui-bg-sidebar: #220c26;
-    --ui-bg-editor: #3a1840;
-    --ui-bg-elevated: #421c4a;
-    --ui-surface-background: #3a1840;
-    --ui-widget-surface-background: #3a1840;
-    --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #f0daf5;
-    --ui-text-tertiary: #d9bdde;
-    --dt-foreground: #f4ede4;
-    --dt-muted-foreground: #f0daf5;
-    --muted-foreground: #f0daf5;
+    --theme-neutral-chrome: #1a0a24;
+    --theme-neutral-sidebar: #14081c;
+    --theme-neutral-card: #261436;
+    --ui-bg-chrome: #1a0a24;
+    --ui-bg-sidebar: #14081c;
+    --ui-bg-editor: #261436;
+    --ui-bg-elevated: #322044;
+    --ui-surface-background: #261436;
+    --ui-widget-surface-background: #261436;
+    --ui-text-primary: #f6f3fc;
+    --ui-text-secondary: #c9b8e0;
+    --ui-text-tertiary: #a894c4;
+    --dt-foreground: #f6f3fc;
+    --dt-muted-foreground: #c9b8e0;
+    --muted-foreground: #c9b8e0;
     color-scheme: dark;
   }
 
   :root[data-hermes-theme='iris'] [data-plugin-page],
   :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
   :root[data-hermes-theme='iris'] [data-settings-view] {
-    background-color: #3a1840;
-    color: #f4ede4;
+    background-color: #ffffff;
+    color: #100627;
   }
 
   :root[data-hermes-theme='iris']
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
     opacity: 0.95;
-    color: #f0daf5;
-  }
-
-  /* Ban white/cream panels on Iris — they wash out cream ink. */
-  :root[data-hermes-theme='iris'] .bg-white,
-  :root[data-hermes-theme='iris'] .bg-\[\#ffffff\],
-  :root[data-hermes-theme='iris'] .bg-\[\#fff\],
-  :root[data-hermes-theme='iris'] .bg-\[\#f4ede4\],
-  :root[data-hermes-theme='iris'] .bg-\[\#f9f0ff\],
-  :root[data-hermes-theme='iris'] .bg-background,
-  :root[data-hermes-theme='iris'] .bg-card,
-  :root[data-hermes-theme='iris'] .bg-popover,
-  :root[data-hermes-theme='iris'] .bg-muted {
-    background-color: #3a1840 !important;
-    color: #f4ede4 !important;
+    color: #404040;
   }
 
   :root[data-hermes-theme='iris'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -705,48 +691,48 @@
   :root[data-hermes-theme='iris'] [data-slot='dropdown-menu-content'],
   :root[data-hermes-theme='iris'] [data-slot='popover-content'],
   :root[data-hermes-theme='iris'] [data-slot='card'] {
-    background-color: #3a1840 !important;
-    color: #f4ede4 !important;
-    border-color: #592466 !important;
+    background-color: #ffffff !important;
+    color: #100627 !important;
+    border-color: color-mix(in srgb, #6e36ca 16%, #ffffff) !important;
   }
 
   :root[data-hermes-theme='iris'] input::placeholder,
   :root[data-hermes-theme='iris'] textarea::placeholder {
-    color: #d9bdde !important;
+    color: #828282 !important;
     opacity: 1;
   }
 
   :root[data-hermes-theme='iris'] .standalone-glass,
   :root[data-hermes-theme='iris'] .composer-human-message {
-    background: #481a54 !important;
-    color: #f4ede4 !important;
+    background: #efeaf8 !important;
+    color: #100627 !important;
   }
 
   :root[data-hermes-theme='iris'] {
-    --ui-bg-input: #481a54;
+    --ui-bg-input: #ffffff;
   }
 
-  /* Settings ▸ Plugins — aubergine panel, cream text. */
+  /* Settings ▸ Plugins — white floral panel. */
   .iris-plugins-settings {
-    color: #f4ede4;
-    color-scheme: dark;
+    color: #100627;
+    color-scheme: light;
   }
 
   .iris-plugins-settings,
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
-    --ui-text-primary: #f4ede4;
-    --ui-text-secondary: #f0daf5;
-    --ui-text-tertiary: #d9bdde;
+    --ui-text-primary: #100627;
+    --ui-text-secondary: #404040;
+    --ui-text-tertiary: #636363;
   }
 
   .iris-plugins-settings {
     padding: 0.75rem 0.85rem 1.25rem;
     border-radius: 1rem;
     background:
-      radial-gradient(circle at 10% 0%, rgba(192, 132, 252, 0.22), transparent 45%),
-      linear-gradient(180deg, #3a1840 0%, #2a0f2e 100%);
-    color: #f4ede4;
+      radial-gradient(circle at 10% 0%, rgba(183, 80, 243, 0.12), transparent 45%),
+      linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
+    color: #100627;
   }
 
   .iris-plugins-settings p,
@@ -756,7 +742,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #f0daf5 !important;
+    color: #636363 !important;
   }
 
   * {
@@ -1591,12 +1577,11 @@ text-* variant utilities. */ .btn-arc {
 }
 
 /* ── Hermes One intro ──────────────────────────────────────────────────────
-   New-chat empty state. Tokens follow DESIGN.md / Iris (cream canvas,
-   aubergine primary, ink text). No hardcoded black — black chips on cream
-   made labels invisible. Electron + web embed share these rules. */
+   New-chat empty state. Tokens follow Iris white floral (crmiris.ru):
+   lavender canvas, violet primary, deep ink. Electron + web embed share these. */
 [data-hermes-one-intro] {
   gap: 0;
-  color: var(--ui-text-primary, #f4ede4);
+  color: var(--ui-text-primary, #100627);
 }
 
 .hermes-one-mark {
@@ -1608,8 +1593,8 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--theme-primary, #d8b4fe);
-  color: var(--dt-primary-foreground, #1a0a1c);
+  background: var(--theme-primary, #6e36ca);
+  color: var(--dt-primary-foreground, #ffffff);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   line-height: 0.85;
   letter-spacing: -0.04em;
@@ -1627,7 +1612,7 @@ text-* variant utilities. */ .btn-arc {
 
 [data-hermes-one-intro] h1 {
   margin: 0;
-  color: var(--ui-text-primary, #f4ede4);
+  color: var(--ui-text-primary, #100627);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
   font-weight: 700;
@@ -1637,7 +1622,7 @@ text-* variant utilities. */ .btn-arc {
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--ui-text-secondary, #f0daf5);
+  color: var(--ui-text-secondary, #404040);
   font-size: 1.05rem;
   line-height: 1.55;
 }
@@ -1657,10 +1642,10 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   gap: 0.75rem;
   padding: 0.7rem 1.75rem;
-  border: 2px solid var(--theme-primary, #d8b4fe);
+  border: 2px solid var(--theme-primary, #6e36ca);
   border-radius: 90px;
-  background: var(--theme-accent-soft, #481a54);
-  color: var(--ui-text-primary, #f4ede4);
+  background: var(--theme-accent-soft, #ffffff);
+  color: var(--ui-text-primary, #100627);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -1672,9 +1657,9 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-suggestions button:hover,
 .hermes-one-suggestions button:focus-visible {
-  border-color: var(--theme-primary, #d8b4fe);
-  background: var(--theme-primary, #d8b4fe);
-  color: var(--dt-primary-foreground, #1a0a1c);
+  border-color: var(--theme-primary, #6e36ca);
+  background: var(--theme-primary, #6e36ca);
+  color: var(--dt-primary-foreground, #ffffff);
   outline: none;
 }
 

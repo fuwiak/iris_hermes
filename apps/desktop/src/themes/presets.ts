@@ -277,43 +277,72 @@ export const slateTheme: DesktopTheme = {
 }
 
 /**
- * Iris / Slacc — deep aubergine chrome + cream ink (DESIGN.md dark band).
- * Expressive dark surfaces; cream text stays readable in chat / questions.
+ * Iris CRM — white floral canvas matching crmiris.ru:
+ * soft lavender-white #f6f3fc, violet CTAs #6e36ca / #b750f3, deep ink #100627.
  */
-const irisColors = {
-  background: '#2a0f2e',
-  foreground: '#f4ede4',
-  card: '#3a1840',
-  cardForeground: '#f4ede4',
-  muted: '#481a54',
-  mutedForeground: '#f0daf5',
-  popover: '#3a1840',
-  popoverForeground: '#f4ede4',
-  primary: '#d8b4fe',
-  primaryForeground: '#1a0a1c',
-  secondary: '#481a54',
-  secondaryForeground: '#f4ede4',
-  accent: '#611f69',
-  accentForeground: '#f9f0ff',
-  border: '#592466',
-  input: '#481a54',
-  ring: '#d8b4fe',
-  midground: '#d8b4fe',
-  composerRing: '#f0daf5',
+const irisLightColors = {
+  background: '#f6f3fc',
+  foreground: '#100627',
+  card: '#ffffff',
+  cardForeground: '#100627',
+  muted: '#efeaf8',
+  mutedForeground: '#636363',
+  popover: '#ffffff',
+  popoverForeground: '#100627',
+  primary: '#6e36ca',
+  primaryForeground: '#ffffff',
+  secondary: '#efeaf8',
+  secondaryForeground: '#100627',
+  accent: '#f0e8ff',
+  accentForeground: '#6e36ca',
+  border: 'color-mix(in srgb, #6e36ca 14%, #ffffff)',
+  input: 'color-mix(in srgb, #6e36ca 18%, #ffffff)',
+  ring: '#6e36ca',
+  midground: '#b750f3',
+  composerRing: '#6e36ca',
+  destructive: '#cc4117',
+  destructiveForeground: '#ffffff',
+  sidebarBackground: '#fbf9fe',
+  sidebarBorder: 'color-mix(in srgb, #6e36ca 12%, #ffffff)',
+  userBubble: '#efeaf8',
+  userBubbleBorder: 'color-mix(in srgb, #6e36ca 22%, #ffffff)'
+} satisfies DesktopThemeColors
+
+/** Optional dark band — soft aubergine, still floral (not forced). */
+const irisDarkColors = {
+  background: '#1a0a24',
+  foreground: '#f6f3fc',
+  card: '#261436',
+  cardForeground: '#f6f3fc',
+  muted: '#322044',
+  mutedForeground: '#c9b8e0',
+  popover: '#261436',
+  popoverForeground: '#f6f3fc',
+  primary: '#b750f3',
+  primaryForeground: '#100627',
+  secondary: '#322044',
+  secondaryForeground: '#f6f3fc',
+  accent: '#4a2a6a',
+  accentForeground: '#f0e8ff',
+  border: '#4a2a6a',
+  input: '#322044',
+  ring: '#b750f3',
+  midground: '#b750f3',
+  composerRing: '#dd4ef2',
   destructive: '#ff6b3d',
   destructiveForeground: '#ffffff',
-  sidebarBackground: '#220c26',
-  sidebarBorder: '#481a54',
-  userBubble: '#481a54',
-  userBubbleBorder: '#8752c1'
+  sidebarBackground: '#14081c',
+  sidebarBorder: '#322044',
+  userBubble: '#322044',
+  userBubbleBorder: '#6e36ca'
 } satisfies DesktopThemeColors
 
 export const irisTheme: DesktopTheme = {
   name: 'iris',
-  label: 'Iris (Slacc)',
-  description: 'Deep aubergine chrome, cream ink, brighter violet-pink CTAs',
-  colors: irisColors,
-  darkColors: irisColors,
+  label: 'Iris',
+  description: 'White floral canvas, violet CTAs — like crmiris.ru',
+  colors: irisLightColors,
+  darkColors: irisDarkColors,
   typography: {
     fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,

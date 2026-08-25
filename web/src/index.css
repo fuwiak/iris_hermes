@@ -48,18 +48,18 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Iris dark aubergine — first paint before ThemeProvider mounts.     */
+/* Iris white floral — first paint before ThemeProvider mounts.       */
 /* ------------------------------------------------------------------ */
 
 :root {
-  --foreground: #f4ede4;
-  --foreground-base: #f4ede4;
+  --foreground: #100627;
+  --foreground-base: #100627;
   --foreground-alpha: 1;
-  --midground: color-mix(in srgb, #c084fc 100%, transparent);
-  --midground-base: #c084fc;
+  --midground: color-mix(in srgb, #6e36ca 100%, transparent);
+  --midground-base: #6e36ca;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #2a0f2e 100%, transparent);
-  --background-base: #2a0f2e;
+  --background: color-mix(in srgb, #f6f3fc 100%, transparent);
+  --background-base: #f6f3fc;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -80,8 +80,8 @@
   --theme-density: comfortable;
 
   /* Data-series accents. */
-  --series-input-token: #c084fc;
-  --series-output-token: #3fb97d;
+  --series-input-token: #6e36ca;
+  --series-output-token: #b750f3;
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -102,12 +102,12 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground-base, #f4ede4);
-  background-color: #2a0f2e;
+  color: var(--foreground-base, #100627);
+  background-color: #f6f3fc;
   background-image:
-    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(192, 132, 252, 0.28), transparent 55%),
-    radial-gradient(ellipse 60% 45% at 88% 18%, rgba(97, 31, 105, 0.55), transparent 50%),
-    linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
+    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 88% 18%, rgba(110, 54, 202, 0.1), transparent 50%),
+    linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
 }
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
@@ -158,25 +158,25 @@ code { font-size: 0.875rem; }
      Midground stays the brand/CTA accent via --color-primary. */
   --color-foreground: var(--foreground-base);
 
-  --color-card: #3a1840;
+  --color-card: #ffffff;
   --color-card-foreground: var(--foreground-base);
   --color-primary: var(--midground);
-  --color-primary-foreground: #1a0a1c;
-  --color-secondary: #481a54;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #efeaf8;
   --color-secondary-foreground: var(--foreground-base);
-  --color-muted: #481a54;
-  /* Cream mute on aubergine — readable captions. */
-  --color-muted-foreground: #e4c8ea;
-  --color-accent: #611f69;
-  --color-accent-foreground: #f9f0ff;
-  --color-destructive: #ff6b3d;
+  --color-muted: #efeaf8;
+  /* Soft mute on white floral — readable captions. */
+  --color-muted-foreground: #636363;
+  --color-accent: #f0e8ff;
+  --color-accent-foreground: #6e36ca;
+  --color-destructive: #cc4117;
   --color-destructive-foreground: #ffffff;
-  --color-success: #3fb97d;
-  --color-warning: #d4b348;
-  --color-border: #592466;
-  --color-input: #481a54;
+  --color-success: #206b22;
+  --color-warning: #a67c00;
+  --color-border: #e4dcf2;
+  --color-input: #ffffff;
   --color-ring: var(--midground);
-  --color-popover: #3a1840;
+  --color-popover: #ffffff;
   --color-popover-foreground: var(--foreground-base);
 
   --radius-sm: calc(var(--theme-radius) - 4px);
@@ -185,57 +185,57 @@ code { font-size: 0.875rem; }
   --radius-xl: calc(var(--theme-radius) + 4px);
 }
 
-/* Kanban + plugin tabs — aubergine chrome, cream ink. */
+/* Kanban + plugin tabs — white floral chrome, deep ink. */
 .hermes-kanban {
-  background: #2a0f2e !important;
-  color: #f4ede4 !important;
+  background: #f6f3fc !important;
+  color: #100627 !important;
 }
 
 .hermes-kanban-drawer {
-  background: #3a1840 !important;
-  color: #f4ede4 !important;
-  border-left-color: #592466 !important;
-  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.35) !important;
+  background: #ffffff !important;
+  color: #100627 !important;
+  border-left-color: #e4dcf2 !important;
+  box-shadow: -4px 0 18px rgba(16, 6, 39, 0.08) !important;
 }
 
 .hermes-kanban-drawer-shade {
-  background: rgba(26, 10, 28, 0.55) !important;
+  background: rgba(16, 6, 39, 0.28) !important;
 }
 
-/* Achievements cards on Iris dark. */
+/* Achievements cards on Iris light. */
 .ha-card {
   background:
     radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 22%, transparent), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
-    #3a1840 !important;
-  color: #f4ede4;
+    linear-gradient(180deg, rgba(110, 54, 202, 0.04), transparent),
+    #ffffff !important;
+  color: #100627;
 }
 
 .ha-progress-track,
 .ha-scan-progress-track {
-  background: #2a0f2e !important;
+  background: #efeaf8 !important;
 }
 
 .ha-share-dialog {
-  background: #3a1840 !important;
-  color: #f4ede4 !important;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45) !important;
+  background: #ffffff !important;
+  color: #100627 !important;
+  box-shadow: 0 24px 60px rgba(16, 6, 39, 0.12) !important;
 }
 
-/* Plugins page — aubergine panel, cream text. */
+/* Plugins page — white floral panel. */
 .iris-plugins-page {
-  --iris-plugins-ink: #f4ede4;
-  --iris-plugins-mute: #e4c8ea;
-  --iris-plugins-canvas: #2a0f2e;
-  --iris-plugins-lavender: #481a54;
-  --iris-plugins-surface: #3a1840;
-  --iris-plugins-primary: #c084fc;
-  --iris-plugins-border: #592466;
+  --iris-plugins-ink: #100627;
+  --iris-plugins-mute: #636363;
+  --iris-plugins-canvas: #f6f3fc;
+  --iris-plugins-lavender: #efeaf8;
+  --iris-plugins-surface: #ffffff;
+  --iris-plugins-primary: #6e36ca;
+  --iris-plugins-border: #e4dcf2;
 
   color: var(--iris-plugins-ink);
   background:
-    radial-gradient(circle at 12% 0%, rgba(192, 132, 252, 0.22), transparent 42%),
-    linear-gradient(180deg, #3a1840 0%, #2a0f2e 55%, #220c26 100%);
+    radial-gradient(circle at 12% 0%, rgba(183, 80, 243, 0.12), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
   border-radius: 1rem;
   padding: 1rem 1.1rem 1.5rem;
 }

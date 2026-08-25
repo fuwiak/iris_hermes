@@ -1,31 +1,31 @@
 /* Hermes One presentation for the browser-hosted desktop client.
-   Iris dark aubergine + cream ink (readable chat / questions). */
+   Iris white floral (crmiris.ru): lavender canvas + violet CTAs + deep ink. */
 
 [data-desktop-chat-host] {
-  --iris-primary: #c084fc;
-  --iris-primary-press: #e9d5ff;
-  --iris-ink: #f4ede4;
-  --iris-ink-mute: #e4c8ea;
-  --iris-canvas: #2a0f2e;
-  --iris-lavender: #481a54;
-  --iris-surface: #3a1840;
-  --iris-hairline: #592466;
-  --iris-on-primary: #1a0a1c;
-  --iris-link: #7dd3fc;
-  --iris-on-aubergine-mute: #d9bdde;
+  --iris-primary: #6e36ca;
+  --iris-primary-press: #b750f3;
+  --iris-ink: #100627;
+  --iris-ink-mute: #636363;
+  --iris-canvas: #f6f3fc;
+  --iris-lavender: #efeaf8;
+  --iris-surface: #ffffff;
+  --iris-hairline: #e4dcf2;
+  --iris-on-primary: #ffffff;
+  --iris-link: #003cde;
+  --iris-on-aubergine-mute: #636363;
 
   --ui-chat-surface-background: var(--iris-canvas);
   --ui-editor-surface-background: var(--iris-surface);
-  --ui-sidebar-surface-background: #220c26;
+  --ui-sidebar-surface-background: #fbf9fe;
   --ui-bg-chrome: var(--iris-canvas);
-  --ui-bg-sidebar: #220c26;
+  --ui-bg-sidebar: #fbf9fe;
   --ui-bg-editor: var(--iris-surface);
   --ui-text-primary: var(--iris-ink);
   --ui-text-secondary: var(--iris-ink-mute);
-  --ui-text-tertiary: #d9bdde;
-  --ui-stroke-secondary: rgba(244, 237, 228, 0.16);
-  --ui-stroke-tertiary: rgba(244, 237, 228, 0.1);
-  --sidebar-edge-border: rgba(192, 132, 252, 0.22);
+  --ui-text-tertiary: #828282;
+  --ui-stroke-secondary: rgba(16, 6, 39, 0.1);
+  --ui-stroke-tertiary: rgba(16, 6, 39, 0.06);
+  --sidebar-edge-border: rgba(110, 54, 202, 0.16);
   --composer-width: calc(100% - 3.5rem);
   --composer-control-size: 2.15rem;
   --composer-control-primary-size: 2.35rem;
@@ -54,8 +54,8 @@
 
 [data-desktop-chat-host] [data-slot="sidebar"] {
   background:
-    radial-gradient(circle at 58% 86%, rgba(192, 132, 252, 0.18), transparent 42%),
-    linear-gradient(180deg, #2a0f2e 0%, #220c26 55%, #1a0a1c 100%);
+    radial-gradient(circle at 58% 86%, rgba(183, 80, 243, 0.1), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
   color: var(--iris-ink);
 }
 
@@ -273,7 +273,7 @@
 [data-desktop-chat-host] [data-slot="statusbar"] {
   height: 1.55rem;
   border-top: 1px solid var(--iris-hairline);
-  background: linear-gradient(90deg, #220c26, #2a0f2e 72%, #3a1840);
+  background: linear-gradient(90deg, #fbf9fe, #f6f3fc 72%, #efeaf8);
   color: var(--iris-ink);
 }
 
