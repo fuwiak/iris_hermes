@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   audienceRetryDelayMs,
+  buildAudienceFilterParams,
   clientSalesChannelTokens,
   digitsPhone,
   filterClientRowsByAudience,
@@ -273,5 +274,68 @@ describe('forEachRowProgressive', () => {
 describe('digitsPhone', () => {
   it('normalizes leading 8 to 7', () => {
     expect(digitsPhone('8 (900) 111-22-33')).toBe('79001112233')
+  })
+})
+
+describe('buildAudienceFilterParams', () => {
+  it('sends defaults and omits inactive toggles', () => {
+    const p = buildAudienceFilterParams({})
+    expect(p.get('sales_filter')).toBe('all')
+    expect(p.get('group_source')).toBe('any')
+    expect(p.get('stage')).toBe('all')
+    expect(p.get('entity_type')).toBe('all')
+    expect(p.get('limit')).toBe('40')
+    expect(p.get('offset')).toBe('0')
+    expect(p.get('require_telegram')).toBeNull()
+    expect(p.get('vip_only')).toBeNull()
+    expect(p.get('days_before_event')).toBeNull()
+    expect(p.get('last_contact_from')).toBeNull()
+  })
+
+  it('serializes the last-contact calendar range', () => {
+    const p = buildAudienceFilterParams({
+      lastContactFrom: '2026-08-01',
+      lastContactTo: '2026-08-31'
+    })
+    expect(p.get('last_contact_from')).toBe('2026-08-01')
+    expect(p.get('last_contact_to')).toBe('2026-08-31')
+  })
+
+  it('supports an open-ended last-contact range', () => {
+    const from = buildAudienceFilterParams({ lastContactFrom: '2026-08-01' })
+    expect(from.get('last_contact_from')).toBe('2026-08-01')
+    expect(from.get('last_contact_to')).toBeNull()
+
+    const to = buildAudienceFilterParams({ lastContactTo: '2026-08-31' })
+    expect(to.get('last_contact_from')).toBeNull()
+    expect(to.get('last_contact_to')).toBe('2026-08-31')
+  })
+
+  it('keeps event dates and last contact independent', () => {
+    const p = buildAudienceFilterParams({
+      eventDateFrom: '2026-03-01',
+      eventDateTo: '2026-03-08',
+      daysBeforeEvent: 5,
+      lastContactFrom: '2026-01-01',
+      lastContactTo: '2026-02-01',
+      requireTelegram: true
+    })
+    expect(p.get('event_date_from')).toBe('2026-03-01')
+    expect(p.get('event_date_to')).toBe('2026-03-08')
+    expect(p.get('days_before_event')).toBe('5')
+    expect(p.get('last_contact_from')).toBe('2026-01-01')
+    expect(p.get('last_contact_to')).toBe('2026-02-01')
+    expect(p.get('require_telegram')).toBe('true')
+  })
+
+  it('paging and query overrides win over state', () => {
+    const p = buildAudienceFilterParams(
+      { q: 'мария', lastContactFrom: '2026-08-01' },
+      { limit: 200, offset: 40, q: 'иван' }
+    )
+    expect(p.get('q')).toBe('иван')
+    expect(p.get('limit')).toBe('200')
+    expect(p.get('offset')).toBe('40')
+    expect(p.get('last_contact_from')).toBe('2026-08-01')
   })
 })

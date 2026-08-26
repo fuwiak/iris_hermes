@@ -42,6 +42,7 @@ import {
 } from './cards-tab'
 import {
   audienceRetryDelayMs,
+  buildAudienceFilterParams,
   clientSalesChannelTokens,
   filterClientRowsByAudience,
   isBenignRequestAbort,
@@ -4836,52 +4837,29 @@ function CampaignsPage() {
   }, [audienceQ])
 
   const audienceFilterParams = useCallback(
-    (opts?: { limit?: number; offset?: number; q?: string }) => {
-      const params = new URLSearchParams({
-        sales_filter: salesFilter,
-        group,
-        group_source: groupSource,
-        q: opts?.q ?? audienceQDebounced,
-        limit: String(opts?.limit ?? 40),
-        offset: String(opts?.offset ?? 0),
-        stage,
-        entity_type: entityType
-      })
-
-      if (channelKind) {params.set('channel_kind', channelKind)}
-
-      if (requirePhone) {params.set('require_phone', 'true')}
-
-      if (requireTelegram) {params.set('require_telegram', 'true')}
-
-      if (vipOnly) {params.set('vip_only', 'true')}
-
-      if (loyaltyOnly) {params.set('loyalty_only', 'true')}
-
-      if (birthdaySoon) {params.set('birthday_soon', 'true')}
-
-      if (daysBeforeEvent > 0) {
-        params.set('days_before_event', String(daysBeforeEvent))
-      }
-
-      if (eventDateFrom) {
-        params.set('event_date_from', eventDateFrom)
-      }
-
-      if (eventDateTo) {
-        params.set('event_date_to', eventDateTo)
-      }
-
-      if (lastContactFrom) {
-        params.set('last_contact_from', lastContactFrom)
-      }
-
-      if (lastContactTo) {
-        params.set('last_contact_to', lastContactTo)
-      }
-
-      return params
-    },
+    (opts?: { limit?: number; offset?: number; q?: string }) =>
+      buildAudienceFilterParams(
+        {
+          salesFilter,
+          group,
+          groupSource,
+          q: audienceQDebounced,
+          stage,
+          entityType,
+          channelKind,
+          requirePhone,
+          requireTelegram,
+          vipOnly,
+          loyaltyOnly,
+          birthdaySoon,
+          daysBeforeEvent,
+          eventDateFrom,
+          eventDateTo,
+          lastContactFrom,
+          lastContactTo
+        },
+        opts
+      ),
     [
       audienceQDebounced,
       birthdaySoon,
@@ -5017,10 +4995,13 @@ function CampaignsPage() {
     [activeSegmentId, call, loadSegments]
   )
 
-  const audienceCalendarFilterActive = Boolean(
-    daysBeforeEvent > 0 || eventDateFrom || eventDateTo
-  )
   const lastContactFilterActive = Boolean(lastContactFrom || lastContactTo)
+  // Server-only date filters: order dates and TG last-contact stamps live in
+  // the backend catalog, not the local seed cache — mirrors the API's
+  // calendar_filter_active, which also skips page snapshots for these.
+  const audienceCalendarFilterActive = Boolean(
+    daysBeforeEvent > 0 || eventDateFrom || eventDateTo || lastContactFilterActive
+  )
   const audienceExtrasFilterActive = Boolean(
     channelKind ||
       requirePhone ||
@@ -5030,8 +5011,7 @@ function CampaignsPage() {
       birthdaySoon ||
       (stage && stage !== 'all') ||
       (entityType && entityType !== 'all') ||
-      audienceCalendarFilterActive ||
-      lastContactFilterActive
+      audienceCalendarFilterActive
   )
   const audienceClientFastFilterActive = Boolean(
     (salesFilter && salesFilter !== 'all') ||

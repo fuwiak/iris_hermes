@@ -571,3 +571,82 @@ export function pickLocalClientsSeed<T>(opts: {
   }
   return null
 }
+
+/** Audience filter knobs the Рассылки tab sends to GET /clients. */
+export interface AudienceFilterState {
+  salesFilter?: string
+  group?: string
+  groupSource?: string
+  q?: string
+  stage?: string
+  entityType?: string
+  channelKind?: string
+  requirePhone?: boolean
+  requireTelegram?: boolean
+  vipOnly?: boolean
+  loyaltyOnly?: boolean
+  birthdaySoon?: boolean
+  daysBeforeEvent?: number
+  eventDateFrom?: string | null
+  eventDateTo?: string | null
+  /** «Последний контакт с клиентом» calendar range (ISO days, inclusive). */
+  lastContactFrom?: string | null
+  lastContactTo?: string | null
+}
+
+/**
+ * Serialize audience filters for GET /clients and /clients/ids.
+ *
+ * Kept out of plugin.tsx so the wire names stay pinned by tests — a typo here
+ * silently drops a filter server-side and the seller sees a wrong audience.
+ */
+export function buildAudienceFilterParams(
+  state: AudienceFilterState,
+  opts?: { limit?: number; offset?: number; q?: string }
+): URLSearchParams {
+  const params = new URLSearchParams({
+    sales_filter: state.salesFilter || 'all',
+    group: state.group || '',
+    group_source: state.groupSource || 'any',
+    q: opts?.q ?? state.q ?? '',
+    limit: String(opts?.limit ?? 40),
+    offset: String(opts?.offset ?? 0),
+    stage: state.stage || 'all',
+    entity_type: state.entityType || 'all'
+  })
+
+  if (state.channelKind) {
+    params.set('channel_kind', state.channelKind)
+  }
+  if (state.requirePhone) {
+    params.set('require_phone', 'true')
+  }
+  if (state.requireTelegram) {
+    params.set('require_telegram', 'true')
+  }
+  if (state.vipOnly) {
+    params.set('vip_only', 'true')
+  }
+  if (state.loyaltyOnly) {
+    params.set('loyalty_only', 'true')
+  }
+  if (state.birthdaySoon) {
+    params.set('birthday_soon', 'true')
+  }
+  if ((state.daysBeforeEvent || 0) > 0) {
+    params.set('days_before_event', String(state.daysBeforeEvent))
+  }
+  if (state.eventDateFrom) {
+    params.set('event_date_from', state.eventDateFrom)
+  }
+  if (state.eventDateTo) {
+    params.set('event_date_to', state.eventDateTo)
+  }
+  if (state.lastContactFrom) {
+    params.set('last_contact_from', state.lastContactFrom)
+  }
+  if (state.lastContactTo) {
+    params.set('last_contact_to', state.lastContactTo)
+  }
+  return params
+}
