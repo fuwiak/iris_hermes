@@ -42,6 +42,23 @@ def _article(product: dict[str, Any], name: str) -> str:
     return ""
 
 
+def _with_docs(meta: dict[str, str], block_key: str) -> dict[str, str]:
+    """Attach marketplace KB citation (placement/promo docs) onto block meta."""
+    try:
+        from plugins.moysklad.marketplace_kb import block_docs_meta
+
+        docs = block_docs_meta(block_key)
+        if docs.get("docs"):
+            meta["docs"] = docs["docs"]
+        if docs.get("docs_source"):
+            meta["docs_source"] = docs["docs_source"]
+        if docs.get("docs_action"):
+            meta["docs_action"] = docs["docs_action"]
+    except Exception:
+        pass
+    return meta
+
+
 def block_meta(
     *,
     rating_threshold: int = RATING_THRESHOLD,
@@ -49,7 +66,7 @@ def block_meta(
     price_gap_min: float = PRICE_GAP_MIN,
 ) -> dict[str, dict[str, str]]:
     """Provenance + the exact rule behind every block (shown in the UI)."""
-    return {
+    raw = {
         "low_rating": {
             "rule": f"contentRating < {rating_threshold}",
             "source": "Яндекс Маркет API: offer-cards (contentRating каждой карточки)",
@@ -79,6 +96,65 @@ def block_meta(
             "source": "статусы/фото/цены из API площадок",
         },
     }
+    return {key: _with_docs(dict(val), key) for key, val in raw.items()}
+
+
+def _kb_enrich_action(block_key: str, action: str) -> str:
+    """Append a concrete seller-docs action when missing from the short tip."""
+    try:
+        from plugins.moysklad.marketplace_kb import primary_action_for_block
+
+        tip = primary_action_for_block(block_key)
+    except Exception:
+        tip = ""
+    base = str(action or "").strip()
+    if not tip:
+        return base
+    if tip in base:
+        return base
+    return f"{base}; {tip}" if base else tip
+
+
+def recommendations_for_card(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Concrete per-card actions = API facts + marketplace KB docs."""
+    name = str((row or {}).get("name") or "").strip()
+    if not name:
+        return []
+    blocks = build_recommendations([row], cap=50)
+    meta = block_meta()
+    out: list[dict[str, Any]] = []
+    for block_key, items in blocks.items():
+        block_docs = meta.get(block_key) or {}
+        for item in items or []:
+            item_name = str(item.get("name") or "")
+            names = list(item.get("names") or [])
+            if item_name != name and name not in names:
+                continue
+            out.append(
+                {
+                    "block": block_key,
+                    "name": name,
+                    "action": _kb_enrich_action(
+                        block_key, str(item.get("action") or "")
+                    ),
+                    "docs": block_docs.get("docs") or "",
+                    "docs_source": block_docs.get("docs_source") or "",
+                    "fact": {
+                        k: item.get(k)
+                        for k in (
+                            "marketplace",
+                            "rating",
+                            "images",
+                            "price",
+                            "prices",
+                            "gap_pct",
+                            "article",
+                        )
+                        if item.get(k) is not None
+                    },
+                }
+            )
+    return out
 
 
 def build_recommendations(
@@ -111,7 +187,10 @@ def build_recommendations(
                         "marketplace": marketplace,
                         "rating": rating,
                         "images": product.get("images_count"),
-                        "action": "поднять контент: фото/описание/характеристики",
+                        "action": _kb_enrich_action(
+                            "low_rating",
+                            "поднять контент: фото/описание/характеристики",
+                        ),
                     }
                 )
             images = product.get("images_count")
@@ -126,7 +205,10 @@ def build_recommendations(
                         "name": name,
                         "marketplace": marketplace,
                         "images": images,
-                        "action": f"добавить фото (минимум {min_photos}, лучше 5–6)",
+                        "action": _kb_enrich_action(
+                            "few_photos",
+                            f"добавить фото (минимум {min_photos}, лучше 5–6)",
+                        ),
                     }
                 )
             article = _article(product, name)
@@ -144,11 +226,17 @@ def build_recommendations(
                 "images": product.get("images_count"),
             }
             if marketplaces[0] == "flowwow":
+                entry["action"] = _kb_enrich_action(
+                    "add_to_yandex", "выложить на Яндекс Маркет"
+                )
                 add_to_yandex.append(entry)
             else:
                 rating = product.get("content_rating")
                 if rating is None or rating >= rating_threshold:
                     entry["rating"] = rating
+                    entry["action"] = _kb_enrich_action(
+                        "add_to_flowwow", "выложить на Flowwow"
+                    )
                     add_to_flowwow.append(entry)
 
         if len(marketplaces) >= 2:
@@ -161,7 +249,10 @@ def build_recommendations(
                             "name": name,
                             "prices": {mp: round(v, 2) for mp, v in prices.items()},
                             "gap_pct": round((high - low) / high, 3),
-                            "action": "выровнять цены или подтвердить разницу",
+                            "action": _kb_enrich_action(
+                                "price_gaps",
+                                "выровнять цены или подтвердить разницу",
+                            ),
                         }
                     )
 
@@ -177,7 +268,10 @@ def build_recommendations(
                         "name": name,
                         "marketplace": marketplaces[0],
                         "price": _price(product),
-                        "action": "скрыта, контент готов — проверить остатки и открыть",
+                        "action": _kb_enrich_action(
+                            "hidden_candidates",
+                            "скрыта, контент готов — проверить остатки и открыть",
+                        ),
                     }
                 )
 
@@ -186,7 +280,10 @@ def build_recommendations(
             "marketplace": marketplace,
             "article": f"Veresk {article}",
             "names": sorted(set(names))[:4],
-            "action": "один артикул на нескольких карточках — объединить",
+            "action": _kb_enrich_action(
+                "duplicates",
+                "один артикул на нескольких карточках — объединить",
+            ),
         }
         for (marketplace, article), names in sorted(by_article.items())
         if len(set(names)) > 1

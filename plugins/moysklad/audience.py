@@ -446,6 +446,34 @@ def row_matches_days_before_event(
     return row_matches_birthday_occasion(row)
 
 
+def row_last_contact_date(row: dict[str, Any]) -> Optional[date]:
+    """Calendar date of the last TG exchange stamped by conversations."""
+    return parse_event_date(row.get("tg_last_contact_at"))
+
+
+def row_matches_last_contact(
+    row: dict[str, Any],
+    *,
+    contact_from: Optional[date] = None,
+    contact_to: Optional[date] = None,
+) -> bool:
+    """Inclusive calendar-range filter over the last TG contact date.
+
+    With a range active, rows without any real TG exchange are excluded —
+    «последний контакт» filter means "we actually talked in this window".
+    """
+    if contact_from is None and contact_to is None:
+        return True
+    last = row_last_contact_date(row)
+    if last is None:
+        return False
+    if contact_from and last < contact_from:
+        return False
+    if contact_to and last > contact_to:
+        return False
+    return True
+
+
 def normalize_group_source(value: str) -> str:
     """``any`` | ``ms`` | ``ai``."""
     key = (value or "").strip().lower().replace("ё", "е")
@@ -555,6 +583,8 @@ def row_matches_audience_extras(
     stage: str = "all",
     entity_type: str = "all",
     loyalty_only: bool = False,
+    last_contact_from: str = "",
+    last_contact_to: str = "",
 ) -> bool:
     source = normalize_group_source(group_source)
     if group and not row_has_group(row, group, source=source):
@@ -578,6 +608,12 @@ def row_matches_audience_extras(
     if loyalty_only and not row_has_loyalty_points(row):
         return False
     if not row_matches_stage(row, stage):
+        return False
+    lc_from = parse_event_date(last_contact_from)
+    lc_to = parse_event_date(last_contact_to)
+    if (lc_from or lc_to) and not row_matches_last_contact(
+        row, contact_from=lc_from, contact_to=lc_to
+    ):
         return False
     try:
         window = int(days_before_event or 0)

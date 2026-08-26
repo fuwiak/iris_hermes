@@ -1136,6 +1136,8 @@ class CampaignCreateBody(BaseModel):
     days_before_event: int = 0
     event_date_from: str = ""
     event_date_to: str = ""
+    last_contact_from: str = ""
+    last_contact_to: str = ""
     personalize: bool = False
     client_id: str = ""
     include_preview: bool = True
@@ -1582,6 +1584,8 @@ def get_clients(
     days_before_event: int = Query(0, ge=0, le=365),
     event_date_from: str = Query(""),
     event_date_to: str = Query(""),
+    last_contact_from: str = Query(""),
+    last_contact_to: str = Query(""),
     stage: str = Query("all"),
     entity_type: str = Query("all"),
     loyalty_only: bool = Query(False),
@@ -1621,6 +1625,8 @@ def get_clients(
         calendar_filter_active = bool(
             (event_date_from or "").strip()
             or (event_date_to or "").strip()
+            or (last_contact_from or "").strip()
+            or (last_contact_to or "").strip()
             or int(days_before_event or 0) > 0
         )
 
@@ -1782,6 +1788,8 @@ def get_clients(
             max_counterparties=max_counterparties,
             include_archived=include_archived,
             catalog=catalog,
+            last_contact_from=last_contact_from,
+            last_contact_to=last_contact_to,
         )
         page["clients"] = enrich_clients(list(page.get("clients") or []))
 
@@ -1875,6 +1883,8 @@ def get_clients_ids(
     days_before_event: int = Query(0, ge=0, le=365),
     event_date_from: str = Query(""),
     event_date_to: str = Query(""),
+    last_contact_from: str = Query(""),
+    last_contact_to: str = Query(""),
     stage: str = Query("all"),
     entity_type: str = Query("all"),
     loyalty_only: bool = Query(False),
@@ -1923,6 +1933,8 @@ def get_clients_ids(
             max_counterparties=max_counterparties,
             include_archived=include_archived,
             catalog=catalog,
+            last_contact_from=last_contact_from,
+            last_contact_to=last_contact_to,
         )
         rows = list(page.get("_rows") or [])
         ids: list[str] = []
@@ -3569,6 +3581,8 @@ class SegmentBody(BaseModel):
     days_before_event: int = 0
     event_date_from: str = ""
     event_date_to: str = ""
+    last_contact_from: str = ""
+    last_contact_to: str = ""
     stage: str = "all"
     entity_type: str = "all"
     loyalty_only: bool = False
@@ -5070,6 +5084,8 @@ def post_campaign(body: CampaignCreateBody) -> dict[str, Any]:
                 days_before_event=int(body.days_before_event or 0),
                 event_date_from=body.event_date_from or "",
                 event_date_to=body.event_date_to or "",
+                last_contact_from=body.last_contact_from or "",
+                last_contact_to=body.last_contact_to or "",
                 limit=20 if body.include_preview else 1,
                 offset=0,
                 catalog=catalog,
@@ -5348,6 +5364,7 @@ def get_cards_recommendations(
             build_recommendations,
         )
         from plugins.moysklad.marketplace_cards import marketplace_cards_payload
+        from plugins.moysklad.marketplace_kb import knowledge_payload
 
         cards = marketplace_cards_payload(limit=1000, force=force)
         combined = list((cards or {}).get("combined") or [])
@@ -5366,6 +5383,8 @@ def get_cards_recommendations(
                 min_photos=min_photos,
                 price_gap_min=price_gap_min,
             ),
+            # Seller-docs / KB grounding (placement + promotion), not LLM fluff.
+            "knowledge": knowledge_payload(),
             **build_recommendations(
                 combined,
                 rating_threshold=rating_threshold,

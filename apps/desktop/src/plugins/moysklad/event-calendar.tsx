@@ -81,17 +81,22 @@ export function applyCalendarDayClick(
 export interface EventCalendarPickerProps {
   dateFrom: string | null
   dateTo: string | null
-  leadDays: number
+  leadDays?: number
   onRangeChange: (from: string | null, to: string | null) => void
-  onLeadDaysChange: (days: number) => void
+  /** Omit to hide the «связаться за N дней» block (e.g. last-contact range). */
+  onLeadDaysChange?: (days: number) => void
+  summaryLabel?: string
+  emptyHint?: string
 }
 
 export function EventCalendarPicker({
   dateFrom,
   dateTo,
-  leadDays,
+  leadDays = 0,
   onRangeChange,
-  onLeadDaysChange
+  onLeadDaysChange,
+  summaryLabel = 'Событие',
+  emptyHint = 'Выберите день заказа или события'
 }: EventCalendarPickerProps) {
   const today = useMemo(() => toIsoDate(new Date()), [])
   const initial = parseIsoDate(dateFrom || dateTo || today) || new Date()
@@ -260,9 +265,9 @@ export function EventCalendarPicker({
         <span className="ms-muted">
           {summary
             ? leadDays > 0
-              ? `Событие: ${summary} · связаться за ${leadDays} дн. до`
-              : `Событие: ${summary}`
-            : 'Выберите день заказа или события'}
+              ? `${summaryLabel}: ${summary} · связаться за ${leadDays} дн. до`
+              : `${summaryLabel}: ${summary}`
+            : emptyHint}
         </span>
         {summary ? (
           <button className="ms-link-btn" onClick={clear} type="button">
@@ -270,23 +275,25 @@ export function EventCalendarPicker({
           </button>
         ) : null}
       </div>
-      <div className="ms-event-calendar-lead">
-        <span className="ms-filter-label">Связаться за N дней до события</span>
-        <div className="ms-chips">
-          {LEAD_OPTIONS.map(n => (
-            <button
-              className={`ms-chip${leadDays === n ? ' is-active' : ''}`}
-              key={n}
-              onClick={() => {
-                onLeadDaysChange(n)
-              }}
-              type="button"
-            >
-              {n === 0 ? 'Выкл' : `${n} дн`}
-            </button>
-          ))}
+      {onLeadDaysChange ? (
+        <div className="ms-event-calendar-lead">
+          <span className="ms-filter-label">Связаться за N дней до события</span>
+          <div className="ms-chips">
+            {LEAD_OPTIONS.map(n => (
+              <button
+                className={`ms-chip${leadDays === n ? ' is-active' : ''}`}
+                key={n}
+                onClick={() => {
+                  onLeadDaysChange(n)
+                }}
+                type="button"
+              >
+                {n === 0 ? 'Выкл' : `${n} дн`}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }

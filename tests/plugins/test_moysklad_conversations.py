@@ -716,3 +716,81 @@ def test_outbound_blasts_newest_day_first(tmp_path, monkeypatch):
     assert snap is not None
     assert [r["client_id"] for r in snap["recipients"]] == ["c4", "c3"]
 
+
+
+# --- Параметр «последний контакт с клиентом через ТГ» -----------------------
+
+
+def test_last_contact_stamp_map_and_row_stamping(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    from plugins.moysklad.conversations import (
+        last_contact_map,
+        stamp_rows_last_contact,
+    )
+
+    first = append_message(
+        client_id="cp-lc-1",
+        text="Добрый день! Собрали для вас букет.",
+        direction="outbound",
+        channel="telegram",
+        phone="+7 (900) 555-66-77",
+        tg_nick="@lastik",
+        client_name="Ластик",
+    )
+    assert first["last_contact_at"] == first["messages"][-1]["ts"]
+
+    thread = append_message(
+        client_id="cp-lc-1",
+        text="Спасибо, заберу в пятницу",
+        direction="inbound",
+        channel="telegram",
+    )
+    # Входящее тоже контакт — параметр двигается на последнее сообщение.
+    assert thread["last_contact_at"] == thread["messages"][-1]["ts"]
+
+    enriched = enrich_client_row(
+        {
+            "id": "cp-lc-1",
+            "phone": "+7 (900) 555-66-77",
+            "tg_nick": "@lastik",
+            "name": "Ластик",
+        }
+    )
+    assert enriched["tg_last_contact_at"] == thread["last_contact_at"]
+
+    lc = last_contact_map()
+    assert lc["id:cp-lc-1"] == thread["last_contact_at"]
+    assert lc["phone:79005556677"] == thread["last_contact_at"]
+    assert lc["tg:lastik"] == thread["last_contact_at"]
+
+    # Внутренние строки каталога («Телефон» / «ТГ ник») штампуются той же картой.
+    rows = [
+        {"_moysklad_id": "cp-lc-1"},
+        {"Телефон": "8 900 555-66-77"},
+        {"ТГ ник": "@lastik"},
+        {"Телефон": "нет"},
+    ]
+    stamped = stamp_rows_last_contact(rows)
+    assert stamped == 3
+    assert rows[0]["tg_last_contact_at"] == thread["last_contact_at"]
+    assert rows[1]["tg_last_contact_at"] == thread["last_contact_at"]
+    assert rows[2]["tg_last_contact_at"] == thread["last_contact_at"]
+    assert rows[3]["tg_last_contact_at"] == ""
+
+
+def test_attr_only_ghost_has_no_last_contact(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    clear_memory_for_tests()
+    from plugins.moysklad.conversations import last_contact_map
+
+    thread = seed_from_moysklad_attr(
+        client_id="cp-lc-ghost",
+        attr_value="Обсуждали доставку 12.05",
+        phone="",
+        tg_nick="",
+        client_name="Гость",
+    )
+    # Импорт-призрак из атрибута МойСклад — это не переписка в ТГ.
+    assert thread["last_contact_at"] == ""
+    assert "id:cp-lc-ghost" not in last_contact_map()

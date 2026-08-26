@@ -84,6 +84,25 @@ def test_messaging_prefers_tg_conversation_url():
     assert links["whatsapp_url"] == ""
 
 
+def test_build_client_detail_stamps_tg_last_contact(tmp_path, monkeypatch):
+    """Карточка клиента показывает параметр последнего контакта через TG."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from plugins.moysklad.conversations import append_message, clear_memory_for_tests
+
+    clear_memory_for_tests()
+    thread = append_message(
+        client_id="cp-rich-1",
+        text="Добрый день",
+        direction="outbound",
+        channel="telegram",
+        phone="+7 (999) 111-22-33",
+        tg_nick="@anna_flowers",
+    )
+    detail = build_client_detail(_sample_row())
+    assert detail["client"]["tg_last_contact_at"] == thread["last_contact_at"]
+    assert detail["client"]["tg_last_contact_at"]
+
+
 def test_build_client_detail_maps_orders_stats_tags():
     detail = build_client_detail(_sample_row())
     assert detail["ok"] is True

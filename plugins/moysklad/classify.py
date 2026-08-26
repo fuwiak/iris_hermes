@@ -520,6 +520,8 @@ def clients_page(
     stage: str = "all",
     entity_type: str = "all",
     loyalty_only: bool = False,
+    last_contact_from: str = "",
+    last_contact_to: str = "",
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
 
@@ -566,6 +568,16 @@ def clients_page(
     stage_key = normalize_stage_filter(stage)
     ev_from = str(event_date_from or "").strip()
     ev_to = str(event_date_to or "").strip()
+    lc_from = str(last_contact_from or "").strip()
+    lc_to = str(last_contact_to or "").strip()
+    if lc_from or lc_to:
+        # One store read stamps the whole page — never per-row lookups.
+        try:
+            from plugins.moysklad.conversations import stamp_rows_last_contact
+
+            stamp_rows_last_contact(base_rows)
+        except Exception:
+            pass
     matched = [
         r
         for r in base_rows
@@ -584,6 +596,8 @@ def clients_page(
             stage=stage_key,
             entity_type=entity_type,
             loyalty_only=bool(loyalty_only),
+            last_contact_from=lc_from,
+            last_contact_to=lc_to,
         )
     ]
 
@@ -609,6 +623,8 @@ def clients_page(
         "days_before_event": days_window,
         "event_date_from": ev_from,
         "event_date_to": ev_to,
+        "last_contact_from": lc_from,
+        "last_contact_to": lc_to,
         "stage": stage_key,
         "entity_type": (entity_type or "all").strip().lower() or "all",
         "loyalty_only": bool(loyalty_only),

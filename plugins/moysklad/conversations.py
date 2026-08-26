@@ -467,6 +467,18 @@ def preview_text(thread: dict[str, Any] | None, *, max_chars: int = 96) -> str:
     return blob[: max_chars - 1].rstrip() + "…"
 
 
+def _last_contact_ts(messages: list[dict[str, Any]]) -> str:
+    """ISO ts of the newest real exchange (inbound/outbound; system excluded)."""
+    for msg in reversed(messages or []):
+        if not isinstance(msg, dict):
+            continue
+        if str(msg.get("direction") or "") in ("inbound", "outbound"):
+            ts = str(msg.get("ts") or "").strip()
+            if ts:
+                return ts
+    return ""
+
+
 def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
     if not thread:
         return {
@@ -475,6 +487,7 @@ def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
             "message_count": 0,
             "preview": "",
             "updated_at": None,
+            "last_contact_at": "",
             "empty": True,
         }
     # Attr-only ghosts are not a Telegram conversation — hide them.
@@ -494,6 +507,7 @@ def public_thread(thread: dict[str, Any] | None) -> dict[str, Any]:
         "message_count": len(messages),
         "preview": preview_text(view if messages else None),
         "updated_at": thread.get("updated_at"),
+        "last_contact_at": _last_contact_ts(messages),
         "empty": not messages,
         "attr_only_ghost": bool(thread.get("messages")) and not messages,
     }
@@ -724,6 +738,7 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     out["tg_conversation_attr"] = attr
     out["tg_conversation_preview"] = preview
     out["conversation_count"] = int(thread.get("message_count") or 0)
+    out["tg_last_contact_at"] = str(thread.get("last_contact_at") or "")
     if thread.get("attr_only_ghost") or thread.get("empty"):
         # Never promote ghost attr seeds / empty threads as a live TG chat.
         if not str(client.get("tg_chat_id") or "").strip():
@@ -749,6 +764,69 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
 
 def enrich_clients(clients: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [enrich_client_row(c) for c in (clients or [])]
+
+
+def last_contact_map() -> dict[str, str]:
+    """client/phone/nick index keys → ISO ts of the last real TG exchange.
+
+    One pass over the local store so the «последний контакт» audience filter
+    costs one read for N rows, not N thread lookups (the 84s-filter lesson).
+    Attr-only ghost seeds carry no real messages and never land here.
+    """
+    out: dict[str, str] = {}
+    with _LOCK:
+        store = _load()
+        threads = store.get("threads") or {}
+        for thread in threads.values():
+            if not isinstance(thread, dict):
+                continue
+            view = (
+                _strip_attr_only_messages(thread)
+                if not _thread_has_real_tg_messages(thread)
+                else thread
+            )
+            ts = _last_contact_ts(list(view.get("messages") or []))
+            if not ts:
+                continue
+            keys = _index_keys(
+                client_id=str(thread.get("client_id") or ""),
+                phone=str(thread.get("phone") or ""),
+                tg_nick=str(thread.get("tg_nick") or ""),
+            )
+            for key in keys:
+                prev = out.get(key)
+                if prev is None or ts > prev:
+                    out[key] = ts
+    return out
+
+
+def stamp_rows_last_contact(rows: list[dict[str, Any]]) -> int:
+    """Stamp ``tg_last_contact_at`` onto rows (internal catalog or public).
+
+    Returns how many rows got a non-empty stamp. Rows without any real TG
+    exchange get ``""`` so the audience filter treats them as "no contact".
+    """
+    lc = last_contact_map()
+    stamped = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        ts = ""
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if cid:
+            ts = lc.get(f"id:{cid}", "")
+        if not ts:
+            digits = normalize_phone(str(row.get("Телефон") or row.get("phone") or ""))
+            if digits:
+                ts = lc.get(f"phone:{digits}", "")
+        if not ts:
+            nick = normalize_tg_nick(str(row.get("ТГ ник") or row.get("tg_nick") or ""))
+            if nick:
+                ts = lc.get(f"tg:{nick}", "")
+        row["tg_last_contact_at"] = ts
+        if ts:
+            stamped += 1
+    return stamped
 
 
 # Soft throttle so Facts / card open do not hammer MTProto on every paint.

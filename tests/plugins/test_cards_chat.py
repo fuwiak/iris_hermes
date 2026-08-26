@@ -76,12 +76,15 @@ def test_cards_advisor_context_and_prompt(monkeypatch) -> None:
     messages = captured["messages"]
     system = messages[0]["content"]
     assert "размещение" in system.lower() or "продвижени" in system.lower()
+    assert "баз" in system.lower()  # «база знаний площадок»
     assert "Никаких заголовков" in system  # anti-slop format rules
     context = messages[1]["content"]
     # precomputed recommendations carry the card as an add-to-yandex candidate…
     assert "add_to_yandex" in context and "Пионы" in context
     # …and the retrieval block found it by the question tokens
     assert "Карточки, найденные по вопросу" in context
+    # marketplace seller-docs KB is injected for placement/promo grounding
+    assert "База знаний площадок" in context
 
 
 def test_split_followups_parses_marker():

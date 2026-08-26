@@ -639,6 +639,19 @@ def build_client_detail(
         from plugins.moysklad.conversations import conversation_for_detail
 
         detail["conversation"] = conversation_for_detail(detail)
+        # Параметр «последний контакт через ТГ» — на карточке клиента.
+        lc = str(
+            (detail.get("conversation") or {}).get("last_contact_at") or ""
+        ).strip()
+        if not lc:
+            try:
+                from plugins.moysklad.conversations import enrich_client_row
+
+                stamped = enrich_client_row(dict(detail.get("client") or {}))
+                lc = str(stamped.get("tg_last_contact_at") or "").strip()
+            except Exception:
+                lc = ""
+        detail["client"]["tg_last_contact_at"] = lc
         sync_meta = (detail.get("conversation") or {}).get("sync") or {}
         # New inbound replies after a mass send → refresh recommendation so
         # Facts / card don't keep the pre-reply tip.

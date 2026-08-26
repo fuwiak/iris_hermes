@@ -105,3 +105,15 @@ def test_segments_persist_to_file(tmp_path, monkeypatch):
     listed = list_segments()
     assert len(listed) == 1
     assert listed[0]["name"] == "Персист"
+
+
+def test_normalize_filters_last_contact_range():
+    out = normalize_filters({
+        "last_contact_from": "2026-08-01",
+        "last_contact_to": "2026-08-31T23:59:59",
+        "event_date_from": "not-a-date",
+    })
+    assert out == {
+        "last_contact_from": "2026-08-01",
+        "last_contact_to": "2026-08-31",
+    }

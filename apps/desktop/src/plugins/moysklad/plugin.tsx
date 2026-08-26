@@ -749,6 +749,8 @@ interface ClientConversation {
   preview?: string
   empty?: boolean
   updated_at?: string | null
+  /** ISO ts последнего реального обмена (входящее или исходящее). */
+  last_contact_at?: string
 }
 
 interface ClientDetail {
@@ -924,6 +926,8 @@ interface ClientRow {
   tg_active?: boolean | null
   tg_active_label?: string
   tg_active_nick?: string
+  /** ISO ts последнего реального обмена в Telegram (входящее или исходящее). */
+  tg_last_contact_at?: string
   tg_conversation?: string
   client_stage?: string
   client_stage_reason?: string
@@ -967,6 +971,8 @@ interface SavedSegment {
     days_before_event?: number
     event_date_from?: string
     event_date_to?: string
+    last_contact_from?: string
+    last_contact_to?: string
     stage?: string
     entity_type?: string
     loyalty_only?: boolean
@@ -1243,6 +1249,12 @@ const CLIENT_COLUMNS: Array<{
       }
       return '—'
     }
+  },
+  {
+    key: 'tg_last_contact_at',
+    label: 'Последний контакт TG',
+    sortValue: r => r.tg_last_contact_at || '',
+    render: r => formatTgLastContact(r.tg_last_contact_at)
   },
   {
     key: 'tg_conversation',
@@ -1731,6 +1743,25 @@ function money(n: number | null | undefined) {
   } catch {
     return `${Math.round(v)} ₽`
   }
+}
+
+/** Дата/время последнего TG-контакта для таблицы и карточки клиента. */
+function formatTgLastContact(iso: string | null | undefined): string {
+  const raw = String(iso || '').trim()
+  if (!raw) {
+    return '—'
+  }
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) {
+    return raw.slice(0, 16).replace('T', ' ')
+  }
+  return d.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 function FilterTabs({
@@ -2454,6 +2485,12 @@ function ClientCardModal({
                     >
                       Проверить
                     </button>
+                  )}
+                </span>
+                <span className="ms-muted">Последний контакт TG</span>
+                <span title="Последнее входящее или исходящее сообщение в Telegram">
+                  {formatTgLastContact(
+                    client.tg_last_contact_at || conversation?.last_contact_at
                   )}
                 </span>
               </div>
@@ -4117,15 +4154,18 @@ function CampaignsPage() {
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
   const [eventDateFrom, setEventDateFrom] = useState<string | null>(null)
   const [eventDateTo, setEventDateTo] = useState<string | null>(null)
+  const [lastContactFrom, setLastContactFrom] = useState<string | null>(null)
+  const [lastContactTo, setLastContactTo] = useState<string | null>(null)
   const [segments, setSegments] = useState<SavedSegment[]>([])
   const [segmentsLoading, setSegmentsLoading] = useState(false)
   const [segmentName, setSegmentName] = useState('')
   const [segmentSaving, setSegmentSaving] = useState(false)
   const [segmentStatus, setSegmentStatus] = useState('')
   const [activeSegmentId, setActiveSegmentId] = useState('')
-  const [filterDrawer, setFilterDrawer] = useState<'calendar' | 'groups-ms' | 'groups-ai' | null>(
-    null
-  )
+
+  const [filterDrawer, setFilterDrawer] = useState<
+    'calendar' | 'last-contact' | 'groups-ms' | 'groups-ai' | null
+  >(null)
   const [saveFilterOpen, setSaveFilterOpen] = useState(false)
   const [personalize] = useState(false)
   const [, setBatchProgress] = useState('')
@@ -4832,6 +4872,14 @@ function CampaignsPage() {
         params.set('event_date_to', eventDateTo)
       }
 
+      if (lastContactFrom) {
+        params.set('last_contact_from', lastContactFrom)
+      }
+
+      if (lastContactTo) {
+        params.set('last_contact_to', lastContactTo)
+      }
+
       return params
     },
     [
@@ -4844,6 +4892,8 @@ function CampaignsPage() {
       eventDateTo,
       group,
       groupSource,
+      lastContactFrom,
+      lastContactTo,
       loyaltyOnly,
       requirePhone,
       requireTelegram,
@@ -4894,6 +4944,8 @@ function CampaignsPage() {
           days_before_event: daysBeforeEvent,
           event_date_from: eventDateFrom || '',
           event_date_to: eventDateTo || '',
+          last_contact_from: lastContactFrom || '',
+          last_contact_to: lastContactTo || '',
           stage,
           entity_type: entityType,
           loyalty_only: loyaltyOnly
@@ -4917,7 +4969,7 @@ function CampaignsPage() {
     }
   }, [
     activeSegmentId, audienceQDebounced, birthdaySoon, call, channelKind, daysBeforeEvent,
-    eventDateFrom, eventDateTo,
+    eventDateFrom, eventDateTo, lastContactFrom, lastContactTo,
     group, groupSource, loadSegments, loyaltyOnly, requirePhone, requireTelegram, salesFilter,
     segmentName, stage, entityType, vipOnly
   ])
@@ -4940,6 +4992,8 @@ function CampaignsPage() {
     setDaysBeforeEvent(f.days_before_event || 0)
     setEventDateFrom(f.event_date_from || null)
     setEventDateTo(f.event_date_to || null)
+    setLastContactFrom(f.last_contact_from || null)
+    setLastContactTo(f.last_contact_to || null)
     setStage((f.stage as StageKey) || 'all')
     setEntityType(
       (f.entity_type as 'all' | 'individual' | 'legal' | 'entrepreneur') || 'all'
@@ -4966,6 +5020,7 @@ function CampaignsPage() {
   const audienceCalendarFilterActive = Boolean(
     daysBeforeEvent > 0 || eventDateFrom || eventDateTo
   )
+  const lastContactFilterActive = Boolean(lastContactFrom || lastContactTo)
   const audienceExtrasFilterActive = Boolean(
     channelKind ||
       requirePhone ||
@@ -4975,7 +5030,8 @@ function CampaignsPage() {
       birthdaySoon ||
       (stage && stage !== 'all') ||
       (entityType && entityType !== 'all') ||
-      audienceCalendarFilterActive
+      audienceCalendarFilterActive ||
+      lastContactFilterActive
   )
   const audienceClientFastFilterActive = Boolean(
     (salesFilter && salesFilter !== 'all') ||
@@ -6829,6 +6885,8 @@ function CampaignsPage() {
           days_before_event: daysBeforeEvent,
           event_date_from: eventDateFrom || '',
           event_date_to: eventDateTo || '',
+          last_contact_from: lastContactFrom || '',
+          last_contact_to: lastContactTo || '',
           personalize,
           client_id: selectedClientId || '',
           generate_ai: false,
@@ -7095,6 +7153,8 @@ function CampaignsPage() {
                   setDaysBeforeEvent(0)
                   setEventDateFrom(null)
                   setEventDateTo(null)
+                  setLastContactFrom(null)
+                  setLastContactTo(null)
                   setGroup('')
                   setGroupSource('any')
                   setAudienceQ('')
@@ -7293,6 +7353,23 @@ function CampaignsPage() {
                   </button>
                   <button
                     className={`ms-filter-slide-btn${
+                      filterDrawer === 'last-contact' || lastContactFrom || lastContactTo
+                        ? ' is-active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setFilterDrawer(d => (d === 'last-contact' ? null : 'last-contact'))
+                    }
+                    title="Когда последний раз переписывались с клиентом в Telegram (исходящее или входящее)"
+                    type="button"
+                  >
+                    <span>Последний контакт</span>
+                    <span className="ms-muted">
+                      {formatRuRange(lastContactFrom, lastContactTo) || 'календарь'}
+                    </span>
+                  </button>
+                  <button
+                    className={`ms-filter-slide-btn${
                       filterDrawer === 'groups-ms' || (group && groupSource === 'ms')
                         ? ' is-active'
                         : ''
@@ -7336,9 +7413,11 @@ function CampaignsPage() {
                 aria-label={
                   filterDrawer === 'calendar'
                     ? 'Календарь событий'
-                    : filterDrawer === 'groups-ms'
-                      ? 'Группы МойСклад'
-                      : 'Группы ИИ'
+                    : filterDrawer === 'last-contact'
+                      ? 'Последний контакт с клиентом'
+                      : filterDrawer === 'groups-ms'
+                        ? 'Группы МойСклад'
+                        : 'Группы ИИ'
                 }
                 className="ms-filter-slide"
                 role="dialog"
@@ -7347,9 +7426,11 @@ function CampaignsPage() {
                   <strong>
                     {filterDrawer === 'calendar'
                       ? 'Даты события / заказа'
-                      : filterDrawer === 'groups-ms'
-                        ? 'Группы: МойСклад'
-                        : 'Группы: ИИ'}
+                      : filterDrawer === 'last-contact'
+                        ? 'Последний контакт с клиентом (ТГ)'
+                        : filterDrawer === 'groups-ms'
+                          ? 'Группы: МойСклад'
+                          : 'Группы: ИИ'}
                   </strong>
                   <button
                     aria-label="Закрыть"
@@ -7379,6 +7460,18 @@ function CampaignsPage() {
                           setBirthdaySoon(false)
                         }
                       }}
+                    />
+                  ) : null}
+                  {filterDrawer === 'last-contact' ? (
+                    <EventCalendarPicker
+                      dateFrom={lastContactFrom}
+                      dateTo={lastContactTo}
+                      emptyHint="Выберите день или диапазон последней переписки в ТГ"
+                      onRangeChange={(from, to) => {
+                        setLastContactFrom(from)
+                        setLastContactTo(to)
+                      }}
+                      summaryLabel="Последний контакт"
                     />
                   ) : null}
                   {filterDrawer === 'groups-ms' ? (
@@ -7538,9 +7631,11 @@ function CampaignsPage() {
                           ? daysBeforeEvent > 0
                             ? `Нет клиентов: событие в выбранных датах, связаться за ${daysBeforeEvent} дн. до.`
                             : 'Нет клиентов с событием / заказом в выбранных датах.'
-                          : daysBeforeEvent > 0
-                            ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
-                            : 'Нет клиентов под текущие фильтры / поиск.'}
+                          : lastContactFrom || lastContactTo
+                            ? 'Нет клиентов с последней перепиской в ТГ в выбранных датах.'
+                            : daysBeforeEvent > 0
+                              ? `Нет клиентов в окне ${daysBeforeEvent} дн. до события.`
+                              : 'Нет клиентов под текущие фильтры / поиск.'}
                   </p>
                 )}
               </div>
@@ -7551,7 +7646,7 @@ function CampaignsPage() {
       </section>
 
       <h2 className="ms-section-title">
-        2. Текст и отправка <span className="ms-muted" style={{ fontSize: 12 }}>v1.18.0</span>
+        2. Текст и отправка <span className="ms-muted" style={{ fontSize: 12 }}>v1.19.0</span>
       </h2>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>

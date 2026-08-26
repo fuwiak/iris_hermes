@@ -373,3 +373,96 @@ def test_resolve_peer_identity_uses_cached_telegram_contact(tmp_path, monkeypatc
     out = tg.resolve_peer_identity(query="@papa2139")
     assert out["ok"] is True
     assert out["tg_chat_id"] == "415321451"
+
+
+# --- Работа с картинками (рассылки с фото) ---------------------------------
+
+
+def test_decode_image_variants():
+    import base64
+
+    raw = b"\x89PNG-fake-bytes"
+    b64 = base64.b64encode(raw).decode()
+    assert tg._decode_image(b64) == raw
+    assert tg._decode_image(f"data:image/png;base64,{b64}") == raw
+    assert tg._decode_image("") is None
+    assert tg._decode_image("   ") is None
+
+
+def test_send_with_image_base64_routes_to_photo_path(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    import base64
+
+    b64 = base64.b64encode(b"jpegbytes").decode()
+    out = tg.send_telegram_message(text="Букет недели", chat_id="@x", image_base64=b64)
+    # Фото всегда идёт через Business-бота — без токена photo-путь падает
+    # своей ошибкой (не текстовой), значит send реально ушёл в sendPhoto.
+    assert out["ok"] is False
+    assert out["error"] == "telegram_token_missing"
+    assert "Business" in out["detail"]
+
+
+def test_send_with_image_url_routes_to_photo_path(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    out = tg.send_telegram_message(
+        text="Карточка с маркетплейса",
+        chat_id="@x",
+        image_url="https://market.example/card.jpg",
+    )
+    assert out["ok"] is False
+    assert out["error"] == "telegram_token_missing"
+
+
+def test_photo_too_large_rejected(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    out = tg._send_photo_via_bot(
+        text="x",
+        chat_id="123456",
+        token="1:TOKEN",
+        image_bytes=b"0" * (10 * 1024 * 1024 + 1),
+    )
+    assert out["ok"] is False
+    assert out["error"] == "image_too_large"
+
+
+def test_photo_missing_payload_rejected(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    out = tg._send_photo_via_bot(text="x", chat_id="123456", token="1:TOKEN")
+    assert out["ok"] is False
+    assert out["error"] == "image_missing"
+
+
+def test_send_photo_via_bot_upload_and_url(monkeypatch):
+    _clear_biz_env(monkeypatch)
+    calls = []
+
+    def fake_api(method, *, token, json_body, files=None, timeout=0):
+        calls.append({"method": method, "json_body": json_body, "files": files})
+        return {"ok": True, "result": {"message_id": 7, "chat": {"id": 123456}}}
+
+    monkeypatch.setattr(tg, "telegram_api", fake_api)
+
+    out = tg._send_photo_via_bot(
+        text="Букет недели",
+        chat_id="123456",
+        token="1:TOKEN",
+        image_bytes=b"jpeg",
+        image_name="bouquet.jpg",
+    )
+    assert out["ok"] is True
+    assert out["via"] == "business_bot_photo"
+    assert out["message_id"] == 7
+    assert calls[0]["method"] == "sendPhoto"
+    assert calls[0]["files"] == {"photo": ("bouquet.jpg", b"jpeg")}
+    assert calls[0]["json_body"]["caption"] == "Букет недели"
+
+    calls.clear()
+    out = tg._send_photo_via_bot(
+        text="Карточка",
+        chat_id="123456",
+        token="1:TOKEN",
+        image_url="https://market.example/card.jpg",
+    )
+    assert out["ok"] is True
+    assert calls[0]["files"] is None
+    assert calls[0]["json_body"]["photo"] == "https://market.example/card.jpg"

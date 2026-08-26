@@ -721,3 +721,46 @@ def test_catalog_integrity_partition() -> None:
     assert report["total"] == report["sum_tabs"]
     assert report["hybrid_type"] == 1
     assert report["marketplace_marker_only"] >= 1
+
+
+# --- Фильтр «последний контакт с клиентом» (календарь с диапазоном) ---------
+
+
+def test_row_matches_last_contact_range() -> None:
+    from plugins.moysklad.audience import row_matches_last_contact
+
+    row = {"tg_last_contact_at": "2026-08-20T14:03:00+00:00"}
+    # Без диапазона фильтр выключен.
+    assert row_matches_last_contact(row) is True
+    assert row_matches_last_contact(
+        row, contact_from=date(2026, 8, 18), contact_to=date(2026, 8, 22)
+    )
+    # Границы включительно.
+    assert row_matches_last_contact(row, contact_from=date(2026, 8, 20))
+    assert row_matches_last_contact(row, contact_to=date(2026, 8, 20))
+    assert not row_matches_last_contact(row, contact_from=date(2026, 8, 21))
+    assert not row_matches_last_contact(row, contact_to=date(2026, 8, 19))
+
+
+def test_row_without_contact_excluded_when_range_active() -> None:
+    from plugins.moysklad.audience import row_matches_last_contact
+
+    assert not row_matches_last_contact({}, contact_from=date(2026, 1, 1))
+    assert not row_matches_last_contact(
+        {"tg_last_contact_at": ""}, contact_to=date(2026, 12, 31)
+    )
+
+
+def test_audience_extras_wire_last_contact_range() -> None:
+    talked = {"tg_last_contact_at": "2026-08-20T10:00:00+00:00"}
+    silent = {"tg_last_contact_at": ""}
+    assert row_matches_audience_extras(
+        talked, last_contact_from="2026-08-01", last_contact_to="2026-08-31"
+    )
+    assert not row_matches_audience_extras(
+        silent, last_contact_from="2026-08-01", last_contact_to="2026-08-31"
+    )
+    assert not row_matches_audience_extras(talked, last_contact_from="2026-08-21")
+    assert row_matches_audience_extras(talked, last_contact_to="2026-08-20")
+    # Без диапазона штамп не влияет на выборку.
+    assert row_matches_audience_extras(silent)

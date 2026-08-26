@@ -49,6 +49,8 @@ FILTER_FIELDS = (
     "days_before_event",
     "event_date_from",
     "event_date_to",
+    "last_contact_from",
+    "last_contact_to",
     "stage",
     "entity_type",
     "loyalty_only",
@@ -122,7 +124,12 @@ def normalize_filters(raw: dict[str, Any] | None) -> dict[str, Any]:
                 out[key] = max(0, int(raw[key]))
             except (TypeError, ValueError):
                 continue
-        elif key in ("event_date_from", "event_date_to"):
+        elif key in (
+            "event_date_from",
+            "event_date_to",
+            "last_contact_from",
+            "last_contact_to",
+        ):
             text = str(raw[key] or "").strip()[:10]
             if len(text) == 10 and text[4] == "-" and text[7] == "-":
                 out[key] = text

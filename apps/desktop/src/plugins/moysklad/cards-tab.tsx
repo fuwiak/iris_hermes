@@ -353,7 +353,15 @@ type RecPayload = {
   ok?: boolean
   cards_total?: number
   generated_at?: string
-  meta?: Record<string, { rule?: string; source?: string }>
+  meta?: Record<
+    string,
+    { rule?: string; source?: string; docs?: string; docs_source?: string; docs_action?: string }
+  >
+  knowledge?: {
+    entry_count?: number
+    marketplaces?: string[]
+    blocks?: Record<string, { id?: string; title?: string; source_label?: string }[]>
+  }
   low_rating?: RecRow[]
   few_photos?: RecRow[]
   add_to_yandex?: RecRow[]
@@ -546,6 +554,12 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
             {meta ? (
               <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
                 Правило: {meta.rule} · Источник: {meta.source}
+                {meta.docs_source ? ` · Docs: ${meta.docs_source}` : ''}
+              </p>
+            ) : null}
+            {meta?.docs_action ? (
+              <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+                По справке площадки: {meta.docs_action}
               </p>
             ) : null}
             <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
