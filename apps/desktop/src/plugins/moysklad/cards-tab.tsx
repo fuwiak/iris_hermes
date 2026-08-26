@@ -524,9 +524,9 @@ type CardsAnalyticsPayload = {
 
 const CARD_TABS: [string, string][] = [
   ['list', 'Список'],
-  ['create', 'Создание'],
-  ['seo', 'СЕО'],
+  ['seo', 'СЕО · продвижение'],
   ['placement', 'Куда добавить'],
+  ['create', 'Создание'],
   ['orders', 'Заказы'],
   ['analytics', 'Аналитика']
 ]
@@ -575,6 +575,92 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
         )
       })}
     </>
+  )
+}
+
+function SeoPromotionPanel({
+  data,
+  onAskAi,
+  onOpenParams,
+  params
+}: {
+  data: RecPayload | null
+  onAskAi: () => void
+  onOpenParams: () => void
+  params: RecParams
+}) {
+  const lowCount = (data?.low_rating || []).length
+  const fewCount = (data?.few_photos || []).length
+  const total = data?.cards_total ?? 0
+
+  const tips: string[] = []
+  const pushMetaTips = (key: string) => {
+    const meta = data?.meta?.[key]
+    if (!meta) {
+      return
+    }
+    if (meta.docs_action) {
+      tips.push(meta.docs_action)
+    } else if (meta.docs) {
+      tips.push(meta.docs)
+    } else if (meta.rule) {
+      tips.push(meta.rule)
+    }
+  }
+  pushMetaTips('low_rating')
+  pushMetaTips('few_photos')
+  const yandexBoost = data?.knowledge?.blocks?.add_to_yandex
+  if (yandexBoost?.length) {
+    const block = yandexBoost[0]
+    tips.push(
+      block.title
+        ? `${block.title}${block.source_label ? ` · ${block.source_label}` : ''}`
+        : 'Добавление на Яндекс Маркет расширяет охват и показы'
+    )
+  }
+
+  return (
+    <div className="ms-kc-seo">
+      <div className="ms-kc-seo-head">
+        <h2>СЕО · продвижение карточек</h2>
+        <div className="ms-kc-seo-actions">
+          <button className="ms-kc-btn-ghost" onClick={onOpenParams} type="button">
+            Параметры
+          </button>
+          <button className="ms-kc-btn-ai" onClick={onAskAi} type="button">
+            Спросить ИИ про продвижение
+          </button>
+        </div>
+      </div>
+      <div className="ms-kc-seo-stats">
+        <div className="ms-kc-seo-stat">
+          <div className="ms-kc-seo-stat-val">{data ? lowCount : '—'}</div>
+          Низкий контент-рейтинг
+        </div>
+        <div className="ms-kc-seo-stat">
+          <div className="ms-kc-seo-stat-val">{data ? fewCount : '—'}</div>
+          Мало фото (&lt; {params.minPhotos})
+        </div>
+        <div className="ms-kc-seo-stat">
+          <div className="ms-kc-seo-stat-val">{data ? total : '—'}</div>
+          Карточек в каталоге
+        </div>
+      </div>
+      {tips.length ? (
+        <div className="ms-kc-seo-tips">
+          {tips.map((tip, idx) => (
+            <p key={idx}>{tip}</p>
+          ))}
+        </div>
+      ) : null}
+      <RecBlockList
+        blocks={[
+          ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
+          ['few_photos', `Мало фото (< ${params.minPhotos})`]
+        ]}
+        data={data}
+      />
+    </div>
   )
 }
 
@@ -1582,7 +1668,6 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const yandexTotal = data?.yandex?.total ?? data?.yandex?.products?.length ?? 0
 
   const openCreate = () => setSubTab('create')
-  const backToList = () => setSubTab('list')
 
   return (
     <div className="ms-page ms-cards-page">
@@ -1716,7 +1801,8 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                   key={tab.id}
                   onClick={() => {
                     setStatusTab(tab.id)
-                    backToList()
+                    setSubTab('list')
+                    setPage(1)
                   }}
                   role="tab"
                   type="button"
@@ -1735,6 +1821,26 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               </svg>
               Фильтры
             </button>
+          </div>
+
+          <div className="ms-kc-feature-tabs" role="tablist" aria-label="Разделы карточек">
+            {CARD_TABS.map(([id, label]) => (
+              <button
+                aria-selected={subTab === id}
+                className={`ms-kc-feature-tab${subTab === id ? ' is-active' : ''}`}
+                key={id}
+                onClick={() => {
+                  if (id === 'list') {
+                    setPage(1)
+                  }
+                  setSubTab(id)
+                }}
+                role="tab"
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {filtersOpen ? (
@@ -1757,15 +1863,6 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                   <option value="archived">В архиве</option>
                 </select>
               </label>
-              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('seo')} type="button">
-                СЕО
-              </button>
-              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('orders')} type="button">
-                Заказы
-              </button>
-              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('analytics')} type="button">
-                Аналитика
-              </button>
             </div>
           ) : null}
 
@@ -1895,39 +1992,16 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                 </div>
               </div>
             </>
+          ) : subTab === 'seo' ? (
+            <SeoPromotionPanel
+              data={recData}
+              onAskAi={() => setChatOpen(true)}
+              onOpenParams={() => setParamsOpen(true)}
+              params={params}
+            />
           ) : (
             <div className="ms-kc-subview">
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                <button className="ms-kc-btn-ghost" onClick={backToList} type="button">
-                  ← К списку
-                </button>
-                {CARD_TABS.filter(([id]) => id !== 'list').map(([id, label]) => (
-                  <button
-                    className="ms-kc-btn-ghost"
-                    key={id}
-                    onClick={() => setSubTab(id)}
-                    style={subTab === id ? { borderColor: '#7137f5', color: '#7137f5' } : undefined}
-                    type="button"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
               {subTab === 'create' ? <CreateTab rest={rest} /> : null}
-              {subTab === 'seo' ? (
-                <div>
-                  <p className="ms-muted">
-                    Контент-рейтинг Яндекса и полнота контента — что поднять, чтобы получать больше показов.
-                  </p>
-                  <RecBlockList
-                    blocks={[
-                      ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
-                      ['few_photos', 'Мало фото (< 3)']
-                    ]}
-                    data={recData}
-                  />
-                </div>
-              ) : null}
               {subTab === 'placement' ? (
                 <div>
                   <p className="ms-muted">
@@ -1967,7 +2041,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               <button className="ms-kc-ai-item" onClick={() => setSubTab('seo')} type="button">
                 <div className="ms-kc-ai-icon g">✓</div>
                 <div>
-                  <div className="ms-kc-ai-title">Оптимизировать заголовки</div>
+                  <div className="ms-kc-ai-title">СЕО · продвижение</div>
                   <div className="ms-kc-ai-desc">
                     {counts.needs_update ? `${counts.needs_update} товара можно улучшить` : 'Всё в порядке'}
                   </div>
@@ -1976,7 +2050,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               <button className="ms-kc-ai-item" onClick={() => setSubTab('seo')} type="button">
                 <div className="ms-kc-ai-icon g">✓</div>
                 <div>
-                  <div className="ms-kc-ai-title">Улучшить описания</div>
+                  <div className="ms-kc-ai-title">Улучшить описания и фото</div>
                   <div className="ms-kc-ai-desc">Контент-рейтинг и фото</div>
                 </div>
               </button>
@@ -2003,6 +2077,17 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
           <section className="ms-kc-panel ms-kc-side-card">
             <h3>Быстрые действия</h3>
             <div className="ms-kc-qa-list">
+              <button className="ms-kc-qa-item" onClick={() => setSubTab('seo')} type="button">
+                <div className="ms-kc-qa-icon">
+                  <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+                    <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="ms-kc-qa-title">СЕО · продвижение</div>
+                  <div className="ms-kc-qa-desc">Рейтинг, фото и советы площадок</div>
+                </div>
+              </button>
               <button className="ms-kc-qa-item" onClick={() => setParamsOpen(true)} type="button">
                 <div className="ms-kc-qa-icon">
                   <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
