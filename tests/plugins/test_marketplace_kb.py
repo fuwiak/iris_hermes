@@ -78,6 +78,56 @@ def test_recommendations_for_card_concrete_and_docs_backed():
     assert first["docs_source"]
 
 
+def test_get_cards_recommendations_name_returns_per_card(monkeypatch):
+    """HTTP path: ?name=… → recommendations_for_card (monetization per card)."""
+    combined = [
+        {
+            "name": "Пионы",
+            "listings": {
+                "flowwow": {"is_active": True, "price": 5000, "images_count": 4}
+            },
+        }
+    ]
+
+    def _fake_payload(**_kwargs):
+        return {"combined": combined, "generated_at": "2026-01-01T00:00:00Z"}
+
+    monkeypatch.setattr(
+        "plugins.moysklad.marketplace_cards.marketplace_cards_payload",
+        _fake_payload,
+    )
+    from plugins.moysklad.dashboard.plugin_api import get_cards_recommendations
+
+    payload = get_cards_recommendations(
+        force=False,
+        rating_threshold=85,
+        min_photos=3,
+        price_gap_min=0.10,
+        cap=25,
+        name="Пионы",
+    )
+    assert payload["ok"] is True
+    assert payload["found"] is True
+    assert payload["name"] == "Пионы"
+    assert payload["recommendations"]
+    assert payload["recommendations"][0]["docs"]
+    assert "knowledge" in payload
+    assert "meta" in payload
+    # Aggregate blocks stay off the per-card response.
+    assert "low_rating" not in payload
+
+    missing = get_cards_recommendations(
+        force=False,
+        rating_threshold=85,
+        min_photos=3,
+        price_gap_min=0.10,
+        cap=25,
+        name="Нет такой",
+    )
+    assert missing["found"] is False
+    assert missing["recommendations"] == []
+
+
 def test_format_kb_context_for_advisor_prompt():
     text = format_kb_context()
     assert "База знаний площадок" in text

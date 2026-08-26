@@ -5371,40 +5371,72 @@ def get_cards_recommendations(
     min_photos: int = Query(default=3, ge=1, le=20),
     price_gap_min: float = Query(default=0.10, ge=0.0, le=1.0),
     cap: int = Query(default=25, ge=1, le=200),
+    name: str | None = Query(
+        default=None,
+        description="If set, return concrete recommendations for this card only",
+    ),
 ) -> dict[str, Any]:
     """Рекомендации по карточкам, посчитанные из данных (без LLM, мгновенно).
 
     Параметры модели настраиваются с фронта (порог рейтинга, минимум фото,
     порог разницы цен, размер блока); ``meta`` объясняет правило и источник
     данных каждого блока.
+
+    With ``name``, returns ``recommendations`` for that one card (API facts +
+    marketplace KB docs) instead of the aggregate blocks.
     """
     try:
         from plugins.moysklad.cards_recommendations import (
             block_meta,
             build_recommendations,
+            recommendations_for_card,
         )
         from plugins.moysklad.marketplace_cards import marketplace_cards_payload
         from plugins.moysklad.marketplace_kb import knowledge_payload
 
         cards = marketplace_cards_payload(limit=1000, force=force)
         combined = list((cards or {}).get("combined") or [])
+        meta = block_meta(
+            rating_threshold=rating_threshold,
+            min_photos=min_photos,
+            price_gap_min=price_gap_min,
+        )
+        knowledge = knowledge_payload()
+        params = {
+            "rating_threshold": rating_threshold,
+            "min_photos": min_photos,
+            "price_gap_min": price_gap_min,
+            "cap": cap,
+        }
+        card_name = str(name or "").strip()
+        if card_name:
+            row = next(
+                (
+                    r
+                    for r in combined
+                    if str((r or {}).get("name") or "").strip() == card_name
+                ),
+                None,
+            )
+            return {
+                "ok": True,
+                "name": card_name,
+                "found": row is not None,
+                "cards_total": len(combined),
+                "generated_at": cards.get("generated_at"),
+                "params": params,
+                "meta": meta,
+                "knowledge": knowledge,
+                "recommendations": recommendations_for_card(row or {"name": card_name}),
+            }
         return {
             "ok": True,
             "cards_total": len(combined),
             "generated_at": cards.get("generated_at"),
-            "params": {
-                "rating_threshold": rating_threshold,
-                "min_photos": min_photos,
-                "price_gap_min": price_gap_min,
-                "cap": cap,
-            },
-            "meta": block_meta(
-                rating_threshold=rating_threshold,
-                min_photos=min_photos,
-                price_gap_min=price_gap_min,
-            ),
+            "params": params,
+            "meta": meta,
             # Seller-docs / KB grounding (placement + promotion), not LLM fluff.
-            "knowledge": knowledge_payload(),
+            "knowledge": knowledge,
             **build_recommendations(
                 combined,
                 rating_threshold=rating_threshold,

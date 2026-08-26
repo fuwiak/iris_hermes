@@ -60,7 +60,18 @@ type CardsPayload = {
 
 const MP_LABELS: Record<string, string> = {
   flowwow: 'Flowwow',
+  yandex: 'Яндекс Маркет',
   yandex_market: 'Яндекс Маркет'
+}
+
+const REC_BLOCK_LABELS: Record<string, string> = {
+  low_rating: 'Низкий контент-рейтинг',
+  few_photos: 'Мало фото',
+  add_to_yandex: 'Добавить на Яндекс Маркет',
+  add_to_flowwow: 'Добавить на Flowwow',
+  duplicates: 'Дубли артикулов',
+  price_gaps: 'Разные цены на площадках',
+  hidden_candidates: 'Скрыта, контент готов'
 }
 
 const GRID_STYLE: React.CSSProperties = {
@@ -253,21 +264,76 @@ function CombinedCardTile({
   )
 }
 
+type CardRecItem = {
+  block?: string
+  name?: string
+  action?: string
+  docs?: string
+  docs_source?: string
+  fact?: {
+    marketplace?: string
+    rating?: number | null
+    images?: number | null
+    price?: number | null
+    prices?: Record<string, number>
+    gap_pct?: number
+    article?: string
+  }
+}
+
+type CardRecPayload = {
+  ok?: boolean
+  name?: string
+  found?: boolean
+  recommendations?: CardRecItem[]
+}
+
 function CombinedDrawer({
   added,
   card,
   onAdd,
   onClose,
-  onRemove
+  onRemove,
+  rest
 }: {
   added?: boolean
   card: CombinedCard
   onAdd?: (card: CombinedCard) => void
   onClose: () => void
   onRemove?: (name: string) => void
+  rest?: CardsRest
 }) {
   const listings = Object.entries(card.listings || {})
   const first = listings[0]?.[1]
+  const [recs, setRecs] = useState<CardRecItem[] | null>(null)
+  const [recsError, setRecsError] = useState('')
+
+  useEffect(() => {
+    if (!rest || !card.name) {
+      setRecs(null)
+      setRecsError('')
+      return
+    }
+    let cancelled = false
+    setRecs(null)
+    setRecsError('')
+    const q = encodeURIComponent(card.name)
+    rest<CardRecPayload>(`/cards/recommendations?name=${q}`, { timeoutMs: 120_000 })
+      .then(payload => {
+        if (!cancelled) {
+          setRecs(payload.recommendations || [])
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setRecsError(err instanceof Error ? err.message : String(err))
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [card.name, rest])
+
   return (
     <>
       <div onClick={onClose} style={OVERLAY_STYLE} />
@@ -329,6 +395,55 @@ function CombinedDrawer({
             <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.45, margin: 0 }}>
               {first.description || first.description_preview}
             </p>
+          ) : null}
+          {rest ? (
+            <section
+              style={{
+                borderTop: '1px solid var(--hermes-border, rgba(128,128,128,.25))',
+                paddingTop: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8
+              }}
+            >
+              <strong>Рекомендации по карточке</strong>
+              <p className="ms-muted" style={{ margin: 0, fontSize: 12 }}>
+                Данные площадок + справка по размещению и продвижению
+              </p>
+              {recsError ? <p className="ms-error">{recsError}</p> : null}
+              {!recs && !recsError ? <p className="ms-muted">Считаем…</p> : null}
+              {recs && !recs.length ? (
+                <p className="ms-muted">Замечаний нет — карточка в порядке при текущих правилах.</p>
+              ) : null}
+              {recs?.map((item, idx) => (
+                <div
+                  key={`${item.block || 'rec'}-${idx}`}
+                  style={{
+                    border: '1px solid var(--hermes-border, rgba(128,128,128,.3))',
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4
+                  }}
+                >
+                  <strong>
+                    {REC_BLOCK_LABELS[item.block || ''] || item.block || 'Действие'}
+                  </strong>
+                  {item.action ? <span>{item.action}</span> : null}
+                  {item.docs_source ? (
+                    <span className="ms-muted" style={{ fontSize: 12 }}>
+                      Docs: {item.docs_source}
+                    </span>
+                  ) : null}
+                  {item.docs ? (
+                    <span className="ms-muted" style={{ fontSize: 12, lineHeight: 1.4 }}>
+                      {item.docs}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </section>
           ) : null}
         </div>
       </aside>
@@ -459,6 +574,7 @@ function RecommendationsDrawer({ onClose, rest }: { onClose: () => void; rest: C
         </div>
         <p className="ms-muted" style={{ padding: '0 14px', margin: 0 }}>
           Посчитано из карточек обеих площадок без ИИ — рейтинг, фото, цены, дубли.
+          Действия опираются на справку площадок (размещение / продвижение).
         </p>
         <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {error ? <p className="ms-error">{error}</p> : null}
@@ -469,12 +585,24 @@ function RecommendationsDrawer({ onClose, rest }: { onClose: () => void; rest: C
                 if (!rows.length) {
                   return null
                 }
+                const meta = data.meta?.[key as string]
 
                 return (
                   <section key={key}>
                     <strong>
                       {label} ({rows.length})
                     </strong>
+                    {meta ? (
+                      <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+                        Правило: {meta.rule} · Источник: {meta.source}
+                        {meta.docs_source ? ` · Docs: ${meta.docs_source}` : ''}
+                      </p>
+                    ) : null}
+                    {meta?.docs_action ? (
+                      <p className="ms-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+                        По справке площадки: {meta.docs_action}
+                      </p>
+                    ) : null}
                     <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {rows.map((row, idx) => (
                         <li key={idx} style={{ lineHeight: 1.35 }}>
@@ -1301,6 +1429,7 @@ export function CardsSidePanel({
           onAdd={onAddCard}
           onClose={() => setSelected(null)}
           onRemove={onRemoveCard}
+          rest={rest}
         />
       ) : null}
     </aside>
@@ -1823,7 +1952,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
             </button>
           </div>
 
-          <div className="ms-kc-feature-tabs" role="tablist" aria-label="Разделы карточек">
+          <div aria-label="Разделы карточек" className="ms-kc-feature-tabs" role="tablist">
             {CARD_TABS.map(([id, label]) => (
               <button
                 aria-selected={subTab === id}
@@ -2143,7 +2272,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
       </div>
 
       {paramsOpen ? <ParamsDrawer onApply={setParams} onClose={() => setParamsOpen(false)} params={params} /> : null}
-      {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} rest={rest} /> : null}
       {recsOpen ? <RecommendationsDrawer onClose={() => setRecsOpen(false)} rest={rest} /> : null}
       {chatOpen ? (
         <ChatDrawer
