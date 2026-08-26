@@ -90,6 +90,7 @@ const CHAT_REFINE_MODELS = {
   claude: { id: 'anthropic/claude-sonnet-4.5', label: 'Claude' },
   gemini: { id: 'google/gemini-2.5-flash', label: 'Gemini' }
 } as const
+
 type ChatModelKey = keyof typeof CHAT_REFINE_MODELS
 
 interface GroupChipOption {
@@ -133,6 +134,7 @@ function groupChipSrcLabel(source?: string): string {
  */
 function MsErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
   if (!message || typeof document === 'undefined') {return null}
+
   return createPortal(
     <div
       className="ms-modal-backdrop ms-error-modal-backdrop"
@@ -163,6 +165,7 @@ function MsErrorModal({ message, onClose }: { message: string; onClose: () => vo
 
 function TgProgressModal({ title, detail }: { title: string; detail: string }) {
   if (typeof document === 'undefined') {return null}
+
   return createPortal(
     <div className="ms-modal-backdrop ms-tg-progress-backdrop" role="status">
       <div className="ms-modal ms-tg-progress" onClick={e => e.stopPropagation()}>
@@ -188,6 +191,7 @@ function MassConfirmModal({
   onClose: () => void
 }) {
   if (typeof document === 'undefined') {return null}
+
   return createPortal(
     <div
       className="ms-modal-backdrop"
@@ -260,9 +264,12 @@ function MassSendStatusModal({
   const total = job.total || 0
   const attempted = job.attempted || 0
   const percent = massJobPercent(attempted, total)
+
   const shown =
     rowFilter === 'all' ? rows : rows.filter(r => String(r.status) === rowFilter)
+
   const unseen = Math.max(0, total - rows.length)
+
   return createPortal(
     <div
       className="ms-modal-backdrop"
@@ -414,6 +421,7 @@ function ClientDialogModal({
       if (opts?.sync) {
         setSyncing(true)
       }
+
       try {
         const data = opts?.sync
           ? await call<{
@@ -427,21 +435,26 @@ function ClientDialogModal({
           : await call<{ conversation?: ClientConversation }>(
               `/clients/${encodeURIComponent(clientId)}/conversation`
             )
+
         setConversation(data.conversation || null)
+
         if (opts?.sync) {
           const sync = (data.conversation as { sync?: { inbound_imported?: number } })
             ?.sync
+
           setNote(
             sync?.inbound_imported
               ? `+${sync.inbound_imported} новых входящих из Telegram`
               : 'Синхронизировано с Telegram'
           )
         }
+
         setDialogError('')
       } catch (err) {
         setDialogError(err instanceof Error ? err.message : String(err))
       } finally {
         setLoading(false)
+
         if (opts?.sync) {
           setSyncing(false)
         }
@@ -458,14 +471,17 @@ function ClientDialogModal({
     setDialogError('')
     // Local thread paints instantly; live TG pull follows right after.
     void refresh().then(() => refresh({ sync: true }))
+
     const timer = setInterval(() => {
       void refresh({ sync: true })
     }, 30_000)
+
     return () => clearInterval(timer)
   }, [refresh])
 
   useEffect(() => {
     const box = threadRef.current?.querySelector('.ms-conversation-list')
+
     if (box) {
       box.scrollTop = 0 // newest message renders on top now
     }
@@ -473,11 +489,14 @@ function ClientDialogModal({
 
   const send = async () => {
     const msg = text.trim()
+
     if (!msg || sending) {
       return
     }
+
     setSending(true)
     setDialogError('')
+
     try {
       const data = await call<{
         conversation?: ClientConversation
@@ -492,10 +511,13 @@ function ClientDialogModal({
           open_deep_link: false
         }
       })
+
       if (data.conversation) {
         setConversation(data.conversation)
       }
+
       setText('')
+
       if (data.delivery?.ok) {
         setNote('✓ Отправлено в Telegram')
       } else if (data.delivery && !data.delivery.skipped) {
@@ -514,6 +536,7 @@ function ClientDialogModal({
   }
 
   if (typeof document === 'undefined') {return null}
+
   return createPortal(
     <div
       className="ms-modal-backdrop"
@@ -626,17 +649,22 @@ const DEFAULT_AI_GROUP_CHIPS: GroupChipOption[] = [
 
 function mergeAiGroupOptions(ai: GroupChipOption[]): GroupChipOption[] {
   const byName = new Map<string, GroupChipOption>()
+
   for (const opt of ai || []) {
     const key = String(opt.name || '').trim().toLowerCase()
+
     if (!key) {continue}
     byName.set(key, { ...opt, filter_source: opt.filter_source || 'ai' })
   }
+
   for (const fallback of DEFAULT_AI_GROUP_CHIPS) {
     const key = fallback.name.toLowerCase()
+
     if (!byName.has(key)) {
       byName.set(key, fallback)
     }
   }
+
   return [...byName.values()].sort(
     (a, b) => (b.count || 0) - (a.count || 0) || a.name.localeCompare(b.name, 'ru')
   )
@@ -649,22 +677,27 @@ function resolveGroupOptionsBySource(data: {
   const bySrc = data.group_options_by_source
   let ms = bySrc?.ms || []
   let ai = bySrc?.ai || []
+
   if (!bySrc) {
     const all = data.group_options || []
     ms = all.filter(o => (o.source || 'ms') !== 'ai')
     ai = all.filter(o => o.source === 'ai' || o.source === 'both')
   }
+
   // Always keep «Группы: ИИ» populated (defaults + server chips).
   ai = mergeAiGroupOptions(ai)
   ms = [...ms].sort(
     (a, b) => (b.count || 0) - (a.count || 0) || a.name.localeCompare(b.name, 'ru')
   )
+
   return { ms, ai }
 }
 
 function groupChipSrcClass(source?: string): string {
   if (source === 'ai') {return 'is-ai'}
+
   if (source === 'both') {return 'is-both'}
+
   return 'is-ms'
 }
 
@@ -881,8 +914,10 @@ function pickOutreachMessage(data: unknown): string {
 
   const row = data as Record<string, unknown>
   const nested = row.result && typeof row.result === 'object' ? (row.result as Record<string, unknown>) : null
+
   const sanity =
     row.sanity && typeof row.sanity === 'object' ? (row.sanity as Record<string, unknown>) : null
+
   const candidates = [
     row.message,
     row.text,
@@ -1100,7 +1135,9 @@ function applyAiFillResults(
       ...(hit.fields || {}),
       ...(hit.filled || {})
     } as Record<string, unknown>
+
     const next: ClientRow = { ...row }
+
     const aiFields = [
       ...new Set([
         ...(hit.ai_fields || []),
@@ -1197,6 +1234,7 @@ const CLIENT_COLUMNS: Array<{
     label: 'Баллы начисленные',
     sortValue: r => {
       const n = Number(r.bonus_points)
+
       return Number.isFinite(n) ? n : String(r.bonus_points ?? '')
     },
     render: r => String(r.bonus_points ?? '')
@@ -1207,15 +1245,21 @@ const CLIENT_COLUMNS: Array<{
     sortValue: r => {
       const ms = String(r.ms_groups || '').trim()
       const ai = (r.ai_groups || []).filter(Boolean)
+
       if (ms && ai.length) {return `МС: ${ms} · AI: ${ai.join(', ')}`}
+
       if (ai.length) {return `AI: ${ai.join(', ')}`}
+
       return r.groups || (r.tags || []).join(', ')
     },
     render: r => {
       const ms = String(r.ms_groups || '').trim()
       const ai = (r.ai_groups || []).filter(Boolean)
+
       if (ms && ai.length) {return `МС: ${ms} · AI: ${ai.join(', ')}`}
+
       if (ai.length) {return `AI: ${ai.join(', ')}`}
+
       return r.groups || (r.tags || []).join(', ')
     }
   },
@@ -1256,12 +1300,15 @@ const CLIENT_COLUMNS: Array<{
       if (r.tg_active === true) {
         return r.tg_active_nick || r.tg_active_label || '✓'
       }
+
       if (r.tg_active === false) {
         return r.tg_active_label || '✗'
       }
+
       if (r.tg_nick) {
         return r.tg_active_label || '?'
       }
+
       return '—'
     }
   },
@@ -1312,16 +1359,21 @@ const UNIQUE_FILTER_CAP = 60
 
 function columnDisplayValue(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow): string {
   const raw = col.render(row)
+
   return raw == null ? '' : String(raw)
 }
 
 function columnSortRaw(col: (typeof CLIENT_COLUMNS)[number], row: ClientRow): string | number | null {
   if (col.sortValue) {
     const v = col.sortValue(row)
+
     if (v == null || v === '') {return null}
+
     return v
   }
+
   const s = columnDisplayValue(col, row)
+
   return s === '' || s === '—' ? null : s
 }
 
@@ -1331,12 +1383,17 @@ function compareColumnValues(
   dir: SortDir
 ): number {
   const mul = dir === 'asc' ? 1 : -1
+
   if (a == null && b == null) {return 0}
+
   if (a == null) {return 1}
+
   if (b == null) {return -1}
+
   if (typeof a === 'number' && typeof b === 'number') {
     return (a - b) * mul
   }
+
   return String(a).localeCompare(String(b), 'ru', { sensitivity: 'base', numeric: true }) * mul
 }
 
@@ -1350,58 +1407,76 @@ function applyClientColumnFilters(
   sort: ColumnSortSpec | null
 ): ClientRow[] {
   let out = rows
+
   const active = CLIENT_COLUMNS.filter(col => {
     const f = filters[col.key]
+
     return Boolean(f && (f.query.trim() || f.selected != null))
   })
+
   if (active.length) {
     out = rows.filter(row =>
       active.every(col => {
         const f = filters[col.key] || EMPTY_FILTER
+
         if (col.key === 'channel_display') {
           return rowMatchesSalesChannelColumnFilter(row, f.query, f.selected, BLANK_FILTER_LABEL)
         }
+
         const display = columnDisplayValue(col, row)
         const label = filterLabel(display)
+
         if (f.query.trim()) {
           const q = f.query.trim().toLowerCase()
+
           if (!display.toLowerCase().includes(q) && !label.toLowerCase().includes(q)) {
             return false
           }
         }
+
         if (f.selected != null) {
           return f.selected.includes(label)
         }
+
         return true
       })
     )
   }
+
   if (sort) {
     const col = CLIENT_COLUMNS.find(c => c.key === sort.key)
+
     if (col) {
       out = [...out].sort((ra, rb) =>
         compareColumnValues(columnSortRaw(col, ra), columnSortRaw(col, rb), sort.dir)
       )
     }
   }
+
   return out
 }
 
 function uniqueColumnValues(rows: ClientRow[], col: (typeof CLIENT_COLUMNS)[number]): string[] {
   const counts = new Map<string, number>()
+
   for (const row of rows) {
     if (col.key === 'channel_display') {
       const tokens = clientSalesChannelTokens(row)
+
       const labels =
         tokens.length > 0 ? tokens.map(c => filterLabel(c)) : [BLANK_FILTER_LABEL]
+
       for (const label of labels) {
         counts.set(label, (counts.get(label) || 0) + 1)
       }
+
       continue
     }
+
     const label = filterLabel(columnDisplayValue(col, row))
     counts.set(label, (counts.get(label) || 0) + 1)
   }
+
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'))
     .map(([label]) => label)
@@ -1443,13 +1518,17 @@ function ClientsColumnHeader({
 
   useEffect(() => {
     if (!open) {return}
+
     const onDoc = (event: MouseEvent) => {
       const el = menuRef.current
+
       if (el && !el.contains(event.target as Node)) {
         onToggleOpen()
       }
     }
+
     document.addEventListener('mousedown', onDoc)
+
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open, onToggleOpen])
 
@@ -1462,8 +1541,10 @@ function ClientsColumnHeader({
   const toggleValue = (label: string) => {
     const base = draftSelected == null ? [...uniqueValues] : [...draftSelected]
     const idx = base.indexOf(label)
+
     if (idx >= 0) {base.splice(idx, 1)}
     else {base.push(label)}
+
     if (base.length === uniqueValues.length) {setDraftSelected(null)}
     else {setDraftSelected(base)}
   }
@@ -1521,6 +1602,7 @@ function ClientsColumnHeader({
                 </label>
                 {uniqueValues.map(label => {
                   const checked = draftSelected == null || draftSelected.includes(label)
+
                   return (
                     <label className="ms-col-filter-check" key={label}>
                       <input
@@ -1667,15 +1749,19 @@ function readMsAiChoice(): { provider: string; model: string } {
   if (typeof localStorage === 'undefined') {
     return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
   }
+
   try {
     const provider = localStorage.getItem('ms.ai.provider')
     const model = localStorage.getItem('ms.ai.model')
+
     // Migrate empty «default» / non-DeepSeek picks to DeepSeek.
     if (!provider || !model || !/deepseek/i.test(model)) {
       localStorage.setItem('ms.ai.provider', MS_AI_DEFAULT_PROVIDER)
       localStorage.setItem('ms.ai.model', MS_AI_DEFAULT_MODEL)
+
       return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
     }
+
     return { provider, model }
   } catch {
     return { provider: MS_AI_DEFAULT_PROVIDER, model: MS_AI_DEFAULT_MODEL }
@@ -1689,12 +1775,16 @@ function isDeepseekAiSource(facts: {
   if (!facts) {
     return false
   }
+
   const model = String(facts.ai_model || '').toLowerCase()
+
   if (model.includes('deepseek')) {
     return true
   }
+
   // LLM without model tag after DeepSeek-only default still counts.
   const src = String(facts.ai_source || '').toLowerCase()
+
   return src === 'llm' || src.includes('deepseek')
 }
 
@@ -1763,13 +1853,17 @@ function money(n: number | null | undefined) {
 /** Дата/время последнего TG-контакта для таблицы и карточки клиента. */
 function formatTgLastContact(iso: string | null | undefined): string {
   const raw = String(iso || '').trim()
+
   if (!raw) {
     return '—'
   }
+
   const d = new Date(raw)
+
   if (Number.isNaN(d.getTime())) {
     return raw.slice(0, 16).replace('T', ' ')
   }
+
   return d.toLocaleString('ru-RU', {
     day: 'numeric',
     month: 'short',
@@ -1976,6 +2070,7 @@ function FactsPanel({
   const historyProse = (facts.history_profile || '').trim()
   const occasionProse = (facts.occasion_intent || '').trim()
   const recommendation = (facts.recommendation || '').trim()
+
   const showDeepseekSummary =
     isDeepseekAiSource(facts) &&
     Boolean(historyProse || occasionProse || recommendation)
@@ -2107,6 +2202,7 @@ function OrderCompositionBits({
   const lines = (lineItems || []).map(x => String(x || '').trim()).filter(Boolean)
   const comp = String(composition || '').trim()
   const snippet = String(productSnippet || '').trim()
+
   if (comp || lines.length) {
     return (
       <div className="ms-order-composition">
@@ -2115,6 +2211,7 @@ function OrderCompositionBits({
       </div>
     )
   }
+
   if (snippet) {
     return <div>{snippet}</div>
   }
@@ -2124,6 +2221,7 @@ function OrderCompositionBits({
 
 function orderPaymentLabel(status?: string | null, state?: string | null): string {
   const s = (status || '').trim().toLowerCase()
+
   const map: Record<string, string> = {
     paid: 'оплачен',
     unpaid: 'не оплачен',
@@ -2131,9 +2229,12 @@ function orderPaymentLabel(status?: string | null, state?: string | null): strin
     cancelled: 'отменён',
     failed: 'не состоялся'
   }
+
   const pay = map[s] || ''
   const st = (state || '').trim()
+
   if (pay && st && st.toLowerCase() !== pay) {return `${st} · ${pay}`}
+
   return st || pay || ''
 }
 
@@ -2155,6 +2256,7 @@ function ClientCardModal({
   const [error, setError] = useState('')
   const [ordersOpen, setOrdersOpen] = useState(true)
   const [note, setNote] = useState('')
+
   const [tgCheck, setTgCheck] = useState<{
     busy?: boolean
     exists?: boolean
@@ -2172,6 +2274,7 @@ function ClientCardModal({
   const runTgCheck = useCallback(async () => {
     if (!clientId) {return}
     setTgCheck({ busy: true })
+
     try {
       const data = await call<{
         exists?: boolean
@@ -2184,6 +2287,7 @@ function ClientCardModal({
         method: 'POST',
         timeoutMs: 60_000
       })
+
       setTgCheck({ ...data, busy: false })
     } catch (err) {
       setTgCheck({
@@ -2212,9 +2316,11 @@ function ClientCardModal({
         setDetail(payload)
         // Auto-renew DeepSeek when card has only heuristic / no LLM cache.
         const src = String(payload?.ai?.source || '')
+
         if (src !== 'llm') {
           void (async () => {
             setAiLoading(true)
+
             try {
               try {
                 await call(`/clients/${encodeURIComponent(clientId)}/conversation/sync`, {
@@ -2223,6 +2329,7 @@ function ClientCardModal({
               } catch {
                 /* best-effort */
               }
+
               const aiPayload = await call<{ ai?: ClientDetail['ai'] }>(
                 `/clients/${encodeURIComponent(clientId)}/ai`,
                 {
@@ -2233,6 +2340,7 @@ function ClientCardModal({
                   }
                 }
               )
+
               if (!cancelled) {
                 setDetail(prev =>
                   prev ? { ...prev, ai: aiPayload.ai || prev.ai } : prev
@@ -2264,6 +2372,7 @@ function ClientCardModal({
   // appear without pressing Sync (same 30s cadence as ClientDialogModal).
   useEffect(() => {
     if (!clientId) {return}
+
     const timer = setInterval(() => {
       void call<{ conversation?: ClientConversation }>(
         `/clients/${encodeURIComponent(clientId)}/conversation/sync?refresh_ai=false`,
@@ -2307,6 +2416,7 @@ function ClientCardModal({
       } catch {
         /* sync is best-effort — AI still runs on local/export thread */
       }
+
       const payload = await call<{ ai?: ClientDetail['ai'] }>(
         `/clients/${encodeURIComponent(clientId)}/ai`,
         {
@@ -2366,9 +2476,11 @@ function ClientCardModal({
             : prev
         )
         const sync = data.conversation?.sync
+
         const noPeer =
           sync?.reason === 'no_tg_nick_or_phone' ||
           sync?.telegram_user?.reason === 'no_tg_nick_or_phone'
+
         if (noPeer && !(sync?.imported || sync?.inbound_imported)) {
           setError('Нет ТГ ника / телефона — sync невозможен')
         } else if (sync && sync.ok === false && sync.reason && !data.ai_refreshed) {
@@ -2586,6 +2698,7 @@ function ClientCardModal({
                 {shownOrders.length ? (
                   shownOrders.map((o, idx) => {
                     const statusLabel = orderPaymentLabel(o.payment_status, o.state)
+
                     const cancelled =
                       (o.payment_status || '').toLowerCase() === 'cancelled' ||
                       /отмен/i.test(o.state || '')
@@ -2789,17 +2902,21 @@ function clientsLocalCacheKey(parts: {
 function readClientsLocalCache(key: string): ClientsLocalCachePayload | null {
   try {
     const raw = localStorage.getItem(key)
+
     if (!raw) {return null}
     const parsed = JSON.parse(raw) as ClientsLocalCachePayload
+
     if (!parsed || !Array.isArray(parsed.clients) || !parsed.clients.length) {
       return null
     }
+
     if (
       typeof parsed.saved_at !== 'number' ||
       Date.now() - parsed.saved_at > CLIENTS_LOCAL_CACHE_MAX_AGE_MS
     ) {
       return null
     }
+
     return parsed
   } catch {
     return null
@@ -2868,9 +2985,11 @@ function seedClientsLocalPayload(parts: {
         groupSource,
         salesFilter: parts.salesFilter
       })
+
       if (!clients.length) {
         return null
       }
+
       return {
         ...seed,
         q,
@@ -2894,12 +3013,15 @@ function findGroupChipCount(
   ai: GroupChipOption[]
 ): number | null {
   const name = String(group || '').trim()
+
   if (!name) {
     return null
   }
+
   const src = String(groupSource || 'any').toLowerCase()
   const pool = src === 'ai' ? ai : src === 'ms' ? ms : [...ms, ...ai]
   const hit = pool.find(opt => opt.name === name)
+
   return hit && typeof hit.count === 'number' ? hit.count : null
 }
 
@@ -2960,8 +3082,10 @@ function ClientsPage() {
   const [stageTagStatus, setStageTagStatus] = useState('')
   const [stageTagBusy, setStageTagBusy] = useState(false)
   const [stageTagArmed, setStageTagArmed] = useState(false)
+
   const initialLocal = (() => {
     if (typeof localStorage === 'undefined') {return null}
+
     return readClientsLocalCache(
       clientsLocalCacheKey({
         salesFilter: 'all',
@@ -2971,6 +3095,7 @@ function ClientsPage() {
       })
     )
   })()
+
   const [loading, setLoading] = useState(!initialLocal)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
@@ -2979,12 +3104,15 @@ function ClientsPage() {
   const [matched, setMatched] = useState(() => initialLocal?.matched_total || 0)
   const [hasMore, setHasMore] = useState(() => Boolean(initialLocal?.has_more))
   const [nextOffset, setNextOffset] = useState(() => initialLocal?.next_offset || 0)
+
   const [groupOptionsMs, setGroupOptionsMs] = useState<GroupChipOption[]>(
     () => initialLocal?.group_options_ms || []
   )
+
   const [groupOptionsAi, setGroupOptionsAi] = useState<GroupChipOption[]>(
     () => mergeAiGroupOptions(initialLocal?.group_options_ai || [])
   )
+
   const [integrityNote, setIntegrityNote] = useState('')
   const [auditOpen, setAuditOpen] = useState(false)
   const [auditLoading, setAuditLoading] = useState(false)
@@ -2999,12 +3127,15 @@ function ClientsPage() {
   const runTgDialogSync = async () => {
     setTgDialogSyncBusy(true)
     setTgImportNote('Синхронизация личных TG-диалогов запущена…')
+
     try {
       await call('/clients/conversations/telegram-sync?limit=150', {
         method: 'POST'
       })
+
       for (let i = 0; i < 120; i += 1) {
         await new Promise(r => setTimeout(r, 5000))
+
         const data = await call<{
           state?: {
             running?: boolean
@@ -3019,10 +3150,13 @@ function ClientsPage() {
             } | null
           }
         }>('/clients/conversations/telegram-sync')
+
         const state = data.state
+
         if (state?.running) {
           continue
         }
+
         if (state?.error) {
           setTgImportNote(`TG диалоги: ${state.error}`)
         } else {
@@ -3036,6 +3170,7 @@ function ClientsPage() {
           )
           await load({ refresh: false })
         }
+
         break
       }
     } catch (err) {
@@ -3051,12 +3186,15 @@ function ClientsPage() {
   const runTgPhoneVerify = async () => {
     setTgPhoneVerifyBusy(true)
     setTgImportNote('Проверка Telegram по телефонам запущена…')
+
     try {
       await call('/clients/telegram-verify?live=true&limit=400&delay_ms=400', {
         method: 'POST'
       })
+
       for (let i = 0; i < 180; i += 1) {
         await new Promise(r => setTimeout(r, 4000))
+
         const data = await call<{
           state?: {
             running?: boolean
@@ -3068,10 +3206,13 @@ function ClientsPage() {
             } | null
           }
         }>('/clients/telegram-verify')
+
         const state = data.state
+
         if (state?.running) {
           continue
         }
+
         if (state?.error) {
           setTgImportNote(`TG телефоны: ${state.error}`)
         } else {
@@ -3085,6 +3226,7 @@ function ClientsPage() {
           )
           await load({ refresh: false })
         }
+
         break
       }
     } catch (err) {
@@ -3095,6 +3237,7 @@ function ClientsPage() {
       setTgPhoneVerifyBusy(false)
     }
   }
+
   const [syncedLabel, setSyncedLabel] = useState(() => initialLocal?.synced_at_label || '')
   const [fromCache, setFromCache] = useState(() => Boolean(initialLocal?.from_cache ?? initialLocal))
   const [staleHint, setStaleHint] = useState(false)
@@ -3113,9 +3256,11 @@ function ClientsPage() {
   const [recalcError, setRecalcError] = useState('')
   const [aiFillStatus, setAiFillStatus] = useState('')
   const [columnSort, setColumnSort] = useState<ColumnSortSpec | null>(null)
+
   const [columnFilters, setColumnFilters] = useState<Partial<Record<ClientColKey, ColumnFilterSpec>>>(
     {}
   )
+
   const [openFilterKey, setOpenFilterKey] = useState<ClientColKey | null>(null)
   const loadGen = useRef(0)
   const loadingMoreRef = useRef(false)
@@ -3126,6 +3271,7 @@ function ClientsPage() {
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 280)
+
     return () => clearTimeout(t)
   }, [q])
 
@@ -3136,9 +3282,11 @@ function ClientsPage() {
 
   const columnUniques = useMemo(() => {
     const map: Partial<Record<ClientColKey, string[]>> = {}
+
     for (const col of CLIENT_COLUMNS) {
       map[col.key] = uniqueColumnValues(clients, col)
     }
+
     return map
   }, [clients])
 
@@ -3146,6 +3294,7 @@ function ClientsPage() {
     () =>
       CLIENT_COLUMNS.some(col => {
         const f = columnFilters[col.key]
+
         return Boolean(f && (f.query.trim() || f.selected != null))
       }),
     [columnFilters]
@@ -3244,6 +3393,7 @@ function ClientsPage() {
             group,
             groupSource
           })
+
           if (local) {
             setClients(local.clients)
             setCounts(local.counts)
@@ -3270,6 +3420,7 @@ function ClientsPage() {
           setLoading(true)
           setStaleHint(false)
         }
+
         setError('')
         lazyAiTriedRef.current.clear()
         setAiFillStatus('')
@@ -3316,6 +3467,7 @@ function ClientsPage() {
         )
         setCounts(data.counts || null)
         setMatched(data.matched_total || 0)
+
         if (data.stage_counts) {setStageCounts(data.stage_counts)}
 
         const computedNext =
@@ -3336,6 +3488,7 @@ function ClientsPage() {
           // «обновляем…» only while server is actually rebuilding — not for every stale/snapshot paint.
           setStaleHint(Boolean(data.revalidating))
           setSyncedLabel(data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''))
+
           if (data.counts) {
             const t = data.counts.total || 0
             const d = data.counts.direct || 0
@@ -3346,6 +3499,7 @@ function ClientsPage() {
                 : `⚠ вкладки ${d}+${m}≠${t}`
             )
           }
+
           writeClientsLocalCache(cacheKey, {
             saved_at: Date.now(),
             sales_filter: salesFilter,
@@ -3366,6 +3520,7 @@ function ClientsPage() {
               data.synced_at_label || (data.synced_at ? String(data.synced_at) : ''),
             from_cache: Boolean(data.cached)
           })
+
           // Keep empty-q base warm so the next search filters instantly.
           if (!qDebounced.trim()) {
             writeClientsLocalCache(
@@ -3400,10 +3555,12 @@ function ClientsPage() {
         }
       } catch (err) {
         if (gen !== loadGen.current) {return}
+
         // Superseded search / desktop REST abort must not block filtering.
         if (isBenignRequestAbort(err)) {
           return
         }
+
         setError(err instanceof Error ? err.message : String(err))
 
         // Keep painted local/stale rows on soft refresh failure.
@@ -3424,8 +3581,10 @@ function ClientsPage() {
   const markFailedStage = useCallback(async () => {
     setStageTagBusy(true)
     setError('')
+
     try {
       const write = stageTagArmed
+
       const data = await call<{
         ok?: boolean
         total?: number
@@ -3488,12 +3647,15 @@ function ClientsPage() {
     }
 
     const started = Date.now()
+
     const timer = window.setInterval(() => {
       if (Date.now() - started > CLIENTS_REVALIDATE_POLL_MAX_MS) {
         window.clearInterval(timer)
         setStaleHint(false)
+
         return
       }
+
       void load()
     }, CLIENTS_REVALIDATE_POLL_MS)
 
@@ -3653,13 +3815,16 @@ function ClientsPage() {
                 .then(data => {
                   if (data.error) {
                     setTgImportNote(`TG импорт: ${data.error}`)
+
                     return
                   }
+
                   setTgImportNote(
                     `TG → клиенты: чатов ${data.chats_total ?? 0} · ` +
                       `привязано ${data.matched ?? 0} · сообщений ${data.imported_messages ?? 0}` +
                       (data.path ? ` · ${data.path}` : '')
                   )
+
                   return load({ refresh: false })
                 })
                 .catch(err =>
@@ -3984,6 +4149,7 @@ function ClientsPage() {
                                 className="ms-link-btn"
                                 onClick={() => {
                                   setAuditOpen(false)
+
                                   if (row.id) {setCardClientId(row.id)}
                                 }}
                                 type="button"
@@ -4028,6 +4194,7 @@ function ClientsPage() {
                       setColumnFilters(prev => {
                         const next = { ...prev }
                         delete next[col.key]
+
                         return next
                       })
                     }
@@ -4053,6 +4220,7 @@ function ClientsPage() {
                   {CLIENT_COLUMNS.map(col => {
                     const value = col.render(row)
                     const aiKey = AI_COLUMN_KEYS[col.key]
+
                     const isAi = Boolean(
                       aiKey && (row.ai_fields || []).includes(aiKey) && value
                     )
@@ -4079,14 +4247,17 @@ function ClientsPage() {
                           : row.tg_active === false
                             ? 'Не находится по номеру — возможно, поиск скрыт настройками приватности. Проверьте по нику или вручную.'
                             : 'Ещё не проверен — проверка идёт автоматически в фоне'
+
                       const cls =
                         row.tg_active === true ? 'ms-tg-active-ok' : ''
+
                       // Две категории на экране: ✓ есть TG — или пусто.
                       // Детали (не найден / не проверен) остаются в tooltip.
                       const shownValue =
                         row.tg_active === true
                           ? row.tg_active_nick || '✓'
                           : '—'
+
                       return (
                         <td className={cls || undefined} key={col.key} title={title}>
                           {shownValue}
@@ -4161,9 +4332,11 @@ function CampaignsPage() {
   const [vipOnly, setVipOnly] = useState(false)
   const [loyaltyOnly, setLoyaltyOnly] = useState(false)
   const [stage, setStage] = useState<StageKey>('all')
+
   const [entityType, setEntityType] = useState<'all' | 'individual' | 'legal' | 'entrepreneur'>(
     'all'
   )
+
   const [stageCounts, setStageCounts] = useState<StageCounts | null>(null)
   const [birthdaySoon, setBirthdaySoon] = useState(false)
   const [daysBeforeEvent, setDaysBeforeEvent] = useState(0)
@@ -4181,6 +4354,7 @@ function CampaignsPage() {
   const [filterDrawer, setFilterDrawer] = useState<
     'calendar' | 'last-contact' | 'groups-ms' | 'groups-ai' | null
   >(null)
+
   const [saveFilterOpen, setSaveFilterOpen] = useState(false)
   const [personalize] = useState(false)
   const [, setBatchProgress] = useState('')
@@ -4215,12 +4389,15 @@ function CampaignsPage() {
 
   const photoLineMetrics = useCallback((): LineMetrics => {
     const ta = msgBoxRef.current?.querySelector('textarea')
+
     if (!ta) {
       return { lineHeight: 20, paddingTop: 8 }
     }
+
     const style = window.getComputedStyle(ta)
     const lh = parseFloat(style.lineHeight)
     const pad = parseFloat(style.paddingTop)
+
     return {
       lineHeight: Number.isFinite(lh) && lh > 0 ? lh : 20,
       paddingTop: Number.isFinite(pad) && pad >= 0 ? pad : 8
@@ -4231,9 +4408,11 @@ function CampaignsPage() {
   const parkSendImageAt = useCallback(
     (y: number, offsetX: number) => {
       const bounds = photoDragBounds()
+
       if (!bounds) {
         return
       }
+
       const parked = parkPhotoAtY(
         offerRef.current || offer,
         y,
@@ -4242,10 +4421,12 @@ function CampaignsPage() {
         bounds,
         offsetX
       )
+
       if (parked.text !== (offerRef.current || offer)) {
         setOffer(parked.text)
         offerRef.current = parked.text
       }
+
       setSendImagePos(parked.offset)
     },
     [offer, photoDragBounds, photoLineMetrics]
@@ -4257,14 +4438,19 @@ function CampaignsPage() {
   useEffect(() => {
     if (!sendImageKey) {
       setSendImagePos(PHOTO_ORIGIN)
+
       return
     }
+
     const id = window.requestAnimationFrame(() => {
       const bounds = photoDragBounds()
+
       if (!bounds) {
         setSendImagePos(PHOTO_ORIGIN)
+
         return
       }
+
       const metrics = photoLineMetrics()
       const draft = offerRef.current || offer
       const endY = photoYForLine(draft.split('\n').length, metrics)
@@ -4272,6 +4458,7 @@ function CampaignsPage() {
         snapPhotoToEmptyLine({ x: 0, y: endY }, draft, metrics, bounds)
       )
     })
+
     return () => window.cancelAnimationFrame(id)
   }, [sendImageKey]) // eslint-disable-line react-hooks/exhaustive-deps -- only on new picture
 
@@ -4345,6 +4532,7 @@ function CampaignsPage() {
   const [sellerLoaded, setSellerLoaded] = useState(false)
   const [bizConnectionId, setBizConnectionId] = useState('')
   const [bizBotUsername, setBizBotUsername] = useState('')
+
   const [telegramAccount, setTelegramAccount] = useState<{
     configured?: boolean
     bot_username?: string | null
@@ -4361,7 +4549,9 @@ function CampaignsPage() {
       detail?: string
     } | null
   } | null>(null)
+
   const [bizSaving, setBizSaving] = useState(false)
+
   const [tgUser, setTgUser] = useState<{
     available?: boolean
     api_configured?: boolean
@@ -4378,6 +4568,7 @@ function CampaignsPage() {
     gateway_configured?: boolean
     send_mode?: string
   } | null>(null)
+
   const [tgOpen, setTgOpen] = useState(false)
   const [tgStep, setTgStep] = useState<'phone' | 'code' | 'password'>('phone')
   const [tgBusy, setTgBusy] = useState(false)
@@ -4392,6 +4583,7 @@ function CampaignsPage() {
     setTgBusy(true)
     setTgProgress({ title, detail })
     setError('')
+
     try {
       await work()
     } catch (err) {
@@ -4505,9 +4697,11 @@ function CampaignsPage() {
           const next = { ...draft.facts! }
           const prevCount = Number(prev?.conversation?.message_count || 0)
           const nextCount = Number(next.conversation?.message_count || 0)
+
           if (prev?.conversation && prevCount >= nextCount) {
             next.conversation = prev.conversation
           }
+
           if (
             prev?.recommendation &&
             (!next.recommendation || prevCount > nextCount)
@@ -4515,17 +4709,22 @@ function CampaignsPage() {
             // Keep recommendation only when live pull is thinner — never keep
             // a stale history_profile after facts fingerprint moved on.
             next.recommendation = prev.recommendation
+
             if (!next.history_profile) {
               next.history_profile = prev.history_profile
             }
+
             if (!next.occasion_intent) {
               next.occasion_intent = prev.occasion_intent
             }
+
             next.ai_source = prev.ai_source || next.ai_source
           }
+
           return next
         })
       }
+
       setSanity(draft.sanity || null)
       setGroundingNotes(draft.grounding_notes || '')
       setGenSource(draft.source || 'redis-cache')
@@ -4582,16 +4781,21 @@ function CampaignsPage() {
       .then(data => {
         setSellerName(data.seller_name || '')
         setSellerFacts(data.seller_facts || '')
+
         const biz =
           data.telegram_business_connection_id ||
           data.telegram_account?.business_connection_id ||
           ''
+
         setBizConnectionId(biz)
+
         const bot =
           data.telegram_account?.bot_username ||
           data.telegram?.bot_username ||
           ''
+
         setBizBotUsername(bot || '')
+
         if (data.telegram_account) {
           setTelegramAccount(data.telegram_account)
         }
@@ -4607,9 +4811,11 @@ function CampaignsPage() {
         }>('/campaigns/telegram-account')
           .then(snap => {
             setTelegramAccount(snap)
+
             if (snap.business_connection_id) {
               setBizConnectionId(snap.business_connection_id)
             }
+
             if (snap.bot_username) {
               setBizBotUsername(snap.bot_username)
             }
@@ -4620,10 +4826,12 @@ function CampaignsPage() {
 
   const loadOutreachContacts = useCallback(async () => {
     setContactsLoading(true)
+
     try {
       const data = await call<{
         contacts?: OutreachContact[]
       }>('/campaigns/telegram-contacts?limit=300', { timeoutMs: 45_000 })
+
       setOutreachContacts(data.contacts || [])
       setContactsError('')
     } catch (err) {
@@ -4651,13 +4859,17 @@ function CampaignsPage() {
         const data = await call<typeof tgUser>(
           `/campaigns/telegram-user?probe=${probe ? 'true' : 'false'}`
         )
+
         setTgUser(data)
+
         if (data?.phone && !tgPhone) {
           setTgPhone(data.phone)
         }
+
         if (data?.authorized) {
           setTgStep('phone')
         }
+
         return data
       } catch {
         return null
@@ -4676,12 +4888,14 @@ function CampaignsPage() {
       }
     })
     // Probe once on mount; the panel's buttons re-probe on demand.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only probe
   }, [])
 
   // Contact sync runs server-side in the background; the UI only polls
   // progress — no blocking modal, the tab can be closed at any point.
   const tgPollSync = useCallback(() => {
     let tries = 0
+
     const tick = async () => {
       try {
         const st = await call<{
@@ -4693,6 +4907,7 @@ function CampaignsPage() {
           from_dialogs?: number
           error?: string
         }>('/campaigns/telegram-user/contacts/sync')
+
         if (st?.running) {
           const phase =
             st.phase === 'address_book'
@@ -4700,10 +4915,14 @@ function CampaignsPage() {
               : st.phase === 'dialogs'
                 ? `чаты, просмотрено ${st.scanned ?? 0}`
                 : 'запуск'
+
           setActionStatus(`Синхронизация в фоне: контактов ${st.total ?? 0} · ${phase}…`)
+
           if (++tries < 300) {setTimeout(() => void tick(), 2000)}
+
           return
         }
+
         if (st?.phase === 'error' && st.error) {
           setError(`Синхронизация контактов: ${st.error}`)
         } else if (st) {
@@ -4712,12 +4931,14 @@ function CampaignsPage() {
               ` (адресная книга ${st.from_address_book ?? 0}, чаты ${st.from_dialogs ?? 0})`
           )
         }
+
         await refreshTgUser(false)
         await loadOutreachContacts()
       } catch {
         if (++tries < 300) {setTimeout(() => void tick(), 3000)}
       }
     }
+
     void tick()
   }, [call, loadOutreachContacts, refreshTgUser])
 
@@ -4732,6 +4953,7 @@ function CampaignsPage() {
         '/campaigns/telegram-user/install',
         { method: 'POST' }
       )
+
       setTgUser(data)
       setActionStatus(`✓ telethon установлен${data?.version ? ` ${data.version}` : ''}`)
     })
@@ -4740,8 +4962,10 @@ function CampaignsPage() {
   const tgLogin = async (opts?: { forceSms?: boolean }) => {
     if (!tgPhone.trim()) {
       setError('Укажите номер телефона в формате +79991234567')
+
       return
     }
+
     const forceSms = Boolean(opts?.forceSms)
     await runTgBusy(
       forceSms ? 'Telethon: SMS' : 'Telethon: вход',
@@ -4752,9 +4976,11 @@ function CampaignsPage() {
         const body: { phone: string; force_sms?: boolean } = {
           phone: tgPhone.trim()
         }
+
         if (forceSms) {
           body.force_sms = true
         }
+
         const data = await call<{
           authorized?: boolean
           code_sent?: boolean
@@ -4763,15 +4989,18 @@ function CampaignsPage() {
           code_delivery_hint?: string
           gateway_configured?: boolean
         }>('/campaigns/telegram-user/login', { method: 'POST', body, timeoutMs: 55_000 })
+
         if (data.phone) {
           setTgPhone(data.phone)
         }
+
         if (data.authorized) {
           setActionStatus('✓ Личный Telegram уже подключён')
           await refreshTgUser()
           await tgStartContactsSync()
         } else {
           setTgStep('code')
+
           const hint =
             data.code_delivery_hint ||
             (data.code_delivery === 'telegram_app'
@@ -4779,6 +5008,7 @@ function CampaignsPage() {
               : data.code_delivery === 'sms'
                 ? 'Код отправлен SMS на этот номер.'
                 : 'Проверьте Telegram и SMS на этом номере.')
+
           setActionStatus(
             data.phone
               ? `Код для ${data.phone}: ${hint}`
@@ -4795,12 +5025,16 @@ function CampaignsPage() {
         '/campaigns/telegram-user/code',
         { method: 'POST', body: { code: tgCode.trim() }, timeoutMs: 35_000 }
       )
+
       setTgCode('')
+
       if (data.password_required) {
         setTgStep('password')
         setActionStatus('Нужен облачный пароль (2FA)')
+
         return
       }
+
       setTgStep('phone')
       setActionStatus('✓ Личный Telegram подключён — контакты тянутся в фоне')
       await refreshTgUser()
@@ -4826,8 +5060,10 @@ function CampaignsPage() {
   const tgSaveSession = async () => {
     if (!tgSession.trim()) {
       setError('Вставьте StringSession (логин Telethon с машины, где открывается Telegram)')
+
       return
     }
+
     await runTgBusy('Telethon: сессия', 'Сохраняем StringSession на сервер…', async () => {
       await call('/campaigns/telegram-user/session', {
         method: 'POST',
@@ -4843,11 +5079,13 @@ function CampaignsPage() {
 
   const tgSyncContacts = async () => {
     setError('')
+
     try {
       const st = await call<{ started?: boolean }>(
         '/campaigns/telegram-user/contacts/refresh',
         { method: 'POST' }
       )
+
       setActionStatus(
         st?.started
           ? 'Синхронизация запущена в фоне — контакты подтягиваются…'
@@ -4913,10 +5151,13 @@ function CampaignsPage() {
         business_connection_id?: string | null
         account?: typeof telegramAccount extends { account?: infer A } ? A : never
       }>('/campaigns/telegram-account')
+
       setTelegramAccount(data)
+
       if (data.business_connection_id) {
         setBizConnectionId(data.business_connection_id)
       }
+
       if (data.bot_username) {
         setBizBotUsername(data.bot_username)
       }
@@ -4941,10 +5182,13 @@ function CampaignsPage() {
           telegram_business_connection_id: bizConnectionId.trim()
         }
       })
+
       setBizConnectionId(data.telegram_business_connection_id || bizConnectionId.trim())
+
       if (data.telegram_account) {
         setTelegramAccount(data.telegram_account)
       }
+
       setActionStatus(
         data.telegram_account?.account?.ok
           ? `✓ Business: @${data.telegram_account.account.username || 'аккаунт'} подключён`
@@ -5031,6 +5275,7 @@ function CampaignsPage() {
 
     setSegmentSaving(true)
     setSegmentStatus('')
+
     try {
       const data = await call<{ segment?: SavedSegment }>('/segments', {
         method: 'POST',
@@ -5056,18 +5301,23 @@ function CampaignsPage() {
           loyalty_only: loyaltyOnly
         }
       })
+
       if (data.segment) {
         setActiveSegmentId(data.segment.id)
         setSegmentStatus(
           `✓ Список «${data.segment.name}» сохранён (${data.segment.matched_total ?? 0} клиентов)`
         )
         loadSegments()
+
         return true
       }
+
       loadSegments()
+
       return false
     } catch (err) {
       setSegmentStatus(err instanceof Error ? err.message : String(err))
+
       return false
     } finally {
       setSegmentSaving(false)
@@ -5110,10 +5360,12 @@ function CampaignsPage() {
     async (segment: SavedSegment) => {
       try {
         await call(`/segments/${encodeURIComponent(segment.id)}`, { method: 'DELETE' })
+
         if (activeSegmentId === segment.id) {
           setActiveSegmentId('')
           setSegmentName('')
         }
+
         loadSegments()
       } catch (err) {
         setSegmentStatus(err instanceof Error ? err.message : String(err))
@@ -5123,12 +5375,14 @@ function CampaignsPage() {
   )
 
   const lastContactFilterActive = Boolean(lastContactFrom || lastContactTo)
+
   // Server-only date filters: order dates and TG last-contact stamps live in
   // the backend catalog, not the local seed cache — mirrors the API's
   // calendar_filter_active, which also skips page snapshots for these.
   const audienceCalendarFilterActive = Boolean(
     daysBeforeEvent > 0 || eventDateFrom || eventDateTo || lastContactFilterActive
   )
+
   const audienceExtrasFilterActive = Boolean(
     channelKind ||
       requirePhone ||
@@ -5140,6 +5394,7 @@ function CampaignsPage() {
       (entityType && entityType !== 'all') ||
       audienceCalendarFilterActive
   )
+
   const audienceClientFastFilterActive = Boolean(
     (salesFilter && salesFilter !== 'all') ||
       group ||
@@ -5188,12 +5443,14 @@ function CampaignsPage() {
           group,
           groupSource
         })
+
         const chipCount = findGroupChipCount(
           group,
           groupSource,
           groupOptionsMsRef.current,
           groupOptionsAiRef.current
         )
+
         const fastOpts = {
           q: audienceQDebounced,
           group,
@@ -5208,22 +5465,28 @@ function CampaignsPage() {
           entityType,
           loyaltyOnly
         }
+
         if (local?.clients?.length) {
           const clients = audienceExtrasFilterActive
             ? filterClientRowsByAudience(local.clients, fastOpts)
             : local.clients
+
           setAudiencePreview(clients)
           setAudience(
             chipCount != null ? chipCount : local.matched_total || clients.length
           )
+
           if (local.counts) {
             setCounts(local.counts)
           }
+
           const nextOff = clients.length
+
           const more =
             Boolean(local.has_more) ||
             (chipCount != null && chipCount > clients.length) ||
             (local.matched_total || 0) > clients.length
+
           audienceNextOffsetRef.current = nextOff
           audienceHasMoreRef.current = more
           setAudienceNextOffset(nextOff)
@@ -5231,6 +5494,7 @@ function CampaignsPage() {
           setLoading(true)
         } else {
           const painted = audiencePreviewRef.current
+
           if (audienceClientFastFilterActive && painted.length) {
             const filtered = filterClientRowsByAudience(painted, fastOpts)
             setAudiencePreview(filtered)
@@ -5250,8 +5514,10 @@ function CampaignsPage() {
             setAudienceNextOffset(0)
             setAudienceHasMore(Boolean(chipCount && chipCount > 0))
           }
+
           setLoading(true)
         }
+
         setError('')
       }
 
@@ -5266,6 +5532,7 @@ function CampaignsPage() {
                 Math.max(AUDIENCE_PAGE_SIZE, audiencePreviewRef.current.length)
               )
             : AUDIENCE_PAGE_SIZE
+
         const fetchPage = () =>
           call<{
             counts?: Counts
@@ -5286,9 +5553,11 @@ function CampaignsPage() {
         // the server 503s «rebuilding» for ~1–2 min after restart, and with a
         // single attempt the UI died at «0 · обновляем…» until a manual click.
         const maxAttempts = append ? 10 : 30
+
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           try {
             page = await fetchPage()
+
             if (
               !append ||
               (page.clients || []).length > 0 ||
@@ -5301,13 +5570,16 @@ function CampaignsPage() {
               throw err
             }
           }
+
           await new Promise(r =>
             setTimeout(r, audienceRetryDelayMs(attempt, append))
           )
+
           if (gen !== audienceLoadGen.current) {
             return
           }
         }
+
         if (!page) {
           throw new Error('catalog rebuilding; retry shortly')
         }
@@ -5319,6 +5591,7 @@ function CampaignsPage() {
         const rows = page.clients || []
         setAudience(page.matched_total || 0)
         setCounts(page.counts || null)
+
         if (page.stage_counts) {setStageCounts(page.stage_counts)}
 
         // First page always replaces — never merge stale unfiltered chips back in
@@ -5326,6 +5599,7 @@ function CampaignsPage() {
         const painted: ClientRow[] = append
           ? mergeClientPages(audiencePreviewRef.current, rows)
           : rows
+
         if (
           append &&
           !rows.length &&
@@ -5334,6 +5608,7 @@ function CampaignsPage() {
           audienceHasMoreRef.current = false
           setAudienceHasMore(false)
         }
+
         setAudiencePreview(painted)
 
         if (gen !== audienceLoadGen.current) {
@@ -5342,10 +5617,12 @@ function CampaignsPage() {
 
         const next =
           page.next_offset != null ? page.next_offset : offset + rows.length
+
         const more =
           page.has_more != null
             ? Boolean(page.has_more)
             : next < (page.matched_total || 0)
+
         audienceNextOffsetRef.current = next
         audienceHasMoreRef.current = more
         setAudienceNextOffset(next)
@@ -5364,10 +5641,12 @@ function CampaignsPage() {
               ai: groupOptionsAiRef.current
             }
           : resolveGroupOptionsBySource(page)
+
         if (!append) {
           setGroupOptionsMs(ms)
           setGroupOptionsAi(ai)
         }
+
         writeClientsLocalCache(
           clientsLocalCacheKey({
             salesFilter,
@@ -5396,9 +5675,11 @@ function CampaignsPage() {
         if (gen !== audienceLoadGen.current) {
           return
         }
+
         if (isBenignRequestAbort(err)) {
           return
         }
+
         setError(
           isCatalogWarmingError(err)
             ? 'Каталог клиентов пересобирается на сервере (обычно 1–2 минуты после обновления). Нажмите любой фильтр чуть позже — список вернётся.'
@@ -5467,12 +5748,15 @@ function CampaignsPage() {
     }
 
     const started = Date.now()
+
     const timer = window.setInterval(() => {
       if (Date.now() - started > CLIENTS_REVALIDATE_POLL_MAX_MS) {
         window.clearInterval(timer)
         setAudienceStaleHint(false)
+
         return
       }
+
       void loadAudience({ quiet: true })
     }, CLIENTS_REVALIDATE_POLL_MS)
 
@@ -5501,6 +5785,7 @@ function CampaignsPage() {
           client_id: clientId,
           channel: nextChannel || 'telegram'
         })
+
         const data = await call<{
           hit?: boolean
           draft?: {
@@ -5557,6 +5842,7 @@ function CampaignsPage() {
   const loadClientFacts = useCallback(
     async (clientId: string) => {
       const gen = ++factsGenRef.current
+
       try {
         // Force live pull (bypass 90s throttle) so inbound replies after send appear.
         try {
@@ -5572,9 +5858,11 @@ function CampaignsPage() {
               model: MS_AI_DEFAULT_MODEL
             }
           })
+
           if (gen !== factsGenRef.current) {
             return
           }
+
           if (synced.conversation || synced.ai) {
             setFacts(prev => {
               if (!prev) {
@@ -5589,6 +5877,7 @@ function CampaignsPage() {
                   ai_provider: synced.ai?.provider || MS_AI_DEFAULT_PROVIDER
                 }
               }
+
               return {
                 ...prev,
                 conversation: synced.conversation || prev.conversation,
@@ -5612,16 +5901,20 @@ function CampaignsPage() {
         const detail = await call<ClientDetail>(
           `/clients/${encodeURIComponent(clientId)}`
         )
+
         if (gen !== factsGenRef.current) {
           return
         }
+
         setFacts(prev => {
           const next = factsFromDetail(detail)
           const prevCount = Number(prev?.conversation?.message_count || 0)
           const nextCount = Number(next.conversation?.message_count || 0)
+
           if (prev?.conversation && prevCount > nextCount) {
             next.conversation = prev.conversation
           }
+
           return next
         })
       } catch {
@@ -5701,12 +5994,15 @@ function CampaignsPage() {
             } else if (type === 'done') {
               const nextFacts =
                 ev.facts && typeof ev.facts === 'object' ? (ev.facts as ClientFacts) : null
+
               const nextSanity =
                 ev.sanity && typeof ev.sanity === 'object'
                   ? (ev.sanity as SanityResult)
                   : null
+
               const nextNotes =
                 typeof ev.grounding_notes === 'string' ? ev.grounding_notes : ''
+
               const nextSource = typeof ev.source === 'string' ? ev.source : ''
 
               if (nextFacts) {
@@ -5726,6 +6022,7 @@ function CampaignsPage() {
               }
 
               const msg = pickOutreachMessage(ev) || streamed
+
               const status = nextSanity?.auto_revised
                 ? 'AI сгенерировал текст (sanity поправил формулировку).'
                 : AI_GENERATED_STATUS
@@ -5748,6 +6045,7 @@ function CampaignsPage() {
 
               const remoteName =
                 typeof ev.client_name === 'string' ? ev.client_name.trim() : ''
+
               const localName = selectedClientNameRef.current.trim()
 
               if (remoteName && !localName) {
@@ -5804,7 +6102,9 @@ function CampaignsPage() {
     if (!prefillReady || !selectedClientId) {
       return
     }
+
     const cid = selectedClientId
+
     const timer = setInterval(() => {
       void call<{ conversation?: ClientConversation }>(
         `/clients/${encodeURIComponent(cid)}/conversation/sync?refresh_ai=false`,
@@ -5814,6 +6114,7 @@ function CampaignsPage() {
           if (selectedClientIdRef.current !== cid || !data.conversation) {
             return
           }
+
           setFacts(prev =>
             prev ? { ...prev, conversation: data.conversation } : prev
           )
@@ -5887,6 +6188,7 @@ function CampaignsPage() {
       setError(
         'У клиента нет id МойСклад — нажмите «Обновить» на Клиентах и выберите снова'
       )
+
       return
     }
 
@@ -5906,12 +6208,14 @@ function CampaignsPage() {
 
   const selectContactFromPicker = (contactId: string) => {
     setContactPickerId(contactId)
+
     if (!contactId) {
       return
     }
 
     const contact = outreachContacts.find(c => c.id === contactId)
     const name = contact?.name || contact?.label || contactId
+
     const plan = planAudienceChipClick({
       pickMode: 'single',
       rowId: contactId,
@@ -5944,12 +6248,16 @@ function CampaignsPage() {
 
   const resolveOutreachContactQuery = async () => {
     const q = addContactQuery.trim() || addContactNick.trim() || addContactChatId.trim()
+
     if (!q) {
       setError('Укажите @ник, t.me/… или numeric chat id — расшифруем через Bot API')
+
       return
     }
+
     setAddContactResolving(true)
     setError('')
+
     try {
       const data = await call<{
         tg_nick?: string
@@ -5964,15 +6272,19 @@ function CampaignsPage() {
           tg_chat_id: addContactChatId.trim()
         }
       })
+
       if (data.tg_nick) {
         setAddContactNick(data.tg_nick)
       }
+
       if (data.tg_chat_id) {
         setAddContactChatId(String(data.tg_chat_id))
       }
+
       if (data.name && !addContactName.trim()) {
         setAddContactName(data.name)
       }
+
       setActionStatus(
         `✓ Расшифровано (${data.resolved_via || 'api'}): ` +
           `${data.tg_nick ? `@${data.tg_nick}` : ''} ${data.tg_chat_id || ''}`.trim()
@@ -5988,13 +6300,16 @@ function CampaignsPage() {
     const nick = addContactNick.trim().replace(/^@/, '')
     const chatId = addContactChatId.trim()
     const query = addContactQuery.trim()
+
     if (!nick && !chatId && !query) {
       setError('Укажите @ник, t.me/… или numeric chat id — расшифруем через Bot API')
+
       return
     }
 
     setAddContactSaving(true)
     setError('')
+
     try {
       const data = await call<{
         contact?: OutreachContact & { resolved_via?: string }
@@ -6008,21 +6323,27 @@ function CampaignsPage() {
           resolve: true
         }
       })
+
       const added = data.contact
+
       if (added?.id) {
         // Pin the new row at the top of «Добавленные» immediately — don't wait
         // for the full refresh or hunt among 300 Telegram peers.
         setOutreachContacts(prev => {
           const row = { ...added, source: added.source || 'custom' }
           const rest = prev.filter(c => c.id !== row.id)
+
           return [row, ...rest]
         })
         selectContactFromPicker(added.id)
       }
+
       await loadOutreachContacts()
+
       if (added?.id) {
         selectContactFromPicker(added.id)
       }
+
       setAddContactName('')
       setAddContactNick('')
       setAddContactChatId('')
@@ -6040,6 +6361,7 @@ function CampaignsPage() {
   }
 
   const [lastSentClientIds, setLastSentClientIds] = useState<string[]>([])
+
   const [replies, setReplies] = useState<
     Array<{
       client_id?: string
@@ -6050,6 +6372,7 @@ function CampaignsPage() {
       updated_at?: string
     }>
   >([])
+
   const [repliesBusy, setRepliesBusy] = useState(false)
   const [repliesMeta, setRepliesMeta] = useState('')
 
@@ -6074,6 +6397,7 @@ function CampaignsPage() {
       setSendImage(next)
       setMassImage(next)
     }
+
     reader.readAsDataURL(file)
   }, [])
 
@@ -6126,6 +6450,7 @@ function CampaignsPage() {
 
           return next
         })
+
         const clearPhoto = (
           image: { name: string; dataUrl?: string; url?: string } | null
         ) => {
@@ -6137,6 +6462,7 @@ function CampaignsPage() {
 
           return image
         }
+
         setMassImage(clearPhoto)
         setSendImage(clearPhoto)
       }
@@ -6144,6 +6470,7 @@ function CampaignsPage() {
       return rest
     })
   }, [])
+
   const [massIds, setMassIds] = useState<string[]>([])
   const [massPicking, setMassPicking] = useState(false)
   const [massStarting, setMassStarting] = useState(false)
@@ -6181,12 +6508,14 @@ function CampaignsPage() {
     model?: ChatModelKey
   }) => {
     const ask = (override?.ask ?? chatInput).trim()
+
     if (!ask || chatBusy || !selectedClientId) {return}
     const modelKey = override?.model ?? chatModel
     const turns = [...chatTurns, { role: 'user' as const, content: ask }]
     setChatTurns(turns)
     setChatInput('')
     setChatBusy(true)
+
     try {
       const data = await call<{ reply?: string; message?: string }>('/campaigns/chat', {
         method: 'POST',
@@ -6202,9 +6531,11 @@ function CampaignsPage() {
           seller_facts: sellerFacts
         }
       })
+
       const reply = (data.reply || '').trim() || 'Готово.'
       setChatTurns(prev => [...prev, { role: 'assistant', content: reply }])
       const msg = (data.message || '').trim()
+
       if (msg) {
         setOffer(msg)
         offerRef.current = msg
@@ -6251,6 +6582,7 @@ function CampaignsPage() {
       source?: string
     }[]
   >([])
+
   const [sentFeedOpen, setSentFeedOpen] = useState(true)
 
   const loadSentFeed = useCallback(async () => {
@@ -6258,6 +6590,7 @@ function CampaignsPage() {
       const data = await call<{ messages?: typeof sentFeed }>(
         '/campaigns/sent-history?limit=300'
       )
+
       setSentFeed(newestFirstByTs(data.messages || [], m => m.ts))
     } catch {
       /* best-effort */
@@ -6267,10 +6600,12 @@ function CampaignsPage() {
   const loadSendHistory = useCallback(async () => {
     setHistoryLoading(true)
     setHistoryError('')
+
     try {
       const data = await call<{ jobs?: MassJobSummary[] }>(
         '/campaigns/mass-send/history?limit=20'
       )
+
       setHistoryJobs(newestFirstByTs(data.jobs || [], j => j.created_at))
     } catch (err) {
       setHistoryJobs([])
@@ -6291,9 +6626,11 @@ function CampaignsPage() {
     if (!massJob?.id) {
       return
     }
+
     if (isMassJobActive(massJobStatus)) {
       return
     }
+
     void loadSendHistory()
   }, [massJob?.id, massJobStatus, loadSendHistory])
 
@@ -6302,15 +6639,19 @@ function CampaignsPage() {
       if (historyOpenJobId === jobId) {
         setHistoryOpenJobId(null)
         setHistoryRows([])
+
         return
       }
+
       setHistoryOpenJobId(jobId)
       setHistoryRows([])
       setHistoryRowsLoading(true)
+
       try {
         const data = await call<{
           job?: MassJobSummary & { recipients?: MassRecipientRow[] }
         }>(`/campaigns/mass-send/${encodeURIComponent(jobId)}?limit=2000`)
+
         setHistoryRows(newestFirstByTs(data.job?.recipients || [], r => r.ts))
       } catch {
         setHistoryRows([])
@@ -6320,9 +6661,11 @@ function CampaignsPage() {
     },
     [call, historyOpenJobId]
   )
+
   const [dialogClient, setDialogClient] = useState<{ id: string; name?: string } | null>(
     null
   )
+
   const massJobRef = useRef<MassJobSummary | null>(null)
   massJobRef.current = massJob
   const massRowsRef = useRef<MassRecipientRow[]>([])
@@ -6332,15 +6675,19 @@ function CampaignsPage() {
 
   const pollMassJob = useCallback(async () => {
     const jobId = massJobRef.current?.id
+
     if (!jobId || massPollBusyRef.current) {
       return
     }
+
     massPollBusyRef.current = true
+
     try {
       // Terminal rows never change — poll from the first live index. When the
       // job is finished, keep paging until the local log holds every row.
       for (let hop = 0; hop < 20; hop += 1) {
         const offset = terminalPrefixLength(massRowsRef.current)
+
         const data = await call<{
           job?: MassJobSummary & {
             recipients?: MassRecipientRow[]
@@ -6349,22 +6696,28 @@ function CampaignsPage() {
         }>(
           `/campaigns/mass-send/${encodeURIComponent(jobId)}?offset=${offset}&limit=500`
         )
+
         const next = data.job
+
         if (!next?.id || next.id !== massJobRef.current?.id) {
           return
         }
+
         const { recipients, results_offset, ...summary } = next
         setMassJob(summary)
         massJobRef.current = summary
+
         const merged = overlayMassRows(
           massRowsRef.current,
           recipients || [],
           results_offset ?? offset
         )
+
         massRowsRef.current = merged
         setMassRows(merged)
         const done = !isMassJobActive(summary.status)
         const complete = terminalPrefixLength(merged) >= (summary.total || 0)
+
         if (!done || complete || !(recipients || []).length) {
           return
         }
@@ -6380,10 +6733,13 @@ function CampaignsPage() {
     if (!massJob?.id || !isMassJobActive(massJob.status)) {
       return
     }
+
     void pollMassJob()
+
     const timer = setInterval(() => {
       void pollMassJob()
     }, 2000)
+
     return () => clearInterval(timer)
     // Re-arm only on job switch / lifecycle edge — not every counter tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6394,6 +6750,7 @@ function CampaignsPage() {
     void call<{ job?: MassJobSummary | null }>('/campaigns/mass-send/latest')
       .then(data => {
         const job = data.job
+
         if (job?.id && isMassJobActive(job.status)) {
           setMassJob(job)
           setMassModalOpen(true)
@@ -6405,15 +6762,18 @@ function CampaignsPage() {
   const massSelectAudience = async () => {
     setMassPicking(true)
     setError('')
+
     try {
       const params = audienceFilterParams({
         limit: MASS_AUDIENCE_SELECT_CAP,
         offset: 0
       })
+
       const data = await call<{ ids?: string[]; matched_total?: number }>(
         `/clients/ids?${params}`,
         { timeoutMs: 180_000 }
       )
+
       const ids = data.ids || []
       setMassIds(ids)
       setActionStatus(
@@ -6433,15 +6793,19 @@ function CampaignsPage() {
 
   const massStart = async () => {
     const text = massText.trim()
+
     if (!text || !massIds.length || massStarting) {
       return
     }
+
     setMassConfirmOpen(false)
     setMassStarting(true)
     setError('')
+
     try {
       const imageUrl = (massImage?.url || '').trim()
       const imageBase64 = imageUrl ? '' : massImage?.dataUrl || ''
+
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
         timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
@@ -6456,6 +6820,7 @@ function CampaignsPage() {
           image_name: massImage?.name || 'photo.jpg'
         }
       })
+
       if (data.job?.id) {
         setMassRows([])
         massRowsRef.current = []
@@ -6476,10 +6841,13 @@ function CampaignsPage() {
 
   const massCancel = async () => {
     const jobId = massJobRef.current?.id
+
     if (!jobId || massCancelling) {
       return
     }
+
     setMassCancelling(true)
+
     try {
       await call(`/campaigns/mass-send/${encodeURIComponent(jobId)}/cancel`, {
         method: 'POST'
@@ -6499,15 +6867,19 @@ function CampaignsPage() {
         : selectedClientId
           ? [selectedClientId]
           : []
+
     if (!cohort.length) {
       setError(
         'Нет когорты для сбора — сначала отправьте сообщение клиенту или выберите его в списке.'
       )
+
       return
     }
+
     setRepliesBusy(true)
     setError('')
     setRepliesMeta(`Синхронизирую ответы (${cohort.length})…`)
+
     try {
       const data = await call<{
         awaiting?: number
@@ -6530,6 +6902,7 @@ function CampaignsPage() {
           limit: 200
         }
       })
+
       setReplies(data.replies || [])
       setRepliesMeta(
         `Ждут ответа: ${data.awaiting ?? 0}` +
@@ -6580,6 +6953,7 @@ function CampaignsPage() {
       // inflate the JSON body and trip the 15s desktop default timeout.
       const imageUrl = (sendImage?.url || '').trim()
       const imageBase64 = imageUrl ? '' : sendImage?.dataUrl || ''
+
       const data = await call<{
         conversation?: ClientConversation
         facts?: ClientFacts
@@ -7073,6 +7447,7 @@ function CampaignsPage() {
           <div className="ms-chips ms-rail-audience-chips">
             {audiencePreview.slice(0, 12).map(row => {
               const nick = (row.tg_nick || '').replace(/^@/, '')
+
               return (
                 <button
                   className="ms-chip"
@@ -7135,6 +7510,7 @@ function CampaignsPage() {
                         if (!row.client_id) {
                           return
                         }
+
                         setDialogClient({
                           id: row.client_id,
                           name: row.client_name || row.tg_nick || ''
@@ -7222,12 +7598,16 @@ function CampaignsPage() {
                   disabled={segmentsLoading}
                   onChange={e => {
                     const id = e.target.value
+
                     if (!id) {
                       setActiveSegmentId('')
                       setSegmentName('')
+
                       return
                     }
+
                     const seg = segments.find(s => s.id === id)
+
                     if (seg) {
                       applySegment(seg)
                     }
@@ -7304,6 +7684,7 @@ function CampaignsPage() {
                       }
                     })
                   }
+
                   if (e.key === 'Escape') {
                     setSaveFilterOpen(false)
                   }
@@ -7334,6 +7715,7 @@ function CampaignsPage() {
                   className="ms-link-btn"
                   onClick={() => {
                     const active = segments.find(s => s.id === activeSegmentId)
+
                     if (active) {
                       void removeSegment(active)
                     }
@@ -7566,6 +7948,7 @@ function CampaignsPage() {
                       leadDays={daysBeforeEvent}
                       onLeadDaysChange={n => {
                         setDaysBeforeEvent(n)
+
                         if (n > 0) {
                           setBirthdaySoon(false)
                         }
@@ -7573,6 +7956,7 @@ function CampaignsPage() {
                       onRangeChange={(from, to) => {
                         setEventDateFrom(from)
                         setEventDateTo(to)
+
                         if (from || to) {
                           setBirthdaySoon(false)
                         }
@@ -8004,6 +8388,7 @@ function CampaignsPage() {
                         setSendImage(next)
                         setMassImage(next)
                       }
+
                       reader.readAsDataURL(file)
                     }}
                     style={{ display: 'none' }}
@@ -8137,9 +8522,11 @@ function CampaignsPage() {
                 onClick={() => {
                   setTgOpen(open => {
                     const next = !open
+
                     if (next && !tgUser?.authorized) {
                       setTgStep('phone')
                     }
+
                     return next
                   })
                 }}
@@ -8328,6 +8715,7 @@ function CampaignsPage() {
                   const row = audiencePreview.find(
                     r => (r.id || '') === e.target.value
                   )
+
                   if (row) {
                     selectAudienceClient(row)
                   }
@@ -8350,6 +8738,7 @@ function CampaignsPage() {
                   .filter(r => r.id)
                   .map(row => {
                     const nick = (row.tg_nick || '').replace(/^@/, '')
+
                     return (
                       <option key={`aud-${row.id}`} value={row.id}>
                         {row.name || row.phone || row.id}
@@ -8565,15 +8954,18 @@ function CampaignsPage() {
                       const bounds = photoDragBounds()
                       photoDragRef.current = null
                       ev.currentTarget.releasePointerCapture(ev.pointerId)
+
                       if (!start || !bounds) {
                         return
                       }
+
                       // Drop: open/expand a blank run under the pointer so text clears.
                       const raw = dragPhotoOffset(
                         start,
                         { x: ev.clientX, y: ev.clientY },
                         bounds
                       )
+
                       parkSendImageAt(raw.y, raw.x)
                     }}
                     ref={photoRef}
@@ -8705,6 +9097,7 @@ function CampaignsPage() {
                       key={mk}
                       onClick={() => {
                         setChatModel(mk)
+
                         if ((offerRef.current || offer).trim()) {
                           void sendChatTurn({
                             ask: 'Перепиши этот текст той же сутью, но свежими словами.',
@@ -8947,6 +9340,7 @@ function CampaignsPage() {
           onToggle={e => {
             const open = (e.target as HTMLDetailsElement).open
             setSentFeedOpen(open)
+
             if (open) {void loadSentFeed()}
           }}
           open={sentFeedOpen}
@@ -9215,6 +9609,7 @@ interface PlaygroundTrace {
 
 function playgroundStats(text: string): { chars: number; words: number; lines: number } {
   const trimmed = text.trim()
+
   if (!trimmed) {
     return { chars: 0, words: 0, lines: 0 }
   }
@@ -9266,6 +9661,7 @@ function AiPlaygroundChrome() {
       }
 
       const target = event.target as HTMLElement | null
+
       if (target?.closest?.('textarea, input, select, [contenteditable="true"]')) {
         return
       }
@@ -9373,9 +9769,11 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
 
   const applyTrace = useCallback((trace: PlaygroundTrace) => {
     const panels = trace.panels || {}
+
     if (typeof panels.input_text === 'string') {
       setInputText(panels.input_text)
     }
+
     const nextOutputs = panels.outputs || {}
     setOutputs(nextOutputs)
     setHistoryText(String(nextOutputs.history_profile || trace.stages?.active?.history_profile || ''))
@@ -9407,6 +9805,7 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
         if (cancelled) {return}
         const rows = data.clients || []
         setClients(rows)
+
         if (rows[0]?.id) {
           setSelectedId(String(rows[0].id))
         }
@@ -9460,7 +9859,9 @@ function AiPlaygroundPage({ embedded = false }: { embedded?: boolean } = {}) {
         },
         timeoutMs: runLlm ? OUTREACH_AI_TIMEOUT_MS : 30_000
       })
+
       applyTrace(trace)
+
       if (runLlm) {
         setCompareOpen(true)
         setDebugKey('llm')
@@ -9701,6 +10102,7 @@ function AiPlaygroundLegacyRoute() {
 function DashboardPage() {
   const call = useMsRest()
   const [reportChatOpen, setReportChatOpen] = useState(false)
+
   const [data, setData] = useState<{
     clients?: Record<string, number>
     sends?: {
@@ -9744,12 +10146,14 @@ function DashboardPage() {
       adjusted_month_total?: number
     }[]
   } | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+
     try {
       const payload = await call<typeof data>('/dashboard', { timeoutMs: 120_000 })
       setData(payload)
