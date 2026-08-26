@@ -5460,6 +5460,22 @@ class CardDraftBody(BaseModel):
     model: str = ""
 
 
+class CardImproveBody(BaseModel):
+    """Concrete SEO fix: description draft + photo shots (optional image gen)."""
+
+    name: str = ""
+    price: float | None = None
+    composition: str = ""
+    images_count: int | None = None
+    content_rating: int | None = None
+    marketplace: str = ""
+    image_url: str = ""
+    generate_images: bool = True
+    max_images: int = 2
+    provider: str = ""
+    model: str = ""
+
+
 @router.get("/cards/ms-search")
 def get_cards_ms_search(query: str = Query(default=""), limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
     """Поиск букета в каталоге МоегоСклада (шаг 1 создания карточки)."""
@@ -5498,6 +5514,40 @@ def post_cards_draft(body: CardDraftBody) -> dict[str, Any]:
         log.exception("moysklad /cards/draft failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+@router.post("/cards/improve")
+def post_cards_improve(body: CardImproveBody) -> dict[str, Any]:
+    """Конкретные варианты для слабой карточки: описание + план/генерация фото.
+
+    On-demand (не для всех 500 сразу): LLM-черновики описаний + shot-list
+    под гайд площадки; при настроенном ``image_gen`` — до ``max_images`` картинок.
+    """
+    try:
+        from plugins.moysklad.cards_studio import improve_card_content
+
+        out = improve_card_content(
+            name=body.name,
+            price=body.price,
+            composition=body.composition,
+            images_count=body.images_count,
+            content_rating=body.content_rating,
+            marketplace=body.marketplace,
+            image_url=body.image_url,
+            generate_images=body.generate_images,
+            max_images=max(0, min(4, int(body.max_images or 0))),
+            provider=body.provider,
+            model=body.model,
+        )
+        if not out.get("ok"):
+            raise HTTPException(
+                status_code=400, detail=str(out.get("error") or "improve failed")
+            )
+        return out
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/improve failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @router.get("/cards/orders")
 def get_cards_orders(

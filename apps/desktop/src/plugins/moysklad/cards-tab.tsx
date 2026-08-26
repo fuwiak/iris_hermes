@@ -449,6 +449,22 @@ function CombinedDrawer({
                       {item.docs}
                     </span>
                   ) : null}
+                  {rest &&
+                  CONTENT_IMPROVE_BLOCKS.has(item.block || '') &&
+                  card.name ? (
+                    <RecImprovePanel
+                      rest={rest}
+                      row={{
+                        name: card.name,
+                        marketplace: String(item.fact?.marketplace || 'yandex'),
+                        rating:
+                          typeof item.fact?.rating === 'number' ? item.fact.rating : null,
+                        images:
+                          typeof item.fact?.images === 'number' ? item.fact.images : null,
+                        price: typeof item.fact?.price === 'number' ? item.fact.price : null
+                      }}
+                    />
+                  ) : null}
                 </div>
               ))}
             </section>
@@ -670,7 +686,166 @@ const CARD_TABS: [string, string][] = [
   ['analytics', 'Аналитика']
 ]
 
-function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; data: RecPayload | null }) {
+type CardImprovePayload = {
+  ok?: boolean
+  name?: string
+  description?: {
+    ok?: boolean
+    error?: string
+    preferred?: string
+    drafts?: Record<string, string>
+    hint?: string
+  }
+  photos?: {
+    target_count?: number
+    have?: number
+    shots?: { id?: string; title?: string; why?: string; prompt?: string }[]
+    generated?: { id?: string; title?: string; why?: string; prompt?: string; image?: string }[]
+    generate_ok?: boolean
+    generate_error?: string
+    generate_hint?: string
+    skipped?: boolean
+  }
+}
+
+const CONTENT_IMPROVE_BLOCKS = new Set(['low_rating', 'few_photos'])
+
+function RecImprovePanel({
+  rest,
+  row
+}: {
+  rest: CardsRest
+  row: RecRow
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [payload, setPayload] = useState<CardImprovePayload | null>(null)
+
+  const run = async (generateImages: boolean) => {
+    const name = (row.name || '').trim()
+
+    if (!name || busy) {
+      return
+    }
+
+    setBusy(true)
+    setError('')
+
+    try {
+      const out = await rest<CardImprovePayload>('/cards/improve', {
+        method: 'POST',
+        body: {
+          name,
+          price: row.price ?? null,
+          images_count: row.images ?? null,
+          content_rating: row.rating ?? null,
+          marketplace: row.marketplace || 'yandex',
+          generate_images: generateImages,
+          max_images: generateImages ? 2 : 0
+        },
+        timeoutMs: 180_000
+      })
+      setPayload(out)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const preferred = payload?.description?.preferred || ''
+  const drafts = payload?.description?.drafts || {}
+  const shots = payload?.photos?.shots || []
+  const generated = payload?.photos?.generated || []
+
+  return (
+    <div className="ms-rec-improve">
+      <div className="ms-rec-improve-actions">
+        <button
+          className="ms-kc-btn-ghost"
+          disabled={busy || !(row.name || '').trim()}
+          onClick={() => void run(false)}
+          type="button"
+        >
+          {busy ? 'Генерируем…' : 'Вариант описания + план фото'}
+        </button>
+        <button
+          className="ms-kc-btn-ai"
+          disabled={busy || !(row.name || '').trim()}
+          onClick={() => void run(true)}
+          type="button"
+        >
+          {busy ? 'Генерируем…' : 'Сгенерировать фото'}
+        </button>
+      </div>
+      {error ? <p className="ms-error">{error}</p> : null}
+      {payload ? (
+        <div className="ms-rec-improve-body">
+          <div className="ms-rec-improve-block">
+            <strong>Вариант описания</strong>
+            {preferred ? (
+              <pre className="ms-rec-improve-text">{preferred}</pre>
+            ) : (
+              <p className="ms-muted">
+                {payload.description?.error || 'Не удалось получить черновик'}
+              </p>
+            )}
+            {Object.entries(drafts).map(([mp, text]) =>
+              text && text !== preferred ? (
+                <details key={mp} className="ms-rec-improve-alt">
+                  <summary>{MP_LABELS[mp] || mp}</summary>
+                  <pre className="ms-rec-improve-text">{text}</pre>
+                </details>
+              ) : null
+            )}
+          </div>
+          <div className="ms-rec-improve-block">
+            <strong>
+              Какие фото добавить ({payload.photos?.have ?? 0} → {payload.photos?.target_count ?? 6})
+            </strong>
+            <ul className="ms-rec-improve-shots">
+              {shots.map(shot => (
+                <li key={shot.id || shot.title}>
+                  <b>{shot.title}</b>
+                  {shot.why ? <span className="ms-muted"> — {shot.why}</span> : null}
+                  {shot.prompt ? (
+                    <div className="ms-rec-improve-prompt">{shot.prompt}</div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {generated.length ? (
+              <div className="ms-rec-improve-images">
+                {generated.map(img => (
+                  <figure key={img.id || img.title}>
+                    {img.image ? <img alt={img.title || ''} src={img.image} /> : null}
+                    <figcaption>{img.title}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            ) : null}
+            {payload.photos?.generate_error ? (
+              <p className="ms-muted">
+                Фото: {payload.photos.generate_error}
+                {payload.photos.generate_hint ? ` · ${payload.photos.generate_hint}` : ''}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function RecBlockList({
+  blocks,
+  data,
+  rest
+}: {
+  blocks: [keyof RecPayload, string][]
+  data: RecPayload | null
+  rest?: CardsRest
+}) {
   if (!data) {
     return <p className="ms-muted">Считаем…</p>
   }
@@ -686,6 +861,7 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
       {nonEmpty.map(([key, label]) => {
         const rows = (data[key] as RecRow[] | undefined) || []
         const meta = data.meta?.[key as string]
+        const canImprove = Boolean(rest) && CONTENT_IMPROVE_BLOCKS.has(String(key))
 
         return (
           <section key={key} style={{ marginTop: 10 }}>
@@ -703,12 +879,13 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
                 По справке площадки: {meta.docs_action}
               </p>
             ) : null}
-            <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {rows.map((row, idx) => (
                 <li key={idx} style={{ lineHeight: 1.35 }}>
                   {row.name || (row.names || []).join(' / ') || row.article}
                   {recLine(row) ? <span className="ms-muted"> — {recLine(row)}</span> : null}
                   {row.action ? <span className="ms-muted"> → {row.action}</span> : null}
+                  {canImprove && row.name ? <RecImprovePanel rest={rest!} row={row} /> : null}
                 </li>
               ))}
             </ul>
@@ -874,41 +1051,54 @@ function RankingAuditPanel({ rest }: { rest: CardsRest }) {
                 {card.medium ? <span className="ms-seo-badge is-medium">{card.medium} средний</span> : null}
               </button>
               {open ? (
-                <ul className="ms-seo-findings">
-                  {findings.map((f, i) => (
-                    <li
-                      className={`ms-seo-finding is-${f.priority}${f.rule_id === activeRule ? ' is-highlighted' : ''}`}
-                      key={i}
-                    >
-                      <button
-                        className="ms-seo-finding-rule"
-                        onClick={() => setActiveRule(f.rule_id === activeRule ? '' : f.rule_id || '')}
-                        title="Показать все карточки по этому правилу"
-                        type="button"
+                <>
+                  <ul className="ms-seo-findings">
+                    {findings.map((f, i) => (
+                      <li
+                        className={`ms-seo-finding is-${f.priority}${f.rule_id === activeRule ? ' is-highlighted' : ''}`}
+                        key={i}
                       >
-                        {MP_LABELS[f.marketplace || ''] || f.marketplace} · {f.factor}
-                        {f.weight ? ` (${f.weight})` : ''}
-                      </button>
-                      <span className={`ms-seo-prio is-${f.priority}`}>
-                        приоритет: {PRIORITY_LABEL[f.priority || ''] || f.priority}
-                      </span>
-                      <div className="ms-seo-line">
-                        <b>Проблема:</b> {f.problem}
-                      </div>
-                      <div className="ms-seo-line">
-                        <b>Действие:</b> {f.action}
-                      </div>
-                      <div className="ms-seo-line ms-muted">
-                        <b>Ожидаемый эффект:</b> {f.expected}
-                      </div>
-                      {f.source ? (
-                        <a className="ms-seo-src" href={f.source} rel="noreferrer" target="_blank">
-                          правило площадки ↗
-                        </a>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
+                        <button
+                          className="ms-seo-finding-rule"
+                          onClick={() => setActiveRule(f.rule_id === activeRule ? '' : f.rule_id || '')}
+                          title="Показать все карточки по этому правилу"
+                          type="button"
+                        >
+                          {MP_LABELS[f.marketplace || ''] || f.marketplace} · {f.factor}
+                          {f.weight ? ` (${f.weight})` : ''}
+                        </button>
+                        <span className={`ms-seo-prio is-${f.priority}`}>
+                          приоритет: {PRIORITY_LABEL[f.priority || ''] || f.priority}
+                        </span>
+                        <div className="ms-seo-line">
+                          <b>Проблема:</b> {f.problem}
+                        </div>
+                        <div className="ms-seo-line">
+                          <b>Действие:</b> {f.action}
+                        </div>
+                        <div className="ms-seo-line ms-muted">
+                          <b>Ожидаемый эффект:</b> {f.expected}
+                        </div>
+                        {f.source ? (
+                          <a className="ms-seo-src" href={f.source} rel="noreferrer" target="_blank">
+                            правило площадки ↗
+                          </a>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {card.name ? (
+                    <div style={{ padding: '0 10px 10px' }}>
+                      <RecImprovePanel
+                        rest={rest}
+                        row={{
+                          name: card.name,
+                          marketplace: findings[0]?.marketplace || 'yandex'
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </>
               ) : null}
             </div>
           )
@@ -922,12 +1112,14 @@ function SeoPromotionPanel({
   data,
   onAskAi,
   onOpenParams,
-  params
+  params,
+  rest
 }: {
   data: RecPayload | null
   onAskAi: () => void
   onOpenParams: () => void
   params: RecParams
+  rest: CardsRest
 }) {
   const lowCount = (data?.low_rating || []).length
   const fewCount = (data?.few_photos || []).length
@@ -998,12 +1190,17 @@ function SeoPromotionPanel({
           ))}
         </div>
       ) : null}
+      <p className="ms-muted" style={{ margin: '0 0 8px', fontSize: 13 }}>
+        По каждой карточке можно получить конкретный текст описания и список/генерацию фото для
+        загрузки в кабинет.
+      </p>
       <RecBlockList
         blocks={[
           ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
           ['few_photos', `Мало фото (< ${params.minPhotos})`]
         ]}
         data={data}
+        rest={rest}
       />
     </div>
   )
@@ -2387,6 +2584,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                 onAskAi={() => setChatOpen(true)}
                 onOpenParams={() => setParamsOpen(true)}
                 params={params}
+                rest={rest}
               />
               <RankingAuditPanel rest={rest} />
             </>

@@ -55,6 +55,61 @@ def test_generate_card_draft_requires_name_and_parses(monkeypatch):
     assert out["drafts"] == {"flowwow": "A", "yandex_market": "B"}
 
 
+def test_photo_shot_plan_for_postcard_and_bouquet():
+    card_shots = studio.photo_shot_plan(
+        'Открытка "Люблю!", для любимой', images_count=2
+    )
+    assert len(card_shots) >= 2
+    assert any("открыт" in (s["title"] + s["prompt"]).lower() or "card" in s["prompt"].lower() for s in card_shots)
+    assert all(s["prompt"] and s["title"] and s["why"] for s in card_shots)
+
+    bouquet = studio.photo_shot_plan("Букет пионов", images_count=0)
+    assert len(bouquet) >= 3
+    assert "bouquet" in bouquet[0]["prompt"].lower() or "букет" in bouquet[0]["prompt"].lower()
+
+
+def test_improve_card_content_returns_description_and_shots(monkeypatch):
+    module = types.ModuleType("agent.auxiliary_client")
+    module.call_llm = lambda **kw: {
+        "text": "[FLOWWOW]\nТёплый текст\n[YANDEX]\nСтруктура для Маркета"
+    }
+    module.extract_content_or_reasoning = lambda resp: resp["text"]
+    monkeypatch.setitem(sys.modules, "agent.auxiliary_client", module)
+
+    out = studio.improve_card_content(
+        name='Открытка "Люблю!" Veresk 749',
+        images_count=2,
+        content_rating=67,
+        marketplace="yandex",
+        generate_images=False,
+    )
+    assert out["ok"] is True
+    assert out["description"]["ok"] is True
+    assert "Структура" in out["description"]["preferred"]
+    assert out["photos"]["shots"]
+    assert out["photos"]["have"] == 2
+    assert out["photos"]["skipped"] is True
+    assert out["photos"]["generated"] == []
+
+
+def test_generate_card_photos_without_provider(monkeypatch):
+    monkeypatch.setattr(
+        "agent.image_gen_registry.get_active_provider",
+        lambda: None,
+        raising=False,
+    )
+    # Ensure import path resolves even if registry not loaded.
+    import agent.image_gen_registry as reg
+
+    monkeypatch.setattr(reg, "get_active_provider", lambda: None)
+    out = studio.generate_card_photos(
+        [{"id": "hero", "title": "Герой", "prompt": "test prompt"}],
+        max_images=1,
+    )
+    assert out["ok"] is False
+    assert out["error"] == "image_gen_not_configured"
+
+
 def test_recent_orders_sorted_newest_first(monkeypatch):
     import plugins.moysklad.yandex_market as ym
 
