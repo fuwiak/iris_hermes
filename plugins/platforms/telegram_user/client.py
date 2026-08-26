@@ -2165,6 +2165,68 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     return _call(_send, timeout=60.0)
 
 
+def send_photo(
+    *,
+    peer: str,
+    caption: str = "",
+    image_bytes: bytes | None = None,
+    image_name: str = "photo.jpg",
+    image_url: str = "",
+) -> dict[str, Any]:
+    """Send a photo from the connected personal account.
+
+    The Business bot cannot start a chat with someone who never wrote to it
+    (``chat not found`` / ``BUSINESS_PEER_INVALID``), so a photo to a plain
+    contact only lands over MTProto. Accepts raw bytes or a URL, which
+    Telethon fetches itself.
+    """
+    if not image_bytes and not str(image_url or "").strip():
+        return _err("image_missing", "Нет фото (bytes/url)")
+
+    if _gateway_base():
+        # The gateway speaks text-only today — say so instead of dropping it.
+        return _err(
+            "gateway_no_photo",
+            "Шлюз личного Telegram не умеет фото — отключите gateway или шлите ботом",
+        )
+
+    target = _peer_arg(peer)
+    if not str(target).strip("@"):
+        return _err("telegram_chat_missing", "Нужен @ник или chat id")
+
+    async def _send() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+
+        if image_bytes:
+            import io
+
+            blob = io.BytesIO(image_bytes)
+            # Telethon picks the media type from the name — without it a JPEG
+            # would be uploaded as a nameless document.
+            blob.name = image_name or "photo.jpg"
+            file_arg: Any = blob
+        else:
+            file_arg = str(image_url).strip()
+
+        msg = await client.send_file(
+            target,
+            file_arg,
+            caption=(caption or "")[:1024] or None,
+        )
+        chat_id = getattr(getattr(msg, "peer_id", None), "user_id", None)
+        _RUNNER.persist_session(client)
+        return {
+            "ok": True,
+            "message_id": getattr(msg, "id", None),
+            "chat_id": str(chat_id) if chat_id else str(target).lstrip("@"),
+            "via": "user_account_photo",
+        }
+
+    return _call(_send, timeout=120.0)
+
+
 def _message_ts(msg: Any) -> str:
     raw = getattr(msg, "date", None)
     if raw is None:

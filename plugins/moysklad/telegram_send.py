@@ -384,6 +384,51 @@ def _send_via_user_account(*, text: str, chat_id: str) -> dict[str, Any] | None:
     return result
 
 
+def _send_photo_via_user_account(
+    *,
+    text: str,
+    chat_id: str,
+    image_bytes: bytes | None,
+    image_name: str,
+    image_url: str,
+) -> dict[str, Any] | None:
+    """Photo from the operator's own account. ``None`` when it isn't connected.
+
+    Long text rides as the caption up to 1024 chars; the remainder follows as
+    a plain message so nothing is silently truncated.
+    """
+    peer = str(chat_id or "").strip()
+    if not peer:
+        return None
+    try:
+        if not tg_user.is_authorized():
+            return None
+        result = tg_user.send_photo(
+            peer=peer,
+            caption=text or "",
+            image_bytes=image_bytes,
+            image_name=image_name or "photo.jpg",
+            image_url=image_url or "",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("telegram user photo send crashed: %s", exc)
+        return {"ok": False, "error": "telegram_user_error", "detail": str(exc)}
+    if not result.get("ok"):
+        return result
+
+    out = {
+        "ok": True,
+        "message_id": result.get("message_id"),
+        "chat_id": result.get("chat_id") or peer,
+        "via": "user_account_photo",
+    }
+    body = (text or "").strip()
+    if len(body) > 1024:
+        tail = _send_via_user_account(text=body[1024:], chat_id=peer)
+        out["tail_ok"] = bool(tail and tail.get("ok"))
+    return out
+
+
 def _retry_after_seconds(data: dict[str, Any]) -> float:
     """Seconds Telegram asks us to wait on a 429, ``0`` when it is not a flood wait."""
     if data.get("error_code") != 429:
@@ -497,6 +542,31 @@ def send_telegram_message(
 
     image_bytes = _decode_image(image_base64)
     if image_bytes or (image_url or "").strip().startswith(("http://", "https://")):
+        # Personal account first: the Business bot can only reply inside chats
+        # of the connected account, so a photo to a plain contact comes back
+        # as chat not found / BUSINESS_PEER_INVALID and never arrives.
+        if mode in {"auto", "user"}:
+            user_photo = _send_photo_via_user_account(
+                text=text,
+                chat_id=chat_id,
+                image_bytes=image_bytes,
+                image_name=image_name or "photo.jpg",
+                image_url=(image_url or "").strip(),
+            )
+            if user_photo is not None and user_photo.get("ok"):
+                return user_photo
+            if mode == "user":
+                return user_photo or {
+                    "ok": False,
+                    "error": "telegram_user_unavailable",
+                    "detail": "Личный Telegram не подключён (Рассылки → Личный Telegram)",
+                }
+            if user_photo is not None:
+                log.info(
+                    "telegram user photo send failed (%s), falling back to Business bot",
+                    user_photo.get("error"),
+                )
+
         return _send_photo_via_bot(
             text=text,
             chat_id=chat_id,

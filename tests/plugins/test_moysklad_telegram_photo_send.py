@@ -178,3 +178,140 @@ def test_live_photo_send_to_recipient():
 
     assert out["ok"] is True, out
     assert out["message_id"]
+
+
+# --- Маршрутизация: фото не должно уходить ботом «в никуда» ----------------
+#
+# Регрессия, из-за которой ничего не приходило: фото всегда шло через
+# Business-бота, а бот не может писать первым тому, кто ему не писал —
+# Telegram отвечает chat not found / BUSINESS_PEER_INVALID. Личный аккаунт
+# такие сообщения доставляет, поэтому он должен идти первым.
+
+
+def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls):
+    sent: list[dict] = []
+
+    def fake_send_photo(*, peer, caption, image_bytes, image_name, image_url):
+        sent.append(
+            {
+                "peer": peer,
+                "caption": caption,
+                "has_bytes": bool(image_bytes),
+                "image_name": image_name,
+                "image_url": image_url,
+            }
+        )
+        return {"ok": True, "message_id": 555, "chat_id": "796461007"}
+
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: True)
+    monkeypatch.setattr(tg.tg_user, "send_photo", fake_send_photo)
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "auto")
+
+    out = tg.send_outreach_to_client(
+        text=CAPTION,
+        tg_nick=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+        image_name="bouquet.jpg",
+    )
+
+    assert out["ok"] is True
+    assert out["via"] == "user_account_photo"
+    assert sent == [
+        {
+            "peer": RECIPIENT_NICK,
+            "caption": CAPTION,
+            "has_bytes": True,
+            "image_name": "bouquet.jpg",
+            "image_url": "",
+        }
+    ]
+    # Бот вообще не трогался — иначе получатель ничего бы не увидел.
+    assert api_calls == []
+
+
+def test_photo_falls_back_to_bot_when_personal_account_fails(
+    monkeypatch, bot_env, api_calls
+):
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: True)
+    monkeypatch.setattr(
+        tg.tg_user,
+        "send_photo",
+        lambda **kw: {"ok": False, "error": "not_authorized", "detail": "no session"},
+    )
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "auto")
+
+    out = tg.send_outreach_to_client(
+        text=CAPTION,
+        tg_nick=RECIPIENT_NICK,
+        image_url="https://market.example/veresk-101.jpg",
+    )
+
+    assert out["ok"] is True
+    assert out["via"] == "business_bot_photo"
+    assert [c["method"] for c in api_calls] == ["sendPhoto"]
+
+
+def test_photo_without_personal_account_still_uses_bot(monkeypatch, bot_env, api_calls):
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: False)
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "auto")
+
+    out = tg.send_outreach_to_client(
+        text=CAPTION,
+        tg_nick=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+    )
+
+    assert out["ok"] is True
+    assert out["via"] == "business_bot_photo"
+
+
+def test_photo_via_user_mode_never_silently_uses_bot(monkeypatch, bot_env, api_calls):
+    """via=user — если личный аккаунт не смог, это ошибка, а не тихий бот."""
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: True)
+    monkeypatch.setattr(
+        tg.tg_user,
+        "send_photo",
+        lambda **kw: {"ok": False, "error": "image_missing", "detail": "нет фото"},
+    )
+
+    out = tg.send_telegram_message(
+        text=CAPTION,
+        chat_id=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+        via="user",
+    )
+
+    assert out["ok"] is False
+    assert out["error"] == "image_missing"
+    assert api_calls == []
+
+
+def test_personal_photo_splits_long_caption(monkeypatch, bot_env, api_calls):
+    long_text = CAPTION + "\n" + ("описание букета " * 200)
+    assert len(long_text) > 1024
+    tails: list[str] = []
+
+    monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: True)
+    monkeypatch.setattr(
+        tg.tg_user,
+        "send_photo",
+        lambda **kw: {"ok": True, "message_id": 1, "chat_id": "796461007"},
+    )
+    monkeypatch.setattr(
+        tg.tg_user,
+        "send_message",
+        lambda *, peer, text: tails.append(text) or {"ok": True, "message_id": 2},
+    )
+    monkeypatch.setattr(tg.tg_user, "load_config", lambda: {})
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "auto")
+
+    out = tg.send_outreach_to_client(
+        text=long_text,
+        tg_nick=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+    )
+
+    assert out["ok"] is True
+    assert out["tail_ok"] is True
+    # Подпись обрезана на 1024 — в хвост уходит ровно остаток (текст стрипается).
+    assert tails == [long_text.strip()[1024:]]
