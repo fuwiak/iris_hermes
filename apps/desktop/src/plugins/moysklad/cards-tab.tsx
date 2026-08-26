@@ -1,14 +1,10 @@
 /**
- * «Карточки» tab — one list of ALL marketplace cards with filters.
+ * «Карточки товаров» — UI 1:1 with design/mocks/kartochki-tovarov.html.
  *
- * GET /cards/marketplaces returns per-marketplace sections plus `combined`:
- * one row per card, matched across marketplaces by normalized name — a card
- * living on both Flowwow and Яндекс Маркет carries both badges. Filters:
- * marketplace (incl. «на обоих») and card status. Click opens a slide-out
- * drawer with per-marketplace details; «Чат по карточкам» is a placement /
- * promotion advisor (POST /cards/chat). The report analyst chat lives on the
- * Дашборд page (ReportChatDrawer, POST /dashboard/chat).
- * Styles reuse ms-* classes + inline styles so this tab avoids moysklad.css.
+ * GET /cards/marketplaces → combined rows + Flowwow/Yandex sections.
+ * List view: topbar search, marketplace cards, status tabs, product table,
+ * ИИ-помощник + быстрые действия. Drawers: detail, chat, recommendations,
+ * params. Sub-views: create / seo / placement / orders / analytics.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -1325,6 +1321,128 @@ export function ReportChatDrawer({ onClose, rest }: { onClose: () => void; rest:
   )
 }
 
+type StatusBucket = 'all' | 'draft' | 'published' | 'needs_update' | 'errors'
+
+type RowVisual = {
+  bucket: Exclude<StatusBucket, 'all'>
+  pill: 'ok' | 'warn' | 'draft' | 'err'
+  label: string
+  note: string
+}
+
+const PAGE_SIZE = 6
+
+const STATUS_TABS: { id: StatusBucket; label: string }[] = [
+  { id: 'all', label: 'Все товары' },
+  { id: 'draft', label: 'Черновики' },
+  { id: 'published', label: 'Опубликованные' },
+  { id: 'needs_update', label: 'Требуют обновления' },
+  { id: 'errors', label: 'Ошибки' }
+]
+
+const TABLE_MPS: { key: string; short: string; label: string; tone: 'fw' | 'fl' | 'ya' }[] = [
+  { key: 'flowwow', short: 'F', label: 'Флаувау', tone: 'fw' },
+  { key: 'flowery', short: 'Fl', label: 'Flowery', tone: 'fl' },
+  { key: 'yandex_market', short: 'Я', label: 'Яндекс', tone: 'ya' }
+]
+
+function listingBadge(product: MarketplaceProduct | undefined): 'ok' | 'warn' | 'err' | null {
+  if (!product) {
+    return null
+  }
+  if (product.is_archived) {
+    return 'err'
+  }
+  if (product.is_active) {
+    if (product.content_rating != null && product.content_rating < 60) {
+      return 'warn'
+    }
+    return 'ok'
+  }
+  return 'warn'
+}
+
+function classifyCard(card: CombinedCard): RowVisual {
+  const listings = Object.values(card.listings || {})
+  const mps = card.marketplaces || []
+  if (!mps.length || !listings.length) {
+    return { bucket: 'draft', pill: 'draft', label: 'Черновик', note: '• Не опубликован' }
+  }
+
+  const active = listings.filter(p => p.is_active)
+  const hidden = listings.filter(p => !p.is_active && !p.is_archived)
+  const archived = listings.filter(p => p.is_archived)
+  const low = listings.filter(p => p.content_rating != null && p.content_rating < 60)
+
+  if (!active.length && archived.length && !hidden.length) {
+    const n = archived.length
+    return {
+      bucket: 'errors',
+      pill: 'err',
+      label: 'Ошибка публикации',
+      note: n === 1 ? '• 1 площадка' : `• ${n} площадки`
+    }
+  }
+
+  if (!active.length) {
+    return { bucket: 'draft', pill: 'draft', label: 'Черновик', note: '• Не опубликован' }
+  }
+
+  if (low.length || hidden.length) {
+    const n = low.length + hidden.length
+    return {
+      bucket: 'needs_update',
+      pill: 'warn',
+      label: 'Требует обновления',
+      note: n === 1 ? '• 1 площадка' : `• ${n} площадки`
+    }
+  }
+
+  const allKnown = TABLE_MPS.filter(m => m.key !== 'flowery').every(m => mps.includes(m.key))
+  return {
+    bucket: 'published',
+    pill: 'ok',
+    label: 'Опубликован',
+    note: allKnown ? '• Все площадки' : active.length === 1 ? '• 1 площадка' : `• ${active.length} площадки`
+  }
+}
+
+function cardProductId(card: CombinedCard): string {
+  const listings = Object.values(card.listings || {})
+  const id = listings.map(p => p.product_id || p.offer_id).find(Boolean)
+  return id != null ? String(id) : '—'
+}
+
+function pageWindow(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+  const pages: (number | 'ellipsis')[] = [1]
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  if (start > 2) {
+    pages.push('ellipsis')
+  }
+  for (let p = start; p <= end; p++) {
+    pages.push(p)
+  }
+  if (end < total - 1) {
+    pages.push('ellipsis')
+  }
+  pages.push(total)
+  return pages
+}
+
+function exportCardsJson(cards: CombinedCard[]) {
+  const blob = new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'iris-cards-export.json'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function CardsPage({ rest }: { rest: CardsRest }) {
   const [data, setData] = useState<CardsPayload | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1336,6 +1454,12 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   const [recData, setRecData] = useState<RecPayload | null>(null)
   const [params, setParams] = useState<RecParams>(DEFAULT_PARAMS)
   const [paramsOpen, setParamsOpen] = useState(false)
+  const [mpFilter, setMpFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusTab, setStatusTab] = useState<StatusBucket>('all')
+  const [query, setQuery] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     if (subTab === 'seo' || subTab === 'placement') {
@@ -1346,8 +1470,6 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subTab, params])
-  const [mpFilter, setMpFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
 
   const load = useCallback(
     async (force: boolean) => {
@@ -1373,147 +1495,554 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
   }, [load])
 
   const combined = useMemo(() => data?.combined || [], [data])
+
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      return combined
+    }
+    return combined.filter(card => (card.name || '').toLowerCase().includes(q))
+  }, [combined, query])
+
+  const counts = useMemo(() => {
+    const next: Record<StatusBucket, number> = {
+      all: searched.length,
+      draft: 0,
+      published: 0,
+      needs_update: 0,
+      errors: 0
+    }
+    for (const card of searched) {
+      next[classifyCard(card).bucket] += 1
+    }
+    return next
+  }, [searched])
+
   const filtered = useMemo(
     () =>
-      combined.filter(card => {
+      searched.filter(card => {
         const mps = card.marketplaces || []
         if (mpFilter === 'both' && mps.length < 2) {
           return false
         }
-
         if (mpFilter !== 'all' && mpFilter !== 'both' && !mps.includes(mpFilter)) {
           return false
         }
-
-        return statusFilter === 'all' || (card.statuses || []).includes(statusFilter)
+        if (statusFilter !== 'all' && !(card.statuses || []).includes(statusFilter)) {
+          return false
+        }
+        if (statusTab !== 'all' && classifyCard(card).bucket !== statusTab) {
+          return false
+        }
+        return true
       }),
-    [combined, mpFilter, statusFilter]
+    [searched, mpFilter, statusFilter, statusTab]
   )
 
-  const summaryBits: string[] = []
-  if (data?.flowwow?.configured && !data.flowwow.error) {
-    summaryBits.push(`Flowwow «${data.flowwow.shop?.name || '—'}»: ${data.flowwow.total ?? 0}`)
-  }
-  if (data?.yandex?.configured && !data.yandex.error) {
-    summaryBits.push(`Яндекс «${data.yandex.business?.name || '—'}»: ${data.yandex.total ?? 0}`)
-  }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE) || 1)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, statusTab, mpFilter, statusFilter])
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [page, totalPages])
+
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filtered.slice(start, start + PAGE_SIZE)
+  }, [filtered, page])
+
+  const shopName =
+    data?.flowwow?.shop?.name || data?.yandex?.business?.name || 'Цветочная студия'
   const problems = [data?.flowwow, data?.yandex]
     .map(section => section?.error || (!section?.configured ? section?.note : ''))
-    .filter(Boolean)
+    .filter(Boolean) as string[]
 
-  const selectStyle: React.CSSProperties = { font: 'inherit', padding: '4px 8px' }
+  const flowwowOk = Boolean(data?.flowwow?.configured && !data.flowwow.error)
+  const yandexOk = Boolean(data?.yandex?.configured && !data.yandex.error)
+  const flowwowTotal = data?.flowwow?.total ?? data?.flowwow?.products?.length ?? 0
+  const yandexTotal = data?.yandex?.total ?? data?.yandex?.products?.length ?? 0
+
+  const openCreate = () => setSubTab('create')
+  const backToList = () => setSubTab('list')
+
   return (
     <div className="ms-page ms-cards-page">
-      <div className="ms-page-head">
-        <h1>Карточки</h1>
-        <button className="ms-btn" onClick={() => setParamsOpen(true)} type="button">
-          Параметры
-        </button>
-        <button className="ms-btn" onClick={() => setRecsOpen(true)} type="button">
-          Рекомендации
-        </button>
-        <button className="ms-btn" onClick={() => setChatOpen(true)} type="button">
-          Чат по карточкам
-        </button>
-        <button className="ms-btn" disabled={loading} onClick={() => void load(true)} type="button">
-          {loading ? 'Обновляем…' : 'Обновить'}
+      <header className="ms-kc-topbar">
+        <label className="ms-kc-search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            onChange={ev => setQuery(ev.target.value)}
+            placeholder="Поиск по товарам..."
+            type="search"
+            value={query}
+          />
+          <span className="ms-kc-kbd">⌘ K</span>
+        </label>
+        <div className="ms-kc-topbar-actions">
+          <button
+            aria-label="Обновить"
+            className="ms-kc-icon-btn"
+            disabled={loading}
+            onClick={() => void load(true)}
+            type="button"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M15 18a3 3 0 0 1-6 0" />
+              <path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 14 6 10z" />
+            </svg>
+            {problems.length ? <span className="ms-kc-dot" /> : null}
+          </button>
+          <button
+            aria-label="Чат по карточкам"
+            className="ms-kc-icon-btn"
+            onClick={() => setChatOpen(true)}
+            type="button"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 6h16v11H8l-4 3V6z" />
+            </svg>
+          </button>
+          <button className="ms-kc-biz" onClick={() => setParamsOpen(true)} type="button">
+            <div aria-hidden="true" className="ms-kc-biz-logo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3c2 4 2 6 0 9-2-3-2-5 0-9z" />
+                <path d="M12 12v9" />
+              </svg>
+            </div>
+            <div className="ms-kc-biz-meta">
+              <div className="ms-kc-biz-name">{shopName}</div>
+              <div className="ms-kc-biz-sub">Основной магазин</div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#858BA3" strokeWidth="2">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div className="ms-kc-page-head">
+        <div>
+          <h1>Карточки товаров</h1>
+          <p>
+            Создавайте и управляйте карточками в одном окне. Публикуйте на маркетплейсах в пару кликов.
+          </p>
+        </div>
+        <button className="ms-kc-btn-primary" onClick={openCreate} type="button">
+          + Создать карточку
         </button>
       </div>
-      <p className="ms-muted">
-        Все карточки обеих площадок одним списком; одинаковая карточка на двух маркетплейсах помечена
-        обоими. {summaryBits.join(' · ')}
-      </p>
+
+      {error ? <p className="ms-kc-error">{error}</p> : null}
       {problems.map((text, idx) => (
-        <p className="ms-muted" key={idx}>
+        <p className="ms-kc-problems" key={idx}>
           {text}
         </p>
       ))}
-      {error ? <p className="ms-error">{error}</p> : null}
-      <div className="ms-filter-tabs" role="tablist">
-        {CARD_TABS.map(([id, label]) => (
-          <button
-            className={`ms-filter-tab${subTab === id ? ' is-active' : ''}`}
-            key={id}
-            onClick={() => setSubTab(id)}
-            role="tab"
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {subTab === 'list' ? (
-        <>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
-            <label className="ms-muted">
-              Маркетплейс{' '}
-              <select onChange={ev => setMpFilter(ev.target.value)} style={selectStyle} value={mpFilter}>
-                <option value="all">Все</option>
-                <option value="flowwow">Flowwow</option>
-                <option value="yandex_market">Яндекс Маркет</option>
-                <option value="both">На обоих</option>
-              </select>
-            </label>
-            <label className="ms-muted">
-              Статус{' '}
-              <select onChange={ev => setStatusFilter(ev.target.value)} style={selectStyle} value={statusFilter}>
-                <option value="all">Все</option>
-                <option value="active">Активна</option>
-                <option value="hidden">Скрыта</option>
-                <option value="archived">В архиве</option>
-              </select>
-            </label>
-            <span className="ms-muted">
-              {filtered.length} из {combined.length}
-            </span>
+
+      <section aria-label="Интеграции маркетплейсов" className="ms-kc-mp-row">
+        <article className="ms-kc-mp-card">
+          <div className="ms-kc-mp-logo fw">F</div>
+          <div className="ms-kc-mp-body">
+            <div className="ms-kc-mp-name">Флаувау</div>
+            <div className={`ms-kc-mp-status${flowwowOk ? '' : data?.flowwow?.error ? ' is-err' : ' is-off'}`}>
+              {flowwowOk ? 'Подключен' : data?.flowwow?.error ? 'Ошибка' : 'Не подключен'}
+            </div>
+            <div className="ms-kc-mp-count">{flowwowOk ? `${flowwowTotal} товаров` : 'Нет данных'}</div>
           </div>
-          {loading && !data ? (
-            <p className="ms-muted">Загружаем…</p>
-          ) : filtered.length ? (
-            <div style={GRID_STYLE}>
-              {filtered.map((card, idx) => (
-                <CombinedCardTile card={card} key={`${card.name || idx}`} onSelect={setSelected} />
+          <button className="ms-kc-btn-ghost" onClick={() => setParamsOpen(true)} type="button">
+            Настроить
+          </button>
+        </article>
+        <article className="ms-kc-mp-card">
+          <div className="ms-kc-mp-logo fl">Fl</div>
+          <div className="ms-kc-mp-body">
+            <div className="ms-kc-mp-name">Flowery</div>
+            <div className="ms-kc-mp-status is-off">Не подключен</div>
+            <div className="ms-kc-mp-count">Скоро</div>
+          </div>
+          <button className="ms-kc-btn-ghost" onClick={() => setParamsOpen(true)} type="button">
+            Настроить
+          </button>
+        </article>
+        <article className="ms-kc-mp-card">
+          <div className="ms-kc-mp-logo ya">Я</div>
+          <div className="ms-kc-mp-body">
+            <div className="ms-kc-mp-name">Яндекс Цветы</div>
+            <div className={`ms-kc-mp-status${yandexOk ? '' : data?.yandex?.error ? ' is-err' : ' is-off'}`}>
+              {yandexOk ? 'Подключен' : data?.yandex?.error ? 'Ошибка' : 'Не подключен'}
+            </div>
+            <div className="ms-kc-mp-count">{yandexOk ? `${yandexTotal} товаров` : 'Нет данных'}</div>
+          </div>
+          <button className="ms-kc-btn-ghost" onClick={() => setParamsOpen(true)} type="button">
+            Настроить
+          </button>
+        </article>
+        <button className="ms-kc-mp-card ms-kc-mp-add" onClick={() => setParamsOpen(true)} type="button">
+          <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+          Подключить маркетплейс
+        </button>
+      </section>
+
+      <div className="ms-kc-content">
+        <section className="ms-kc-panel ms-kc-table-panel">
+          <div className="ms-kc-tabs-row">
+            <div className="ms-kc-tabs" role="tablist">
+              {STATUS_TABS.map(tab => (
+                <button
+                  aria-selected={statusTab === tab.id}
+                  className={`ms-kc-tab${statusTab === tab.id ? ' is-active' : ''}`}
+                  key={tab.id}
+                  onClick={() => {
+                    setStatusTab(tab.id)
+                    backToList()
+                  }}
+                  role="tab"
+                  type="button"
+                >
+                  {tab.label} <span>{counts[tab.id]}</span>
+                </button>
               ))}
             </div>
+            <button
+              className={`ms-kc-filters-btn${filtersOpen ? ' is-open' : ''}`}
+              onClick={() => setFiltersOpen(open => !open)}
+              type="button"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M4 5h16l-6 7v5l-4 2v-7L4 5z" />
+              </svg>
+              Фильтры
+            </button>
+          </div>
+
+          {filtersOpen ? (
+            <div className="ms-kc-filters-bar">
+              <label>
+                Маркетплейс
+                <select onChange={ev => setMpFilter(ev.target.value)} value={mpFilter}>
+                  <option value="all">Все</option>
+                  <option value="flowwow">Flowwow / Флаувау</option>
+                  <option value="yandex_market">Яндекс Маркет</option>
+                  <option value="both">На обоих</option>
+                </select>
+              </label>
+              <label>
+                Статус API
+                <select onChange={ev => setStatusFilter(ev.target.value)} value={statusFilter}>
+                  <option value="all">Все</option>
+                  <option value="active">Активна</option>
+                  <option value="hidden">Скрыта</option>
+                  <option value="archived">В архиве</option>
+                </select>
+              </label>
+              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('seo')} type="button">
+                СЕО
+              </button>
+              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('orders')} type="button">
+                Заказы
+              </button>
+              <button className="ms-kc-btn-ghost" onClick={() => setSubTab('analytics')} type="button">
+                Аналитика
+              </button>
+            </div>
+          ) : null}
+
+          {subTab === 'list' ? (
+            <>
+              {loading && !data ? (
+                <p className="ms-kc-empty">Загружаем…</p>
+              ) : pageItems.length ? (
+                <table className="ms-kc-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '42%' }}>Товар</th>
+                      <th style={{ width: '24%' }}>Статус</th>
+                      <th style={{ width: '28%' }}>Маркетплейсы</th>
+                      <th style={{ width: '6%' }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageItems.map((card, idx) => {
+                      const visual = classifyCard(card)
+                      const listings = card.listings || {}
+                      return (
+                        <tr key={`${card.name || idx}`} onClick={() => setSelected(card)}>
+                          <td>
+                            <div className="ms-kc-product">
+                              {card.image ? (
+                                <img alt="" className="ms-kc-thumb" loading="lazy" src={card.image} />
+                              ) : (
+                                <div className="ms-kc-thumb ms-kc-thumb-empty">нет фото</div>
+                              )}
+                              <div>
+                                <div className="ms-kc-product-name">{card.name || '—'}</div>
+                                <div className="ms-kc-product-id">ID: {cardProductId(card)}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="ms-kc-status-wrap">
+                              <span className={`ms-kc-pill ${visual.pill}`}>{visual.label}</span>
+                              <span className="ms-kc-status-note">{visual.note}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="ms-kc-mp-icons">
+                              {TABLE_MPS.map(mp => {
+                                const product = listings[mp.key]
+                                const badge = mp.key === 'flowery' ? null : listingBadge(product)
+                                return (
+                                  <div className="ms-kc-mp-icon" key={mp.key}>
+                                    <div className={`ms-kc-mp-circle ${badge ? mp.tone : 'idle'}`}>
+                                      {badge ? mp.short : '–'}
+                                      {badge ? (
+                                        <span className={`ms-kc-mp-badge ${badge}`}>
+                                          {badge === 'ok' ? '✓' : '!'}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <span className="ms-kc-mp-label">{mp.label}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </td>
+                          <td>
+                            <button
+                              aria-label="Меню"
+                              className="ms-kc-row-menu"
+                              onClick={ev => {
+                                ev.stopPropagation()
+                                setSelected(card)
+                              }}
+                              type="button"
+                            >
+                              ⋯
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="ms-kc-empty">Карточек по выбранным фильтрам нет.</p>
+              )}
+
+              <div className="ms-kc-pagination">
+                <div className="ms-kc-page-info">
+                  {filtered.length
+                    ? `Показано ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, filtered.length)} из ${filtered.length}`
+                    : 'Показано 0 из 0'}
+                </div>
+                <div className="ms-kc-pages">
+                  <button
+                    aria-label="Назад"
+                    className="ms-kc-page"
+                    disabled={page <= 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    type="button"
+                  >
+                    ‹
+                  </button>
+                  {pageWindow(page, totalPages).map((item, idx) =>
+                    item === 'ellipsis' ? (
+                      <span className="ms-kc-page" key={`e-${idx}`} style={{ cursor: 'default' }}>
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        className={`ms-kc-page${page === item ? ' is-active' : ''}`}
+                        key={item}
+                        onClick={() => setPage(item)}
+                        type="button"
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+                  <button
+                    aria-label="Вперёд"
+                    className="ms-kc-page"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    type="button"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+            </>
           ) : (
-            <p className="ms-muted">Карточек по выбранным фильтрам нет.</p>
+            <div className="ms-kc-subview">
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <button className="ms-kc-btn-ghost" onClick={backToList} type="button">
+                  ← К списку
+                </button>
+                {CARD_TABS.filter(([id]) => id !== 'list').map(([id, label]) => (
+                  <button
+                    className="ms-kc-btn-ghost"
+                    key={id}
+                    onClick={() => setSubTab(id)}
+                    style={subTab === id ? { borderColor: '#7137f5', color: '#7137f5' } : undefined}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {subTab === 'create' ? <CreateTab rest={rest} /> : null}
+              {subTab === 'seo' ? (
+                <div>
+                  <p className="ms-muted">
+                    Контент-рейтинг Яндекса и полнота контента — что поднять, чтобы получать больше показов.
+                  </p>
+                  <RecBlockList
+                    blocks={[
+                      ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
+                      ['few_photos', 'Мало фото (< 3)']
+                    ]}
+                    data={recData}
+                  />
+                </div>
+              ) : null}
+              {subTab === 'placement' ? (
+                <div>
+                  <p className="ms-muted">
+                    Что добавить на вторую площадку и что привести в порядок — посчитано из данных обеих
+                    площадок.
+                  </p>
+                  <RecBlockList
+                    blocks={[
+                      ['add_to_yandex', 'Добавить на Яндекс Маркет (есть только на Flowwow)'],
+                      ['add_to_flowwow', 'Добавить на Flowwow (есть только на Яндексе)'],
+                      ['hidden_candidates', 'Скрыты, но контент готов'],
+                      ['duplicates', 'Дубли артикулов'],
+                      ['price_gaps', 'Разные цены на площадках']
+                    ]}
+                    data={recData}
+                  />
+                </div>
+              ) : null}
+              {subTab === 'orders' ? (
+                <OrdersTab limit={params.ordersLimit} rest={rest} status={params.ordersStatus} />
+              ) : null}
+              {subTab === 'analytics' ? <AnalyticsTab months={params.months} rest={rest} /> : null}
+            </div>
           )}
-        </>
-      ) : null}
-      {subTab === 'create' ? <CreateTab rest={rest} /> : null}
-      {subTab === 'seo' ? (
-        <div style={{ marginTop: 12 }}>
-          <p className="ms-muted">
-            Контент-рейтинг Яндекса и полнота контента — что поднять, чтобы получать больше показов.
-          </p>
-          <RecBlockList
-            blocks={[
-              ['low_rating', 'Низкий контент-рейтинг (Яндекс)'],
-              ['few_photos', 'Мало фото (< 3)']
-            ]}
-            data={recData}
-          />
-        </div>
-      ) : null}
-      {subTab === 'placement' ? (
-        <div style={{ marginTop: 12 }}>
-          <p className="ms-muted">
-            Что добавить на вторую площадку и что привести в порядок — посчитано из данных обеих площадок.
-          </p>
-          <RecBlockList
-            blocks={[
-              ['add_to_yandex', 'Добавить на Яндекс Маркет (есть только на Flowwow)'],
-              ['add_to_flowwow', 'Добавить на Flowwow (есть только на Яндексе)'],
-              ['hidden_candidates', 'Скрыты, но контент готов'],
-              ['duplicates', 'Дубли артикулов'],
-              ['price_gaps', 'Разные цены на площадках']
-            ]}
-            data={recData}
-          />
-        </div>
-      ) : null}
-      {subTab === 'orders' ? <OrdersTab limit={params.ordersLimit} rest={rest} status={params.ordersStatus} /> : null}
-      {subTab === 'analytics' ? <AnalyticsTab months={params.months} rest={rest} /> : null}
+        </section>
+
+        <aside className="ms-kc-right-col">
+          <section className="ms-kc-panel ms-kc-side-card">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7137F5" strokeWidth="1.8">
+                <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+              </svg>
+              ИИ-помощник
+            </h3>
+            <p className="ms-kc-sub">Я помогу улучшить карточки и продажи</p>
+            <div className="ms-kc-ai-list">
+              <button className="ms-kc-ai-item" onClick={() => setSubTab('seo')} type="button">
+                <div className="ms-kc-ai-icon g">✓</div>
+                <div>
+                  <div className="ms-kc-ai-title">Оптимизировать заголовки</div>
+                  <div className="ms-kc-ai-desc">
+                    {counts.needs_update ? `${counts.needs_update} товара можно улучшить` : 'Всё в порядке'}
+                  </div>
+                </div>
+              </button>
+              <button className="ms-kc-ai-item" onClick={() => setSubTab('seo')} type="button">
+                <div className="ms-kc-ai-icon g">✓</div>
+                <div>
+                  <div className="ms-kc-ai-title">Улучшить описания</div>
+                  <div className="ms-kc-ai-desc">Контент-рейтинг и фото</div>
+                </div>
+              </button>
+              <button className="ms-kc-ai-item" onClick={() => setChatOpen(true)} type="button">
+                <div className="ms-kc-ai-icon b">#</div>
+                <div>
+                  <div className="ms-kc-ai-title">Подобрать хештеги</div>
+                  <div className="ms-kc-ai-desc">Спросить ИИ-помощника</div>
+                </div>
+              </button>
+              <button className="ms-kc-ai-item" onClick={() => setRecsOpen(true)} type="button">
+                <div className="ms-kc-ai-icon o">↗</div>
+                <div>
+                  <div className="ms-kc-ai-title">Анализ конкурентов</div>
+                  <div className="ms-kc-ai-desc">Посмотреть рекомендации</div>
+                </div>
+              </button>
+            </div>
+            <button className="ms-kc-btn-ai" onClick={() => setChatOpen(true)} type="button">
+              Открыть ИИ-помощника
+            </button>
+          </section>
+
+          <section className="ms-kc-panel ms-kc-side-card">
+            <h3>Быстрые действия</h3>
+            <div className="ms-kc-qa-list">
+              <button className="ms-kc-qa-item" onClick={() => setParamsOpen(true)} type="button">
+                <div className="ms-kc-qa-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M4 7h16M4 12h10M4 17h7" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="ms-kc-qa-title">Массовое редактирование</div>
+                  <div className="ms-kc-qa-desc">Параметры и пороги рекомендаций</div>
+                </div>
+              </button>
+              <button className="ms-kc-qa-item" onClick={() => setSubTab('placement')} type="button">
+                <div className="ms-kc-qa-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                    <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="ms-kc-qa-title">Копировать на другие площадки</div>
+                  <div className="ms-kc-qa-desc">Дублировать карточки</div>
+                </div>
+              </button>
+              <button className="ms-kc-qa-item" onClick={openCreate} type="button">
+                <div className="ms-kc-qa-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M12 3v12" />
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M5 19h14" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="ms-kc-qa-title">Импорт товаров</div>
+                  <div className="ms-kc-qa-desc">Создать из МойСклад</div>
+                </div>
+              </button>
+              <button className="ms-kc-qa-item" onClick={() => exportCardsJson(filtered)} type="button">
+                <div className="ms-kc-qa-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M12 21V9" />
+                    <path d="m7 14 5-5 5 5" />
+                    <path d="M5 5h14" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="ms-kc-qa-title">Экспорт товаров</div>
+                  <div className="ms-kc-qa-desc">Скачать каталог JSON</div>
+                </div>
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
       {paramsOpen ? <ParamsDrawer onApply={setParams} onClose={() => setParamsOpen(false)} params={params} /> : null}
       {selected ? <CombinedDrawer card={selected} onClose={() => setSelected(null)} /> : null}
       {recsOpen ? <RecommendationsDrawer onClose={() => setRecsOpen(false)} rest={rest} /> : null}

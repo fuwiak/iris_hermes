@@ -9737,7 +9737,7 @@ rest={pluginRest}
         order: 44,
         data: {
           codicon: 'package',
-          label: 'Карточки',
+          label: 'Карточки товаров',
           path: '/cards'
         } satisfies SidebarNavContribution
       }
