@@ -1,13 +1,14 @@
 import { lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
+
 import {
   type ChannelSortKey,
   filterChannels,
   filterDayRows,
   matchesQuery,
   nextSortDir,
-  type SortDir,
   sortChannels,
-  sortDayRows
+  sortDayRows,
+  type SortDir
 } from './dashboard-table-ops'
 
 const DashboardCharts = lazy(() => import('./dashboard-charts').then(m => ({ default: m.DashboardCharts })))
@@ -401,7 +402,7 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
         <tbody>
           {channels.map(ch =>
             METRIC_KEYS.map((metric, mi) => (
-              <tr key={`${ch.key}-${metric}`} className={mi === 0 ? 'ms-dash-channel-start' : undefined}>
+              <tr className={mi === 0 ? 'ms-dash-channel-start' : undefined} key={`${ch.key}-${metric}`}>
                 {mi === 0 ? (
                   <th className="ms-dash-sticky" rowSpan={METRIC_KEYS.length}>
                     {ch.label}
@@ -416,7 +417,7 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
                   </button>
                 </td>
                 {periods.map((_, i) => (
-                  <td key={`${ch.key}-${metric}-${i}`} className="ms-dash-num">
+                  <td className="ms-dash-num" key={`${ch.key}-${metric}-${i}`}>
                     <div>{metricValue(metric, seriesAt(ch, metric, i))}</div>
                     <Pct value={ch.growth?.[metric]?.[i]} />
                   </td>
@@ -426,7 +427,7 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
           )}
           {totals
             ? METRIC_KEYS.map((metric, mi) => (
-                <tr key={`total-${metric}`} className={mi === 0 ? 'ms-dash-total-start' : 'ms-dash-total'}>
+                <tr className={mi === 0 ? 'ms-dash-total-start' : 'ms-dash-total'} key={`total-${metric}`}>
                   {mi === 0 ? (
                     <th className="ms-dash-sticky" rowSpan={METRIC_KEYS.length}>
                       Итого
@@ -434,7 +435,7 @@ function MatrixTable({ matrix, title }: { matrix?: DashMatrix; title: string }) 
                   ) : null}
                   <td className="ms-dash-sticky-2 ms-dash-metric">{METRIC_RU[metric]}</td>
                   {periods.map((_, i) => (
-                    <td key={`total-${metric}-${i}`} className="ms-dash-num">
+                    <td className="ms-dash-num" key={`total-${metric}-${i}`}>
                       <div>{metricValue(metric, totals[metric]?.[i] ?? null)}</div>
                       <Pct value={totals.growth?.[metric]?.[i]} />
                     </td>
@@ -502,7 +503,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
               Дата
             </th>
             {channelKeys.map(k => (
-              <th key={k} colSpan={2}>
+              <th colSpan={2} key={k}>
                 {labels[k] || k}
               </th>
             ))}
@@ -516,7 +517,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.id} className={r.kind === 'month' ? 'ms-dash-month-row' : undefined}>
+            <tr className={r.kind === 'month' ? 'ms-dash-month-row' : undefined} key={r.id}>
               <th className="ms-dash-sticky">{r.label}</th>
               {channelKeys.flatMap(k => {
                 const cell = r.channels?.[k]
@@ -524,7 +525,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
                 const uni = Number(cell?.universitet_orders || 0)
                 const split = sok > 0 && uni > 0
                 return [
-                  <td key={`${r.id}-${k}-o`} className="ms-dash-num">
+                  <td className="ms-dash-num" key={`${r.id}-${k}-o`}>
                     {qty(cell?.orders)}
                     {split ? (
                       <div className="ms-muted ms-dash-store">
@@ -532,7 +533,7 @@ function DayTable({ analytics }: { analytics: DashAnalytics }) {
                       </div>
                     ) : null}
                   </td>,
-                  <td key={`${r.id}-${k}-t`} className="ms-dash-num">
+                  <td className="ms-dash-num" key={`${r.id}-${k}-t`}>
                     {money(cell?.turnover)}
                     {r.kind === 'month' && cell?.revenue ? (
                       <div className="ms-muted ms-dash-store">выр. {money(cell.revenue)}</div>
@@ -596,7 +597,7 @@ function FlowwowTable({ analytics }: { analytics: DashAnalytics }) {
                   const series = metrics[metric]
                   const val = Array.isArray(series) ? series[i] : null
                   return (
-                    <td key={`${metric}-${i}`} className="ms-dash-num">
+                    <td className="ms-dash-num" key={`${metric}-${i}`}>
                       <div>{metricValue(metric, val as number | null)}</div>
                       <Pct value={growth[metric]?.[i]} />
                     </td>
@@ -613,7 +614,7 @@ function FlowwowTable({ analytics }: { analytics: DashAnalytics }) {
                     platform_commission: block.platform_commission
                   }
                   return (
-                    <td key={`${metric}-y${y}`} className="ms-dash-num">
+                    <td className="ms-dash-num" key={`${metric}-y${y}`}>
                       {mapped[metric] == null ? '—' : metricValue(metric, mapped[metric])}
                     </td>
                   )

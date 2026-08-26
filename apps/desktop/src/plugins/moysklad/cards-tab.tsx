@@ -1588,7 +1588,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     <div className="ms-page ms-cards-page">
       <header className="ms-kc-topbar">
         <label className="ms-kc-search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
           </svg>
@@ -1608,7 +1608,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
             onClick={() => void load(true)}
             type="button"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
               <path d="M15 18a3 3 0 0 1-6 0" />
               <path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 14 6 10z" />
             </svg>
@@ -1620,13 +1620,13 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
             onClick={() => setChatOpen(true)}
             type="button"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
               <path d="M4 6h16v11H8l-4 3V6z" />
             </svg>
           </button>
           <button className="ms-kc-biz" onClick={() => setParamsOpen(true)} type="button">
             <div aria-hidden="true" className="ms-kc-biz-logo">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg fill="none" height="14" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="14">
                 <path d="M12 3c2 4 2 6 0 9-2-3-2-5 0-9z" />
                 <path d="M12 12v9" />
               </svg>
@@ -1635,7 +1635,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               <div className="ms-kc-biz-name">{shopName}</div>
               <div className="ms-kc-biz-sub">Основной магазин</div>
             </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#858BA3" strokeWidth="2">
+            <svg fill="none" height="16" stroke="#858BA3" strokeWidth="2" viewBox="0 0 24 24" width="16">
               <path d="m6 9 6 6 6-6" />
             </svg>
           </button>
@@ -1730,7 +1730,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               onClick={() => setFiltersOpen(open => !open)}
               type="button"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <svg fill="none" height="15" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="15">
                 <path d="M4 5h16l-6 7v5l-4 2v-7L4 5z" />
               </svg>
               Фильтры
@@ -1957,7 +1957,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
         <aside className="ms-kc-right-col">
           <section className="ms-kc-panel ms-kc-side-card">
             <h3>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7137F5" strokeWidth="1.8">
+              <svg fill="none" height="18" stroke="#7137F5" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
                 <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
               </svg>
               ИИ-помощник
@@ -2005,7 +2005,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
             <div className="ms-kc-qa-list">
               <button className="ms-kc-qa-item" onClick={() => setParamsOpen(true)} type="button">
                 <div className="ms-kc-qa-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
                     <path d="M4 7h16M4 12h10M4 17h7" />
                   </svg>
                 </div>
@@ -2016,8 +2016,8 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               </button>
               <button className="ms-kc-qa-item" onClick={() => setSubTab('placement')} type="button">
                 <div className="ms-kc-qa-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                  <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+                    <rect height="12" rx="2" width="12" x="8" y="8" />
                     <path d="M4 16V6a2 2 0 0 1 2-2h10" />
                   </svg>
                 </div>
@@ -2028,7 +2028,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               </button>
               <button className="ms-kc-qa-item" onClick={openCreate} type="button">
                 <div className="ms-kc-qa-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
                     <path d="M12 3v12" />
                     <path d="m7 10 5 5 5-5" />
                     <path d="M5 19h14" />
@@ -2041,7 +2041,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               </button>
               <button className="ms-kc-qa-item" onClick={() => exportCardsJson(filtered)} type="button">
                 <div className="ms-kc-qa-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
                     <path d="M12 21V9" />
                     <path d="m7 14 5-5 5 5" />
                     <path d="M5 5h14" />

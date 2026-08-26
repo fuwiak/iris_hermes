@@ -19,6 +19,7 @@ import {
 } from '@/lib/keybinds/actions'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { arraysEqual } from '@/lib/storage'
+import { cn } from '@/lib/utils'
 import {
   $bindings,
   $capture,
@@ -29,8 +30,6 @@ import {
   resetAllBindings,
   resetBinding
 } from '@/store/keybinds'
-
-import { cn } from '@/lib/utils'
 
 import { SettingsContent } from './primitives'
 

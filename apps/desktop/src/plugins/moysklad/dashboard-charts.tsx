@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as echarts from 'echarts/core'
+import type { EChartsOption } from 'echarts'
 import { BarChart, HeatmapChart, LineChart, PieChart } from 'echarts/charts'
 import {
   DataZoomComponent,
@@ -8,9 +7,10 @@ import {
   TooltipComponent,
   VisualMapComponent
 } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-import type { EChartsOption } from 'echarts'
+import * as echarts from 'echarts/core'
 import type { EChartsType } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { type DashAnalytics } from './dashboard-analytics'
 import {
@@ -65,6 +65,10 @@ function EChart({
   const onLegendRef = useRef(onLegend)
   onLegendRef.current = onLegend
 
+  // chartRef holds the ECharts instance created by this effect — a DOM-instance
+  // ref, not an atom mirror. It is written once on mount and read only for
+  // resize/dispose, so there is no reactive value that can go stale.
+  // eslint-disable-next-line no-restricted-syntax -- DOM instance ref, not a reactive mirror
   useEffect(() => {
     const el = elRef.current
     if (!el) {

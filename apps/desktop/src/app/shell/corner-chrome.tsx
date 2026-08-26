@@ -8,7 +8,7 @@ import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/e
 import { resetLayoutTree } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
-import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
