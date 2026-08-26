@@ -153,20 +153,20 @@ function PlotlyHeatmap({
               y,
               z,
               colorscale: [
-                [0, '#f6f3fc'],
-                [0.45, '#b750f3'],
-                [1, '#6e36ca']
+                [0, '#fcfcfe'],
+                [0.45, '#8b5cf6'],
+                [1, '#7137f5']
               ],
               hoverongaps: false,
-              colorbar: { tickfont: { color: '#1f1438' }, outlinecolor: '#e4dcf2' }
+              colorbar: { tickfont: { color: '#1e2033' }, outlinecolor: '#e8eaf0' }
             }
           ],
           {
-            title: { text: title, font: { color: '#1f1438', size: 13 } },
+            title: { text: title, font: { color: '#1e2033', size: 13 } },
             margin: { l: 110, r: 48, t: 36, b: 64 },
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: '#ffffff',
-            font: { color: '#1f1438' },
+            font: { color: '#1e2033' },
             xaxis: { ticks: '', side: 'bottom' },
             yaxis: { ticks: '', automargin: true }
           },

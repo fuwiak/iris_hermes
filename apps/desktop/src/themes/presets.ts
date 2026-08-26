@@ -277,77 +277,77 @@ export const slateTheme: DesktopTheme = {
 }
 
 /**
- * Iris CRM — white floral canvas matching crmiris.ru:
- * soft lavender-white #f6f3fc, violet CTAs #6e36ca / #b750f3, high-contrast plum ink #1f1438.
+ * Iris CRM — light B2B SaaS (design/mocks/kartochki-tovarov.html):
+ * canvas #fcfcfe, ink #1e2033, purple CTA #7137f5, cool gray #858ba3, border #e8eaf0.
  */
 const irisLightColors = {
-  background: '#f6f3fc',
-  foreground: '#1f1438',
+  background: '#fcfcfe',
+  foreground: '#1e2033',
   card: '#ffffff',
-  cardForeground: '#1f1438',
-  muted: '#efeaf8',
-  mutedForeground: '#5a4a72',
+  cardForeground: '#1e2033',
+  muted: '#f4f5f8',
+  mutedForeground: '#858ba3',
   popover: '#ffffff',
-  popoverForeground: '#1f1438',
-  primary: '#6e36ca',
+  popoverForeground: '#1e2033',
+  primary: '#7137f5',
   primaryForeground: '#ffffff',
-  secondary: '#efeaf8',
-  secondaryForeground: '#1f1438',
-  accent: '#f0e8ff',
-  accentForeground: '#6e36ca',
-  border: 'color-mix(in srgb, #6e36ca 14%, #ffffff)',
-  input: 'color-mix(in srgb, #6e36ca 18%, #ffffff)',
-  ring: '#6e36ca',
-  midground: '#b750f3',
-  composerRing: '#6e36ca',
-  destructive: '#cc4117',
+  secondary: '#f4f5f8',
+  secondaryForeground: '#1e2033',
+  accent: '#f2edff',
+  accentForeground: '#7137f5',
+  border: '#e8eaf0',
+  input: '#e8eaf0',
+  ring: '#7137f5',
+  midground: '#7137f5',
+  composerRing: '#7137f5',
+  destructive: '#ff365f',
   destructiveForeground: '#ffffff',
-  sidebarBackground: '#fbf9fe',
-  sidebarBorder: 'color-mix(in srgb, #6e36ca 12%, #ffffff)',
-  userBubble: '#efeaf8',
-  userBubbleBorder: 'color-mix(in srgb, #6e36ca 22%, #ffffff)'
+  sidebarBackground: '#ffffff',
+  sidebarBorder: '#e8eaf0',
+  userBubble: '#f2edff',
+  userBubbleBorder: '#e8eaf0'
 } satisfies DesktopThemeColors
 
 /** Optional dark band — soft plum floral (never near-black). */
 const irisDarkColors = {
   background: '#322448',
-  foreground: '#f6f3fc',
+  foreground: '#fcfcfe',
   card: '#3d3054',
-  cardForeground: '#f6f3fc',
+  cardForeground: '#fcfcfe',
   muted: '#4a3a62',
   mutedForeground: '#c9b8e0',
   popover: '#3d3054',
-  popoverForeground: '#f6f3fc',
-  primary: '#b750f3',
-  primaryForeground: '#1f1438',
+  popoverForeground: '#fcfcfe',
+  primary: '#8b5cf6',
+  primaryForeground: '#1e2033',
   secondary: '#4a3a62',
-  secondaryForeground: '#f6f3fc',
+  secondaryForeground: '#fcfcfe',
   accent: '#5c4a78',
-  accentForeground: '#f0e8ff',
+  accentForeground: '#f2edff',
   border: '#5c4a78',
   input: '#4a3a62',
-  ring: '#b750f3',
-  midground: '#b750f3',
-  composerRing: '#dd4ef2',
+  ring: '#8b5cf6',
+  midground: '#8b5cf6',
+  composerRing: '#8b5cf6',
   destructive: '#ff6b3d',
   destructiveForeground: '#ffffff',
   sidebarBackground: '#2a1e3c',
   sidebarBorder: '#4a3a62',
   userBubble: '#4a3a62',
-  userBubbleBorder: '#6e36ca'
+  userBubbleBorder: '#7137f5'
 } satisfies DesktopThemeColors
 
 export const irisTheme: DesktopTheme = {
   name: 'iris',
   label: 'Iris',
-  description: 'White floral canvas, thin type, violet CTAs — like crmiris.ru',
+  description: 'Light B2B SaaS — kartochki-tovarov mock (purple CTAs, cool gray)',
   colors: irisLightColors,
   darkColors: irisDarkColors,
   typography: {
     fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap'
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
   }
 }
 

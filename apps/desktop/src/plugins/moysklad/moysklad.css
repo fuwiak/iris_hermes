@@ -21,8 +21,8 @@
   min-width: 0;
   box-sizing: border-box;
   overflow-x: clip;
-  background: #f6f3fc;
-  color: #1f1438;
+  background: #fcfcfe;
+  color: #1e2033;
 }
 
 .ms-sync-meta {
@@ -35,7 +35,7 @@
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-page-header {
@@ -61,7 +61,7 @@
 
 .ms-muted {
   margin: 0.25rem 0 0;
-  color: #1f1438;
+  color: #1e2033;
   font-size: 0.9rem;
 }
 
@@ -93,7 +93,7 @@
   margin: 0.35rem 0 0;
   padding: 0.45rem 0.65rem;
   border-radius: 0.5rem;
-  background: color-mix(in srgb, #7dffa0 12%, #f6f3fc);
+  background: color-mix(in srgb, #7dffa0 12%, #fcfcfe);
   color: #c8f5d4;
   font-size: 0.88rem;
   font-weight: 600;
@@ -107,9 +107,9 @@
 
 .ms-filter-tab {
   appearance: none;
-  border: 2px solid #6e36ca;
-  background: #efeaf8;
-  color: #1f1438;
+  border: 2px solid #7137f5;
+  background: #f2edff;
+  color: #1e2033;
   border-radius: 90px;
   padding: 0.4rem 0.95rem;
   font-size: 0.88rem;
@@ -119,8 +119,8 @@
 
 .ms-filter-tab.is-active,
 .ms-filter-tab:hover {
-  background: #6e36ca;
-  color: #1f1438;
+  background: #7137f5;
+  color: #1e2033;
 }
 
 .ms-tab-count {
@@ -132,20 +132,20 @@
 .ms-search input {
   width: min(100%, 28rem);
   padding: 0.55rem 0.75rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   font: inherit;
 }
 
 .ms-input {
   width: 100%;
   padding: 0.45rem 0.65rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   font: inherit;
   font-size: 0.85rem;
 }
@@ -162,9 +162,9 @@
 
 .ms-chip {
   appearance: none;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   border-radius: 90px;
   padding: 0.3rem 0.7rem;
   font-size: 0.8rem;
@@ -173,9 +173,9 @@
 }
 
 .ms-chip.is-active {
-  border-color: #6e36ca;
-  background: #efeaf8;
-  color: #1f1438;
+  border-color: #7137f5;
+  background: #f2edff;
+  color: #1e2033;
 }
 
 .ms-chip.is-tg-filter.is-active {
@@ -226,9 +226,9 @@ td.ms-tg-active-unknown {
 
 .ms-btn {
   appearance: none;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   border-radius: 90px;
   padding: 0.45rem 1rem;
   font: inherit;
@@ -237,9 +237,9 @@ td.ms-tg-active-unknown {
 }
 
 .ms-btn-primary {
-  background: #6e36ca;
-  border-color: #6e36ca;
-  color: #1f1438;
+  background: #7137f5;
+  border-color: #7137f5;
+  color: #1e2033;
 }
 
 .ms-btn:disabled {
@@ -249,7 +249,7 @@ td.ms-tg-active-unknown {
 
 .ms-table-wrap {
   overflow: auto;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 1rem;
   background: #ffffff;
   max-height: min(70vh, 820px);
@@ -266,8 +266,8 @@ td.ms-tg-active-unknown {
 .ms-table td {
   padding: 0.65rem 0.85rem;
   text-align: left;
-  border-bottom: 1px solid #e4dcf2;
-  color: #1f1438;
+  border-bottom: 1px solid #e8eaf0;
+  color: #1e2033;
   white-space: nowrap;
   max-width: 22rem;
   overflow: hidden;
@@ -278,8 +278,8 @@ td.ms-tg-active-unknown {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #1f1438;
-  background: #efeaf8;
+  color: #1e2033;
+  background: #f2edff;
 }
 
 .ms-th-filter {
@@ -347,7 +347,7 @@ td.ms-tg-active-unknown {
 .ms-th-filter-btn.is-on,
 .ms-th-filter-btn:hover {
   opacity: 1;
-  background: color-mix(in srgb, #6e36ca 28%, transparent);
+  background: color-mix(in srgb, #7137f5 28%, transparent);
 }
 
 .ms-col-filter-menu {
@@ -357,16 +357,16 @@ td.ms-tg-active-unknown {
   z-index: 20;
   width: min(18rem, 70vw);
   padding: 0.65rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.65rem;
-  background: #f6f3fc;
+  background: #fcfcfe;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
   display: grid;
   gap: 0.55rem;
   text-transform: none;
   letter-spacing: normal;
   font-size: 0.8rem;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-col-filter-sorts {
@@ -385,21 +385,21 @@ td.ms-tg-active-unknown {
 }
 
 .ms-col-filter-sorts button:hover {
-  background: color-mix(in srgb, #6e36ca 22%, transparent);
+  background: color-mix(in srgb, #7137f5 22%, transparent);
 }
 
 .ms-col-filter-search {
   display: grid;
   gap: 0.25rem;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-col-filter-search input {
   width: 100%;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   padding: 0.35rem 0.5rem;
 }
 
@@ -409,7 +409,7 @@ td.ms-tg-active-unknown {
   display: grid;
   gap: 0.15rem;
   padding: 0.25rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.45rem;
   background: #ffffff;
 }
@@ -448,7 +448,7 @@ td.ms-tg-active-unknown {
   min-width: 0;
   box-sizing: border-box;
   padding: 1rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 1rem;
   background: #ffffff;
   overflow-x: clip;
@@ -461,7 +461,7 @@ td.ms-tg-active-unknown {
   max-width: 100%;
   box-sizing: border-box;
   padding: 0.75rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
   background: #ffffff;
 }
@@ -471,7 +471,7 @@ td.ms-tg-active-unknown {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  color: #1f1438;
+  color: #1e2033;
   font-size: 0.9rem;
 }
 
@@ -487,9 +487,9 @@ td.ms-tg-active-unknown {
   max-width: 100%;
   box-sizing: border-box;
   padding: 0.75rem;
-  border: 1px dashed #e4dcf2;
+  border: 1px dashed #e8eaf0;
   border-radius: 0.75rem;
-  background: #efeaf8;
+  background: #f2edff;
 }
 
 .ms-add-contact {
@@ -507,10 +507,10 @@ td.ms-tg-active-unknown {
 .ms-howto {
   margin: 0 0 1rem;
   padding: 0.75rem 0.75rem 0.75rem 1.5rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
-  background: #f6f3fc;
-  color: #1f1438;
+  background: #fcfcfe;
+  color: #1e2033;
   font-size: 0.85rem;
   line-height: 1.45;
 }
@@ -524,9 +524,9 @@ td.ms-tg-active-unknown {
   gap: 0.65rem;
   margin: 0 0 1rem;
   padding: 0.85rem 1rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.85rem;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
   position: sticky;
   top: 0.5rem;
   z-index: 5;
@@ -547,20 +547,20 @@ td.ms-tg-active-unknown {
   gap: 0.35rem;
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
-  border: 1px solid #e4dcf2;
-  color: #1f1438;
+  border: 1px solid #e8eaf0;
+  color: #1e2033;
   font-size: 0.8rem;
 }
 
 .ms-mass-step.is-done {
   border-color: #3f7a55;
-  color: #206b22;
+  color: #36c878;
 }
 
 .ms-mass-step.is-active {
   border-color: #e8b4f0;
-  background: #f0e8ff;
-  color: #1f1438;
+  background: #f2edff;
+  color: #1e2033;
   font-weight: 650;
 }
 
@@ -570,18 +570,18 @@ td.ms-tg-active-unknown {
   width: 1.25rem;
   height: 1.25rem;
   border-radius: 999px;
-  background: #efeaf8;
+  background: #f2edff;
   font-size: 0.75rem;
 }
 
 .ms-mass-step.is-active .ms-mass-step-num {
-  background: #6e36ca;
+  background: #7137f5;
   color: #ffffff;
 }
 
 .ms-mass-hint {
   margin: 0;
-  color: #1f1438;
+  color: #1e2033;
   font-size: 0.9rem;
   line-height: 1.4;
 }
@@ -650,9 +650,9 @@ td.ms-tg-active-unknown {
   width: 100%;
   margin-top: 0.35rem;
   padding: 0.65rem 0.75rem;
-  border: 1px dashed #e4dcf2;
+  border: 1px dashed #e8eaf0;
   border-radius: 0.75rem;
-  background: #efeaf8;
+  background: #f2edff;
 }
 
 .ms-replies-list {
@@ -670,7 +670,7 @@ td.ms-tg-active-unknown {
   max-width: 100%;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-campaign-form input,
@@ -683,10 +683,10 @@ td.ms-tg-active-unknown {
   font: inherit;
   font-weight: 400;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
-  background: #efeaf8;
-  color: #1f1438;
+  background: #f2edff;
+  color: #1e2033;
 }
 
 /* Native <select> with long option labels expands past the form otherwise. */
@@ -698,7 +698,7 @@ td.ms-tg-active-unknown {
 .ms-section-title {
   margin: 0.5rem 0 0;
   font-size: 1.05rem;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-campaign-list {
@@ -710,11 +710,11 @@ td.ms-tg-active-unknown {
 }
 
 .ms-campaign-card {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 1rem;
   padding: 0.85rem 1rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-campaign-card-head {
@@ -727,7 +727,7 @@ td.ms-tg-active-unknown {
 .ms-campaign-offer {
   margin: 0.55rem 0 0;
   white-space: pre-wrap;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-drawer-backdrop {
@@ -745,9 +745,9 @@ td.ms-tg-active-unknown {
   height: 100%;
   max-height: 100vh;
   overflow: auto;
-  background: #f6f3fc;
-  color: #1f1438;
-  border-left: 1px solid #e4dcf2;
+  background: #fcfcfe;
+  color: #1e2033;
+  border-left: 1px solid #e8eaf0;
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
   padding: 1rem 1.1rem 1.5rem;
   animation: ms-drawer-slide 0.22s ease-out;
@@ -762,7 +762,7 @@ td.ms-tg-active-unknown {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #f6f3fc;
+  background: #fcfcfe;
   padding-bottom: 0.45rem;
 }
 
@@ -793,7 +793,7 @@ td.ms-tg-active-unknown {
   appearance: none;
   border: 0;
   background: transparent;
-  color: #6e36ca;
+  color: #7137f5;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -818,9 +818,9 @@ td.ms-tg-active-unknown {
   max-height: min(90vh, 920px);
   overflow: auto;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   border-radius: 0.85rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   padding: 1rem 1.15rem 1.15rem;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
 }
@@ -846,7 +846,7 @@ td.ms-tg-active-unknown {
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 999px;
-  border: 3px solid color-mix(in srgb, #6e36ca 35%, transparent);
+  border: 3px solid color-mix(in srgb, #7137f5 35%, transparent);
   border-top-color: #e9d5ff;
   animation: ms-tg-spin 0.8s linear infinite;
 }
@@ -877,10 +877,10 @@ td.ms-tg-active-unknown {
 }
 
 .ms-card-section {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
   padding: 0.75rem 0.9rem;
-  background: #efeaf8;
+  background: #f2edff;
 }
 
 .ms-card-section h4 {
@@ -959,7 +959,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-order-row {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   padding: 0.45rem 0.6rem;
   font-size: 0.82rem;
@@ -982,7 +982,7 @@ td.ms-tg-active-unknown {
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 600;
-  background: #efeaf8;
+  background: #f2edff;
   color: #e8d7f2;
 }
 
@@ -1010,7 +1010,7 @@ td.ms-tg-active-unknown {
   margin: 0.55rem 0 0;
   padding: 0.55rem 0.7rem;
   border-radius: 0.5rem;
-  background: color-mix(in srgb, #6e36ca 18%, transparent);
+  background: color-mix(in srgb, #7137f5 18%, transparent);
   font-size: 0.85rem;
 }
 
@@ -1077,16 +1077,16 @@ td.ms-tg-active-unknown {
   user-select: none;
   font-size: 1.4rem;
   line-height: 1;
-  color: #1f1438;
+  color: #1e2033;
   background: #ffffff;
-  border: 1px dashed #e4dcf2;
+  border: 1px dashed #e8eaf0;
   border-radius: 0.5rem;
   padding: 0;
   font: inherit;
 }
 
 .ms-msg-plus:hover {
-  background: #f0e8ff;
+  background: #f2edff;
 }
 
 .ms-insert-wrap {
@@ -1104,7 +1104,7 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   min-width: 14rem;
   background: #ffffff;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   overflow: hidden;
 }
@@ -1116,7 +1116,7 @@ td.ms-tg-active-unknown {
   font: inherit;
   background: none;
   border: 0;
-  color: #1f1438;
+  color: #1e2033;
   display: block;
 }
 
@@ -1130,7 +1130,7 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   overflow: hidden;
   background: #ffffff;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   min-width: 0;
 }
@@ -1162,19 +1162,19 @@ td.ms-tg-active-unknown {
   width: 1.6rem;
   height: 1.6rem;
   border-radius: 50%;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: rgba(36, 16, 40, 0.92);
-  color: #1f1438;
+  color: #1e2033;
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
 }
 
 .ms-facts-panel {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
   padding: 0.85rem 0.95rem;
-  background: #efeaf8;
+  background: #f2edff;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -1201,7 +1201,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-fact-block {
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.45rem;
   display: flex;
   flex-direction: column;
@@ -1227,7 +1227,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-sanity {
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.45rem;
 }
 
@@ -1242,7 +1242,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-conversation {
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.45rem;
   display: flex;
   flex-direction: column;
@@ -1264,7 +1264,7 @@ td.ms-tg-active-unknown {
 .ms-conversation-msg {
   border-radius: 0.45rem;
   padding: 0.4rem 0.55rem;
-  background: #efeaf8;
+  background: #f2edff;
   font-size: 0.85rem;
   white-space: pre-wrap;
 }
@@ -1302,7 +1302,7 @@ td.ms-tg-active-unknown {
 
 .ms-grounding {
   font-size: 0.8rem;
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.45rem;
 }
 
@@ -1311,9 +1311,9 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.65rem 0.75rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
-  background: #f6f3fc;
+  background: #fcfcfe;
 }
 
 .ms-audience-in-filters {
@@ -1327,7 +1327,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-groups-details {
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.5rem;
 }
 
@@ -1381,7 +1381,7 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.85rem 1rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 1rem;
   background: #ffffff;
 }
@@ -1391,9 +1391,9 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   gap: 0.65rem;
   padding: 0.75rem 0.85rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.85rem;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
   min-width: 0;
 }
 
@@ -1428,7 +1428,7 @@ td.ms-tg-active-unknown {
   appearance: none;
   max-width: min(14rem, 42vw);
   padding: 0.35rem 1.6rem 0.35rem 0.55rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.45rem;
   background: #ffffff
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath fill='%23d8b4fe' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E")
@@ -1451,7 +1451,7 @@ td.ms-tg-active-unknown {
   align-items: center;
   gap: 0.45rem;
   padding: 0.45rem 0.55rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.55rem;
   background: #ffffff;
 }
@@ -1493,9 +1493,9 @@ td.ms-tg-active-unknown {
   gap: 0.65rem;
   min-width: 0;
   padding: 0.55rem 0.6rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.65rem;
-  background: #f6f3fc;
+  background: #fcfcfe;
 }
 
 .ms-filter-rail .ms-filter-tabs {
@@ -1530,7 +1530,7 @@ td.ms-tg-active-unknown {
   gap: 0.1rem;
   width: 100%;
   padding: 0.4rem 0.55rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   background: #ffffff;
   color: #f3e6f6;
@@ -1552,8 +1552,8 @@ td.ms-tg-active-unknown {
 
 .ms-filter-slide-btn:hover,
 .ms-filter-slide-btn.is-active {
-  background: #e4dcf2;
-  border-color: #6e36ca;
+  background: #e8eaf0;
+  border-color: #7137f5;
 }
 
 .ms-filter-slide {
@@ -1567,9 +1567,9 @@ td.ms-tg-active-unknown {
   flex-direction: column;
   gap: 0.45rem;
   padding: 0.55rem 0.65rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.65rem;
-  background: linear-gradient(180deg, #efeaf8 0%, #fbf9fe 100%);
+  background: linear-gradient(180deg, #f2edff 0%, #ffffff 100%);
   box-shadow: 8px 0 28px rgba(0, 0, 0, 0.35);
   animation: ms-filter-slide-in 0.2s ease-out;
   overflow: hidden;
@@ -1651,7 +1651,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-segments-details {
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
   padding-top: 0.5rem;
 }
 
@@ -1711,7 +1711,7 @@ td.ms-tg-active-unknown {
 .ms-filter-label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-event-calendar {
@@ -1720,7 +1720,7 @@ td.ms-tg-active-unknown {
   gap: 0.3rem;
   max-width: 15.5rem;
   padding: 0.4rem 0.45rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.55rem;
   background: #ffffff;
 }
@@ -1794,7 +1794,7 @@ td.ms-tg-active-unknown {
 }
 
 .ms-event-calendar-day.is-in-range {
-  background: #e4dcf2;
+  background: #e8eaf0;
 }
 
 .ms-event-calendar-day.is-edge {
@@ -1818,7 +1818,7 @@ td.ms-tg-active-unknown {
   gap: 0.25rem;
   margin-top: 0.1rem;
   padding-top: 0.35rem;
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
 }
 
 .ms-event-calendar-lead .ms-filter-label {
@@ -1837,7 +1837,7 @@ td.ms-tg-active-unknown {
 .ms-event-audience {
   margin-top: 0.65rem;
   padding-top: 0.55rem;
-  border-top: 1px solid #e4dcf2;
+  border-top: 1px solid #e8eaf0;
 }
 
 .ms-event-audience-head {
@@ -1897,17 +1897,17 @@ td.ms-tg-active-unknown {
   max-width: 36rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-playground-pick select {
   font: inherit;
   font-weight: 400;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
-  background: #efeaf8;
-  color: #1f1438;
+  background: #f2edff;
+  color: #1e2033;
 }
 
 .ms-playground-badges {
@@ -1924,14 +1924,14 @@ td.ms-tg-active-unknown {
   padding: 0.28rem 0.55rem;
   border-radius: 999px;
   border: 1px solid #6a3a74;
-  color: #1f1438;
+  color: #1e2033;
   background: #ffffff;
 }
 
 .ms-playground-badge.is-llm {
   border-color: #5db872;
   color: #c8f5d4;
-  background: color-mix(in srgb, #5db872 18%, #f6f3fc);
+  background: color-mix(in srgb, #5db872 18%, #fcfcfe);
 }
 
 .ms-playground-badge.is-heur {
@@ -1977,14 +1977,14 @@ td.ms-tg-active-unknown {
   gap: 0.35rem;
   min-height: 14rem;
   padding: 0.65rem 0.7rem 0.7rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.75rem;
-  background: color-mix(in srgb, #efeaf8 70%, #ffffff);
+  background: color-mix(in srgb, #f2edff 70%, #ffffff);
 }
 
 .ms-playground-qcard.is-empty {
   border-color: #8a4a3a;
-  background: color-mix(in srgb, #f5d6c8 25%, #f6f3fc);
+  background: color-mix(in srgb, #f5d6c8 25%, #fcfcfe);
 }
 
 .ms-playground-qcard-top {
@@ -2034,10 +2034,10 @@ td.ms-tg-active-unknown {
   font-size: 0.85rem;
   font-weight: 600;
   padding: 0.4rem 0.65rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.45rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   cursor: pointer;
 }
 
@@ -2058,10 +2058,10 @@ td.ms-tg-active-unknown {
   font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 400;
   padding: 0.7rem 0.8rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.65rem;
-  background: #efeaf8;
-  color: #1f1438;
+  background: #f2edff;
+  color: #1e2033;
   resize: vertical;
   white-space: pre;
   overflow: auto;
@@ -2188,7 +2188,7 @@ td.ms-ai-added {
   gap: 0.35rem;
 }
 .ms-group-chip.is-active {
-  outline: 2px solid #6e36ca;
+  outline: 2px solid #7137f5;
   font-weight: 600;
 }
 .ms-group-chip.is-ms {
@@ -2199,7 +2199,7 @@ td.ms-ai-added {
   background: color-mix(in srgb, #5db872 14%, transparent);
 }
 .ms-group-chip.is-both {
-  border-color: color-mix(in srgb, #6e36ca 55%, transparent);
+  border-color: color-mix(in srgb, #7137f5 55%, transparent);
 }
 .ms-chip-src {
   display: inline-flex;
@@ -2221,7 +2221,7 @@ td.ms-ai-added {
 }
 .ms-chip-src-both {
   color: #e9d5ff;
-  background: color-mix(in srgb, #6e36ca 28%, transparent);
+  background: color-mix(in srgb, #7137f5 28%, transparent);
 }
 .ms-group-chip-count {
   font-variant-numeric: tabular-nums;
@@ -2242,10 +2242,10 @@ td.ms-ai-added {
 .ms-tg-archive-toolbar .ms-input {
   width: min(100%, 30rem);
   padding: 0.55rem 0.75rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   font: inherit;
 }
 
@@ -2280,22 +2280,22 @@ td.ms-ai-added {
   appearance: none;
   cursor: pointer;
   padding: 0.5rem 0.65rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-left: 3px solid #5db872;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   font: inherit;
 }
 
 /* No MoySklad card behind this chat — the half that used to be invisible. */
 .ms-tg-archive-row.is-orphan {
-  border-left-color: #6e36ca;
+  border-left-color: #7137f5;
 }
 
 .ms-tg-archive-row.is-active {
-  border-color: #6e36ca;
-  background: #efeaf8;
+  border-color: #7137f5;
+  background: #f2edff;
 }
 
 .ms-tg-archive-row-top {
@@ -2317,7 +2317,7 @@ td.ms-ai-added {
 }
 
 .ms-tg-archive-thread {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   padding: 0.75rem;
   background: #ffffff;
@@ -2358,7 +2358,7 @@ td.ms-ai-added {
 }
 
 .ms-audit-issue {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-left: 3px solid #5db872;
   border-radius: 0.4rem;
   padding: 0.5rem 0.65rem;
@@ -2413,10 +2413,10 @@ td.ms-ai-added {
   flex: 1;
   min-width: 16rem;
   padding: 0.5rem 0.7rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.4rem;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   font: inherit;
 }
 
@@ -2461,9 +2461,9 @@ td.ms-ai-added {
   gap: 0.65rem;
   margin: 0 0 1rem;
   padding: 0.85rem 1rem;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.85rem;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
 }
 
 .ms-mass-panel-head {
@@ -2508,20 +2508,20 @@ td.ms-ai-added {
 .ms-mass-progress-track {
   height: 0.55rem;
   border-radius: 999px;
-  background: #efeaf8;
-  border: 1px solid #e4dcf2;
+  background: #f2edff;
+  border: 1px solid #e8eaf0;
   overflow: hidden;
 }
 
 .ms-mass-progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: #206b22;
+  background: #36c878;
   transition: width 0.4s ease;
 }
 
 .ms-mass-progress-fill.is-active {
-  background: linear-gradient(90deg, #206b22, #e8b4f0);
+  background: linear-gradient(90deg, #36c878, #e8b4f0);
 }
 
 .ms-mass-row-tabs {
@@ -2535,10 +2535,10 @@ td.ms-ai-added {
   gap: 0.15rem;
   max-height: 44vh;
   overflow: auto;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.6rem;
   padding: 0.5rem 0.65rem;
-  background: #f6f3fc;
+  background: #fcfcfe;
   font-size: 0.85rem;
 }
 
@@ -2557,11 +2557,11 @@ td.ms-ai-added {
 
 .ms-mass-log-status {
   min-width: 8.5rem;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ms-mass-log-row.is-ok .ms-mass-log-status {
-  color: #206b22;
+  color: #36c878;
 }
 
 .ms-mass-log-row.is-failed .ms-mass-log-status {
@@ -2782,7 +2782,7 @@ td.ms-ai-added {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: #efeaf8;
+  background: #f2edff;
   min-width: 8.5rem;
 }
 
@@ -2790,7 +2790,7 @@ td.ms-ai-added {
   position: sticky;
   left: 8.5rem;
   z-index: 2;
-  background: #efeaf8;
+  background: #f2edff;
   min-width: 7.2rem;
 }
 
@@ -2857,7 +2857,7 @@ td.ms-ai-added {
 }
 
 .ms-dash-pct.is-flat {
-  color: #1f1438;
+  color: #1e2033;
   opacity: 0.75;
 }
 
@@ -2880,9 +2880,9 @@ td.ms-ai-added {
 .ms-dash-take {
   appearance: none;
   text-align: left;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   border-radius: 0.75rem;
   padding: 0.7rem 0.8rem;
   cursor: pointer;
@@ -2897,7 +2897,7 @@ td.ms-ai-added {
 
 .ms-dash-take span {
   font-size: 0.78rem;
-  color: #1f1438;
+  color: #1e2033;
   opacity: 0.9;
 }
 
@@ -2905,8 +2905,8 @@ td.ms-ai-added {
 .ms-dash-take.is-down { border-color: #fda4af; }
 .ms-dash-take.is-warn { border-color: #f0c36e; }
 .ms-dash-take.is-active {
-  background: #efeaf8;
-  outline: 2px solid #6e36ca;
+  background: #f2edff;
+  outline: 2px solid #7137f5;
 }
 
 .ms-dash-chart-toolbar {
@@ -2926,9 +2926,9 @@ td.ms-ai-added {
 .ms-dash-leg,
 .ms-dash-share-row {
   appearance: none;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: #ffffff;
-  color: #1f1438;
+  color: #1e2033;
   border-radius: 999px;
   padding: 0.25rem 0.7rem;
   display: inline-flex;
@@ -2967,7 +2967,7 @@ td.ms-ai-added {
 
 .ms-dash-chart {
   background: #ffffff;
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   border-radius: 0.85rem;
   padding: 0.4rem;
 }
@@ -2980,22 +2980,22 @@ td.ms-ai-added {
 }
 
 .ms-dash-grid {
-  stroke: #e4dcf2;
+  stroke: #e8eaf0;
   stroke-width: 1;
 }
 
 .ms-dash-axis {
-  fill: #1f1438;
+  fill: #1e2033;
   font-size: 11px;
 }
 
 .ms-dash-hover-line {
-  stroke: #6e36ca;
+  stroke: #7137f5;
   stroke-dasharray: 3 3;
 }
 
 .ms-dash-tip {
-  border: 1px solid #e4dcf2;
+  border: 1px solid #e8eaf0;
   background: #ffffff;
   border-radius: 0.7rem;
   padding: 0.55rem 0.75rem;
@@ -3035,7 +3035,7 @@ td.ms-ai-added {
 
 .ms-dash-share-track {
   height: 0.55rem;
-  background: #efeaf8;
+  background: #f2edff;
   border-radius: 999px;
   overflow: hidden;
   align-self: center;
@@ -3062,8 +3062,8 @@ td.ms-ai-added {
   flex: 1;
   min-width: 12rem;
   background: #ffffff;
-  border: 1px solid #e4dcf2;
-  color: #1f1438;
+  border: 1px solid #e8eaf0;
+  color: #1e2033;
   border-radius: 0.5rem;
   padding: 0.4rem 0.7rem;
   font: inherit;

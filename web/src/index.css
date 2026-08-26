@@ -48,18 +48,18 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Iris white floral — first paint before ThemeProvider mounts.       */
+/* Iris light B2B SaaS — first paint before ThemeProvider mounts.     */
 /* ------------------------------------------------------------------ */
 
 :root {
-  --foreground: #1f1438;
-  --foreground-base: #1f1438;
+  --foreground: #1e2033;
+  --foreground-base: #1e2033;
   --foreground-alpha: 1;
-  --midground: color-mix(in srgb, #6e36ca 100%, transparent);
-  --midground-base: #6e36ca;
+  --midground: color-mix(in srgb, #7137f5 100%, transparent);
+  --midground-base: #7137f5;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #f6f3fc 100%, transparent);
-  --background-base: #f6f3fc;
+  --background: color-mix(in srgb, #fcfcfe 100%, transparent);
+  --background-base: #fcfcfe;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -80,8 +80,8 @@
   --theme-density: comfortable;
 
   /* Data-series accents. */
-  --series-input-token: #6e36ca;
-  --series-output-token: #b750f3;
+  --series-input-token: #7137f5;
+  --series-output-token: #8b5cf6;
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -104,12 +104,11 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground-base, #1f1438);
-  background-color: #f6f3fc;
+  color: var(--foreground-base, #1e2033);
+  background-color: #fcfcfe;
   background-image:
-    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 45% at 88% 18%, rgba(110, 54, 202, 0.1), transparent 50%),
-    linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
+    radial-gradient(ellipse 80% 50% at 100% 0%, rgba(113, 55, 245, 0.04), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
 }
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
@@ -164,18 +163,18 @@ code { font-size: 0.875rem; }
   --color-card-foreground: var(--foreground-base);
   --color-primary: var(--midground);
   --color-primary-foreground: #ffffff;
-  --color-secondary: #efeaf8;
+  --color-secondary: #f2edff;
   --color-secondary-foreground: var(--foreground-base);
-  --color-muted: #efeaf8;
+  --color-muted: #f2edff;
   /* Soft mute on white floral — readable captions. */
-  --color-muted-foreground: #5a4a72;
-  --color-accent: #f0e8ff;
-  --color-accent-foreground: #6e36ca;
-  --color-destructive: #cc4117;
+  --color-muted-foreground: #858ba3;
+  --color-accent: #f2edff;
+  --color-accent-foreground: #7137f5;
+  --color-destructive: #ff365f;
   --color-destructive-foreground: #ffffff;
-  --color-success: #206b22;
+  --color-success: #36c878;
   --color-warning: #a67c00;
-  --color-border: #e4dcf2;
+  --color-border: #e8eaf0;
   --color-input: #ffffff;
   --color-ring: var(--midground);
   --color-popover: #ffffff;
@@ -189,14 +188,14 @@ code { font-size: 0.875rem; }
 
 /* Kanban + plugin tabs — white floral chrome, high-contrast plum ink. */
 .hermes-kanban {
-  background: #f6f3fc !important;
-  color: #1f1438 !important;
+  background: #fcfcfe !important;
+  color: #1e2033 !important;
 }
 
 .hermes-kanban-drawer {
   background: #ffffff !important;
-  color: #1f1438 !important;
-  border-left-color: #e4dcf2 !important;
+  color: #1e2033 !important;
+  border-left-color: #e8eaf0 !important;
   box-shadow: -4px 0 18px rgba(16, 6, 39, 0.08) !important;
 }
 
@@ -210,34 +209,34 @@ code { font-size: 0.875rem; }
     radial-gradient(circle at 2.6rem 2.2rem, color-mix(in srgb, var(--ha-tier) 22%, transparent), transparent 34%),
     linear-gradient(180deg, rgba(110, 54, 202, 0.04), transparent),
     #ffffff !important;
-  color: #1f1438;
+  color: #1e2033;
 }
 
 .ha-progress-track,
 .ha-scan-progress-track {
-  background: #efeaf8 !important;
+  background: #f2edff !important;
 }
 
 .ha-share-dialog {
   background: #ffffff !important;
-  color: #1f1438 !important;
+  color: #1e2033 !important;
   box-shadow: 0 24px 60px rgba(16, 6, 39, 0.12) !important;
 }
 
 /* Plugins page — white floral panel. */
 .iris-plugins-page {
-  --iris-plugins-ink: #1f1438;
-  --iris-plugins-mute: #3d2a5c;
-  --iris-plugins-canvas: #f6f3fc;
-  --iris-plugins-lavender: #efeaf8;
+  --iris-plugins-ink: #1e2033;
+  --iris-plugins-mute: #858ba3;
+  --iris-plugins-canvas: #fcfcfe;
+  --iris-plugins-lavender: #f2edff;
   --iris-plugins-surface: #ffffff;
-  --iris-plugins-primary: #6e36ca;
-  --iris-plugins-border: #e4dcf2;
+  --iris-plugins-primary: #7137f5;
+  --iris-plugins-border: #e8eaf0;
 
   color: var(--iris-plugins-ink);
   background:
     radial-gradient(circle at 12% 0%, rgba(183, 80, 243, 0.12), transparent 42%),
-    linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
+    linear-gradient(180deg, #ffffff 0%, #fcfcfe 55%, #f2edff 100%);
   border-radius: 1rem;
   padding: 1rem 1.1rem 1.5rem;
 }

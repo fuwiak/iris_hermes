@@ -142,19 +142,19 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #1f1438;
-    --theme-primary: #6e36ca;
-    --theme-secondary: #efeaf8;
-    --theme-accent-soft: #f0e8ff;
-    --theme-midground: #b750f3;
-    --theme-warm: #6e36ca;
-    --theme-background-seed: #f6f3fc;
-    --theme-sidebar-seed: #fbf9fe;
+    --theme-foreground: #1e2033;
+    --theme-primary: #7137f5;
+    --theme-secondary: #f2edff;
+    --theme-accent-soft: #f2edff;
+    --theme-midground: #8b5cf6;
+    --theme-warm: #7137f5;
+    --theme-background-seed: #fcfcfe;
+    --theme-sidebar-seed: #ffffff;
     --theme-card-seed: #ffffff;
     --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: #efeaf8;
-    --theme-neutral-chrome: #f6f3fc;
-    --theme-neutral-sidebar: #fbf9fe;
+    --theme-bubble-seed: #f2edff;
+    --theme-neutral-chrome: #fcfcfe;
+    --theme-neutral-sidebar: #ffffff;
     --theme-neutral-card: #ffffff;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
@@ -185,7 +185,7 @@
     --ui-green: #1f8a65;
     --ui-cyan: #4c7f8c;
     --ui-blue: #003cde;
-    --ui-purple: #6e36ca;
+    --ui-purple: #7137f5;
     --context-usage-system: color-mix(in srgb, var(--ui-base) 55%, transparent);
     --context-usage-tools: var(--ui-purple);
     --context-usage-rules: var(--ui-green);
@@ -543,72 +543,71 @@
     --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
-  /* Iris CRM — white floral canvas (crmiris.ru): lavender-white + violet CTAs. */
+  /* Iris CRM — light B2B SaaS (kartochki-tovarov mock). */
   :root[data-hermes-theme='iris'] {
-    --theme-neutral-chrome: #f6f3fc;
-    --theme-neutral-sidebar: #fbf9fe;
+    --theme-neutral-chrome: #fcfcfe;
+    --theme-neutral-sidebar: #ffffff;
     --theme-neutral-card: #ffffff;
     --theme-mix-chrome: 100%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 100%;
     --theme-mix-elevated: 100%;
     --theme-mix-bubble: 100%;
-    --ui-link: #003cde;
-    --ui-link-hover: #6e36ca;
-    --ui-text-primary: #1f1438;
-    --ui-text-secondary: #3d2a5c;
-    --ui-text-tertiary: #5a4a72;
-    --ui-text-quaternary: #6e5d88;
-    --conversation-scaffold-text: #3d2a5c;
-    --conversation-scaffold-meta: #5a4a72;
+    --ui-link: #7137f5;
+    --ui-link-hover: #ff4165;
+    --ui-text-primary: #1e2033;
+    --ui-text-secondary: #858ba3;
+    --ui-text-tertiary: #858ba3;
+    --ui-text-quaternary: #9aa0b4;
+    --conversation-scaffold-text: #858ba3;
+    --conversation-scaffold-meta: #9aa0b4;
     --conversation-text-font-size: 0.9375rem;
-    --ui-bg-chrome: #f6f3fc;
-    --ui-bg-sidebar: #fbf9fe;
+    --ui-bg-chrome: #fcfcfe;
+    --ui-bg-sidebar: #ffffff;
     --ui-bg-editor: #ffffff;
     --ui-bg-elevated: #ffffff;
     --ui-bg-card: #ffffff;
     --ui-bg-input: #ffffff;
-    --ui-bg-primary: color-mix(in srgb, #6e36ca 10%, #ffffff);
-    --ui-bg-secondary: #efeaf8;
-    --ui-bg-tertiary: #f6f3fc;
-    --ui-bg-quaternary: #efeaf8;
+    --ui-bg-primary: color-mix(in srgb, #7137f5 10%, #ffffff);
+    --ui-bg-secondary: #f4f5f8;
+    --ui-bg-tertiary: #fcfcfe;
+    --ui-bg-quaternary: #f4f5f8;
     --ui-bg-quinary: #ffffff;
-    --ui-row-hover-background: color-mix(in srgb, #6e36ca 6%, #ffffff);
-    --ui-row-active-background: color-mix(in srgb, #6e36ca 12%, #ffffff);
-    --ui-control-hover-background: color-mix(in srgb, #6e36ca 8%, #ffffff);
-    --ui-control-active-background: color-mix(in srgb, #6e36ca 14%, #ffffff);
+    --ui-row-hover-background: color-mix(in srgb, #7137f5 5%, #ffffff);
+    --ui-row-active-background: #fff0f3;
+    --ui-control-hover-background: color-mix(in srgb, #7137f5 6%, #ffffff);
+    --ui-control-active-background: #f2edff;
     --ui-surface-background: #ffffff;
-    --ui-sidebar-surface-background: #fbf9fe;
-    --ui-chat-surface-background: #f6f3fc;
-    --ui-editor-surface-background: #f6f3fc;
-    /* Soft plum terminal — not near-black. */
-    --ui-terminal-surface-background: #4a3568;
+    --ui-sidebar-surface-background: #ffffff;
+    --ui-chat-surface-background: #fcfcfe;
+    --ui-editor-surface-background: #fcfcfe;
+    --ui-terminal-surface-background: #1e2033;
     --ui-widget-surface-background: #ffffff;
-    --ui-chat-bubble-background: #efeaf8;
-    --ui-chat-bubble-opaque-background: #efeaf8;
-    --ui-inline-code-background: #efeaf8;
-    --ui-inline-code-foreground: #1f1438;
-    --dt-background: #f6f3fc;
-    --dt-foreground: #1f1438;
+    --ui-chat-bubble-background: #f2edff;
+    --ui-chat-bubble-opaque-background: #f2edff;
+    --ui-inline-code-background: #f4f5f8;
+    --ui-inline-code-foreground: #1e2033;
+    --dt-background: #fcfcfe;
+    --dt-foreground: #1e2033;
     --dt-card: #ffffff;
-    --dt-card-foreground: #1f1438;
+    --dt-card-foreground: #1e2033;
     --dt-popover: #ffffff;
-    --dt-popover-foreground: #1f1438;
-    --dt-muted: #efeaf8;
-    --dt-muted-foreground: #5a4a72;
-    --dt-secondary: #efeaf8;
-    --dt-secondary-foreground: #1f1438;
-    --dt-accent: #f0e8ff;
-    --dt-accent-foreground: #6e36ca;
+    --dt-popover-foreground: #1e2033;
+    --dt-muted: #f4f5f8;
+    --dt-muted-foreground: #858ba3;
+    --dt-secondary: #f4f5f8;
+    --dt-secondary-foreground: #1e2033;
+    --dt-accent: #f2edff;
+    --dt-accent-foreground: #7137f5;
     --dt-primary-foreground: #ffffff;
-    --dt-user-bubble: #efeaf8;
-    --muted-foreground: #5a4a72;
-    --chrome-action-hover: color-mix(in srgb, #6e36ca 8%, #ffffff);
+    --dt-user-bubble: #f2edff;
+    --dt-border: #e8eaf0;
+    --muted-foreground: #858ba3;
+    --chrome-action-hover: #f4f5f8;
+    --shadow-nous: 0 2px 8px rgba(30, 35, 60, 0.03);
     --slacc-mesh:
-      radial-gradient(ellipse 70% 50% at 12% 8%, rgba(183, 80, 243, 0.12), transparent 55%),
-      radial-gradient(ellipse 60% 45% at 88% 18%, rgba(110, 54, 202, 0.1), transparent 50%),
-      radial-gradient(ellipse 50% 40% at 50% 100%, rgba(246, 243, 252, 0.9), transparent 55%),
-      linear-gradient(180deg, #ffffff 0%, #f6f3fc 55%, #efeaf8 100%);
+      radial-gradient(ellipse 80% 50% at 100% 0%, rgba(113, 55, 245, 0.04), transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
     color-scheme: light;
     font-weight: 400;
   }
@@ -618,8 +617,8 @@
   :root[data-hermes-theme='iris'] #root {
     font-weight: 400;
     background-image: var(--slacc-mesh);
-    background-color: #f6f3fc;
-    color: #1f1438;
+    background-color: #fcfcfe;
+    color: #1e2033;
   }
 
   :root[data-hermes-theme='iris'] :where(.font-black, .font-extrabold, .font-bold) {
@@ -643,22 +642,22 @@
   :root[data-hermes-theme='iris'] [data-slot='composer-rich-input'],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro],
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] h1 {
-    color: #1f1438 !important;
+    color: #1e2033 !important;
   }
 
   :root[data-hermes-theme='iris'] [data-hermes-one-intro] > p {
-    color: #3d2a5c !important;
+    color: #858ba3 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button {
     background: #ffffff;
-    border-color: color-mix(in srgb, #6e36ca 28%, #ffffff);
-    color: #1f1438 !important;
+    border-color: color-mix(in srgb, #7137f5 28%, #ffffff);
+    color: #1e2033 !important;
   }
 
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:hover,
   :root[data-hermes-theme='iris'] .hermes-one-suggestions button:focus-visible {
-    background: #6e36ca;
+    background: #7137f5;
     color: #ffffff !important;
   }
 
@@ -673,10 +672,10 @@
     --ui-surface-background: #3d3054;
     --ui-widget-surface-background: #3d3054;
     --ui-terminal-surface-background: #4a3568;
-    --ui-text-primary: #f6f3fc;
+    --ui-text-primary: #fcfcfe;
     --ui-text-secondary: #c9b8e0;
     --ui-text-tertiary: #a894c4;
-    --dt-foreground: #f6f3fc;
+    --dt-foreground: #fcfcfe;
     --dt-muted-foreground: #c9b8e0;
     --muted-foreground: #c9b8e0;
     color-scheme: dark;
@@ -686,14 +685,14 @@
   :root[data-hermes-theme='iris'] [data-slot='kanban-board'],
   :root[data-hermes-theme='iris'] [data-settings-view] {
     background-color: #ffffff;
-    color: #1f1438;
+    color: #1e2033;
   }
 
   :root[data-hermes-theme='iris']
     [data-slot='aui_assistant-message-content']
     [data-conversation-scaffold] {
     opacity: 0.95;
-    color: #3d2a5c;
+    color: #858ba3;
   }
 
   :root[data-hermes-theme='iris'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -709,20 +708,20 @@
   :root[data-hermes-theme='iris'] [data-slot='popover-content'],
   :root[data-hermes-theme='iris'] [data-slot='card'] {
     background-color: #ffffff !important;
-    color: #1f1438 !important;
-    border-color: color-mix(in srgb, #6e36ca 16%, #ffffff) !important;
+    color: #1e2033 !important;
+    border-color: color-mix(in srgb, #7137f5 16%, #ffffff) !important;
   }
 
   :root[data-hermes-theme='iris'] input::placeholder,
   :root[data-hermes-theme='iris'] textarea::placeholder {
-    color: #6e5d88 !important;
+    color: #9aa0b4 !important;
     opacity: 1;
   }
 
   :root[data-hermes-theme='iris'] .standalone-glass,
   :root[data-hermes-theme='iris'] .composer-human-message {
-    background: #efeaf8 !important;
-    color: #1f1438 !important;
+    background: #f2edff !important;
+    color: #1e2033 !important;
   }
 
   :root[data-hermes-theme='iris'] {
@@ -731,16 +730,16 @@
 
   /* Settings ▸ Plugins — white floral panel. */
   .iris-plugins-settings {
-    color: #1f1438;
+    color: #1e2033;
     color-scheme: light;
   }
 
   .iris-plugins-settings,
   [data-hermes-theme='iris'] [data-settings-view='plugins'],
   :root[data-hermes-theme='iris'] .iris-plugins-settings {
-    --ui-text-primary: #1f1438;
-    --ui-text-secondary: #3d2a5c;
-    --ui-text-tertiary: #5a4a72;
+    --ui-text-primary: #1e2033;
+    --ui-text-secondary: #858ba3;
+    --ui-text-tertiary: #858ba3;
   }
 
   .iris-plugins-settings {
@@ -748,8 +747,8 @@
     border-radius: 1rem;
     background:
       radial-gradient(circle at 10% 0%, rgba(183, 80, 243, 0.12), transparent 45%),
-      linear-gradient(180deg, #ffffff 0%, #f6f3fc 100%);
-    color: #1f1438;
+      linear-gradient(180deg, #ffffff 0%, #fcfcfe 100%);
+    color: #1e2033;
   }
 
   .iris-plugins-settings p,
@@ -759,7 +758,7 @@
   }
 
   .iris-plugins-settings .text-muted-foreground {
-    color: #5a4a72 !important;
+    color: #858ba3 !important;
   }
 
   * {
@@ -1598,7 +1597,7 @@ text-* variant utilities. */ .btn-arc {
    lavender canvas, violet primary, high-contrast plum ink. Electron + web embed share these. */
 [data-hermes-one-intro] {
   gap: 0;
-  color: var(--ui-text-primary, #1f1438);
+  color: var(--ui-text-primary, #1e2033);
 }
 
 .hermes-one-mark {
@@ -1610,7 +1609,7 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--theme-primary, #6e36ca);
+  background: var(--theme-primary, #7137f5);
   color: var(--dt-primary-foreground, #ffffff);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   line-height: 0.85;
@@ -1629,7 +1628,7 @@ text-* variant utilities. */ .btn-arc {
 
 [data-hermes-one-intro] h1 {
   margin: 0;
-  color: var(--ui-text-primary, #1f1438);
+  color: var(--ui-text-primary, #1e2033);
   font-size: clamp(1.9rem, 2.4vw, 2.55rem);
   line-height: 1.15;
   font-weight: 500;
@@ -1639,7 +1638,7 @@ text-* variant utilities. */ .btn-arc {
 [data-hermes-one-intro] > p {
   max-width: 32rem;
   margin: 1.35rem 0 2.4rem;
-  color: var(--ui-text-secondary, #3d2a5c);
+  color: var(--ui-text-secondary, #858ba3);
   font-size: 1.05rem;
   line-height: 1.55;
 }
@@ -1659,10 +1658,10 @@ text-* variant utilities. */ .btn-arc {
   align-items: center;
   gap: 0.75rem;
   padding: 0.7rem 1.75rem;
-  border: 2px solid var(--theme-primary, #6e36ca);
+  border: 2px solid var(--theme-primary, #7137f5);
   border-radius: 90px;
   background: var(--theme-accent-soft, #ffffff);
-  color: var(--ui-text-primary, #1f1438);
+  color: var(--ui-text-primary, #1e2033);
   font-size: 1rem;
   font-weight: 400;
   letter-spacing: 0.2px;
@@ -1674,8 +1673,8 @@ text-* variant utilities. */ .btn-arc {
 
 .hermes-one-suggestions button:hover,
 .hermes-one-suggestions button:focus-visible {
-  border-color: var(--theme-primary, #6e36ca);
-  background: var(--theme-primary, #6e36ca);
+  border-color: var(--theme-primary, #7137f5);
+  background: var(--theme-primary, #7137f5);
   color: var(--dt-primary-foreground, #ffffff);
   outline: none;
 }

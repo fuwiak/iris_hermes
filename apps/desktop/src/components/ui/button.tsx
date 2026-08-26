@@ -9,22 +9,22 @@ const TEXT_ACTION_ICON = '[&_.codicon]:no-underline [&_svg]:no-underline'
 
 // Slacc (DESIGN.md): text buttons are pills (90px); icon buttons stay compact.
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[90px] text-xs leading-4 font-medium whitespace-nowrap shadow-none transition-all duration-100 outline-none focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-default disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] text-xs leading-4 font-medium whitespace-nowrap shadow-none transition-all duration-100 outline-none focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-default disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       variant: {
-        // button-primary-pill — violet + white (crmiris.ru)
-        default: 'bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,#6e36ca_88%,#1f1438)]',
+        // button-primary — mock purple CTA
+        default: 'rounded-[9px] bg-primary text-primary-foreground shadow-[0_4px_14px_rgba(113,55,245,0.28)] hover:bg-[color-mix(in_srgb,#7137f5_88%,#1e2033)]',
         destructive:
-          'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
-        // button-outline — white surface, violet ring
-        outline: 'bg-white text-[#1f1438] shadow-[inset_0_0_0_2px_#6e36ca] hover:bg-[#f0e8ff] hover:text-[#6e36ca]',
-        // button-secondary-pill — soft lavender + ink
-        secondary: 'bg-[#efeaf8] text-[#1f1438] hover:bg-[color-mix(in_srgb,#6e36ca_12%,#efeaf8)] hover:text-[#1f1438]',
-        ghost: 'text-(--ui-text-secondary) hover:bg-[#efeaf8] hover:text-[#1f1438]',
-        link: `text-[#003cde] underline-offset-4 decoration-current/20 hover:text-[#6e36ca] hover:underline ${TEXT_ACTION_ICON}`,
-        text: `text-[#3d2a5c] underline-offset-4 hover:text-[#1f1438] hover:underline ${TEXT_ACTION_ICON}`,
-        textStrong: `font-medium text-[#3d2a5c] underline underline-offset-4 hover:text-[#1f1438] ${TEXT_ACTION_ICON}`
+          'rounded-[9px] bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40',
+        // button-outline — white + purple ring
+        outline: 'rounded-[9px] bg-white text-[#1e2033] shadow-[inset_0_0_0_1px_#e8eaf0] hover:bg-[#f4f5f8] hover:text-[#7137f5]',
+        // button-secondary — cool gray fill
+        secondary: 'rounded-[9px] bg-[#f4f5f8] text-[#1e2033] hover:bg-[color-mix(in_srgb,#7137f5_10%,#f4f5f8)] hover:text-[#1e2033]',
+        ghost: 'rounded-[9px] text-(--ui-text-secondary) hover:bg-[#f4f5f8] hover:text-[#1e2033]',
+        link: `text-[#7137f5] underline-offset-4 decoration-current/20 hover:text-[#ff4165] hover:underline ${TEXT_ACTION_ICON}`,
+        text: `text-[#858ba3] underline-offset-4 hover:text-[#1e2033] hover:underline ${TEXT_ACTION_ICON}`,
+        textStrong: `font-medium text-[#858ba3] underline underline-offset-4 hover:text-[#1e2033] ${TEXT_ACTION_ICON}`
       },
       size: {
         // Generous horizontal padding — Slacc over-padded pill

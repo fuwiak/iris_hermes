@@ -208,17 +208,17 @@ export const nousBlueTheme: DashboardTheme = {
 };
 
 /**
- * Iris CRM — white floral canvas (crmiris.ru): lavender-white + violet CTAs.
+ * Iris CRM — light B2B SaaS (design/mocks/kartochki-tovarov.html).
  */
 export const irisTheme: DashboardTheme = {
   name: "iris",
   label: "Iris",
-  description: "White floral canvas, thin type, violet CTAs — like crmiris.ru",
+  description: "Light B2B SaaS — purple CTAs, cool gray, soft borders",
   palette: {
-    background: { hex: "#f6f3fc", alpha: 1 },
-    midground: { hex: "#6e36ca", alpha: 1 },
-    foreground: { hex: "#1f1438", alpha: 1 },
-    warmGlow: "rgba(183, 80, 243, 0.18)",
+    background: { hex: "#fcfcfe", alpha: 1 },
+    midground: { hex: "#7137f5", alpha: 1 },
+    foreground: { hex: "#1e2033", alpha: 1 },
+    warmGlow: "rgba(113, 55, 245, 0.12)",
     noiseOpacity: 0,
   },
   typography: {
@@ -226,41 +226,40 @@ export const irisTheme: DashboardTheme = {
     fontSans: `"Inter", ${SYSTEM_SANS}`,
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl:
-      "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap",
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
     letterSpacing: "-0.005em",
     lineHeight: "1.55",
   },
   layout: {
     ...DEFAULT_LAYOUT,
-    radius: "1rem",
+    radius: "0.75rem",
   },
   assets: {
     logo: "/iris-logo.png",
     crest: "/apple-touch-icon.png",
   },
   colorOverrides: {
-    primary: "#6e36ca",
+    primary: "#7137f5",
     primaryForeground: "#ffffff",
-    accent: "#f0e8ff",
-    accentForeground: "#6e36ca",
-    muted: "#efeaf8",
-    mutedForeground: "#5a4a72",
-    border: "#e4dcf2",
+    accent: "#f2edff",
+    accentForeground: "#7137f5",
+    muted: "#f4f5f8",
+    mutedForeground: "#858ba3",
+    border: "#e8eaf0",
     card: "#ffffff",
-    cardForeground: "#1f1438",
-    success: "#206b22",
-    warning: "#a67c00",
-    destructive: "#cc4117",
-    ring: "#6e36ca",
+    cardForeground: "#1e2033",
+    success: "#36c878",
+    warning: "#ff9e3d",
+    destructive: "#ff365f",
+    ring: "#7137f5",
   },
-  terminalBackground: "#4a3568",
-  terminalForeground: "#f6f3fc",
+  terminalBackground: "#1e2033",
+  terminalForeground: "#fcfcfe",
   seriesColors: {
-    inputTokenAccent: "#6e36ca",
-    outputTokenAccent: "#b750f3",
+    inputTokenAccent: "#7137f5",
+    outputTokenAccent: "#8b5cf6",
   },
-  // [background, midground, warmGlow] — ThemeList swatch is a fixed triple.
-  swatchColors: ["#f6f3fc", "#6e36ca", "#b750f3"],
+  swatchColors: ["#fcfcfe", "#7137f5", "#ff4165"],
 };
 
 /**

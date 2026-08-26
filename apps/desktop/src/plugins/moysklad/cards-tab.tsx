@@ -116,7 +116,7 @@ const DRAWER_STYLE: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   background: 'var(--hermes-bg, #ffffff)',
-  borderLeft: '1px solid var(--hermes-border, #e4dcf2)',
+  borderLeft: '1px solid var(--hermes-border, #e8eaf0)',
   boxShadow: '-8px 0 24px rgba(61,42,92,.12)',
   overflowY: 'auto'
 }
@@ -175,9 +175,9 @@ const PLUS_STYLE: React.CSSProperties = {
   width: 30,
   height: 30,
   borderRadius: '50%',
-  border: '1px solid var(--hermes-border, #e4dcf2)',
+  border: '1px solid var(--hermes-border, #e8eaf0)',
   background: 'rgba(255,255,255,.95)',
-  color: '#1f1438',
+  color: '#1e2033',
   fontSize: 18,
   lineHeight: 1,
   cursor: 'pointer',

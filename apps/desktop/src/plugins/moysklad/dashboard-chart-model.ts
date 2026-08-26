@@ -37,7 +37,7 @@ export function visibleChannels<T extends { key: string }>(channels: T[], hidden
   return channels.filter(ch => !hidden.has(ch.key))
 }
 
-const TEXT = '#1f1438'
+const TEXT = '#1e2033'
 const MUTED = '#f0daf5'
 const GRID = '#592466'
 const AXIS = '#7c3a8c'
@@ -219,7 +219,7 @@ export function buildHeatmapOption(
       left: 'center',
       bottom: 0,
       textStyle: { color: MUTED },
-      inRange: { color: ['#f6f3fc', '#b750f3', '#6e36ca'] }
+      inRange: { color: ['#fcfcfe', '#8b5cf6', '#7137f5'] }
     },
     series: [{ type: 'heatmap', data, emphasis: { itemStyle: { shadowBlur: 8 } } }]
   }
