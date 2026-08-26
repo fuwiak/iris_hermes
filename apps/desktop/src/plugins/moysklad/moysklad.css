@@ -1133,6 +1133,8 @@ td.ms-tg-active-unknown {
   border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   min-width: 0;
+  /* Anchor for the freely draggable photo (.ms-msg-photo is absolute). */
+  position: relative;
 }
 
 .ms-msg-box textarea {
@@ -1143,9 +1145,27 @@ td.ms-tg-active-unknown {
   box-sizing: border-box;
 }
 
+/* Room to actually move the photo around when one is attached. */
+.ms-msg-box.has-photo {
+  min-height: 15rem;
+}
+
+/* Dragged by pointer, so it floats over the textarea instead of pushing the
+   text down. translate() comes from component state; overflow on the box
+   clips at the edges, and the offset is clamped to match. */
 .ms-msg-photo {
-  position: relative;
-  padding: 0.45rem 0.45rem 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 0.45rem;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.ms-msg-photo:active {
+  cursor: grabbing;
 }
 
 .ms-msg-photo img {
@@ -1153,6 +1173,9 @@ td.ms-tg-active-unknown {
   max-height: 200px;
   max-width: 100%;
   border-radius: 0.4rem;
+  /* Never start the browser's native image drag mid-reposition. */
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 
 .ms-msg-photo-x {

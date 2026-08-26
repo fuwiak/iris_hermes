@@ -68,6 +68,14 @@ import {
   overlayMassRows,
   terminalPrefixLength
 } from './mass-send'
+import {
+  dragPhotoOffset,
+  PHOTO_ORIGIN,
+  type PhotoDragBounds,
+  type PhotoDragStart,
+  type PhotoOffset,
+  reflowPhotoOffset
+} from './photo-drag'
 
 // Chat refine — DeepSeek only (OpenRouter id).
 // Verified live via OpenRouter on this key (probe 17.08.2026):
@@ -4174,6 +4182,49 @@ function CampaignsPage() {
   const [offerTick, setOfferTick] = useState(0)
   /** Photo shown inside «Текст сообщения» and sent with mark-sent / mass. */
   const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
+  // Free placement of the attached photo inside the composer (drag by pointer).
+  const [sendImagePos, setSendImagePos] = useState<PhotoOffset>(PHOTO_ORIGIN)
+  const msgBoxRef = useRef<HTMLDivElement>(null)
+  const photoRef = useRef<HTMLDivElement>(null)
+  const photoDragRef = useRef<PhotoDragStart | null>(null)
+
+  const photoDragBounds = useCallback((): PhotoDragBounds | null => {
+    const box = msgBoxRef.current?.getBoundingClientRect()
+    const photo = photoRef.current?.getBoundingClientRect()
+
+    if (!box || !photo) {
+      return null
+    }
+
+    return { boxW: box.width, boxH: box.height, photoW: photo.width, photoH: photo.height }
+  }, [])
+
+  const sendImageKey = sendImage?.dataUrl || sendImage?.url || ''
+
+  // A different picture starts back at the top-left; keeping the old offset
+  // would park a fresh photo half-way down the field for no reason.
+  useEffect(() => {
+    setSendImagePos(PHOTO_ORIGIN)
+  }, [sendImageKey])
+
+  // A narrower window shrinks the box under a parked photo — pull it back in.
+  useEffect(() => {
+    if (!sendImageKey) {
+      return
+    }
+
+    const onResize = () => {
+      const bounds = photoDragBounds()
+
+      if (bounds) {
+        setSendImagePos(prev => reflowPhotoOffset(prev, bounds))
+      }
+    }
+
+    window.addEventListener('resize', onResize)
+
+    return () => window.removeEventListener('resize', onResize)
+  }, [photoDragBounds, sendImageKey])
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
   const insertMenuRef = useRef<HTMLSpanElement>(null)
@@ -8386,15 +8437,56 @@ function CampaignsPage() {
                   </div>
                 ) : null}
               </span>
-              <div className="ms-msg-box">
+              <div className={`ms-msg-box${sendImage ? ' has-photo' : ''}`} ref={msgBoxRef}>
                 {sendImage ? (
-                  <div className="ms-msg-photo">
-                    <img alt={sendImage.name} src={sendImage.dataUrl || sendImage.url} />
+                  <div
+                    className="ms-msg-photo"
+                    onPointerDown={ev => {
+                      // The ✕ is a button on top — let it click instead of dragging.
+                      if ((ev.target as HTMLElement).closest('.ms-msg-photo-x')) {
+                        return
+                      }
+
+                      photoDragRef.current = {
+                        pointerX: ev.clientX,
+                        pointerY: ev.clientY,
+                        offsetX: sendImagePos.x,
+                        offsetY: sendImagePos.y
+                      }
+                      ev.currentTarget.setPointerCapture(ev.pointerId)
+                    }}
+                    onPointerMove={ev => {
+                      const start = photoDragRef.current
+                      const bounds = photoDragBounds()
+
+                      if (!start || !bounds) {
+                        return
+                      }
+
+                      ev.preventDefault()
+                      setSendImagePos(
+                        dragPhotoOffset(start, { x: ev.clientX, y: ev.clientY }, bounds)
+                      )
+                    }}
+                    onPointerUp={ev => {
+                      photoDragRef.current = null
+                      ev.currentTarget.releasePointerCapture(ev.pointerId)
+                    }}
+                    ref={photoRef}
+                    style={{ transform: `translate(${sendImagePos.x}px, ${sendImagePos.y}px)` }}
+                    title="Перетащите фото — оно свободно двигается внутри поля"
+                  >
+                    <img
+                      alt={sendImage.name}
+                      draggable={false}
+                      src={sendImage.dataUrl || sendImage.url}
+                    />
                     <button
                       className="ms-msg-photo-x"
                       onClick={() => {
                         setSendImage(null)
                         setMassImage(null)
+                        setSendImagePos(PHOTO_ORIGIN)
                       }}
                       title="Убрать фото"
                       type="button"
