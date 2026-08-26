@@ -70,15 +70,15 @@ import {
 } from './mass-send'
 import {
   dragPhotoOffset,
-  PHOTO_ORIGIN,
-  parkPhotoAtY,
-  photoYForLine,
-  reflowPhotoOffset,
-  snapPhotoToEmptyLine,
   type LineMetrics,
+  parkPhotoAtY,
+  PHOTO_ORIGIN,
   type PhotoDragBounds,
   type PhotoDragStart,
-  type PhotoOffset
+  type PhotoOffset,
+  photoYForLine,
+  reflowPhotoOffset,
+  snapPhotoToEmptyLine
 } from './photo-drag'
 
 // Chat refine — DeepSeek only (OpenRouter id).
