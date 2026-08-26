@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AssistantMessage } from '@/components/assistant-ui/thread/assistant-message'
 import { ThreadMessageList } from '@/components/assistant-ui/thread/list'
@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { HermesGateway } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { notifyError } from '@/store/notifications'
+import { resetThreadScroll } from '@/store/thread-scroll'
 
 type ThreadLoadingState = 'response' | 'session'
 
@@ -77,26 +78,9 @@ export const Thread = memo(function Thread({
   }, [])
 
   // The values in this map are component *types*: when their identity
-  // changes, React unmounts and remounts every visible message — async
-  // re-rendered parts (shiki code blocks) collapse and re-expand, so the
-  // whole thread visibly jumps. Parents re-render on unrelated state
-  // (e.g. the 15s status-snapshot poll in the desktop controller) and
-  // can't be trusted to keep callback identities stable (see #38333), so
-  // route the callbacks through a ref instead of listing them as memo
-  // deps. Only their definedness stays a dep — it gates UI (the user
-  // Stop button, the restore-confirm affordance). Assigned during render
-  // (the useStoreSelector pattern) so the ref never lags a render.
-  //
-  // cwd / gateway / sessionId ride the same ref for the same reason, and it
-  // is load-bearing on the hot path: all three change on EVERY session
-  // switch, so listing them as deps re-minted these types mid-switch and
-  // remounted the entire OUTGOING transcript — thousands of renders of a
-  // thread that was about to be replaced, all of it before the resume RPC
-  // had even been sent. They are read inside the edit composer (which only
-  // exists while a message is being edited), never during a plain render,
-  // so a ref read is always current by the time it matters.
-  const callbacksRef = useRef({ onBranchInNewChat, onCancel, onDismissError, onRestoreToMessage })
-  callbacksRef.current = { onBranchInNewChat, onCancel, onDismissError, onRestoreToMessage }
+  // changes, every row that uses them remounts. Keep it stable.
+  const callbacksRef = useRef({ onBranchInNewChat, onCancel, onDismissError })
+  callbacksRef.current = { onBranchInNewChat, onCancel, onDismissError }
 
   const editContextRef = useRef({ cwd, gateway, sessionId })
   editContextRef.current = { cwd, gateway, sessionId }
@@ -132,45 +116,58 @@ export const Thread = memo(function Thread({
     [hasBranchInNewChat, hasCancel, hasDismissError, hasRestoreToMessage, requestRestoreConfirm]
   )
 
-  // Stable identity: a fresh element every render defeats ThreadMessageList's
-  // memo and can thrash stick-to-bottom / at-bottom store updates into a
-  // "Maximum update depth exceeded" loop on the empty intro.
-  const showIntro = Boolean(intro)
-  const introPersonality = intro?.personality
-  const introSeed = intro?.seed
-  const emptyPlaceholder = useMemo(() => {
-    if (!showIntro) {
-      return undefined
-    }
+  const loadingIndicator = useMemo(() => <BackgroundResumeNotice />, [])
 
+  // New-chat Iris AI intro MUST NOT mount inside ThreadMessageList: that list
+  // owns useStickToBottom + setThreadAtBottom → composer ResizeObserver, and a
+  // tall intro inside the empty viewport creates a Maximum update depth loop
+  // that crashes the whole `workspace` pane (ContribBoundary).
+  const showIntro = Boolean(intro)
+
+  useEffect(() => {
+    if (showIntro) {
+      resetThreadScroll()
+    }
+  }, [showIntro])
+
+  const restoreDialog = (
+    <ConfirmDialog
+      confirmLabel={copy.restoreConfirm}
+      description={copy.restoreBody}
+      destructive
+      onClose={closeRestoreConfirm}
+      onConfirm={confirmRestore}
+      open={Boolean(restoreConfirmTarget)}
+      title={copy.restoreTitle}
+    />
+  )
+
+  if (showIntro) {
     return (
-      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
-        <Intro personality={introPersonality} seed={introSeed} />
+      <div className="relative grid h-full min-h-0 max-w-full grid-rows-[minmax(0,1fr)] overflow-hidden bg-transparent">
+        <div
+          className="min-h-0 size-full overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 sm:px-5"
+          data-slot="aui_thread-viewport"
+        >
+          <Intro personality={intro?.personality} seed={intro?.seed} />
+        </div>
+        {loading === 'session' && <CenteredThreadSpinner />}
+        {restoreDialog}
       </div>
     )
-  }, [showIntro, introPersonality, introSeed])
-  const loadingIndicator = useMemo(() => <BackgroundResumeNotice />, [])
+  }
 
   return (
     <div className="relative grid h-full min-h-0 max-w-full grid-rows-[minmax(0,1fr)] overflow-hidden bg-transparent contain-[layout_paint]">
       <ThreadMessageList
         clampToComposer={clampToComposer}
         components={messageComponents}
-        emptyPlaceholder={emptyPlaceholder}
         loadingIndicator={loadingIndicator}
         sessionKey={sessionKey}
       />
       {loading === 'session' && <CenteredThreadSpinner />}
       <ThreadTimeline />
-      <ConfirmDialog
-        confirmLabel={copy.restoreConfirm}
-        description={copy.restoreBody}
-        destructive
-        onClose={closeRestoreConfirm}
-        onConfirm={confirmRestore}
-        open={Boolean(restoreConfirmTarget)}
-        title={copy.restoreTitle}
-      />
+      {restoreDialog}
     </div>
   )
 })

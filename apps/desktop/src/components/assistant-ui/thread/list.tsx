@@ -423,7 +423,16 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     ? 'pt-[calc(var(--titlebar-height)+0.75rem)]'
     : 'pt-[calc(var(--titlebar-height)-0.5rem)]'
 
-  useEffect(() => setThreadAtBottom(isAtBottom), [isAtBottom])
+  useEffect(() => {
+    // Empty / intro-adjacent viewports have no real scroll content; mirroring
+    // stick-to-bottom into the composer store here only churns ChatBar metrics.
+    if (renderEmpty) {
+      setThreadAtBottom(true)
+      return
+    }
+
+    setThreadAtBottom(isAtBottom)
+  }, [isAtBottom, renderEmpty])
   useEffect(() => () => resetThreadScroll(), [])
 
   // Floating jump button (outside this subtree) → return to the bottom.
