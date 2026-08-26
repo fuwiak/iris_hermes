@@ -147,87 +147,15 @@
   color: var(--iris-ink) !important;
 }
 
-[data-desktop-chat-host] [data-hermes-one-intro] {
-  gap: 0;
+[data-desktop-chat-host] [data-hermes-one-intro],
+[data-desktop-chat-host] [data-iris-ai-intro] {
   color: var(--iris-ink);
-  transform: translateY(-11vh);
+  transform: none;
 }
 
-[data-desktop-chat-host] .hermes-one-mark {
-  display: flex;
-  width: 7.7rem;
-  height: 7.7rem;
-  margin-bottom: 1.55rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--iris-primary);
-  color: var(--iris-on-primary);
-  font-family: Inter, ui-sans-serif, sans-serif;
-  line-height: 0.85;
-  letter-spacing: -0.04em;
-}
-
-[data-desktop-chat-host] .hermes-one-mark span {
-  font-size: 1.3rem;
-  font-weight: 500;
-}
-
-[data-desktop-chat-host] .hermes-one-mark strong {
-  font-size: 2.25rem;
-  font-weight: 500;
-}
-
-[data-desktop-chat-host] [data-hermes-one-intro] h1 {
-  margin: 0;
-  color: var(--iris-ink) !important;
-  font-size: clamp(1.9rem, 2.4vw, 2.55rem);
-  line-height: 1.15;
-  font-weight: 500;
-  letter-spacing: -0.035em;
-}
-
-[data-desktop-chat-host] [data-hermes-one-intro] > p {
-  max-width: 32rem;
-  margin: 1.35rem 0 2.4rem;
-  color: var(--iris-ink-mute) !important;
-  font-size: 1.05rem;
-  line-height: 1.55;
-  font-weight: 400;
-}
-
+[data-desktop-chat-host] .hermes-one-mark,
 [data-desktop-chat-host] .hermes-one-suggestions {
-  display: flex;
-  max-width: 40rem;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.75rem;
-}
-
-[data-desktop-chat-host] .hermes-one-suggestions button {
-  display: inline-flex;
-  min-height: 3rem;
-  cursor: pointer;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1.75rem;
-  border: 2px solid var(--iris-primary);
-  border-radius: 90px;
-  background: var(--iris-lavender);
-  color: var(--iris-ink) !important;
-  font-size: 1rem;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
-}
-
-[data-desktop-chat-host] .hermes-one-suggestions button:hover,
-[data-desktop-chat-host] .hermes-one-suggestions button:focus-visible {
-  border-color: var(--iris-primary-press);
-  background: var(--iris-primary);
-  color: var(--iris-on-primary) !important;
-  outline: none;
+  display: none;
 }
 
 [data-desktop-chat-host] [data-slot="composer-dock"] {
@@ -291,15 +219,8 @@
     width: calc(100% - 1rem);
   }
 
-  [data-desktop-chat-host] [data-hermes-one-intro] > p {
-    margin-bottom: 1.3rem;
-  }
-
-  [data-desktop-chat-host] [data-hermes-one-intro] {
-    transform: translateY(-4vh);
-  }
-
-  [data-desktop-chat-host] .hermes-one-suggestions {
-    display: none;
+  [data-desktop-chat-host] [data-hermes-one-intro],
+  [data-desktop-chat-host] [data-iris-ai-intro] {
+    transform: none;
   }
 }

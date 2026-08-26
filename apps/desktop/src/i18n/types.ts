@@ -1700,6 +1700,48 @@ export interface Translations {
     hermesOneIntro: {
       title: string
       subtitle: string
+      agentName: string
+      history: string
+      notifications: string
+      sampleQuestion: string
+      sampleUserTime: string
+      sampleAnswer: string
+      sampleAiTime: string
+      insightTitle: string
+      insightSub: string
+      recTitle: string
+      recBody: string
+      chartTitle: string
+      showMore: string
+      download: string
+      chSite: string
+      chYandex: string
+      chFlowwow: string
+      chOffline: string
+      chSocial: string
+      examplesTitle: string
+      exMargin: string
+      exMarginPrompt: string
+      exWriteoffs: string
+      exWriteoffsPrompt: string
+      exCall: string
+      exCallPrompt: string
+      exCompare: string
+      exComparePrompt: string
+      exAds: string
+      exAdsPrompt: string
+      tipTitle: string
+      tipBody: string
+      sourcesTitle: string
+      srcOrders: string
+      srcCatalog: string
+      srcFinance: string
+      srcWarehouse: string
+      srcMarketing: string
+      srcReviews: string
+      sourcesUpdated: string
+      refresh: string
+      /** @deprecated kept for fixture/compat — maps to examples */
       searchWeb: string
       searchWebPrompt: string
       reminder: string

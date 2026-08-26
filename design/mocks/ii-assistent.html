@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Iris CRM — ИИ-ассистент</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #fcfcfe;
+      --card: #ffffff;
+      --text: #1e2033;
+      --text-2: #858ba3;
+      --border: #e8eaf0;
+      --purple: #7137f5;
+      --purple-2: #8b5cf6;
+      --purple-light: #f2edff;
+      --purple-soft: #f7f3ff;
+      --green: #36c878;
+      --green-bg: #eafbf1;
+      --orange: #ff9e3d;
+      --pink: #ff4165;
+      --error: #ff365f;
+      --blue: #3b82f6;
+      --gray-bg: #f4f5f8;
+      --shadow: 0 2px 8px rgba(30, 35, 60, 0.03);
+      --radius-card: 12px;
+      --radius-btn: 9px;
+      --sidebar: 220px;
+      --right: 300px;
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar) 1fr var(--right);
+      min-height: 100vh;
+      max-width: 1440px;
+      margin: 0 auto;
+      background: var(--bg);
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: #fff;
+      padding: 18px 12px 14px;
+      gap: 6px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px 16px;
+    }
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #7137f5, #a855f7);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .logo-mark svg { width: 16px; height: 16px; }
+    .logo-text { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+    .logo-text span { color: var(--text-2); font-weight: 500; }
+
+    .nav { display: flex; flex-direction: column; gap: 1px; flex: 1; overflow-y: auto; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      color: var(--text);
+      font-size: 13.5px;
+      font-weight: 500;
+      transition: background 120ms ease;
+    }
+    .nav-item:hover { background: #f7f8fb; }
+    .nav-item svg { width: 18px; height: 18px; color: #6b728a; flex-shrink: 0; }
+    .nav-item.active {
+      background: var(--purple-light);
+      color: var(--purple);
+    }
+    .nav-item.active svg { color: var(--purple); }
+    .badge-new {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--purple);
+      color: #fff;
+      text-transform: lowercase;
+    }
+    .badge-count {
+      margin-left: auto;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: var(--error);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      display: grid;
+      place-items: center;
+    }
+    .nav-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 8px 4px;
+      margin-top: 6px;
+      border-top: 1px solid var(--border);
+      width: 100%;
+      text-align: left;
+    }
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #f9a8d4, #c4b5fd);
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      overflow: hidden;
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-meta { flex: 1; min-width: 0; }
+    .profile-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-role { font-size: 11.5px; color: var(--text-2); }
+    .profile-chevron { color: var(--text-2); }
+
+    /* ── Main ── */
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 100vh;
+      padding: 18px 24px 16px;
+      gap: 14px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .topbar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .topbar-title .spark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--purple-light);
+      display: grid;
+      place-items: center;
+      color: var(--purple);
+    }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      display: grid;
+      place-items: center;
+      color: #6b728a;
+      box-shadow: var(--shadow);
+    }
+    .icon-btn:hover { background: #f7f8fb; }
+    .btn-history {
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid #ddd0ff;
+      background: var(--purple-soft);
+      color: var(--purple);
+      font-weight: 600;
+      font-size: 13.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-history:hover { background: var(--purple-light); }
+
+    .chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow-y: auto;
+      padding-bottom: 8px;
+      min-height: 0;
+    }
+
+    .msg-user {
+      align-self: flex-end;
+      max-width: min(520px, 88%);
+    }
+    .bubble-user {
+      background: linear-gradient(135deg, #7137f5 0%, #8b5cf6 100%);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 16px 16px 4px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.4;
+      box-shadow: 0 4px 14px rgba(113, 55, 245, 0.22);
+    }
+    .msg-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-2);
+      text-align: right;
+    }
+
+    .msg-ai { max-width: min(720px, 100%); }
+    .ai-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .ai-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7137f5, #a855f7);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .ai-name { font-weight: 600; font-size: 14px; }
+    .ai-time { font-size: 12px; color: var(--text-2); margin-left: 4px; }
+    .ai-text {
+      font-size: 14.5px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .insight {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px 16px;
+      border-radius: 12px;
+      margin-bottom: 10px;
+    }
+    .insight.ok {
+      background: var(--green-bg);
+      border: 1px solid #c8f0d8;
+    }
+    .insight.rec {
+      background: var(--purple-soft);
+      border: 1px solid #e4d9ff;
+    }
+    .insight-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .insight.ok .insight-icon { background: var(--green); color: #fff; }
+    .insight.rec .insight-icon { background: var(--purple-light); color: var(--purple); }
+    .insight-title { font-weight: 650; font-size: 14px; margin-bottom: 2px; }
+    .insight-sub { font-size: 13px; color: #3d5a4a; }
+    .insight.rec .insight-sub { color: #5b5278; line-height: 1.45; }
+    .insight.rec .insight-title { color: var(--purple); }
+
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow);
+      padding: 16px 18px 14px;
+      margin-top: 4px;
+    }
+    .chart-title {
+      font-size: 14px;
+      font-weight: 650;
+      margin-bottom: 14px;
+      letter-spacing: -0.01em;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .bar-row:last-of-type { margin-bottom: 4px; }
+    .ch-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 12px;
+    }
+    .ch-icon.g { background: #36c878; }
+    .ch-icon.r { background: #f43f5e; }
+    .ch-icon.o { background: #ff9e3d; }
+    .ch-icon.p { background: #8b5cf6; }
+    .ch-icon.b { background: #3b82f6; }
+    .bar-mid { min-width: 0; }
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 5px;
+    }
+    .bar-label span:last-child { color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+    .bar-track {
+      height: 8px;
+      border-radius: 999px;
+      background: #f0f1f5;
+      overflow: hidden;
+    }
+    .bar-fill { height: 100%; border-radius: 999px; }
+    .bar-fill.g { background: #36c878; width: 92%; }
+    .bar-fill.r { background: #f43f5e; width: 74%; }
+    .bar-fill.o { background: #ff9e3d; width: 72%; }
+    .bar-fill.p { background: #8b5cf6; width: 58%; }
+    .bar-fill.b { background: #3b82f6; width: 42%; }
+    .bar-money {
+      font-size: 13px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 88px;
+      text-align: right;
+    }
+    .chart-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .btn-more {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      background: #fff;
+    }
+    .btn-more:hover { background: #f7f8fb; }
+    .btn-dl {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      color: #6b728a;
+      background: #fff;
+    }
+    .btn-dl:hover { background: #f7f8fb; }
+
+    .composer-wrap { margin-top: auto; padding-top: 8px; }
+    .composer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 52px;
+      padding: 8px 10px 8px 14px;
+      background: #fff;
+      border: 1.5px solid #d9ccff;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(113, 55, 245, 0.06);
+    }
+    .composer:focus-within {
+      border-color: var(--purple);
+      box-shadow: 0 0 0 3px rgba(113, 55, 245, 0.12);
+    }
+    .composer input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font: inherit;
+      background: transparent;
+      color: var(--text);
+      min-width: 0;
+      padding: 6px 0;
+    }
+    .composer input::placeholder { color: #a0a6b8; }
+    .composer-attach {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #6b728a;
+    }
+    .composer-attach:hover { background: var(--gray-bg); }
+    .composer-send {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7137f5, #8b5cf6);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 12px rgba(113, 55, 245, 0.3);
+      flex-shrink: 0;
+    }
+    .composer-send:hover { filter: brightness(1.05); }
+    .composer-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-2);
+    }
+    .composer-hint button {
+      color: var(--purple);
+      font-weight: 500;
+    }
+    .composer-hint button:hover { text-decoration: underline; }
+
+    /* ── Right column ── */
+    .right {
+      border-left: 1px solid var(--border);
+      background: #fff;
+      padding: 18px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .r-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+    .r-card h3 {
+      font-size: 14px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      margin-bottom: 10px;
+    }
+    .ex-list { display: flex; flex-direction: column; gap: 2px; }
+    .ex-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 8px;
+      border-radius: 10px;
+      text-align: left;
+      width: 100%;
+      font-size: 13px;
+      line-height: 1.35;
+      color: var(--text);
+    }
+    .ex-item:hover { background: #f8f9fc; }
+    .ex-ico {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--purple-light);
+      color: var(--purple);
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .tip-card {
+      background: var(--purple-soft);
+      border: 1px solid #e4d9ff;
+      border-radius: var(--radius-card);
+      padding: 14px;
+    }
+    .tip-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 650;
+      font-size: 14px;
+      color: var(--purple);
+      margin-bottom: 8px;
+    }
+    .tip-card p {
+      font-size: 13px;
+      color: #5b5278;
+      line-height: 1.45;
+    }
+    .src-list { display: flex; flex-direction: column; gap: 8px; }
+    .src-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .src-ok {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--green-bg);
+      color: var(--green);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .src-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-2);
+    }
+    .src-footer button {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: var(--purple);
+      margin-left: auto;
+    }
+    .src-footer button:hover { background: var(--purple-light); }
+
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: var(--sidebar) 1fr; }
+      .right { display: none; }
+    }
+    @media (max-width: 800px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c2 4 2 6 0 9-2-3-2-5 0-9z"/><path d="M12 12c4 2 6 2 9 0-3-2-5-2-9 0z"/><path d="M12 12c-4 2-6 2-9 0 3-2 5-2 9 0z"/><path d="M12 12v9"/></svg>
+        </div>
+        <div class="logo-text">Iris <span>crm</span></div>
+      </div>
+
+      <nav class="nav" aria-label="Основная навигация">
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>Главная</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 19c0-3 2.5-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M21 19c0-2.2-1.5-3.8-4-4.3"/></svg>Клиенты</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v12H4z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>Заказы</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Каталог</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12c4-8 12-8 16 0-4 8-12 8-16 0z"/><circle cx="12" cy="12" r="2.5"/></svg>Маркетплейсы</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19V8"/></svg>Аналитика</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>Финансы</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9h18l-2 11H5L3 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg>Закупки</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h10M4 17h7"/></svg>Маркетинг и репутация</a>
+        <a class="nav-item active" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z"/></svg>ИИ-ассистент<span class="badge-new">new</span></a>
+      </nav>
+
+      <div class="nav-bottom">
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18a3 3 0 0 1-6 0"/><path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 14 6 10z"/></svg>Уведомления<span class="badge-count">3</span></a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Настройки</a>
+        <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><path d="M12 17h.01"/></svg>Помощь</a>
+      </div>
+
+      <button class="profile" type="button">
+        <div class="avatar">АИ</div>
+        <div class="profile-meta">
+          <div class="profile-name">Анна Иванова</div>
+          <div class="profile-role">Администратор</div>
+        </div>
+        <svg class="profile-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <span class="spark" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/></svg>
+          </span>
+          ИИ-ассистент Iris AI
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" type="button" aria-label="Уведомления">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18a3 3 0 0 1-6 0"/><path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 14 6 10z"/></svg>
+          </button>
+          <button class="btn-history" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+            История запросов
+          </button>
+        </div>
+      </header>
+
+      <div class="chat" id="chat">
+        <div class="msg-user">
+          <div class="bubble-user">Какие каналы продаж были самыми прибыльными в июле?</div>
+          <div class="msg-meta">Сегодня, 11:42</div>
+        </div>
+
+        <div class="msg-ai">
+          <div class="ai-head">
+            <div class="ai-avatar" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c2 4 2 6 0 9-2-3-2-5 0-9z"/><path d="M12 12v9"/></svg>
+            </div>
+            <span class="ai-name">Iris AI</span>
+            <span class="ai-time">Сегодня, 11:43</span>
+          </div>
+          <p class="ai-text">Самым прибыльным каналом в июле был собственный сайт.</p>
+
+          <div class="insight ok">
+            <div class="insight-icon">✓</div>
+            <div>
+              <div class="insight-title">Собственный сайт — лидер по прибыли</div>
+              <div class="insight-sub">Выручка: 824 000 ₽ &nbsp;|&nbsp; Маржинальность: 38%</div>
+            </div>
+          </div>
+
+          <div class="insight rec">
+            <div class="insight-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 1 4 10c-.8.7-1.2 1.4-1.4 2.2H9.4C9.2 14.4 8.8 13.7 8 13a6 6 0 0 1 4-10z"/></svg>
+            </div>
+            <div>
+              <div class="insight-title">Рекомендация</div>
+              <div class="insight-sub">Увеличить долю повторных клиентов на сайте до 35%. Это может увеличить прибыль без роста рекламного бюджета.</div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">Прибыльность по каналам за июль</div>
+
+            <div class="bar-row">
+              <div class="ch-icon g" aria-hidden="true">⌂</div>
+              <div class="bar-mid">
+                <div class="bar-label"><span>Собственный сайт</span><span>38%</span></div>
+                <div class="bar-track"><div class="bar-fill g"></div></div>
+              </div>
+              <div class="bar-money">824 000 ₽</div>
+            </div>
+            <div class="bar-row">
+              <div class="ch-icon r" aria-hidden="true">Я</div>
+              <div class="bar-mid">
+                <div class="bar-label"><span>Яндекс Цветы</span><span>31%</span></div>
+                <div class="bar-track"><div class="bar-fill r"></div></div>
+              </div>
+              <div class="bar-money">512 000 ₽</div>
+            </div>
+            <div class="bar-row">
+              <div class="ch-icon o" aria-hidden="true">F</div>
+              <div class="bar-mid">
+                <div class="bar-label"><span>Flowwow</span><span>24%</span></div>
+                <div class="bar-track"><div class="bar-fill o"></div></div>
+              </div>
+              <div class="bar-money">498 000 ₽</div>
+            </div>
+            <div class="bar-row">
+              <div class="ch-icon p" aria-hidden="true">◎</div>
+              <div class="bar-mid">
+                <div class="bar-label"><span>Офлайн-магазин</span><span>35%</span></div>
+                <div class="bar-track"><div class="bar-fill p"></div></div>
+              </div>
+              <div class="bar-money">402 000 ₽</div>
+            </div>
+            <div class="bar-row">
+              <div class="ch-icon b" aria-hidden="true">💬</div>
+              <div class="bar-mid">
+                <div class="bar-label"><span>Соцсети и мессенджеры</span><span>22%</span></div>
+                <div class="bar-track"><div class="bar-fill b"></div></div>
+              </div>
+              <div class="bar-money">286 000 ₽</div>
+            </div>
+
+            <div class="chart-actions">
+              <button class="btn-more" type="button">
+                Показать подробнее
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <button class="btn-dl" type="button" aria-label="Скачать">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 19h14"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        <form class="composer" id="composer" onsubmit="return false;">
+          <button class="composer-attach" type="button" aria-label="Прикрепить файл">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m21.4 11.6-8.5 8.5a5 5 0 0 1-7.1-7.1l9.2-9.2a3.2 3.2 0 0 1 4.5 4.5l-9.2 9.2a1.4 1.4 0 0 1-2-2l8.1-8.1"/></svg>
+          </button>
+          <input id="q" type="text" placeholder="Задайте любой вопрос о вашем бизнесе..." autocomplete="off" />
+          <button class="composer-send" type="submit" aria-label="Отправить">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+          </button>
+        </form>
+        <p class="composer-hint">
+          Например:
+          <button type="button" data-fill="Какие товары приносят больше всего прибыли?">Какие товары приносят больше всего прибыли?</button>
+          ·
+          <button type="button" data-fill="Где сейчас теряем маржу?">Где сейчас теряем маржу?</button>
+        </p>
+      </div>
+    </main>
+
+    <!-- RIGHT -->
+    <aside class="right">
+      <section class="r-card">
+        <h3>Примеры запросов</h3>
+        <div class="ex-list">
+          <button class="ex-item" type="button" data-fill="Какие товары дают наибольшую маржу?">
+            <span class="ex-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v11H8l-4 3V6z"/></svg></span>
+            Какие товары дают наибольшую маржу?
+          </button>
+          <button class="ex-item" type="button" data-fill="Где больше всего списаний за месяц?">
+            <span class="ex-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v11H8l-4 3V6z"/></svg></span>
+            Где больше всего списаний за месяц?
+          </button>
+          <button class="ex-item" type="button" data-fill="Каких клиентов стоит обзвонить сегодня?">
+            <span class="ex-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v11H8l-4 3V6z"/></svg></span>
+            Каких клиентов стоит обзвонить сегодня?
+          </button>
+          <button class="ex-item" type="button" data-fill="Сравни выручку июля и июня">
+            <span class="ex-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v11H8l-4 3V6z"/></svg></span>
+            Сравни выручку июля и июня
+          </button>
+          <button class="ex-item" type="button" data-fill="Какая реклама окупается лучше всего?">
+            <span class="ex-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v11H8l-4 3V6z"/></svg></span>
+            Какая реклама окупается лучше всего?
+          </button>
+        </div>
+      </section>
+
+      <section class="tip-card">
+        <div class="tip-head">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 1 4 10c-.8.7-1.2 1.4-1.4 2.2H9.4C9.2 14.4 8.8 13.7 8 13a6 6 0 0 1 4-10z"/></svg>
+          ИИ-подсказка
+        </div>
+        <p>Спрашивайте про продажи, клиентов, финансы, склад и маркетинг — Iris AI отвечает на данных вашего CRM.</p>
+      </section>
+
+      <section class="r-card">
+        <h3>Источники данных</h3>
+        <div class="src-list">
+          <div class="src-item">Заказы <span class="src-ok">✓</span></div>
+          <div class="src-item">Каталог <span class="src-ok">✓</span></div>
+          <div class="src-item">Финансы <span class="src-ok">✓</span></div>
+          <div class="src-item">Склад <span class="src-ok">✓</span></div>
+          <div class="src-item">Маркетинг <span class="src-ok">✓</span></div>
+          <div class="src-item">Отзывы <span class="src-ok">✓</span></div>
+        </div>
+        <div class="src-footer">
+          <span>Данные обновлены Сегодня, 11:30</span>
+          <button type="button" aria-label="Обновить">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+          </button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    (function () {
+      var input = document.getElementById('q');
+      function fill(text) {
+        input.value = text;
+        input.focus();
+      }
+      document.querySelectorAll('[data-fill]').forEach(function (el) {
+        el.addEventListener('click', function () {
+          fill(el.getAttribute('data-fill'));
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

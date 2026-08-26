@@ -79,21 +79,25 @@ export const DISCOVER_WORKFLOW_CARDS = [
   }
 ] as const
 
-/** Screenshot B — the new-chat intro. */
+/** Screenshot B — the new-chat intro (Iris AI / ii-assistent mock). */
 export const INTRO_SCREEN = {
-  /** The round black mark stacks these two words. */
-  mark: ['HERMES', 'ONE'],
-  title: 'How can I help you today?',
-  subtitle: 'Ask me to write code, answer questions, search the web, and more',
-  /** Suggestion chips, in the order they wrap on screen. */
+  /** Kept for legacy CSS/test selectors; mark is no longer rendered. */
+  mark: ['IRIS', 'AI'],
+  title: 'Iris AI assistant',
+  subtitle: 'Ask anything about your business',
+  /** Example prompts in the right rail, top to bottom. */
   suggestions: [
-    'Search the web',
-    'Set a reminder',
-    'Summarize emails',
-    'Write a script',
-    'Schedule a cron job',
-    'Analyze data'
-  ]
+    'Which products have the highest margin?',
+    'Where are the biggest write-offs this month?',
+    'Which clients should I call today?',
+    'Compare July and June revenue',
+    'Which ads pay off best?'
+  ],
+  sampleQuestion: 'Which sales channels were most profitable in July?',
+  agentName: 'Iris AI',
+  examplesTitle: 'Example prompts',
+  tipTitle: 'AI tip',
+  sourcesTitle: 'Data sources'
 } as const
 
 /** Screenshot B — sidebar primary nav, top to bottom. */
@@ -108,5 +112,5 @@ export const SIDEBAR_SCREEN = {
  * only durable assertion is that it is still in that pool.
  */
 export const COMPOSER_SCREEN = {
-  placeholder: 'Ask anything'
+  placeholder: 'Ask any question about your business...'
 } as const

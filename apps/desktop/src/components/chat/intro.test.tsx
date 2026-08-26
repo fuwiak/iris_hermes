@@ -27,53 +27,58 @@ async function renderIntro() {
   return render(<Intro />)
 }
 
-describe('Hermes One intro — English catalog matches the reference screenshot', () => {
+describe('Iris AI intro — English catalog matches the ii-assistent mock', () => {
   it('keeps the headline and subtitle verbatim', () => {
     expect(en.composer.hermesOneIntro.title).toBe(INTRO_SCREEN.title)
     expect(en.composer.hermesOneIntro.subtitle).toBe(INTRO_SCREEN.subtitle)
   })
 
-  it('keeps all six suggestion labels verbatim', () => {
+  it('keeps example prompts verbatim', () => {
     const i = en.composer.hermesOneIntro
 
-    expect([i.searchWeb, i.reminder, i.emails, i.script, i.cron, i.data]).toEqual([...INTRO_SCREEN.suggestions])
+    expect([i.exMargin, i.exWriteoffs, i.exCall, i.exCompare, i.exAds]).toEqual([...INTRO_SCREEN.suggestions])
   })
 
-  it('still offers the screenshot composer placeholder', () => {
+  it('still offers the mock composer placeholder', () => {
     expect(en.composer.newSessionPlaceholders).toContain(COMPOSER_SCREEN.placeholder)
   })
 })
 
-describe('Hermes One intro — rendered screen matches the reference screenshot', () => {
-  it('paints the round HERMES ONE mark', async () => {
-    const { container } = await renderIntro()
-    const mark = container.querySelector('.hermes-one-mark')
-
-    expect(mark).not.toBeNull()
-    expect(mark?.querySelector('span')?.textContent).toBe(INTRO_SCREEN.mark[0])
-    expect(mark?.querySelector('strong')?.textContent).toBe(INTRO_SCREEN.mark[1])
-  })
-
-  it('paints the headline and subtitle', async () => {
+describe('Iris AI intro — rendered screen matches the mock', () => {
+  it('paints the Iris AI title', async () => {
     await renderIntro()
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(INTRO_SCREEN.title)
-    expect(screen.getByText(INTRO_SCREEN.subtitle)).toBeTruthy()
   })
 
-  it('paints the six suggestion chips in screenshot order', async () => {
+  it('paints the sample question and agent name', async () => {
+    await renderIntro()
+
+    expect(screen.getByText(INTRO_SCREEN.sampleQuestion)).toBeTruthy()
+    expect(screen.getByText(INTRO_SCREEN.agentName)).toBeTruthy()
+  })
+
+  it('paints right-rail sections', async () => {
+    await renderIntro()
+
+    expect(screen.getByText(INTRO_SCREEN.examplesTitle)).toBeTruthy()
+    expect(screen.getByText(INTRO_SCREEN.tipTitle)).toBeTruthy()
+    expect(screen.getByText(INTRO_SCREEN.sourcesTitle)).toBeTruthy()
+  })
+
+  it('paints example prompts in mock order', async () => {
     const { container } = await renderIntro()
-    const chips = [...container.querySelectorAll('.hermes-one-suggestions button')]
+    const chips = [...container.querySelectorAll('.iris-ai-ex-item')]
 
     expect(chips.map(chip => chip.textContent?.trim())).toEqual([...INTRO_SCREEN.suggestions])
   })
 
-  it('sends a chip prompt to the main composer', async () => {
+  it('sends an example prompt to the main composer', async () => {
     await renderIntro()
 
     fireEvent.click(screen.getByRole('button', { name: INTRO_SCREEN.suggestions[0] }))
 
-    expect(requestComposerInsert).toHaveBeenCalledWith(en.composer.hermesOneIntro.searchWebPrompt, {
+    expect(requestComposerInsert).toHaveBeenCalledWith(en.composer.hermesOneIntro.exMarginPrompt, {
       mode: 'block',
       target: 'main'
     })
@@ -81,35 +86,13 @@ describe('Hermes One intro — rendered screen matches the reference screenshot'
   })
 })
 
-/**
- * The intro is styled by plain class names, not Tailwind utilities, so jsdom
- * cannot prove it looks right. What it CAN prove is that the rules live in the
- * app's own sheet — they used to exist only in the dashboard's
- * `hermes-one-web.css`, which left the Electron intro completely unstyled.
- */
-describe('Hermes One intro — styles ship with the desktop app', () => {
-  // Vitest runs with the desktop workspace as cwd.
+describe('Iris AI intro — styles ship with the desktop app', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 
-  it.each(['[data-hermes-one-intro]', '.hermes-one-mark', '.hermes-one-suggestions button'])(
+  it.each(['[data-iris-ai-intro]', '.iris-ai-intro', '.iris-ai-ex-item', '.iris-ai-chart'])(
     'styles.css defines %s',
     selector => {
       expect(css).toContain(selector)
     }
   )
-
-  it('draws the mark as a filled violet circle', () => {
-    const block = css.slice(css.indexOf('.hermes-one-mark {'))
-
-    expect(block).toContain('border-radius: 999px')
-    expect(block).toContain('background: var(--theme-primary, #7137f5)')
-    expect(block).not.toContain('background: #050505')
-  })
-
-  it('keeps suggestion chip text readable (ink on white floral)', () => {
-    const block = css.slice(css.indexOf('.hermes-one-suggestions button {'))
-
-    expect(block).toContain('color: var(--ui-text-primary, #1e2033)')
-    expect(block).not.toContain('background: #1a1a1a')
-  })
 })
