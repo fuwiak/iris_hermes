@@ -854,7 +854,7 @@ function RankingAuditPanel({ rest }: { rest: CardsRest }) {
           </a>
         </p>
       ) : null}
-      <p className="ms-muted">
+      <p className="ms-seo-summary">
         Карточек с замечаниями: {data.cards_with_findings ?? 0} из {data.cards_total ?? 0}
         {activeRule ? ` · по выбранному правилу: ${cards.length}` : ''}
       </p>
