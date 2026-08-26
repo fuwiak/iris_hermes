@@ -1145,14 +1145,14 @@ td.ms-tg-active-unknown {
   box-sizing: border-box;
 }
 
-/* Room to actually move the photo around when one is attached. */
+/* Room for blank-line photo parking when one is attached. */
 .ms-msg-box.has-photo {
   min-height: 18rem;
 }
 
-/* Dragged by pointer, so it floats over the textarea instead of pushing the
-   text down. translate() comes from component state; overflow on the box
-   clips at the edges, and the offset is clamped to match. */
+/* Absolute over the textarea, but JS parks it only on empty lines and expands
+   a blank run so the preview never covers glyphs. translate() comes from
+   component state; overflow on the box clips at the edges. */
 .ms-msg-photo {
   position: absolute;
   top: 0;
