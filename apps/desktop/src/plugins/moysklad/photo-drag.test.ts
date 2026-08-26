@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  blankLinesForPhotoHeight,
   clampPhotoOffset,
   dragPhotoOffset,
+  emptyLineSlotIndices,
+  ensureBlankRunAtSlot,
+  lineIndexAtY,
+  parkPhotoAtY,
   PHOTO_ORIGIN,
-  reflowPhotoOffset
+  photoYForLine,
+  reflowPhotoOffset,
+  snapPhotoToEmptyLine
 } from './photo-drag'
 
 const BOUNDS = { boxW: 600, boxH: 400, photoW: 200, photoH: 150 }
+const METRICS = { lineHeight: 20, paddingTop: 8 }
 
 describe('clampPhotoOffset', () => {
   it('keeps an in-range offset untouched', () => {
@@ -85,5 +93,59 @@ describe('reflowPhotoOffset', () => {
 
   it('leaves the photo alone when it still fits', () => {
     expect(reflowPhotoOffset({ x: 120, y: 80 }, BOUNDS)).toEqual({ x: 120, y: 80 })
+  })
+})
+
+describe('empty-line parking', () => {
+  it('lists empty lines plus a virtual end slot', () => {
+    expect(emptyLineSlotIndices('a\n\nb\n\n')).toEqual([1, 3, 4, 5])
+    expect(emptyLineSlotIndices('only text')).toEqual([1])
+  })
+
+  it('maps Y ↔ line index with padding', () => {
+    expect(photoYForLine(0, METRICS)).toBe(8)
+    expect(photoYForLine(3, METRICS)).toBe(68)
+    expect(lineIndexAtY(8, METRICS)).toBe(0)
+    expect(lineIndexAtY(67, METRICS)).toBe(2)
+  })
+
+  it('sizes the blank run to clear the photo height', () => {
+    expect(blankLinesForPhotoHeight(160, 20)).toBe(8)
+    expect(blankLinesForPhotoHeight(10, 20)).toBe(1)
+  })
+
+  it('opens a blank run before a filled line so text is not covered', () => {
+    const out = ensureBlankRunAtSlot('hello\nworld', 1, 3)
+    expect(out.slotIndex).toBe(1)
+    expect(out.text.split('\n')).toEqual(['hello', '', '', '', 'world'])
+  })
+
+  it('expands an existing empty run instead of stacking forever', () => {
+    const once = ensureBlankRunAtSlot('a\n\nb', 1, 4)
+    expect(once.text.split('\n').filter(l => l === '').length).toBe(4)
+    const twice = ensureBlankRunAtSlot(once.text, once.slotIndex, 4)
+    expect(twice.text).toBe(once.text)
+  })
+
+  it('snaps mid-drag onto the nearest empty line only', () => {
+    const text = 'line\n\nmore\n\n'
+    // Y≈48 is nearer to line 3 (y=68) than line 1 (y=28)? 
+    // line1=28, line3=68, line4=88. y=50 → dist to 28=22, to 68=18 → line 3
+    const snapped = snapPhotoToEmptyLine({ x: 40, y: 50 }, text, METRICS, BOUNDS)
+    expect(snapped).toEqual({ x: 40, y: photoYForLine(3, METRICS) })
+  })
+
+  it('parks by creating blanks under the pointer so photo never overlays text', () => {
+    const parked = parkPhotoAtY('Hans, hello!\nWant a bouquet?', 30, METRICS, 160, BOUNDS, 20)
+    // lineIndexAtY(30)=1 → opens run before "Want…"
+    expect(parked.slotIndex).toBe(1)
+    expect(parked.text.startsWith('Hans, hello!\n')).toBe(true)
+    expect(parked.text.includes('Want a bouquet?')).toBe(true)
+    expect(blankLinesForPhotoHeight(160, 20)).toBe(8)
+    expect(parked.text.split('\n').filter(l => l === '').length).toBe(8)
+    expect(parked.offset).toEqual({
+      x: 20,
+      y: photoYForLine(1, METRICS)
+    })
   })
 })

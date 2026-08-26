@@ -10,6 +10,11 @@ import plugins.moysklad.telegram_send as ts
 def _stub_env(monkeypatch, calls):
     monkeypatch.setattr(ts, "outreach_bot_token", lambda: "bot-token")
     monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
+    # These cases cover the Business-bot path. Photos now try the personal
+    # account first, so pin the mode — otherwise a dev machine with a live
+    # MTProto session would dial Telegram for real mid-test.
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
+    monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: False)
 
     def fake_api(method, *, token=None, params=None, json_body=None, files=None, timeout=30.0):
         calls.append({"method": method, "json_body": json_body, "files": files})

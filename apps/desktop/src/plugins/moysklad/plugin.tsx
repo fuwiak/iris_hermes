@@ -71,10 +71,14 @@ import {
 import {
   dragPhotoOffset,
   PHOTO_ORIGIN,
+  parkPhotoAtY,
+  photoYForLine,
+  reflowPhotoOffset,
+  snapPhotoToEmptyLine,
+  type LineMetrics,
   type PhotoDragBounds,
   type PhotoDragStart,
-  type PhotoOffset,
-  reflowPhotoOffset
+  type PhotoOffset
 } from './photo-drag'
 
 // Chat refine — DeepSeek only (OpenRouter id).
@@ -4181,10 +4185,11 @@ function CampaignsPage() {
   const [personalize] = useState(false)
   const [, setBatchProgress] = useState('')
   const [offer, setOffer] = useState('')
+  const offerRef = useRef('')
   const [offerTick, setOfferTick] = useState(0)
   /** Photo shown inside «Текст сообщения» and sent with mark-sent / mass. */
   const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
-  // Free placement of the attached photo inside the composer (drag by pointer).
+  // Photo parks on empty lines only (drag + blank-run spacer — never over text).
   const [sendImagePos, setSendImagePos] = useState<PhotoOffset>(PHOTO_ORIGIN)
   const msgBoxRef = useRef<HTMLDivElement>(null)
   const photoRef = useRef<HTMLDivElement>(null)
@@ -4208,13 +4213,67 @@ function CampaignsPage() {
     }
   }, [])
 
+  const photoLineMetrics = useCallback((): LineMetrics => {
+    const ta = msgBoxRef.current?.querySelector('textarea')
+    if (!ta) {
+      return { lineHeight: 20, paddingTop: 8 }
+    }
+    const style = window.getComputedStyle(ta)
+    const lh = parseFloat(style.lineHeight)
+    const pad = parseFloat(style.paddingTop)
+    return {
+      lineHeight: Number.isFinite(lh) && lh > 0 ? lh : 20,
+      paddingTop: Number.isFinite(pad) && pad >= 0 ? pad : 8
+    }
+  }, [])
+
+  /** Park on empty lines only — expands blank run so the preview never covers text. */
+  const parkSendImageAt = useCallback(
+    (y: number, offsetX: number) => {
+      const bounds = photoDragBounds()
+      if (!bounds) {
+        return
+      }
+      const parked = parkPhotoAtY(
+        offerRef.current || offer,
+        y,
+        photoLineMetrics(),
+        bounds.photoH,
+        bounds,
+        offsetX
+      )
+      if (parked.text !== (offerRef.current || offer)) {
+        setOffer(parked.text)
+        offerRef.current = parked.text
+      }
+      setSendImagePos(parked.offset)
+    },
+    [offer, photoDragBounds, photoLineMetrics]
+  )
+
   const sendImageKey = sendImage?.dataUrl || sendImage?.url || ''
 
-  // A different picture starts back at the top-left; keeping the old offset
-  // would park a fresh photo half-way down the field for no reason.
+  // A different picture starts on the end empty slot — no leading blanks injected.
   useEffect(() => {
-    setSendImagePos(PHOTO_ORIGIN)
-  }, [sendImageKey])
+    if (!sendImageKey) {
+      setSendImagePos(PHOTO_ORIGIN)
+      return
+    }
+    const id = window.requestAnimationFrame(() => {
+      const bounds = photoDragBounds()
+      if (!bounds) {
+        setSendImagePos(PHOTO_ORIGIN)
+        return
+      }
+      const metrics = photoLineMetrics()
+      const draft = offerRef.current || offer
+      const endY = photoYForLine(draft.split('\n').length, metrics)
+      setSendImagePos(
+        snapPhotoToEmptyLine({ x: 0, y: endY }, draft, metrics, bounds)
+      )
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [sendImageKey]) // eslint-disable-line react-hooks/exhaustive-deps -- only on new picture
 
   // A narrower window shrinks the box under a parked photo — pull it back in.
   useEffect(() => {
@@ -4226,14 +4285,21 @@ function CampaignsPage() {
       const bounds = photoDragBounds()
 
       if (bounds) {
-        setSendImagePos(prev => reflowPhotoOffset(prev, bounds))
+        setSendImagePos(prev =>
+          snapPhotoToEmptyLine(
+            reflowPhotoOffset(prev, bounds),
+            offerRef.current || offer,
+            photoLineMetrics(),
+            bounds
+          )
+        )
       }
     }
 
     window.addEventListener('resize', onResize)
 
     return () => window.removeEventListener('resize', onResize)
-  }, [photoDragBounds, sendImageKey])
+  }, [offer, photoDragBounds, photoLineMetrics, sendImageKey])
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
   const insertMenuRef = useRef<HTMLSpanElement>(null)
@@ -4256,7 +4322,6 @@ function CampaignsPage() {
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [insertMenuOpen])
   const [actionStatus, setActionStatus] = useState('')
-  const offerRef = useRef('')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [audience, setAudience] = useState(0)
@@ -8485,17 +8550,35 @@ function CampaignsPage() {
                       }
 
                       ev.preventDefault()
+                      // Mid-drag: snap to existing empty lines only — never rest on text.
                       setSendImagePos(
-                        dragPhotoOffset(start, { x: ev.clientX, y: ev.clientY }, bounds)
+                        snapPhotoToEmptyLine(
+                          dragPhotoOffset(start, { x: ev.clientX, y: ev.clientY }, bounds),
+                          offerRef.current || offer,
+                          photoLineMetrics(),
+                          bounds
+                        )
                       )
                     }}
                     onPointerUp={ev => {
+                      const start = photoDragRef.current
+                      const bounds = photoDragBounds()
                       photoDragRef.current = null
                       ev.currentTarget.releasePointerCapture(ev.pointerId)
+                      if (!start || !bounds) {
+                        return
+                      }
+                      // Drop: open/expand a blank run under the pointer so text clears.
+                      const raw = dragPhotoOffset(
+                        start,
+                        { x: ev.clientX, y: ev.clientY },
+                        bounds
+                      )
+                      parkSendImageAt(raw.y, raw.x)
                     }}
                     ref={photoRef}
                     style={{ transform: `translate(${sendImagePos.x}px, ${sendImagePos.y}px)` }}
-                    title="Перетащите фото внутри поля (в Telegram фото всё равно сверху текста)"
+                    title="Перетащите фото на пустую строку — на текст не накладывается"
                   >
                     <img
                       alt={sendImage.name}

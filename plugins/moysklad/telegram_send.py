@@ -531,9 +531,9 @@ def send_telegram_message(
 
     ``via`` overrides ``MOYSKLAD_TELEGRAM_SEND_VIA`` for one call.
     ``image_base64`` attaches an uploaded photo, ``image_url`` a remote one
-    (e.g. a marketplace card image — Telegram fetches the URL itself) —
-    both delivered through the Business bot (personal-account path has no
-    file support yet); text rides as the caption (split into a follow-up
+    (e.g. a marketplace card image — Telegram fetches the URL itself).
+    Photos prefer the personal MTProto account (Business bot cannot message
+    cold contacts); text rides as the caption (split into a follow-up
     message when longer than 1024).
     """
     mode = (via or telegram_send_mode()).strip().lower()
