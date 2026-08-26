@@ -4228,6 +4228,222 @@ td.ms-ai-added {
   padding: 18px;
 }
 
+.ms-seo-audit {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #2a2f45;
+}
+
+.ms-seo-audit-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ms-seo-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ms-seo-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2f45;
+  background: #14172a;
+  color: #d6d9ec;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ms-seo-rule:hover {
+  border-color: #4a5175;
+}
+
+.ms-seo-rule.is-active {
+  border-color: #7c8cff;
+  background: #1f2450;
+}
+
+.ms-seo-rule.is-reference {
+  opacity: 0.6;
+}
+
+.ms-seo-rule-mp {
+  font-weight: 600;
+  font-size: 11px;
+  color: #9aa0c8;
+}
+
+.ms-seo-rule-factor {
+  flex: 1;
+}
+
+.ms-seo-rule-weight {
+  font-size: 11px;
+  color: #858ba3;
+}
+
+.ms-seo-rule-hits {
+  background: #7c8cff;
+  color: #0c0e1a;
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ms-seo-rule-detail {
+  font-size: 13px;
+  color: #b8bcd8;
+  background: #14172a;
+  border: 1px solid #2a2f45;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 6px 0 10px;
+}
+
+.ms-seo-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ms-seo-card {
+  border: 1px solid #2a2f45;
+  border-radius: 8px;
+  background: #10121f;
+  overflow: hidden;
+}
+
+.ms-seo-card.is-open {
+  border-color: #4a5175;
+}
+
+.ms-seo-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  color: #d6d9ec;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ms-seo-card-head img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.ms-seo-card-caret {
+  color: #858ba3;
+  width: 12px;
+}
+
+.ms-seo-card-name {
+  flex: 1;
+}
+
+.ms-seo-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.ms-seo-badge.is-high {
+  background: #4a1f1f;
+  color: #ff9a9a;
+}
+
+.ms-seo-badge.is-medium {
+  background: #4a3d1f;
+  color: #ffd28a;
+}
+
+.ms-seo-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ms-seo-finding {
+  border-left: 3px solid #2a2f45;
+  padding: 6px 0 6px 10px;
+  font-size: 12px;
+}
+
+.ms-seo-finding.is-high {
+  border-left-color: #ff9a9a;
+}
+
+.ms-seo-finding.is-medium {
+  border-left-color: #ffd28a;
+}
+
+.ms-seo-finding.is-highlighted {
+  background: #1f2450;
+  border-radius: 4px;
+}
+
+.ms-seo-finding-rule {
+  display: block;
+  background: none;
+  border: none;
+  color: #9aa0ff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.ms-seo-finding-rule:hover {
+  text-decoration: underline;
+}
+
+.ms-seo-prio {
+  display: inline-block;
+  font-size: 11px;
+  margin: 2px 0 4px;
+  color: #858ba3;
+}
+
+.ms-seo-prio.is-high {
+  color: #ff9a9a;
+}
+
+.ms-seo-prio.is-medium {
+  color: #ffd28a;
+}
+
+.ms-seo-line {
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.ms-seo-src {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #7c8cff;
+}
+
 .ms-kc-empty {
   padding: 36px 18px;
   text-align: center;

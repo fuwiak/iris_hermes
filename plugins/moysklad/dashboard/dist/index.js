@@ -6070,6 +6070,208 @@
     ["analytics", "Аналитика"],
   ];
 
+  var PRIORITY_LABEL = { high: "высокий", medium: "средний", low: "низкий" };
+
+  function RankingAuditPanel() {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [activeRule, setActiveRule] = useState("");
+    const [openCard, setOpenCard] = useState("");
+
+    useEffect(function () {
+      api("/cards/seo-audit?cap=60")
+        .then(setData)
+        .catch(function (err) {
+          setError(String((err && err.message) || err));
+        });
+    }, []);
+
+    if (error) return h("p", { className: "ms-error" }, error);
+    if (!data) return h("p", { className: "ms-muted" }, "Считаем аудит по правилам площадок…");
+
+    var allCards = data.cards || [];
+    var cards = !activeRule
+      ? allCards
+      : allCards.filter(function (card) {
+          return (card.findings || []).some(function (f) {
+            return f.rule_id === activeRule;
+          });
+        });
+
+    var ruleHits = {};
+    allCards.forEach(function (card) {
+      (card.findings || []).forEach(function (f) {
+        if (f.rule_id) ruleHits[f.rule_id] = (ruleHits[f.rule_id] || 0) + 1;
+      });
+    });
+
+    var activeRuleObj = (data.rulebook || []).find(function (r) {
+      return r.id === activeRule;
+    });
+
+    return h(
+      "div",
+      { className: "ms-seo-audit" },
+      h(
+        "div",
+        { className: "ms-seo-audit-head" },
+        h("strong", null, "Правила ранжирования площадок"),
+        h(
+          "span",
+          { className: "ms-muted" },
+          "Кликните правило — подсветятся карточки и рекомендации, построенные именно на нём.",
+          activeRule
+            ? h(
+                "button",
+                {
+                  className: "ms-link-btn",
+                  type: "button",
+                  onClick: function () {
+                    setActiveRule("");
+                  },
+                },
+                "сбросить фильтр",
+              )
+            : null,
+        ),
+      ),
+      h(
+        "div",
+        { className: "ms-seo-rules" },
+        (data.rulebook || []).map(function (rule) {
+          var hits = ruleHits[rule.id] || 0;
+          var active = activeRule === rule.id;
+          return h(
+            "button",
+            {
+              key: rule.id,
+              type: "button",
+              className:
+                "ms-seo-rule" + (active ? " is-active" : "") + (rule.checkable ? "" : " is-reference"),
+              title: rule.detail,
+              onClick: function () {
+                setActiveRule(active ? "" : rule.id);
+              },
+            },
+            h("span", { className: "ms-seo-rule-mp" }, MP_LABELS[rule.marketplace] || rule.marketplace),
+            h("span", { className: "ms-seo-rule-factor" }, rule.factor),
+            h("span", { className: "ms-seo-rule-weight" }, rule.weight),
+            hits ? h("span", { className: "ms-seo-rule-hits" }, String(hits)) : null,
+          );
+        }),
+      ),
+      activeRule
+        ? h(
+            "p",
+            { className: "ms-seo-rule-detail" },
+            (activeRuleObj && activeRuleObj.detail) || "",
+            " ",
+            h(
+              "a",
+              { href: activeRuleObj && activeRuleObj.source, target: "_blank", rel: "noreferrer" },
+              "источник ↗",
+            ),
+          )
+        : null,
+      h(
+        "p",
+        { className: "ms-muted" },
+        "Карточек с замечаниями: " +
+          (data.cards_with_findings || 0) +
+          " из " +
+          (data.cards_total || 0) +
+          (activeRule ? " · по выбранному правилу: " + cards.length : ""),
+      ),
+      h(
+        "div",
+        { className: "ms-seo-cards" },
+        cards.map(function (card, idx) {
+          var key = card.name || String(idx);
+          var open = openCard === key;
+          var findings = (card.findings || []).filter(function (f) {
+            return !activeRule || f.rule_id === activeRule;
+          });
+          return h(
+            "div",
+            { className: "ms-seo-card" + (open ? " is-open" : ""), key: key },
+            h(
+              "button",
+              {
+                className: "ms-seo-card-head",
+                type: "button",
+                onClick: function () {
+                  setOpenCard(open ? "" : key);
+                },
+              },
+              h("span", { className: "ms-seo-card-caret" }, open ? "▾" : "▸"),
+              card.image ? h("img", { src: card.image, alt: "", loading: "lazy" }) : null,
+              h("span", { className: "ms-seo-card-name" }, card.name || "—"),
+              card.high
+                ? h("span", { className: "ms-seo-badge is-high" }, card.high + " высокий")
+                : null,
+              card.medium
+                ? h("span", { className: "ms-seo-badge is-medium" }, card.medium + " средний")
+                : null,
+            ),
+            open
+              ? h(
+                  "ul",
+                  { className: "ms-seo-findings" },
+                  findings.map(function (f, i) {
+                    return h(
+                      "li",
+                      {
+                        key: i,
+                        className:
+                          "ms-seo-finding is-" +
+                          f.priority +
+                          (f.rule_id === activeRule ? " is-highlighted" : ""),
+                      },
+                      h(
+                        "button",
+                        {
+                          className: "ms-seo-finding-rule",
+                          type: "button",
+                          title: "Показать все карточки по этому правилу",
+                          onClick: function () {
+                            setActiveRule(f.rule_id === activeRule ? "" : f.rule_id);
+                          },
+                        },
+                        (MP_LABELS[f.marketplace] || f.marketplace) +
+                          " · " +
+                          f.factor +
+                          (f.weight ? " (" + f.weight + ")" : ""),
+                      ),
+                      h(
+                        "span",
+                        { className: "ms-seo-prio is-" + f.priority },
+                        "приоритет: " + (PRIORITY_LABEL[f.priority] || f.priority),
+                      ),
+                      h("div", { className: "ms-seo-line" }, h("b", null, "Проблема: "), f.problem),
+                      h("div", { className: "ms-seo-line" }, h("b", null, "Действие: "), f.action),
+                      h(
+                        "div",
+                        { className: "ms-seo-line ms-muted" },
+                        h("b", null, "Ожидаемый эффект: "),
+                        f.expected,
+                      ),
+                      f.source
+                        ? h(
+                            "a",
+                            { className: "ms-seo-src", href: f.source, target: "_blank", rel: "noreferrer" },
+                            "правило площадки ↗",
+                          )
+                        : null,
+                    );
+                  }),
+                )
+              : null,
+          );
+        }),
+      ),
+    );
+  }
+
   function RecBlockList({ blocks, data }) {
     if (!data) return h("p", { className: "ms-muted" }, "Считаем…");
     var nonEmpty = blocks.filter(function (b) {
@@ -6874,6 +7076,7 @@
                 ["few_photos", "Мало фото (< 3)"],
               ],
             }),
+            h(RankingAuditPanel),
           )
         : null,
       subTab === "placement"

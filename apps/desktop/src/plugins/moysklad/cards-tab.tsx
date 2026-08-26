@@ -135,6 +135,7 @@ function priceLabel(p: MarketplaceProduct): string {
 
   const base = `${Number(p.price).toLocaleString('ru-RU')} ${p.currency || 'RUB'}`
   const discount = Number(p.discount || 0)
+
   return discount > 0 ? `${base} · скидка ${discount}%` : base
 }
 
@@ -150,17 +151,20 @@ export function cardMessageBlock(card: CombinedCard): { block: string; image: st
   const url = listings.map(p => p.url || '').find(Boolean) || ''
   // No URL line — the photo travels as the actual photo attachment.
   void url
+
   const lines = [
     `«${card.name || '—'}»`,
     price ? `Цена: ${Math.round(Number(price)).toLocaleString('ru-RU')} ₽` : '',
     (withText?.description || withText?.description_preview || '').trim()
   ].filter(Boolean)
+
   return { block: lines.join('\n'), image: card.image || '', name: card.name || '—' }
 }
 
 export function cardDragPayload(card: CombinedCard): string {
   const entry = cardMessageBlock(card)
   const listings = card.listings || {}
+
   const url = Object.values(listings)
     .map(product => product.url || '')
     .find(Boolean)
@@ -207,6 +211,7 @@ function CombinedCardTile({
   onSelect: (card: CombinedCard) => void
 }) {
   const listings = card.listings || {}
+
   return (
     <div
       draggable
@@ -312,8 +317,10 @@ function CombinedDrawer({
     if (!rest || !card.name) {
       setRecs(null)
       setRecsError('')
+
       return
     }
+
     let cancelled = false
     setRecs(null)
     setRecsError('')
@@ -329,6 +336,7 @@ function CombinedDrawer({
           setRecsError(err instanceof Error ? err.message : String(err))
         }
       })
+
     return () => {
       cancelled = true
     }
@@ -525,6 +533,7 @@ const REC_BLOCKS: [keyof RecPayload, string][] = [
 
 function recLine(row: RecRow): string {
   const bits: string[] = []
+
   if (row.marketplace) {
     bits.push(MP_LABELS[row.marketplace] || row.marketplace)
   }
@@ -582,9 +591,11 @@ function RecommendationsDrawer({ onClose, rest }: { onClose: () => void; rest: C
           {data
             ? REC_BLOCKS.map(([key, label]) => {
                 const rows = (data[key] as RecRow[] | undefined) || []
+
                 if (!rows.length) {
                   return null
                 }
+
                 const meta = data.meta?.[key as string]
 
                 return (
@@ -665,6 +676,7 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
   }
 
   const nonEmpty = blocks.filter(([key]) => ((data[key] as RecRow[] | undefined) || []).length)
+
   if (!nonEmpty.length) {
     return <p className="ms-muted">Замечаний нет — всё чисто (при текущих параметрах).</p>
   }
@@ -674,6 +686,7 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
       {nonEmpty.map(([key, label]) => {
         const rows = (data[key] as RecRow[] | undefined) || []
         const meta = data.meta?.[key as string]
+
         return (
           <section key={key} style={{ marginTop: 10 }}>
             <strong>
@@ -706,6 +719,205 @@ function RecBlockList({ blocks, data }: { blocks: [keyof RecPayload, string][]; 
   )
 }
 
+type RankingRule = {
+  id?: string
+  marketplace?: string
+  factor?: string
+  weight?: string
+  detail?: string
+  source?: string
+  checkable?: boolean
+}
+
+type SeoFinding = {
+  rule_id?: string
+  marketplace?: string
+  factor?: string
+  weight?: string
+  priority?: string
+  problem?: string
+  action?: string
+  expected?: string
+  source?: string
+}
+
+type SeoAuditCard = {
+  name?: string
+  image?: string
+  marketplaces?: string[]
+  high?: number
+  medium?: number
+  findings?: SeoFinding[]
+}
+
+type SeoAuditPayload = {
+  rulebook?: RankingRule[]
+  cards?: SeoAuditCard[]
+  cards_with_findings?: number
+  cards_total?: number
+}
+
+const PRIORITY_LABEL: Record<string, string> = {
+  high: 'высокий',
+  medium: 'средний',
+  low: 'низкий'
+}
+
+/** Ranking-rulebook audit: pick a rule → every card finding using it lights up. */
+function RankingAuditPanel({ rest }: { rest: CardsRest }) {
+  const [data, setData] = useState<SeoAuditPayload | null>(null)
+  const [error, setError] = useState('')
+  const [activeRule, setActiveRule] = useState('')
+  const [openCard, setOpenCard] = useState('')
+
+  useEffect(() => {
+    rest<SeoAuditPayload>('/cards/seo-audit?cap=60', { timeoutMs: 180_000 })
+      .then(setData)
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [rest])
+
+  const cards = useMemo(() => {
+    const all = data?.cards || []
+
+    if (!activeRule) {
+      return all
+    }
+
+    return all.filter(card => (card.findings || []).some(f => f.rule_id === activeRule))
+  }, [data, activeRule])
+
+  const ruleHits = useMemo(() => {
+    const counts: Record<string, number> = {}
+
+    ;(data?.cards || []).forEach(card => {
+      ;(card.findings || []).forEach(f => {
+        if (f.rule_id) {
+          counts[f.rule_id] = (counts[f.rule_id] || 0) + 1
+        }
+      })
+    })
+
+    return counts
+  }, [data])
+
+  if (error) {
+    return <p className="ms-error">{error}</p>
+  }
+
+  if (!data) {
+    return <p className="ms-muted">Считаем аудит по правилам площадок…</p>
+  }
+
+  return (
+    <div className="ms-seo-audit">
+      <div className="ms-seo-audit-head">
+        <strong>Правила ранжирования площадок</strong>
+        <span className="ms-muted">
+          Кликните правило — подсветятся карточки и рекомендации, построенные именно на нём.
+          {activeRule ? (
+            <button className="ms-link-btn" onClick={() => setActiveRule('')} type="button">
+              сбросить фильтр
+            </button>
+          ) : null}
+        </span>
+      </div>
+      <div className="ms-seo-rules">
+        {(data.rulebook || []).map(rule => {
+          const hits = ruleHits[rule.id || ''] || 0
+          const active = activeRule === rule.id
+
+          return (
+            <button
+              className={`ms-seo-rule${active ? ' is-active' : ''}${rule.checkable ? '' : ' is-reference'}`}
+              key={rule.id}
+              onClick={() => setActiveRule(active ? '' : rule.id || '')}
+              title={rule.detail}
+              type="button"
+            >
+              <span className="ms-seo-rule-mp">{MP_LABELS[rule.marketplace || ''] || rule.marketplace}</span>
+              <span className="ms-seo-rule-factor">{rule.factor}</span>
+              <span className="ms-seo-rule-weight">{rule.weight}</span>
+              {hits ? <span className="ms-seo-rule-hits">{hits}</span> : null}
+            </button>
+          )
+        })}
+      </div>
+      {activeRule ? (
+        <p className="ms-seo-rule-detail">
+          {(data.rulebook || []).find(r => r.id === activeRule)?.detail}{' '}
+          <a
+            href={(data.rulebook || []).find(r => r.id === activeRule)?.source}
+            rel="noreferrer"
+            target="_blank"
+          >
+            источник ↗
+          </a>
+        </p>
+      ) : null}
+      <p className="ms-muted">
+        Карточек с замечаниями: {data.cards_with_findings ?? 0} из {data.cards_total ?? 0}
+        {activeRule ? ` · по выбранному правилу: ${cards.length}` : ''}
+      </p>
+      <div className="ms-seo-cards">
+        {cards.map((card, idx) => {
+          const key = `${card.name || idx}`
+          const open = openCard === key
+          const findings = (card.findings || []).filter(f => !activeRule || f.rule_id === activeRule)
+
+          return (
+            <div className={`ms-seo-card${open ? ' is-open' : ''}`} key={key}>
+              <button className="ms-seo-card-head" onClick={() => setOpenCard(open ? '' : key)} type="button">
+                <span className="ms-seo-card-caret">{open ? '▾' : '▸'}</span>
+                {card.image ? <img alt="" loading="lazy" src={card.image} /> : null}
+                <span className="ms-seo-card-name">{card.name || '—'}</span>
+                {card.high ? <span className="ms-seo-badge is-high">{card.high} высокий</span> : null}
+                {card.medium ? <span className="ms-seo-badge is-medium">{card.medium} средний</span> : null}
+              </button>
+              {open ? (
+                <ul className="ms-seo-findings">
+                  {findings.map((f, i) => (
+                    <li
+                      className={`ms-seo-finding is-${f.priority}${f.rule_id === activeRule ? ' is-highlighted' : ''}`}
+                      key={i}
+                    >
+                      <button
+                        className="ms-seo-finding-rule"
+                        onClick={() => setActiveRule(f.rule_id === activeRule ? '' : f.rule_id || '')}
+                        title="Показать все карточки по этому правилу"
+                        type="button"
+                      >
+                        {MP_LABELS[f.marketplace || ''] || f.marketplace} · {f.factor}
+                        {f.weight ? ` (${f.weight})` : ''}
+                      </button>
+                      <span className={`ms-seo-prio is-${f.priority}`}>
+                        приоритет: {PRIORITY_LABEL[f.priority || ''] || f.priority}
+                      </span>
+                      <div className="ms-seo-line">
+                        <b>Проблема:</b> {f.problem}
+                      </div>
+                      <div className="ms-seo-line">
+                        <b>Действие:</b> {f.action}
+                      </div>
+                      <div className="ms-seo-line ms-muted">
+                        <b>Ожидаемый эффект:</b> {f.expected}
+                      </div>
+                      {f.source ? (
+                        <a className="ms-seo-src" href={f.source} rel="noreferrer" target="_blank">
+                          правило площадки ↗
+                        </a>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function SeoPromotionPanel({
   data,
   onAskAi,
@@ -722,11 +934,14 @@ function SeoPromotionPanel({
   const total = data?.cards_total ?? 0
 
   const tips: string[] = []
+
   const pushMetaTips = (key: string) => {
     const meta = data?.meta?.[key]
+
     if (!meta) {
       return
     }
+
     if (meta.docs_action) {
       tips.push(meta.docs_action)
     } else if (meta.docs) {
@@ -735,9 +950,11 @@ function SeoPromotionPanel({
       tips.push(meta.rule)
     }
   }
+
   pushMetaTips('low_rating')
   pushMetaTips('few_photos')
   const yandexBoost = data?.knowledge?.blocks?.add_to_yandex
+
   if (yandexBoost?.length) {
     const block = yandexBoost[0]
     tips.push(
@@ -838,6 +1055,7 @@ function ParamsDrawer({
   const [draft, setDraft] = useState<RecParams>(params)
 
   const set = (patch: Partial<RecParams>) => setDraft(prev => ({ ...prev, ...patch }))
+
   return (
     <>
       <div onClick={onClose} style={OVERLAY_STYLE} />
@@ -926,11 +1144,13 @@ function CreateTab({ rest }: { rest: CardsRest }) {
 
     setBusy('search')
     setError('')
+
     try {
       const out = await rest<{ rows?: MsAssortmentRow[] }>(
         `/cards/ms-search?query=${encodeURIComponent(query.trim())}`,
         { timeoutMs: 60_000 }
       )
+
       setRows(out.rows || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -945,12 +1165,14 @@ function CreateTab({ rest }: { rest: CardsRest }) {
       setDraft(null)
       setBusy('draft')
       setError('')
+
       try {
         const out = await rest<CardDraft>('/cards/draft', {
           method: 'POST',
           body: { name: row.name, price: row.price },
           timeoutMs: 120_000
         })
+
         setDraft(out)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -1081,9 +1303,11 @@ function AnalyticsTab({ months, rest }: { months: number; rest: CardsRest }) {
   }, [rest, months])
 
   const monthIds = Object.keys(data?.channel_dynamics || {})
+
   const channels = Array.from(
     new Set(monthIds.flatMap(month => Object.keys(data?.channel_dynamics?.[month] || {})))
   )
+
   return (
     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
       {error ? <p className="ms-error">{error}</p> : null}
@@ -1112,6 +1336,7 @@ function AnalyticsTab({ months, rest }: { months: number; rest: CardsRest }) {
                     <td>{MP_LABELS[channel] || channel}</td>
                     {monthIds.map(month => {
                       const cell = data?.channel_dynamics?.[month]?.[channel]
+
                       return (
                         <td key={month}>
                           {cell
@@ -1196,6 +1421,7 @@ export function ChatDrawer({
   const send = useCallback(
     async (text?: string) => {
       const content = (text ?? draft).trim()
+
       if (!content || busy) {
         return
       }
@@ -1206,12 +1432,14 @@ export function ChatDrawer({
       setFollowups([])
       setBusy(true)
       setError('')
+
       try {
         const out = await rest<{ reply?: string; followups?: string[] }>(endpoint, {
           method: 'POST',
           body: { messages: next },
           timeoutMs: 120_000
         })
+
         setTurns([...next, { role: 'assistant', content: out.reply || '(пустой ответ)' }])
         setFollowups((out.followups || []).filter(Boolean).slice(0, 3))
       } catch (err) {
@@ -1579,21 +1807,26 @@ function listingBadge(product: MarketplaceProduct | undefined): 'ok' | 'warn' | 
   if (!product) {
     return null
   }
+
   if (product.is_archived) {
     return 'err'
   }
+
   if (product.is_active) {
     if (product.content_rating != null && product.content_rating < 60) {
       return 'warn'
     }
+
     return 'ok'
   }
+
   return 'warn'
 }
 
 function classifyCard(card: CombinedCard): RowVisual {
   const listings = Object.values(card.listings || {})
   const mps = card.marketplaces || []
+
   if (!mps.length || !listings.length) {
     return { bucket: 'draft', pill: 'draft', label: 'Черновик', note: '• Не опубликован' }
   }
@@ -1605,6 +1838,7 @@ function classifyCard(card: CombinedCard): RowVisual {
 
   if (!active.length && archived.length && !hidden.length) {
     const n = archived.length
+
     return {
       bucket: 'errors',
       pill: 'err',
@@ -1619,6 +1853,7 @@ function classifyCard(card: CombinedCard): RowVisual {
 
   if (low.length || hidden.length) {
     const n = low.length + hidden.length
+
     return {
       bucket: 'needs_update',
       pill: 'warn',
@@ -1628,6 +1863,7 @@ function classifyCard(card: CombinedCard): RowVisual {
   }
 
   const allKnown = TABLE_MPS.filter(m => m.key !== 'flowery').every(m => mps.includes(m.key))
+
   return {
     bucket: 'published',
     pill: 'ok',
@@ -1639,6 +1875,7 @@ function classifyCard(card: CombinedCard): RowVisual {
 function cardProductId(card: CombinedCard): string {
   const listings = Object.values(card.listings || {})
   const id = listings.map(p => p.product_id || p.offer_id).find(Boolean)
+
   return id != null ? String(id) : '—'
 }
 
@@ -1646,19 +1883,25 @@ function pageWindow(current: number, total: number): (number | 'ellipsis')[] {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1)
   }
+
   const pages: (number | 'ellipsis')[] = [1]
   const start = Math.max(2, current - 1)
   const end = Math.min(total - 1, current + 1)
+
   if (start > 2) {
     pages.push('ellipsis')
   }
+
   for (let p = start; p <= end; p++) {
     pages.push(p)
   }
+
   if (end < total - 1) {
     pages.push('ellipsis')
   }
+
   pages.push(total)
+
   return pages
 }
 
@@ -1704,11 +1947,13 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     async (force: boolean) => {
       setLoading(true)
       setError('')
+
       try {
         const payload = await rest<CardsPayload>(
           `/cards/marketplaces?limit=100${force ? '&force=true' : ''}`,
           { timeoutMs: 120_000 }
         )
+
         setData(payload)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -1727,9 +1972,11 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
 
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase()
+
     if (!q) {
       return combined
     }
+
     return combined.filter(card => (card.name || '').toLowerCase().includes(q))
   }, [combined, query])
 
@@ -1741,9 +1988,11 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
       needs_update: 0,
       errors: 0
     }
+
     for (const card of searched) {
       next[classifyCard(card).bucket] += 1
     }
+
     return next
   }, [searched])
 
@@ -1751,18 +2000,23 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
     () =>
       searched.filter(card => {
         const mps = card.marketplaces || []
+
         if (mpFilter === 'both' && mps.length < 2) {
           return false
         }
+
         if (mpFilter !== 'all' && mpFilter !== 'both' && !mps.includes(mpFilter)) {
           return false
         }
+
         if (statusFilter !== 'all' && !(card.statuses || []).includes(statusFilter)) {
           return false
         }
+
         if (statusTab !== 'all' && classifyCard(card).bucket !== statusTab) {
           return false
         }
+
         return true
       }),
     [searched, mpFilter, statusFilter, statusTab]
@@ -1782,11 +2036,13 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
 
   const pageItems = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE
+
     return filtered.slice(start, start + PAGE_SIZE)
   }, [filtered, page])
 
   const shopName =
     data?.flowwow?.shop?.name || data?.yandex?.business?.name || 'Цветочная студия'
+
   const problems = [data?.flowwow, data?.yandex]
     .map(section => section?.error || (!section?.configured ? section?.note : ''))
     .filter(Boolean) as string[]
@@ -1962,6 +2218,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                   if (id === 'list') {
                     setPage(1)
                   }
+
                   setSubTab(id)
                 }}
                 role="tab"
@@ -2013,6 +2270,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                     {pageItems.map((card, idx) => {
                       const visual = classifyCard(card)
                       const listings = card.listings || {}
+
                       return (
                         <tr key={`${card.name || idx}`} onClick={() => setSelected(card)}>
                           <td>
@@ -2039,6 +2297,7 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
                               {TABLE_MPS.map(mp => {
                                 const product = listings[mp.key]
                                 const badge = mp.key === 'flowery' ? null : listingBadge(product)
+
                                 return (
                                   <div className="ms-kc-mp-icon" key={mp.key}>
                                     <div className={`ms-kc-mp-circle ${badge ? mp.tone : 'idle'}`}>
@@ -2122,12 +2381,15 @@ export function CardsPage({ rest }: { rest: CardsRest }) {
               </div>
             </>
           ) : subTab === 'seo' ? (
-            <SeoPromotionPanel
-              data={recData}
-              onAskAi={() => setChatOpen(true)}
-              onOpenParams={() => setParamsOpen(true)}
-              params={params}
-            />
+            <>
+              <SeoPromotionPanel
+                data={recData}
+                onAskAi={() => setChatOpen(true)}
+                onOpenParams={() => setParamsOpen(true)}
+                params={params}
+              />
+              <RankingAuditPanel rest={rest} />
+            </>
           ) : (
             <div className="ms-kc-subview">
               {subTab === 'create' ? <CreateTab rest={rest} /> : null}

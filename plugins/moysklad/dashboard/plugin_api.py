@@ -5575,3 +5575,44 @@ def get_cards_analytics(
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /cards/analytics failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/cards/seo-audit")
+def get_cards_seo_audit(
+    cap: int = Query(default=40, ge=1, le=200),
+    min_photos_fw: int = Query(default=4, ge=1, le=20),
+    min_photos_ym: int = Query(default=5, ge=1, le=20),
+    quality_threshold: int = Query(default=80, ge=1, le=100),
+    min_title_len: int = Query(default=25, ge=5, le=200),
+    min_desc_len: int = Query(default=300, ge=50, le=4000),
+    price_gap_min: float = Query(default=0.10, ge=0.0, le=1.0),
+) -> dict[str, Any]:
+    """СЕО: правила ранжирования площадок + разбор каждой карточки по ним.
+
+    Каждая находка — «данные карточки → правило площадки → проблема →
+    действие → ожидаемый эффект → приоритет», со ссылкой на официальный
+    источник (Flowwow blog / Яндекс справка «Качество карточки»).
+    """
+    try:
+        from plugins.moysklad.marketplace_cards import marketplace_cards_payload
+        from plugins.moysklad.ranking_rules import seo_audit
+
+        cards = marketplace_cards_payload(limit=1000)
+        combined = list((cards or {}).get("combined") or [])
+        return {
+            "ok": True,
+            "generated_at": (cards or {}).get("generated_at"),
+            **seo_audit(
+                combined,
+                cap=cap,
+                min_photos_fw=min_photos_fw,
+                min_photos_ym=min_photos_ym,
+                quality_threshold=quality_threshold,
+                min_title_len=min_title_len,
+                min_desc_len=min_desc_len,
+                price_gap_min=price_gap_min,
+            ),
+        }
+    except Exception as exc:  # pragma: no cover
+        log.exception("moysklad /cards/seo-audit failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
