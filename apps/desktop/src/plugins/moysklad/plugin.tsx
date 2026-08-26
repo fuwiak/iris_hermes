@@ -80,6 +80,7 @@ import {
   reflowPhotoOffset,
   snapPhotoToEmptyLine
 } from './photo-drag'
+import { buildImageSendFields, cardPhotoAttachment } from './photo-send'
 
 // Chat refine — DeepSeek only (OpenRouter id).
 // Verified live via OpenRouter on this key (probe 17.08.2026):
@@ -4434,7 +4435,7 @@ function CampaignsPage() {
 
   const sendImageKey = sendImage?.dataUrl || sendImage?.url || ''
 
-  // A different picture starts on the end empty slot — no leading blanks injected.
+  // New picture: park on empty lines (insert blanks) so preview never covers text.
   useEffect(() => {
     if (!sendImageKey) {
       setSendImagePos(PHOTO_ORIGIN)
@@ -4454,9 +4455,14 @@ function CampaignsPage() {
       const metrics = photoLineMetrics()
       const draft = offerRef.current || offer
       const endY = photoYForLine(draft.split('\n').length, metrics)
-      setSendImagePos(
-        snapPhotoToEmptyLine({ x: 0, y: endY }, draft, metrics, bounds)
-      )
+      const parked = parkPhotoAtY(draft, endY, metrics, bounds.photoH, bounds, 0)
+
+      if (parked.text !== draft) {
+        setOffer(parked.text)
+        offerRef.current = parked.text
+      }
+
+      setSendImagePos(parked.offset)
     })
 
     return () => window.cancelAnimationFrame(id)
@@ -6428,7 +6434,7 @@ function CampaignsPage() {
     const imageUrl = photoUrl || entry.image
 
     if (imageUrl) {
-      const photo = { name: entry.name, url: imageUrl }
+      const photo = cardPhotoAttachment(entry.name, imageUrl)
       setSendImage(photo)
       setMassImage(photo)
     }
@@ -6803,8 +6809,7 @@ function CampaignsPage() {
     setError('')
 
     try {
-      const imageUrl = (massImage?.url || '').trim()
-      const imageBase64 = imageUrl ? '' : massImage?.dataUrl || ''
+      const imageFields = buildImageSendFields(massImage)
 
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
@@ -6815,9 +6820,7 @@ function CampaignsPage() {
           channel,
           deliver: true,
           stop_on_error: false,
-          image_base64: imageBase64,
-          image_url: imageUrl,
-          image_name: massImage?.name || 'photo.jpg'
+          ...imageFields
         }
       })
 
@@ -6950,9 +6953,9 @@ function CampaignsPage() {
 
     try {
       // Prefer a remote URL when the card already has one — huge data-URLs
-      // inflate the JSON body and trip the 15s desktop default timeout.
-      const imageUrl = (sendImage?.url || '').trim()
-      const imageBase64 = imageUrl ? '' : sendImage?.dataUrl || ''
+      // inflate the JSON body and trip the desktop timeout. data: must ride
+      // as image_base64; protocol-relative CDN urls are upgraded to https.
+      const imageFields = buildImageSendFields(sendImage)
 
       const data = await call<{
         conversation?: ClientConversation
@@ -6968,9 +6971,7 @@ function CampaignsPage() {
           client_id: clientId,
           open_deep_link: true,
           deliver: true,
-          image_base64: imageBase64,
-          image_url: imageUrl,
-          image_name: sendImage?.name || 'photo.jpg'
+          ...imageFields
         }
       })
 

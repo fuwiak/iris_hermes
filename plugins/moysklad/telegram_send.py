@@ -515,6 +515,70 @@ def _decode_image(image_base64: str) -> bytes | None:
         return None
 
 
+def _normalize_image_url(image_url: str) -> str:
+    """Browsers accept ``//cdn/…``; Telegram / our gate need an absolute URL."""
+    url = (image_url or "").strip()
+    if url.startswith("//"):
+        return f"https:{url}"
+    return url
+
+
+def _download_image_url(image_url: str, *, timeout: float = 30.0) -> bytes | None:
+    """Fetch a remote card photo so we upload bytes (CDN hotlink-safe)."""
+    url = _normalize_image_url(image_url)
+    if not url.startswith(("http://", "https://")):
+        return None
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "HermesMoySklad/1.0 (+https://github.com/NousResearch/hermes-agent)",
+                "Accept": "image/*,*/*;q=0.8",
+            },
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read(10 * 1024 * 1024 + 1)
+        if not data or len(data) > 10 * 1024 * 1024:
+            return None
+        return data
+    except Exception as exc:
+        log.info("card image download failed (%s): %s", url[:120], exc)
+        return None
+
+
+def _resolve_send_image(
+    image_base64: str,
+    image_url: str,
+) -> tuple[bytes | None, str, bool]:
+    """Return ``(bytes, url, wanted)``. Prefer uploaded bytes over a remote URL.
+
+    ``wanted`` is True when the caller attached something — so a broken URL
+    must not silently fall through to a text-only send.
+    """
+    raw_b64 = (image_base64 or "").strip()
+    raw_url = _normalize_image_url(image_url)
+    wanted = bool(raw_b64 or raw_url)
+
+    if raw_url.startswith("data:"):
+        return _decode_image(raw_url), "", wanted
+
+    image_bytes = _decode_image(raw_b64)
+    if image_bytes:
+        return image_bytes, "", wanted
+
+    if raw_url.startswith(("http://", "https://")):
+        fetched = _download_image_url(raw_url)
+        if fetched:
+            return fetched, "", wanted
+        # Telegram may still fetch the URL itself (Bot API sendPhoto photo=url).
+        return None, raw_url, wanted
+
+    return None, "", wanted
+
+
 def send_telegram_message(
     *,
     text: str,
@@ -531,17 +595,19 @@ def send_telegram_message(
 
     ``via`` overrides ``MOYSKLAD_TELEGRAM_SEND_VIA`` for one call.
     ``image_base64`` attaches an uploaded photo, ``image_url`` a remote one
-    (e.g. a marketplace card image — Telegram fetches the URL itself).
-    Photos prefer the personal MTProto account (Business bot cannot message
-    cold contacts); text rides as the caption (split into a follow-up
-    message when longer than 1024).
+    (e.g. a marketplace card image — we download it when possible, else
+    Telegram fetches the URL). Photos prefer the personal MTProto account
+    (Business bot cannot message cold contacts); text rides as the caption
+    (split into a follow-up message when longer than 1024).
     """
     mode = (via or telegram_send_mode()).strip().lower()
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
 
-    image_bytes = _decode_image(image_base64)
-    if image_bytes or (image_url or "").strip().startswith(("http://", "https://")):
+    image_bytes, resolved_url, image_wanted = _resolve_send_image(
+        image_base64, image_url
+    )
+    if image_bytes or resolved_url.startswith(("http://", "https://")):
         # Personal account first: the Business bot can only reply inside chats
         # of the connected account, so a photo to a plain contact comes back
         # as chat not found / BUSINESS_PEER_INVALID and never arrives.
@@ -551,7 +617,7 @@ def send_telegram_message(
                 chat_id=chat_id,
                 image_bytes=image_bytes,
                 image_name=image_name or "photo.jpg",
-                image_url=(image_url or "").strip(),
+                image_url=resolved_url,
             )
             if user_photo is not None and user_photo.get("ok"):
                 return user_photo
@@ -572,11 +638,21 @@ def send_telegram_message(
             chat_id=chat_id,
             image_bytes=image_bytes,
             image_name=image_name or "photo.jpg",
-            image_url=(image_url or "").strip(),
+            image_url=resolved_url,
             business_connection_id=business_connection_id,
             token=token,
             timeout=max(timeout, 60.0),
         )
+
+    if image_wanted:
+        return {
+            "ok": False,
+            "error": "image_unusable",
+            "detail": (
+                "Фото карточки не удалось отправить: нужен http(s) URL или "
+                "загрузка файла. Проверьте ссылку на картинку маркетплейса."
+            ),
+        }
 
     if mode in {"auto", "user"}:
         user_result = _send_via_user_account(text=text, chat_id=chat_id)

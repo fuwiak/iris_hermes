@@ -98,6 +98,24 @@ def test_slim_card_maps_fields():
     assert slim["description_preview"] == "Розы в горшках"
 
 
+def test_slim_card_upgrades_protocol_relative_pictures():
+    slim = ym.slim_card(
+        {
+            "offer": {
+                "offerId": "x",
+                "name": "Открытка",
+                "pictures": ["//avatars.mds.yandex.net/get-mpic/a", "https://ok/b.jpg"],
+                "basicPrice": {"value": 100.0, "currencyId": "RUR"},
+                "cardStatus": "HAS_CARD",
+            },
+            "mapping": {},
+        },
+        {},
+    )
+    assert slim["image"] == "https://avatars.mds.yandex.net/get-mpic/a"
+    assert slim["images"][1] == "https://ok/b.jpg"
+
+
 def test_business_picks_first_with_id(monkeypatch):
     monkeypatch.setenv("YANDEX_MARKET_API_TOKEN", "ACMA:x:y")
 

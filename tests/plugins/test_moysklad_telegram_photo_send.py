@@ -36,6 +36,7 @@ def bot_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
+    monkeypatch.setattr(tg, "_download_image_url", lambda *a, **k: None)
 
 
 @pytest.fixture

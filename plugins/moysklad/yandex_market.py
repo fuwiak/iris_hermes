@@ -172,7 +172,11 @@ def slim_card(mapping_row: dict[str, Any], ratings: dict[str, int]) -> dict[str,
     """offer-mappings row → the shared marketplace-card shape."""
     offer = mapping_row.get("offer") or {}
     mapping = mapping_row.get("mapping") or {}
-    pictures = offer.get("pictures") or []
+    pictures = [
+        f"https:{p}" if isinstance(p, str) and p.startswith("//") else str(p or "")
+        for p in (offer.get("pictures") or [])
+        if p
+    ]
     price = (offer.get("basicPrice") or {}).get("value")
     currency = str((offer.get("basicPrice") or {}).get("currencyId") or "RUR")
     model_id = mapping.get("marketModelId")

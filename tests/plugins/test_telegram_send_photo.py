@@ -15,6 +15,8 @@ def _stub_env(monkeypatch, calls):
     # MTProto session would dial Telegram for real mid-test.
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
     monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: False)
+    # Do not hit the network when resolving card CDN urls.
+    monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
 
     def fake_api(method, *, token=None, params=None, json_body=None, files=None, timeout=30.0):
         calls.append({"method": method, "json_body": json_body, "files": files})
@@ -63,3 +65,39 @@ def test_long_caption_splits_into_tail_message(monkeypatch):
     assert len(calls[0]["json_body"]["caption"]) == 1024
     assert calls[1]["method"] == "sendMessage"
     assert calls[1]["json_body"]["text"] == long_text[1024:]
+
+
+def test_protocol_relative_url_upgraded_to_https(monkeypatch):
+    calls: list = []
+    _stub_env(monkeypatch, calls)
+    out = ts.send_telegram_message(
+        text="Открытка",
+        chat_id="123",
+        image_url="//avatars.mds.yandex.net/get-mpic/x",
+    )
+    assert out["ok"] is True
+    assert calls[0]["json_body"]["photo"] == "https://avatars.mds.yandex.net/get-mpic/x"
+
+
+def test_relative_card_url_does_not_silently_send_text(monkeypatch):
+    calls: list = []
+    _stub_env(monkeypatch, calls)
+    out = ts.send_telegram_message(text="только текст?", chat_id="123", image_url="p1.jpg")
+    assert out["ok"] is False
+    assert out["error"] == "image_unusable"
+    assert calls == []
+
+
+def test_downloaded_card_url_uploads_as_multipart(monkeypatch):
+    calls: list = []
+    _stub_env(monkeypatch, calls)
+    monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: b"jpeg-bytes")
+    out = ts.send_telegram_message(
+        text="Букет",
+        chat_id="123",
+        image_url="https://content2.flowwow-images.com/x.jpg",
+        image_name="card.jpg",
+    )
+    assert out["ok"] is True
+    assert calls[0]["files"] == {"photo": ("card.jpg", b"jpeg-bytes")}
+    assert "photo" not in (calls[0]["json_body"] or {})
