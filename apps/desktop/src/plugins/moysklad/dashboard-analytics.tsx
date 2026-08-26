@@ -151,6 +151,155 @@ function Pct({ value }: { value: number | null | undefined }) {
   return <span className={`ms-dash-pct ${cls}`}>{text}</span>
 }
 
+export function sparkPoints(
+  series: Array<number | null | undefined>,
+  width = 120,
+  height = 36,
+  pad = 3
+): string {
+  const vals = series.map(v => (v == null || Number.isNaN(Number(v)) ? null : Number(v)))
+  const nums = vals.filter((v): v is number => v != null)
+  if (nums.length < 2) {
+    return ''
+  }
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  const span = max - min || 1
+  const n = vals.length
+  const pts: string[] = []
+  vals.forEach((v, i) => {
+    if (v == null) {
+      return
+    }
+    const x = n > 1 ? pad + (i * (width - pad * 2)) / (n - 1) : width / 2
+    const y = pad + (1 - (v - min) / span) * (height - pad * 2)
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+  })
+  return pts.join(' ')
+}
+
+export function lastGrowth(
+  matrix: DashMatrix | undefined,
+  metric: string
+): number | null {
+  const series = matrix?.totals?.growth?.[metric]
+  if (!Array.isArray(series)) {
+    return null
+  }
+  for (let i = series.length - 1; i >= 0; i--) {
+    const v = series[i]
+    if (v != null && !Number.isNaN(Number(v))) {
+      return Number(v)
+    }
+  }
+  return null
+}
+
+const KPI_ICONS: Record<string, ReactNode> = {
+  turnover: (
+    <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+      <path d="M4 19V9" />
+      <path d="M10 19V5" />
+      <path d="M16 19v-7" />
+      <path d="M22 19V8" />
+    </svg>
+  ),
+  revenue: (
+    <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+      <rect height="13" rx="2" width="16" x="4" y="6" />
+      <path d="M4 10h16" />
+    </svg>
+  ),
+  orders: (
+    <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+      <path d="M4 7h16v12H4z" />
+      <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+    </svg>
+  ),
+  avg_check: (
+    <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z" />
+      <path d="M9 8h6M9 12h6" />
+    </svg>
+  ),
+  margin: (
+    <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
+      <path d="M3 17l6-6 4 4 7-7" />
+      <path d="M14 8h6v6" />
+    </svg>
+  )
+}
+
+const KPI_TONES: Record<string, string> = {
+  turnover: 'pink',
+  revenue: 'green',
+  orders: 'purple',
+  avg_check: 'orange',
+  margin: 'blue'
+}
+
+const KPI_SPARK_STROKES: Record<string, string> = {
+  pink: '#ff4165',
+  green: '#36c878',
+  purple: '#8b5cf6',
+  orange: '#ff9e3d',
+  blue: '#3b82f6'
+}
+
+function KpiCard({
+  metric,
+  label,
+  value,
+  growth,
+  growthHint,
+  spark,
+  invert
+}: {
+  metric: string
+  label: string
+  value: string
+  growth: number | null
+  growthHint: string
+  spark: Array<number | null | undefined>
+  invert?: boolean
+}) {
+  const tone = KPI_TONES[metric] || 'purple'
+  const points = sparkPoints(spark)
+  const text = formatPct(growth)
+  const up = (growth || 0) > 0.0005
+  const down = (growth || 0) < -0.0005
+  const good = invert ? down : up
+  const bad = invert ? up : down
+  return (
+    <article className="ms-kpi-card">
+      <div className="ms-kpi-head">
+        <span aria-hidden="true" className={`ms-kpi-ico is-${tone}`}>
+          {KPI_ICONS[metric]}
+        </span>
+        <span className="ms-kpi-label">{label}</span>
+      </div>
+      <div className="ms-kpi-val">{value}</div>
+      {text ? (
+        <div className={`ms-kpi-delta${good ? ' is-good' : bad ? ' is-bad' : ''}`}>
+          <span className="ms-kpi-pct">
+            {up ? '↑' : down ? '↓' : '·'} {text.replace('+', '').replace('-', '')}
+          </span>
+          <span className="ms-kpi-vs">{growthHint}</span>
+        </div>
+      ) : (
+        <div className="ms-kpi-delta">
+          <span className="ms-kpi-vs">{growthHint}</span>
+        </div>
+      )}
+      {points ? (
+        <svg aria-hidden="true" className="ms-kpi-spark" preserveAspectRatio="none" viewBox="0 0 120 36">
+          <polyline points={points} stroke={KPI_SPARK_STROKES[tone]} />
+        </svg>
+      ) : null}
+    </article>
+  )
+}
+
 function seriesAt(ch: DashChannelSeries, metric: string, i: number): number | null | undefined {
   const raw = ch[metric as keyof DashChannelSeries]
   return Array.isArray(raw) ? (raw[i] as number | null | undefined) : undefined
@@ -524,34 +673,47 @@ export function DashboardAnalytics({
         </p>
       ) : null}
       {kpi ? (
-        <div className="ms-stats-grid ms-dashboard-grid">
-          <div>
-            <div className="ms-stat-val">{money(kpi.turnover)}</div>
-            <div className="ms-muted">Оборот · {kpi.period || 'месяц'}</div>
-          </div>
-          <div>
-            <div className="ms-stat-val">{money(kpi.revenue)}</div>
-            <div className="ms-muted">Выручка (после комиссии)</div>
-          </div>
-          <div>
-            <div className="ms-stat-val">{qty(kpi.orders)}</div>
-            <div className="ms-muted">Заказы</div>
-          </div>
-          <div>
-            <div className="ms-stat-val">{kpi.avg_check != null ? money(kpi.avg_check) : '—'}</div>
-            <div className="ms-muted">Средний чек</div>
-          </div>
-          <div>
-            <div className="ms-stat-val">{money(kpi.margin)}</div>
-            <div className="ms-muted">Маржа</div>
-          </div>
-          <div>
-            <div className="ms-stat-val">
-              <Pct value={kpi.mom_turnover} />
-              {!formatPct(kpi.mom_turnover) ? '—' : null}
-            </div>
-            <div className="ms-muted">Прирост оборота к прошлому месяцу</div>
-          </div>
+        <div className="ms-kpi-grid">
+          <KpiCard
+            growth={kpi.mom_turnover ?? lastGrowth(analytics?.by_month, 'turnover')}
+            growthHint="к прошлому месяцу"
+            label={`Оборот · ${kpi.period || 'месяц'}`}
+            metric="turnover"
+            spark={analytics?.by_week?.totals?.turnover || []}
+            value={`${money(kpi.turnover)} ₽`}
+          />
+          <KpiCard
+            growth={lastGrowth(analytics?.by_month, 'revenue')}
+            growthHint="к прошлому месяцу"
+            label="Выручка (после комиссии)"
+            metric="revenue"
+            spark={analytics?.by_week?.totals?.revenue || []}
+            value={`${money(kpi.revenue)} ₽`}
+          />
+          <KpiCard
+            growth={lastGrowth(analytics?.by_month, 'orders')}
+            growthHint="к прошлому месяцу"
+            label="Заказы"
+            metric="orders"
+            spark={analytics?.by_week?.totals?.orders || []}
+            value={qty(kpi.orders)}
+          />
+          <KpiCard
+            growth={lastGrowth(analytics?.by_month, 'avg_check')}
+            growthHint="к прошлому месяцу"
+            label="Средний чек"
+            metric="avg_check"
+            spark={analytics?.by_week?.totals?.avg_check || []}
+            value={kpi.avg_check != null ? `${money(kpi.avg_check)} ₽` : '—'}
+          />
+          <KpiCard
+            growth={lastGrowth(analytics?.by_month, 'margin')}
+            growthHint="к прошлому месяцу"
+            label="Маржа"
+            metric="margin"
+            spark={analytics?.by_week?.totals?.margin || []}
+            value={`${money(kpi.margin)} ₽`}
+          />
         </div>
       ) : null}
 

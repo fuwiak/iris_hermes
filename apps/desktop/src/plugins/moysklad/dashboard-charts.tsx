@@ -265,21 +265,50 @@ export function DashboardCharts({ analytics }: { analytics: DashAnalytics }) {
   return (
     <div className="ms-dash-board">
       {insights.length ? (
-        <div className="ms-dash-takes">
-          {insights.map(row => (
-            <button
-              className={`ms-dash-take is-${row.tone || 'info'}${activeInsight === row.id ? ' is-active' : ''}`}
-              key={row.id}
-              onClick={() => applyInsight(row)}
-              type="button"
-            >
-              <strong>{row.title}</strong>
-              <span>{row.body}</span>
-            </button>
-          ))}
-        </div>
+        <section className="ms-dash-recs">
+          <div className="ms-dash-recs-head">
+            <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+              <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+              <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z" />
+            </svg>
+            Рекомендации ИИ-агента
+          </div>
+          <div className="ms-dash-recs-list">
+            {insights.map(row => (
+              <button
+                className={`ms-dash-rec is-${row.tone || 'info'}${activeInsight === row.id ? ' is-active' : ''}`}
+                key={row.id}
+                onClick={() => applyInsight(row)}
+                type="button"
+              >
+                <span aria-hidden="true" className={`ms-dash-rec-ico is-${row.tone || 'info'}`}>
+                  {row.tone === 'up' ? (
+                    <svg fill="none" height="15" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="15">
+                      <path d="M3 17l6-6 4 4 7-7" />
+                      <path d="M14 8h6v6" />
+                    </svg>
+                  ) : row.tone === 'down' || row.tone === 'warn' ? (
+                    <svg fill="none" height="15" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="15">
+                      <path d="M12 3 2 20h20L12 3z" />
+                      <path d="M12 10v5" />
+                      <path d="M12 18h.01" />
+                    </svg>
+                  ) : (
+                    <svg fill="none" height="15" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="15">
+                      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+                    </svg>
+                  )}
+                </span>
+                <span className="ms-dash-rec-txt">
+                  <strong>{row.title}</strong>
+                  <span>{row.body}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
       ) : (
-        <p className="ms-muted">Hot take появятся, когда будет хотя бы два периода с заказами.</p>
+        <p className="ms-muted">Рекомендации появятся, когда будет хотя бы два периода с заказами.</p>
       )}
 
       <div className="ms-dash-chart-toolbar">

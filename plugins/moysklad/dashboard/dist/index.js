@@ -4545,6 +4545,106 @@
     return dashMoney(n);
   }
 
+  function dashSparkPoints(series, width, height, pad) {
+    width = width || 120;
+    height = height || 36;
+    pad = pad || 3;
+    var vals = (series || []).map(function (v) {
+      return v == null || isNaN(Number(v)) ? null : Number(v);
+    });
+    var nums = vals.filter(function (v) { return v != null; });
+    if (nums.length < 2) return "";
+    var min = Math.min.apply(null, nums);
+    var max = Math.max.apply(null, nums);
+    var span = max - min || 1;
+    var n = vals.length;
+    var pts = [];
+    vals.forEach(function (v, i) {
+      if (v == null) return;
+      var x = n > 1 ? pad + (i * (width - pad * 2)) / (n - 1) : width / 2;
+      var y = pad + (1 - (v - min) / span) * (height - pad * 2);
+      pts.push(x.toFixed(1) + "," + y.toFixed(1));
+    });
+    return pts.join(" ");
+  }
+
+  function dashLastGrowth(matrix, metric) {
+    var series = matrix && matrix.totals && matrix.totals.growth && matrix.totals.growth[metric];
+    if (!Array.isArray(series)) return null;
+    for (var i = series.length - 1; i >= 0; i--) {
+      var v = series[i];
+      if (v != null && !isNaN(Number(v))) return Number(v);
+    }
+    return null;
+  }
+
+  var DASH_KPI_TONES = {
+    turnover: "pink",
+    revenue: "green",
+    orders: "purple",
+    avg_check: "orange",
+    margin: "blue",
+  };
+  var DASH_KPI_STROKES = {
+    pink: "#ff4165",
+    green: "#36c878",
+    purple: "#8b5cf6",
+    orange: "#ff9e3d",
+    blue: "#3b82f6",
+  };
+
+  function dashKpiIcon(metric) {
+    var attrs = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8" };
+    if (metric === "turnover") {
+      return h("svg", attrs, h("path", { d: "M4 19V9", key: "a" }), h("path", { d: "M10 19V5", key: "b" }), h("path", { d: "M16 19v-7", key: "c" }), h("path", { d: "M22 19V8", key: "d" }));
+    }
+    if (metric === "revenue") {
+      return h("svg", attrs, h("rect", { x: 4, y: 6, width: 16, height: 13, rx: 2, key: "a" }), h("path", { d: "M4 10h16", key: "b" }));
+    }
+    if (metric === "orders") {
+      return h("svg", attrs, h("path", { d: "M4 7h16v12H4z", key: "a" }), h("path", { d: "M8 7V5a4 4 0 0 1 8 0v2", key: "b" }));
+    }
+    if (metric === "avg_check") {
+      return h("svg", attrs, h("path", { d: "M6 3h12v18l-3-2-3 2-3-2-3 2V3z", key: "a" }), h("path", { d: "M9 8h6M9 12h6", key: "b" }));
+    }
+    return h("svg", attrs, h("path", { d: "M3 17l6-6 4 4 7-7", key: "a" }), h("path", { d: "M14 8h6v6", key: "b" }));
+  }
+
+  function DashKpiCard(props) {
+    var tone = DASH_KPI_TONES[props.metric] || "purple";
+    var points = dashSparkPoints(props.spark);
+    var text = dashPct(props.growth);
+    var up = (props.growth || 0) > 0.0005;
+    var down = (props.growth || 0) < -0.0005;
+    var deltaCls = "ms-kpi-delta" + (up ? " is-good" : down ? " is-bad" : "");
+    return h(
+      "article",
+      { className: "ms-kpi-card" },
+      h(
+        "div",
+        { className: "ms-kpi-head" },
+        h("span", { className: "ms-kpi-ico is-" + tone, "aria-hidden": "true" }, dashKpiIcon(props.metric)),
+        h("span", { className: "ms-kpi-label" }, props.label),
+      ),
+      h("div", { className: "ms-kpi-val" }, props.value),
+      text
+        ? h(
+            "div",
+            { className: deltaCls },
+            h("span", { className: "ms-kpi-pct" }, (up ? "↑ " : down ? "↓ " : "· ") + text.replace("+", "").replace("-", "")),
+            h("span", { className: "ms-kpi-vs" }, props.growthHint),
+          )
+        : h("div", { className: "ms-kpi-delta" }, h("span", { className: "ms-kpi-vs" }, props.growthHint)),
+      points
+        ? h(
+            "svg",
+            { className: "ms-kpi-spark", viewBox: "0 0 120 36", preserveAspectRatio: "none", "aria-hidden": "true" },
+            h("polyline", { points: points, stroke: DASH_KPI_STROKES[tone] }),
+          )
+        : null,
+    );
+  }
+
   function DashTableTools(query, setQuery, sortLabel, onToggle, placeholder) {
     return h(
       "div",
@@ -5107,23 +5207,53 @@
       { className: "ms-dash-board" },
       insights.length
         ? h(
-            "div",
-            { className: "ms-dash-takes" },
-            insights.map(function (row) {
-              return h(
-                "button",
-                {
-                  type: "button",
-                  key: row.id,
-                  className: "ms-dash-take is-" + (row.tone || "info") + (active === row.id ? " is-active" : ""),
-                  onClick: function () { applyInsight(row); },
-                },
-                h("strong", null, row.title),
-                h("span", null, row.body),
-              );
-            }),
+            "section",
+            { className: "ms-dash-recs" },
+            h(
+              "div",
+              { className: "ms-dash-recs-head" },
+              h(
+                "svg",
+                { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8" },
+                h("path", { d: "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z", key: "a" }),
+                h("path", { d: "M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z", key: "b" }),
+              ),
+              "Рекомендации ИИ-агента",
+            ),
+            h(
+              "div",
+              { className: "ms-dash-recs-list" },
+              insights.map(function (row) {
+                var tone = row.tone || "info";
+                var icoAttrs = { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8" };
+                var ico;
+                if (tone === "up") {
+                  ico = h("svg", icoAttrs, h("path", { d: "M3 17l6-6 4 4 7-7", key: "a" }), h("path", { d: "M14 8h6v6", key: "b" }));
+                } else if (tone === "down" || tone === "warn") {
+                  ico = h("svg", icoAttrs, h("path", { d: "M12 3 2 20h20L12 3z", key: "a" }), h("path", { d: "M12 10v5", key: "b" }), h("path", { d: "M12 18h.01", key: "c" }));
+                } else {
+                  ico = h("svg", icoAttrs, h("path", { d: "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z", key: "a" }));
+                }
+                return h(
+                  "button",
+                  {
+                    type: "button",
+                    key: row.id,
+                    className: "ms-dash-rec is-" + tone + (active === row.id ? " is-active" : ""),
+                    onClick: function () { applyInsight(row); },
+                  },
+                  h("span", { className: "ms-dash-rec-ico is-" + tone, "aria-hidden": "true" }, ico),
+                  h(
+                    "span",
+                    { className: "ms-dash-rec-txt" },
+                    h("strong", null, row.title),
+                    h("span", null, row.body),
+                  ),
+                );
+              }),
+            ),
           )
-        : h("p", { className: "ms-muted" }, "Hot take появятся при двух периодах с заказами."),
+        : h("p", { className: "ms-muted" }, "Рекомендации появятся при двух периодах с заказами."),
       h(
         "div",
         { className: "ms-dash-chart-toolbar" },
@@ -5464,21 +5594,51 @@
       kpi && kpi.turnover != null
         ? h(
             "div",
-            { className: "ms-stats-grid ms-dashboard-grid" },
-            [
-              [dashMoney(kpi.turnover), "Оборот · " + (kpi.period || "")],
-              [dashMoney(kpi.revenue), "Выручка (после комиссии)"],
-              [String(kpi.orders != null ? kpi.orders : "—"), "Заказы"],
-              [kpi.avg_check != null ? dashMoney(kpi.avg_check) : "—", "Средний чек"],
-              [dashMoney(kpi.margin), "Маржа"],
-              [dashPct(kpi.mom_turnover) || "—", "Прирост оборота к прошлому месяцу"],
-            ].map(function (t) {
-              return h(
-                "div",
-                { key: t[1] },
-                h("div", { className: "ms-stat-val" }, t[0]),
-                h("div", { className: "ms-muted" }, t[1]),
-              );
+            { className: "ms-kpi-grid" },
+            h(DashKpiCard, {
+              key: "turnover",
+              metric: "turnover",
+              label: "Оборот · " + (kpi.period || "месяц"),
+              value: dashMoney(kpi.turnover) + " ₽",
+              growth: kpi.mom_turnover != null ? kpi.mom_turnover : dashLastGrowth(analytics.by_month, "turnover"),
+              growthHint: "к прошлому месяцу",
+              spark: (analytics.by_week && analytics.by_week.totals && analytics.by_week.totals.turnover) || [],
+            }),
+            h(DashKpiCard, {
+              key: "revenue",
+              metric: "revenue",
+              label: "Выручка (после комиссии)",
+              value: dashMoney(kpi.revenue) + " ₽",
+              growth: dashLastGrowth(analytics.by_month, "revenue"),
+              growthHint: "к прошлому месяцу",
+              spark: (analytics.by_week && analytics.by_week.totals && analytics.by_week.totals.revenue) || [],
+            }),
+            h(DashKpiCard, {
+              key: "orders",
+              metric: "orders",
+              label: "Заказы",
+              value: String(kpi.orders != null ? kpi.orders : "—"),
+              growth: dashLastGrowth(analytics.by_month, "orders"),
+              growthHint: "к прошлому месяцу",
+              spark: (analytics.by_week && analytics.by_week.totals && analytics.by_week.totals.orders) || [],
+            }),
+            h(DashKpiCard, {
+              key: "avg_check",
+              metric: "avg_check",
+              label: "Средний чек",
+              value: kpi.avg_check != null ? dashMoney(kpi.avg_check) + " ₽" : "—",
+              growth: dashLastGrowth(analytics.by_month, "avg_check"),
+              growthHint: "к прошлому месяцу",
+              spark: (analytics.by_week && analytics.by_week.totals && analytics.by_week.totals.avg_check) || [],
+            }),
+            h(DashKpiCard, {
+              key: "margin",
+              metric: "margin",
+              label: "Маржа",
+              value: dashMoney(kpi.margin) + " ₽",
+              growth: dashLastGrowth(analytics.by_month, "margin"),
+              growthHint: "к прошлому месяцу",
+              spark: (analytics.by_week && analytics.by_week.totals && analytics.by_week.totals.margin) || [],
             }),
           )
         : null,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { formatPct } from './dashboard-analytics'
+import { formatPct, lastGrowth, sparkPoints } from './dashboard-analytics'
 import {
   buildHeatmapOption,
   buildHeatmapTrace,
@@ -18,6 +18,22 @@ describe('formatPct (Excel growth =(new/old)-1)', () => {
     expect(formatPct(-0.25)).toBe('-25%')
     expect(formatPct(null)).toBe('')
     expect(formatPct(0)).toBe('0%')
+  })
+})
+
+describe('KPI cards helpers', () => {
+  test('sparkPoints normalizes into viewBox and skips nulls', () => {
+    const pts = sparkPoints([0, null, 10], 120, 36, 3)
+    expect(pts).toBe('3.0,33.0 117.0,3.0')
+    expect(sparkPoints([5])).toBe('')
+    expect(sparkPoints([])).toBe('')
+  })
+
+  test('lastGrowth returns last non-null growth', () => {
+    const matrix = { totals: { growth: { turnover: [null, 0.5, null] } } }
+    expect(lastGrowth(matrix, 'turnover')).toBe(0.5)
+    expect(lastGrowth(matrix, 'orders')).toBeNull()
+    expect(lastGrowth(undefined, 'turnover')).toBeNull()
   })
 })
 
