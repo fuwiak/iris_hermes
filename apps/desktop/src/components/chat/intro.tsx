@@ -1,19 +1,22 @@
 /**
  * New-chat empty state — 1:1 with design/mocks/ii-assistent.html (Iris AI).
- * Suggestion buttons insert prompts into the main composer.
+ * Every prompt is a real button that inserts into the main composer.
  */
+
+import { useMemo } from 'react'
 
 import { requestComposerFocus, requestComposerInsert } from '@/app/chat/composer/focus'
 import { useI18n } from '@/i18n'
+import { setSessionPickerOpen } from '@/store/session'
 
 export type IntroProps = {
   personality?: string
   seed?: number
 }
 
-type Example = { label: string; prompt: string }
+type PromptBtn = { label: string; prompt: string }
 
-function chooseSuggestion(prompt: string) {
+function insertPrompt(prompt: string) {
   requestComposerInsert(prompt, { mode: 'block', target: 'main' })
   requestComposerFocus('main')
 }
@@ -22,23 +25,43 @@ export function Intro(_props: IntroProps) {
   const { t } = useI18n()
   const i = t.composer.hermesOneIntro
 
-  const examples: Example[] = [
-    { label: i.exMargin, prompt: i.exMarginPrompt },
-    { label: i.exWriteoffs, prompt: i.exWriteoffsPrompt },
-    { label: i.exCall, prompt: i.exCallPrompt },
-    { label: i.exCompare, prompt: i.exComparePrompt },
-    { label: i.exAds, prompt: i.exAdsPrompt }
-  ]
+  const examples: PromptBtn[] = useMemo(
+    () => [
+      { label: i.exMargin, prompt: i.exMarginPrompt },
+      { label: i.exWriteoffs, prompt: i.exWriteoffsPrompt },
+      { label: i.exCall, prompt: i.exCallPrompt },
+      { label: i.exCompare, prompt: i.exComparePrompt },
+      { label: i.exAds, prompt: i.exAdsPrompt }
+    ],
+    [
+      i.exAds,
+      i.exAdsPrompt,
+      i.exCall,
+      i.exCallPrompt,
+      i.exCompare,
+      i.exComparePrompt,
+      i.exMargin,
+      i.exMarginPrompt,
+      i.exWriteoffs,
+      i.exWriteoffsPrompt
+    ]
+  )
 
-  const channels = [
-    { name: i.chSite, pct: '38%', money: '824 000 ₽', tone: 'g', width: '92%', icon: '⌂' },
-    { name: i.chYandex, pct: '31%', money: '512 000 ₽', tone: 'r', width: '74%', icon: 'Я' },
-    { name: i.chFlowwow, pct: '24%', money: '498 000 ₽', tone: 'o', width: '72%', icon: 'F' },
-    { name: i.chOffline, pct: '35%', money: '402 000 ₽', tone: 'p', width: '58%', icon: '◎' },
-    { name: i.chSocial, pct: '22%', money: '286 000 ₽', tone: 'b', width: '42%', icon: '💬' }
-  ]
+  const channels = useMemo(
+    () => [
+      { name: i.chSite, pct: '38%', money: '824 000 ₽', tone: 'g', width: '92%', icon: '⌂' },
+      { name: i.chYandex, pct: '31%', money: '512 000 ₽', tone: 'r', width: '74%', icon: 'Я' },
+      { name: i.chFlowwow, pct: '24%', money: '498 000 ₽', tone: 'o', width: '72%', icon: 'F' },
+      { name: i.chOffline, pct: '35%', money: '402 000 ₽', tone: 'p', width: '58%', icon: '◎' },
+      { name: i.chSocial, pct: '22%', money: '286 000 ₽', tone: 'b', width: '42%', icon: '💬' }
+    ],
+    [i.chFlowwow, i.chOffline, i.chSite, i.chSocial, i.chYandex]
+  )
 
-  const sources = [i.srcOrders, i.srcCatalog, i.srcFinance, i.srcWarehouse, i.srcMarketing, i.srcReviews]
+  const sources = useMemo(
+    () => [i.srcOrders, i.srcCatalog, i.srcFinance, i.srcWarehouse, i.srcMarketing, i.srcReviews],
+    [i.srcCatalog, i.srcFinance, i.srcMarketing, i.srcOrders, i.srcReviews, i.srcWarehouse]
+  )
 
   return (
     <div className="iris-ai-intro" data-hermes-one-intro="" data-iris-ai-intro="" data-slot="aui_intro">
@@ -53,13 +76,18 @@ export function Intro(_props: IntroProps) {
             <h1>{i.title}</h1>
           </div>
           <div className="iris-ai-topbar-actions">
-            <button aria-label={i.notifications} className="iris-ai-icon-btn" type="button">
+            <button
+              aria-label={i.notifications}
+              className="iris-ai-icon-btn"
+              onClick={() => setSessionPickerOpen(true)}
+              type="button"
+            >
               <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
                 <path d="M15 18a3 3 0 0 1-6 0" />
                 <path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 14 6 10z" />
               </svg>
             </button>
-            <button className="iris-ai-btn-history" type="button">
+            <button className="iris-ai-btn-history" onClick={() => setSessionPickerOpen(true)} type="button">
               <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
                 <circle cx="12" cy="12" r="8" />
                 <path d="M12 8v4l3 2" />
@@ -69,9 +97,24 @@ export function Intro(_props: IntroProps) {
           </div>
         </header>
 
+        <div aria-label={i.examplesTitle} className="iris-ai-prompts" role="group">
+          {examples.map(ex => (
+            <button
+              className="iris-ai-prompt-btn"
+              key={ex.label}
+              onClick={() => insertPrompt(ex.prompt)}
+              type="button"
+            >
+              {ex.label}
+            </button>
+          ))}
+        </div>
+
         <div className="iris-ai-chat">
           <div className="iris-ai-msg-user">
-            <div className="iris-ai-bubble-user">{i.sampleQuestion}</div>
+            <button className="iris-ai-bubble-user" onClick={() => insertPrompt(i.sampleQuestion)} type="button">
+              {i.sampleQuestion}
+            </button>
             <div className="iris-ai-msg-meta">{i.sampleUserTime}</div>
           </div>
 
@@ -88,15 +131,23 @@ export function Intro(_props: IntroProps) {
             </div>
             <p className="iris-ai-text">{i.sampleAnswer}</p>
 
-            <div className="iris-ai-insight iris-ai-insight-ok">
+            <button
+              className="iris-ai-insight iris-ai-insight-ok"
+              onClick={() => insertPrompt(i.insightTitle)}
+              type="button"
+            >
               <div className="iris-ai-insight-icon">✓</div>
               <div>
                 <div className="iris-ai-insight-title">{i.insightTitle}</div>
                 <div className="iris-ai-insight-sub">{i.insightSub}</div>
               </div>
-            </div>
+            </button>
 
-            <div className="iris-ai-insight iris-ai-insight-rec">
+            <button
+              className="iris-ai-insight iris-ai-insight-rec"
+              onClick={() => insertPrompt(i.recBody)}
+              type="button"
+            >
               <div className="iris-ai-insight-icon">
                 <svg fill="none" height="14" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="14">
                   <path d="M9 18h6" />
@@ -108,12 +159,17 @@ export function Intro(_props: IntroProps) {
                 <div className="iris-ai-insight-title">{i.recTitle}</div>
                 <div className="iris-ai-insight-sub">{i.recBody}</div>
               </div>
-            </div>
+            </button>
 
             <div className="iris-ai-chart">
               <div className="iris-ai-chart-title">{i.chartTitle}</div>
               {channels.map(ch => (
-                <div className="iris-ai-bar-row" key={ch.name}>
+                <button
+                  className="iris-ai-bar-row"
+                  key={ch.name}
+                  onClick={() => insertPrompt(`${ch.name}: ${i.chartTitle}`)}
+                  type="button"
+                >
                   <div aria-hidden="true" className={`iris-ai-ch-icon iris-ai-ch-${ch.tone}`}>
                     {ch.icon}
                   </div>
@@ -127,16 +183,21 @@ export function Intro(_props: IntroProps) {
                     </div>
                   </div>
                   <div className="iris-ai-bar-money">{ch.money}</div>
-                </div>
+                </button>
               ))}
               <div className="iris-ai-chart-actions">
-                <button className="iris-ai-btn-more" type="button">
+                <button className="iris-ai-btn-more" onClick={() => insertPrompt(i.sampleQuestion)} type="button">
                   {i.showMore}
                   <svg fill="none" height="14" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="14">
                     <path d="m6 9 6 6 6-6" />
                   </svg>
                 </button>
-                <button aria-label={i.download} className="iris-ai-btn-dl" type="button">
+                <button
+                  aria-label={i.download}
+                  className="iris-ai-btn-dl"
+                  onClick={() => insertPrompt(i.exAdsPrompt)}
+                  type="button"
+                >
                   <svg fill="none" height="16" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
                     <path d="M12 3v12" />
                     <path d="m7 10 5 5 5-5" />
@@ -156,11 +217,11 @@ export function Intro(_props: IntroProps) {
             {examples.map(ex => (
               <button
                 className="iris-ai-ex-item"
-                key={ex.label}
-                onClick={() => chooseSuggestion(ex.prompt)}
+                key={`rail-${ex.label}`}
+                onClick={() => insertPrompt(ex.prompt)}
                 type="button"
               >
-                <span className="iris-ai-ex-ico" aria-hidden="true">
+                <span aria-hidden="true" className="iris-ai-ex-ico">
                   <svg fill="none" height="12" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="12">
                     <path d="M4 6h16v11H8l-4 3V6z" />
                   </svg>
@@ -181,21 +242,49 @@ export function Intro(_props: IntroProps) {
             {i.tipTitle}
           </div>
           <p>{i.tipBody}</p>
+          <div className="iris-ai-tip-actions">
+            <button
+              className="iris-ai-prompt-btn iris-ai-prompt-btn-sm"
+              onClick={() => insertPrompt(i.exMarginPrompt)}
+              type="button"
+            >
+              {i.exMargin}
+            </button>
+            <button
+              className="iris-ai-prompt-btn iris-ai-prompt-btn-sm"
+              onClick={() => insertPrompt(i.exWriteoffsPrompt)}
+              type="button"
+            >
+              {i.exWriteoffs}
+            </button>
+            <button
+              className="iris-ai-prompt-btn iris-ai-prompt-btn-sm"
+              onClick={() => insertPrompt(i.dataPrompt)}
+              type="button"
+            >
+              {i.data}
+            </button>
+          </div>
         </section>
 
         <section className="iris-ai-card">
           <h3>{i.sourcesTitle}</h3>
           <div className="iris-ai-src-list">
             {sources.map(src => (
-              <div className="iris-ai-src-item" key={src}>
+              <button
+                className="iris-ai-src-item"
+                key={src}
+                onClick={() => insertPrompt(`${src}: ${i.subtitle}`)}
+                type="button"
+              >
                 {src}
                 <span className="iris-ai-src-ok">✓</span>
-              </div>
+              </button>
             ))}
           </div>
           <div className="iris-ai-src-footer">
             <span>{i.sourcesUpdated}</span>
-            <button aria-label={i.refresh} type="button">
+            <button aria-label={i.refresh} onClick={() => insertPrompt(i.sampleQuestion)} type="button">
               <svg fill="none" height="14" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="14">
                 <path d="M21 12a9 9 0 1 1-2.6-6.4" />
                 <path d="M21 3v6h-6" />

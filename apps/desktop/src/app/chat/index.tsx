@@ -373,6 +373,11 @@ export function ChatView({
     !activeSessionId &&
     messagesEmpty
 
+  const introProps = useMemo(
+    () => (showIntro ? { personality: introPersonality, seed: introSeed } : undefined),
+    [showIntro, introPersonality, introSeed]
+  )
+
   // Session is still loading if the route references a session we haven't
   // resumed yet. Once `activeSessionId` is set (runtime has resumed), the
   // session exists — even if it has zero messages (a brand-new routed
@@ -515,7 +520,7 @@ export function ChatView({
             clampToComposer={showChatBar}
             cwd={currentCwd}
             gateway={gateway}
-            intro={showIntro ? { personality: introPersonality, seed: introSeed } : undefined}
+            intro={introProps}
             loading={threadLoading}
             onBranchInNewChat={onBranchInNewChat}
             onCancel={haltRun}

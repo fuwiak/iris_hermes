@@ -1596,16 +1596,15 @@ text-* variant utilities. */ .btn-arc {
 
 .iris-ai-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
   gap: 0;
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  min-height: min(100%, calc(100% - var(--composer-measured-height, 5rem)));
-  height: 100%;
-  align-items: stretch;
+  min-height: 0;
+  align-items: start;
   text-align: left;
-  padding: 0 0 var(--composer-measured-height, 5.5rem);
+  padding: 0 0 1rem;
   box-sizing: border-box;
 }
 
@@ -1698,6 +1697,56 @@ text-* variant utilities. */ .btn-arc {
   background: #f2edff;
 }
 
+.iris-ai-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.iris-ai-prompt-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #ddd0ff;
+  background: #f7f3ff;
+  color: #7137f5;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.3;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.iris-ai-prompt-btn:hover,
+.iris-ai-prompt-btn:focus-visible {
+  background: #7137f5;
+  border-color: #7137f5;
+  color: #fff;
+  outline: none;
+}
+
+.iris-ai-prompt-btn-sm {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.iris-ai-tip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .iris-ai-chat {
   flex: 1;
   min-height: 0;
@@ -1722,6 +1771,15 @@ text-* variant utilities. */ .btn-arc {
   font-weight: 500;
   line-height: 1.4;
   box-shadow: 0 4px 14px rgba(113, 55, 245, 0.22);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.iris-ai-bubble-user:hover {
+  filter: brightness(1.05);
 }
 
 .iris-ai-msg-meta {
@@ -1780,6 +1838,10 @@ text-* variant utilities. */ .btn-arc {
   border-radius: 12px;
   margin-bottom: 10px;
   text-align: left;
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
 }
 
 .iris-ai-insight-ok {
@@ -1857,6 +1919,19 @@ text-* variant utilities. */ .btn-arc {
   gap: 10px;
   align-items: center;
   margin-bottom: 12px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.iris-ai-bar-row:hover {
+  background: #f8f9fc;
 }
 
 .iris-ai-ch-icon {
@@ -2064,6 +2139,19 @@ text-* variant utilities. */ .btn-arc {
   justify-content: space-between;
   font-size: 13px;
   font-weight: 500;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.iris-ai-src-item:hover {
+  background: #f8f9fc;
 }
 
 .iris-ai-src-ok {

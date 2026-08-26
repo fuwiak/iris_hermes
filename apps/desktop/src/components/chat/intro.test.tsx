@@ -66,7 +66,14 @@ describe('Iris AI intro — rendered screen matches the mock', () => {
     expect(screen.getByText(INTRO_SCREEN.sourcesTitle)).toBeTruthy()
   })
 
-  it('paints example prompts in mock order', async () => {
+  it('paints example prompts as real buttons in mock order', async () => {
+    const { container } = await renderIntro()
+    const chips = [...container.querySelectorAll('.iris-ai-prompt-btn:not(.iris-ai-prompt-btn-sm)')]
+
+    expect(chips.map(chip => chip.textContent?.trim())).toEqual([...INTRO_SCREEN.suggestions])
+  })
+
+  it('paints right-rail example buttons too', async () => {
     const { container } = await renderIntro()
     const chips = [...container.querySelectorAll('.iris-ai-ex-item')]
 
@@ -74,9 +81,11 @@ describe('Iris AI intro — rendered screen matches the mock', () => {
   })
 
   it('sends an example prompt to the main composer', async () => {
-    await renderIntro()
+    const { container } = await renderIntro()
+    const first = container.querySelector('.iris-ai-prompt-btn:not(.iris-ai-prompt-btn-sm)')
 
-    fireEvent.click(screen.getByRole('button', { name: INTRO_SCREEN.suggestions[0] }))
+    expect(first).not.toBeNull()
+    fireEvent.click(first!)
 
     expect(requestComposerInsert).toHaveBeenCalledWith(en.composer.hermesOneIntro.exMarginPrompt, {
       mode: 'block',

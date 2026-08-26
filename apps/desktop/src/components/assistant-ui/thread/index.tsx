@@ -132,17 +132,23 @@ export const Thread = memo(function Thread({
     [hasBranchInNewChat, hasCancel, hasDismissError, hasRestoreToMessage, requestRestoreConfirm]
   )
 
-  const emptyPlaceholder = intro ? (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
-      <Intro {...intro} />
-    </div>
-  ) : undefined
+  // Stable identity: a fresh element every render defeats ThreadMessageList's
+  // memo and can thrash stick-to-bottom / at-bottom store updates into a
+  // "Maximum update depth exceeded" loop on the empty intro.
+  const showIntro = Boolean(intro)
+  const introPersonality = intro?.personality
+  const introSeed = intro?.seed
+  const emptyPlaceholder = useMemo(() => {
+    if (!showIntro) {
+      return undefined
+    }
 
-  // Stable element identity, for the same reason the component map above is
-  // memoized: this is a prop of the memo'd ThreadMessageList, so a fresh
-  // element every render defeats the bail-out and drags the whole transcript
-  // into the switch's render pass. It takes no props, so one element is
-  // always correct.
+    return (
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
+        <Intro personality={introPersonality} seed={introSeed} />
+      </div>
+    )
+  }, [showIntro, introPersonality, introSeed])
   const loadingIndicator = useMemo(() => <BackgroundResumeNotice />, [])
 
   return (
