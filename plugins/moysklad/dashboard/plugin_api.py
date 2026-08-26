@@ -1523,6 +1523,38 @@ def _is_contact_id(client_id: str) -> bool:
     return str(client_id or "").startswith(("custom:", "tg:"))
 
 
+def _outreach_target_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    """TG coordinates from a catalog row — no ``build_client_detail`` (no MoySklad I/O).
+
+    ``build_client_detail`` pulls order compositions from MoySklad and routinely
+    burns 15–60s; mark-sent / mass-send only need phone + nick + chat id, so
+    the send path stays under the client timeout and actually delivers.
+    """
+    from plugins.moysklad.client_card import messaging_links
+
+    phone = str(row.get("Телефон") or row.get("phone") or "")
+    tg_nick = str(row.get("ТГ ник") or row.get("tg_nick") or "")
+    tg_conversation = str(
+        row.get("TG conversation") or row.get("tg_conversation") or ""
+    )
+    tg_chat_id = str(
+        row.get("ТГ chat id") or row.get("tg_chat_id") or ""
+    )
+    client_name = str(row.get("Наименование") or row.get("name") or "")
+    msg = messaging_links(
+        phone=phone, tg_nick=tg_nick, tg_conversation=tg_conversation
+    )
+    return {
+        "phone": phone,
+        "tg_nick": tg_nick,
+        "tg_conversation": tg_conversation,
+        "tg_chat_id": tg_chat_id,
+        "client_name": client_name,
+        "telegram_url": str(msg.get("telegram_url") or ""),
+        "whatsapp_url": str(msg.get("whatsapp_url") or ""),
+    }
+
+
 def _contact_row(client_id: str) -> dict[str, Any] | None:
     """Synthesize a catalog-shaped row for a peer that has no MoySklad card.
 
@@ -2234,23 +2266,18 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 if tg_nick:
                     deep_link = f"https://t.me/{tg_nick}"
             else:
-                detail = build_client_detail(row)
-                client = detail.get("client") or {}
-                msg = detail.get("messaging") or {}
-                phone = str(client.get("phone") or "")
-                tg_nick = str(client.get("tg_nick") or "")
-                tg_conversation = str(client.get("tg_conversation") or "")
-                tg_chat_id = str(
-                    client.get("tg_chat_id")
-                    or row.get("ТГ chat id")
-                    or row.get("tg_chat_id")
-                    or ""
-                )
-                client_name = str(client.get("name") or "")
+                # Fast path — never build_client_detail here (composition I/O
+                # hung «Отправляю…» for tens of seconds / past the client timeout).
+                target = _outreach_target_from_row(row)
+                phone = str(target.get("phone") or "")
+                tg_nick = str(target.get("tg_nick") or "")
+                tg_conversation = str(target.get("tg_conversation") or "")
+                tg_chat_id = str(target.get("tg_chat_id") or "")
+                client_name = str(target.get("client_name") or "")
                 if channel == "whatsapp":
-                    deep_link = str(msg.get("whatsapp_url") or "")
+                    deep_link = str(target.get("whatsapp_url") or "")
                 else:
-                    deep_link = str(msg.get("telegram_url") or "")
+                    deep_link = str(target.get("telegram_url") or "")
                 facts_payload = None  # filled after append
 
         delivery: dict[str, Any] = {"ok": False, "skipped": True}
@@ -2295,17 +2322,15 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
             "delivery": delivery,
             "telegram": telegram_send_status(),
         }
+        # Do NOT rebuild facts via build_client_detail — that was the second
+        # hang after the actual Telegram send. UI already has the card; the
+        # conversation thread alone is enough to refresh the pane.
         if not _is_contact_id(client_id):
-            catalog_row = None
             try:
                 catalog, meta = _get_catalog(force=False)
-                catalog_row = find_row_in_catalog(catalog, client_id)
-            except Exception:
-                catalog_row = None
-            if catalog_row is not None:
-                detail = build_client_detail(catalog_row)
-                payload["facts"] = facts_panel({**detail, "conversation": thread})
                 return _attach_cache_meta(payload, meta)
+            except Exception:
+                pass
         return payload
     except HTTPException:
         raise
@@ -2539,19 +2564,14 @@ def _resolve_mass_send_target(
             "client_name": str(contact.get("name") or ""),
             "phone": "",
         }
-    detail = build_client_detail(row)
-    client = detail.get("client") or {}
+    # Same lightweight path as mark-sent — never build_client_detail per recipient.
+    target = _outreach_target_from_row(row)
     return {
-        "tg_nick": str(client.get("tg_nick") or ""),
-        "tg_conversation": str(client.get("tg_conversation") or ""),
-        "tg_chat_id": str(
-            client.get("tg_chat_id")
-            or row.get("ТГ chat id")
-            or row.get("tg_chat_id")
-            or ""
-        ),
-        "client_name": str(client.get("name") or ""),
-        "phone": str(client.get("phone") or ""),
+        "tg_nick": str(target.get("tg_nick") or ""),
+        "tg_conversation": str(target.get("tg_conversation") or ""),
+        "tg_chat_id": str(target.get("tg_chat_id") or ""),
+        "client_name": str(target.get("client_name") or ""),
+        "phone": str(target.get("phone") or ""),
     }
 
 

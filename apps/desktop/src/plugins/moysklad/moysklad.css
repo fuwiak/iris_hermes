@@ -1147,7 +1147,7 @@ td.ms-tg-active-unknown {
 
 /* Room to actually move the photo around when one is attached. */
 .ms-msg-box.has-photo {
-  min-height: 15rem;
+  min-height: 18rem;
 }
 
 /* Dragged by pointer, so it floats over the textarea instead of pushing the
@@ -1162,6 +1162,9 @@ td.ms-tg-active-unknown {
   cursor: grab;
   touch-action: none;
   user-select: none;
+  /* Cap the shell so clampPhotoOffset always has horizontal/vertical slack —
+     max-width:100% on the img made photoW≈boxW and killed free drag. */
+  max-width: 42%;
 }
 
 .ms-msg-photo:active {
@@ -1170,8 +1173,10 @@ td.ms-tg-active-unknown {
 
 .ms-msg-photo img {
   display: block;
-  max-height: 200px;
+  max-height: 160px;
   max-width: 100%;
+  width: auto;
+  height: auto;
   border-radius: 0.4rem;
   /* Never start the browser's native image drag mid-reposition. */
   pointer-events: none;

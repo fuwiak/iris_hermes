@@ -899,6 +899,8 @@ function pickOutreachMessage(data: unknown): string {
 }
 
 const OUTREACH_AI_TIMEOUT_MS = 120_000
+/** Photo + MTProto/Bot delivery — must beat the default 15s desktop fetch. */
+const OUTREACH_SEND_TIMEOUT_MS = 180_000
 
 interface Counts {
   total?: number
@@ -4189,14 +4191,21 @@ function CampaignsPage() {
   const photoDragRef = useRef<PhotoDragStart | null>(null)
 
   const photoDragBounds = useCallback((): PhotoDragBounds | null => {
-    const box = msgBoxRef.current?.getBoundingClientRect()
-    const photo = photoRef.current?.getBoundingClientRect()
+    const boxEl = msgBoxRef.current
+    const photoEl = photoRef.current
 
-    if (!box || !photo) {
+    // client/offset size ignores translate() — getBoundingClientRect after a
+    // drag would still be fine for W/H, but offset is what CSS layout owns.
+    if (!boxEl || !photoEl) {
       return null
     }
 
-    return { boxW: box.width, boxH: box.height, photoW: photo.width, photoH: photo.height }
+    return {
+      boxW: boxEl.clientWidth,
+      boxH: boxEl.clientHeight,
+      photoW: photoEl.offsetWidth,
+      photoH: photoEl.offsetHeight
+    }
   }, [])
 
   const sendImageKey = sendImage?.dataUrl || sendImage?.url || ''
@@ -4348,6 +4357,8 @@ function CampaignsPage() {
   const [suggestingBouquet, setSuggestingBouquet] = useState(false)
   const [paraphrasing, setParaphrasing] = useState(false)
   const [checkingSanity, setCheckingSanity] = useState(false)
+  /** Separate from sanity check — shared flag made «Отправляю…» steal the check button. */
+  const [sendingTg, setSendingTg] = useState(false)
   const [sanity, setSanity] = useState<SanityResult | null>(null)
   const [prefillReady, setPrefillReady] = useState(false)
   const audienceLoadMoreRef = useRef(false)
@@ -6364,16 +6375,19 @@ function CampaignsPage() {
     setMassStarting(true)
     setError('')
     try {
+      const imageUrl = (massImage?.url || '').trim()
+      const imageBase64 = imageUrl ? '' : massImage?.dataUrl || ''
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
+        timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
         body: {
           message: text,
           client_ids: massIds,
           channel,
           deliver: true,
           stop_on_error: false,
-          image_base64: massImage?.dataUrl || '',
-          image_url: massImage?.url || '',
+          image_base64: imageBase64,
+          image_url: imageUrl,
           image_name: massImage?.name || 'photo.jpg'
         }
       })
@@ -6488,7 +6502,7 @@ function CampaignsPage() {
       return
     }
 
-    setCheckingSanity(true)
+    setSendingTg(true)
     setError('')
     setActionStatus(
       channel.startsWith('telegram')
@@ -6497,6 +6511,10 @@ function CampaignsPage() {
     )
 
     try {
+      // Prefer a remote URL when the card already has one — huge data-URLs
+      // inflate the JSON body and trip the 15s desktop default timeout.
+      const imageUrl = (sendImage?.url || '').trim()
+      const imageBase64 = imageUrl ? '' : sendImage?.dataUrl || ''
       const data = await call<{
         conversation?: ClientConversation
         facts?: ClientFacts
@@ -6504,14 +6522,15 @@ function CampaignsPage() {
         delivery?: { ok?: boolean; detail?: string; error?: string; skipped?: boolean }
       }>('/campaigns/mark-sent', {
         method: 'POST',
+        timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
         body: {
           message: draft,
           channel,
           client_id: clientId,
           open_deep_link: true,
           deliver: true,
-          image_base64: sendImage?.dataUrl || '',
-          image_url: sendImage?.url || '',
+          image_base64: imageBase64,
+          image_url: imageUrl,
           image_name: sendImage?.name || 'photo.jpg'
         }
       })
@@ -6528,6 +6547,7 @@ function CampaignsPage() {
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
         setSendImage(null)
         setMassImage(null)
+        setSendImagePos(PHOTO_ORIGIN)
         setActionStatus('✓ Ушло. Выберите другого клиента или соберите ответы.')
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
@@ -6547,7 +6567,7 @@ function CampaignsPage() {
       setActionStatus('')
       setBatchProgress('')
     } finally {
-      setCheckingSanity(false)
+      setSendingTg(false)
     }
   }
 
@@ -6943,6 +6963,7 @@ function CampaignsPage() {
     Boolean(selectedClientId) &&
     Boolean(offer.trim()) &&
     !checkingSanity &&
+    !sendingTg &&
     !generating &&
     !rewriting &&
     !suggestingBouquet &&
@@ -7015,7 +7036,7 @@ function CampaignsPage() {
               onClick={() => void markSentToConversation()}
               type="button"
             >
-              {checkingSanity ? 'Отправляю…' : 'Отправить в Telegram'}
+              {sendingTg ? 'Отправляю…' : 'Отправить в Telegram'}
             </button>
           ) : null}
           {selectedClientId || lastSentClientIds.length > 0 ? (
@@ -8474,7 +8495,7 @@ function CampaignsPage() {
                     }}
                     ref={photoRef}
                     style={{ transform: `translate(${sendImagePos.x}px, ${sendImagePos.y}px)` }}
-                    title="Перетащите фото — оно свободно двигается внутри поля"
+                    title="Перетащите фото внутри поля (в Telegram фото всё равно сверху текста)"
                   >
                     <img
                       alt={sendImage.name}
@@ -8676,7 +8697,12 @@ function CampaignsPage() {
               <button
                 className="ms-btn"
                 disabled={
-                  generating || rewriting || checkingSanity || suggestingBouquet || paraphrasing
+                  generating ||
+                  rewriting ||
+                  checkingSanity ||
+                  sendingTg ||
+                  suggestingBouquet ||
+                  paraphrasing
                 }
                 onClick={() => void regenerateAi()}
                 type="button"
@@ -8691,7 +8717,12 @@ function CampaignsPage() {
               <button
                 className="ms-btn"
                 disabled={
-                  generating || rewriting || checkingSanity || suggestingBouquet || paraphrasing
+                  generating ||
+                  rewriting ||
+                  checkingSanity ||
+                  sendingTg ||
+                  suggestingBouquet ||
+                  paraphrasing
                 }
                 onClick={() => void suggestHistoricalBouquet()}
                 title="Назвать конкретный букет из прошлых заказов клиента"
@@ -8706,6 +8737,7 @@ function CampaignsPage() {
                 rewriting ||
                 generating ||
                 checkingSanity ||
+                sendingTg ||
                 suggestingBouquet ||
                 paraphrasing ||
                 !offer.trim()
@@ -8722,6 +8754,7 @@ function CampaignsPage() {
                 generating ||
                 rewriting ||
                 checkingSanity ||
+                sendingTg ||
                 suggestingBouquet ||
                 !offer.trim()
               }
@@ -8735,6 +8768,7 @@ function CampaignsPage() {
               className="ms-btn"
               disabled={
                 checkingSanity ||
+                sendingTg ||
                 generating ||
                 rewriting ||
                 suggestingBouquet ||
@@ -8755,7 +8789,7 @@ function CampaignsPage() {
                 onClick={() => void markSentToConversation()}
                 type="button"
               >
-                {checkingSanity ? 'Отправляю…' : 'Отправить в Telegram'}
+                {sendingTg ? 'Отправляю…' : 'Отправить в Telegram'}
               </button>
             ) : null}
             <button

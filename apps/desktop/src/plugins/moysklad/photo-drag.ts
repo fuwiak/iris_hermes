@@ -8,6 +8,8 @@
  *
  * Placement is composer-only: Telegram always renders the photo above the
  * caption, so where the operator parks the preview does not change delivery.
+ * CSS must keep the preview smaller than the box (see .ms-msg-photo max-width)
+ * — otherwise clampPhotoOffset pins maxX/maxY to 0 and drag feels broken.
  */
 
 export interface PhotoOffset {

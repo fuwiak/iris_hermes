@@ -30,6 +30,20 @@ describe('clampPhotoOffset', () => {
     expect(clampPhotoOffset({ x: NaN, y: 40 }, BOUNDS)).toEqual({ x: 0, y: 40 })
     expect(clampPhotoOffset({ x: 10, y: Infinity }, BOUNDS)).toEqual({ x: 10, y: 0 })
   })
+
+  it('leaves room to drag when the preview is smaller than the box (UI contract)', () => {
+    // Mirrors .ms-msg-photo { max-width: 42% } + max-height 160px on a 600×400 box.
+    const preview = { boxW: 600, boxH: 400, photoW: 180, photoH: 160 }
+    const parked = clampPhotoOffset({ x: 200, y: 100 }, preview)
+    expect(parked).toEqual({ x: 200, y: 100 })
+    expect(
+      dragPhotoOffset(
+        { pointerX: 100, pointerY: 100, offsetX: 0, offsetY: 0 },
+        { x: 250, y: 180 },
+        preview
+      )
+    ).toEqual({ x: 150, y: 80 })
+  })
 })
 
 describe('dragPhotoOffset', () => {
