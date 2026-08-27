@@ -2884,7 +2884,7 @@
           }
           setActionStatus(
             images.length
-              ? "Шлём текст, потом фото " + images.length + " отдельным сообщением…"
+              ? "Отправка текста и " + images.length + " фото через Telegram…"
               : "Отправка через Telegram…"
           );
           return api("/campaigns/mark-sent", {
@@ -2896,7 +2896,7 @@
               client_id: selectedClientId,
               open_deep_link: true,
               deliver: true,
-              images: [],
+              images: images,
             }),
           }).then(function (data) {
             return { data: data, images: images };
@@ -2907,6 +2907,12 @@
           var data = pack.data;
           var images = pack.images || [];
           var draft = String(offerRef.current || "").trim();
+          trace("ui_mark_sent_done", {
+            client_id: selectedClientId,
+            ok: data.delivery && data.delivery.ok,
+            photos_sent: data.delivery && data.delivery.photos_sent,
+            photos_total: data.delivery && data.delivery.photos_total,
+          });
           if (data.facts) setFacts(data.facts);
           else if (data.conversation) {
             setFacts(function (prev) {
@@ -2915,46 +2921,24 @@
           }
           setOffer(draft);
           if (data.delivery && data.delivery.ok) {
-            var chain = Promise.resolve();
-            var photosSent = 0;
-            var photoErrors = [];
-            images.forEach(function (shot, i) {
-              chain = chain.then(function () {
-                setActionStatus("Текст ушёл. Шлём фото " + (i + 1) + "/" + images.length + "…");
-                trace("ui_photo_start", { index: i, name: shot.image_name, b64_len: String(shot.image_base64 || "").length });
-                return api("/campaigns/send-photo", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    client_id: selectedClientId,
-                    channel: channel,
-                    image_base64: shot.image_base64,
-                    image_name: shot.image_name,
-                  }),
-                }).then(function (photoRes) {
-                  var ok = !!(photoRes && (photoRes.ok || (photoRes.delivery && photoRes.delivery.ok)));
-                  trace("ui_photo_done", { index: i, ok: ok, detail: photoRes && photoRes.delivery && photoRes.delivery.detail });
-                  if (ok) photosSent += 1;
-                  else photoErrors.push(String((photoRes && photoRes.delivery && (photoRes.delivery.detail || photoRes.delivery.error)) || "фото не ушло"));
-                }).catch(function (err) {
-                  photoErrors.push((err && err.message) || String(err));
-                });
-              });
-            });
-            return chain.then(function () {
-              if (!photoErrors.length) setSendPhotos([]);
-              setSkillPromptText(draft);
-              setActionStatus(
-                images.length === 0
-                  ? "✓ Ушло. Выберите другого клиента или соберите ответы."
-                  : photosSent === images.length
-                    ? "✓ Ушло: текст + фото " + photosSent + "/" + images.length + " отдельными сообщениями."
-                    : "⚠ Текст ушёл, фото " + photosSent + "/" + images.length + ": " + photoErrors.slice(0, 2).join("; ")
+            var photosSent = (data.delivery && data.delivery.photos_sent) || 0;
+            var photosTotal = (data.delivery && data.delivery.photos_total) || images.length;
+            if (images.length === 0 || photosSent >= photosTotal) setSendPhotos([]);
+            setSkillPromptText(draft);
+            setActionStatus(
+              images.length === 0
+                ? "✓ Ушло. Выберите другого клиента или соберите ответы."
+                : photosSent >= photosTotal
+                  ? "✓ Ушло: текст + фото " + photosSent + "/" + photosTotal + "."
+                  : "⚠ Текст ушёл, фото " + photosSent + "/" + photosTotal + ": " + String((data.delivery && (data.delivery.detail || data.delivery.error)) || "часть фото не ушла")
+            );
+            if (images.length && photosSent < photosTotal) {
+              setError(
+                "Telegram фото: " +
+                  String((data.delivery && (data.delivery.detail || data.delivery.error)) || "часть фото не ушла") +
+                  " · лог ~/.hermes/moysklad/photo_send.log"
               );
-              if (photoErrors.length) {
-                setError("Telegram фото: " + photoErrors.slice(0, 3).join("; ") + " · лог ~/.hermes/moysklad/photo_send.log");
-              }
-            });
+            }
           } else if (
             String(channel || "").indexOf("telegram") === 0 &&
             data.delivery &&

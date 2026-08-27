@@ -4572,6 +4572,8 @@ function CampaignsPage() {
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [insertMenuOpen])
   const [actionStatus, setActionStatus] = useState('')
+  const actionStatusRef = useRef('')
+  actionStatusRef.current = actionStatus
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [audience, setAudience] = useState(0)
@@ -4725,9 +4727,11 @@ function CampaignsPage() {
 
   const applyOfferText = useCallback((next: string, status: string) => {
     const text = (next || '').trim() ? next : ''
-    setOffer(text)
-    offerRef.current = text
-    setOfferTick(t => t + 1)
+    if (text !== offerRef.current) {
+      setOffer(text)
+      offerRef.current = text
+      setOfferTick(t => t + 1)
+    }
     setActionStatus(status)
   }, [])
 
@@ -6210,7 +6214,7 @@ function CampaignsPage() {
           message: msg,
           grounding_notes: groundingNotes,
           source: genSource || 'manual',
-          status: actionStatus || AI_GENERATED_STATUS,
+          status: actionStatusRef.current || AI_GENERATED_STATUS,
           client_name: selectedClientNameRef.current || '',
           title: title || '',
           facts: facts || {},
@@ -6221,7 +6225,6 @@ function CampaignsPage() {
 
     return () => clearTimeout(t)
   }, [
-    actionStatus,
     call,
     channel,
     facts,
@@ -7076,8 +7079,10 @@ function CampaignsPage() {
 
       setActionStatus(
         images.length
-          ? `Шлём текст, потом фото ${images.length} отдельным сообщением…`
-          : 'Отправка через Telegram…'
+          ? `Отправка текста и ${images.length} фото через Telegram…`
+          : channel.startsWith('telegram')
+            ? 'Отправка через Telegram…'
+            : 'Пишем исходящее в историю…'
       )
 
       const data = await call<{
@@ -7102,15 +7107,17 @@ function CampaignsPage() {
           client_id: clientId,
           open_deep_link: true,
           deliver: true,
-          images: []
+          images
         }
       })
-      photoTrace('ui_text_done', {
+      photoTrace('ui_mark_sent_done', {
         client_id: clientId,
         ok: data.delivery?.ok,
         skipped: data.delivery?.skipped,
         detail: data.delivery?.detail,
-        via: (data.delivery as { via?: string } | undefined)?.via
+        via: (data.delivery as { via?: string } | undefined)?.via,
+        photos_sent: data.delivery?.photos_sent,
+        photos_total: data.delivery?.photos_total
       })
 
       setLastSentClientIds(ids => mergeUniqueIds(ids, [clientId]))
@@ -7122,77 +7129,23 @@ function CampaignsPage() {
       }
 
       if (data.delivery?.ok) {
-        let photosSent = 0
-        const photoErrors: string[] = []
-        for (let i = 0; i < images.length; i++) {
-          const shot = images[i]!
-          setActionStatus(`Текст ушёл. Шлём фото ${i + 1}/${images.length} отдельным сообщением…`)
-          photoTrace('ui_photo_start', {
-            client_id: clientId,
-            index: i,
-            total: images.length,
-            name: shot.image_name,
-            b64_len: shot.image_base64.length
-          })
-          try {
-            const photoRes = await call<{
-              ok?: boolean
-              delivery?: {
-                ok?: boolean
-                detail?: string
-                error?: string
-                via?: string
-                photo_via?: string
-                photos_sent?: number
-                message_id?: number
-              }
-            }>('/campaigns/send-photo', {
-              method: 'POST',
-              timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
-              body: {
-                client_id: clientId,
-                channel,
-                image_base64: shot.image_base64,
-                image_name: shot.image_name
-              }
-            })
-            const ok = Boolean(photoRes.ok ?? photoRes.delivery?.ok)
-            photoTrace('ui_photo_done', {
-              client_id: clientId,
-              index: i,
-              ok,
-              via: photoRes.delivery?.via || photoRes.delivery?.photo_via,
-              detail: photoRes.delivery?.detail,
-              error: photoRes.delivery?.error,
-              message_id: photoRes.delivery?.message_id
-            })
-            if (ok) {
-              photosSent += 1
-            } else {
-              photoErrors.push(
-                String(photoRes.delivery?.detail || photoRes.delivery?.error || 'фото не ушло')
-              )
-            }
-          } catch (err) {
-            const detail = err instanceof Error ? err.message : String(err)
-            photoErrors.push(detail)
-            photoTrace('ui_photo_http_fail', { client_id: clientId, index: i, detail })
-          }
-        }
-
+        const photosSent = data.delivery.photos_sent ?? 0
+        const photosTotal = data.delivery.photos_total ?? images.length
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
-        if (photoErrors.length === 0) {
+        if (images.length === 0 || photosSent >= photosTotal) {
           setSendPhotos([])
         }
         setActionStatus(
           images.length === 0
             ? '✓ Ушло. Выберите другого клиента или соберите ответы.'
-            : photosSent === images.length
-              ? `✓ Ушло: текст + фото ${photosSent}/${images.length} отдельными сообщениями.`
-              : `⚠ Текст ушёл, фото ${photosSent}/${images.length}: ${photoErrors.slice(0, 2).join('; ')}`
+            : photosSent >= photosTotal
+              ? `✓ Ушло: текст + фото ${photosSent}/${photosTotal}.`
+              : `⚠ Текст ушёл, фото ${photosSent}/${photosTotal}: ${data.delivery.detail || data.delivery.error || 'часть фото не ушла'}`
         )
-        if (photoErrors.length) {
-          setError(`Telegram фото: ${photoErrors.slice(0, 3).join('; ')} · лог ~/.hermes/moysklad/photo_send.log`)
+        if (images.length && photosSent < photosTotal) {
+          setError(
+            `Telegram фото: ${data.delivery.detail || data.delivery.error || 'часть фото не ушла'} · лог ~/.hermes/moysklad/photo_send.log`
+          )
         }
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
