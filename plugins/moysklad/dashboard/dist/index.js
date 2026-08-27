@@ -5800,25 +5800,67 @@
     var url = normalizeRemoteImageUrl(photo && photo.url);
     var isHttp = url.indexOf("http://") === 0 || url.indexOf("https://") === 0;
     var hasUpload = String((photo && photo.dataUrl) || "").indexOf("data:") === 0;
-    if (hasUpload || !isHttp || typeof fetch !== "function") {
+    if (hasUpload || !isHttp) {
       return Promise.resolve(photo);
     }
-    return fetch(url)
-      .then(function (resp) {
-        if (!resp.ok) return photo;
-        return resp.blob().then(function (blob) {
-          if (!blob.size || blob.size > MAX_PHOTO_BYTES) return photo;
-          return blobToDataUrl(blob).then(function (dataUrl) {
-            if (dataUrl.indexOf("data:") !== 0) return photo;
-            return Object.assign({}, photo, { dataUrl: dataUrl });
-          });
-        });
-      })
-      .catch(function () {
-        // Offline, blocked, or a CDN that changed its mind about CORS — the
-        // backend still gets the URL and Telegram may fetch it server-side.
+    function rasterize() {
+      return new Promise(function (resolve) {
+        if (typeof Image === "undefined" || typeof document === "undefined") {
+          resolve("");
+          return;
+        }
+        var img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () {
+          try {
+            var canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            if (!canvas.width || !canvas.height) {
+              resolve("");
+              return;
+            }
+            var ctx = canvas.getContext("2d");
+            if (!ctx) {
+              resolve("");
+              return;
+            }
+            ctx.drawImage(img, 0, 0);
+            var dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+            resolve(dataUrl.indexOf("data:") === 0 ? dataUrl : "");
+          } catch (e) {
+            resolve("");
+          }
+        };
+        img.onerror = function () {
+          resolve("");
+        };
+        img.src = url;
+      });
+    }
+    var fetchStep =
+      typeof fetch === "function"
+        ? fetch(url, { mode: "cors", referrerPolicy: "no-referrer" })
+            .then(function (resp) {
+              if (!resp.ok) return null;
+              return resp.blob().then(function (blob) {
+                if (!blob.size || blob.size > MAX_PHOTO_BYTES) return null;
+                return blobToDataUrl(blob).then(function (dataUrl) {
+                  return dataUrl.indexOf("data:") === 0 ? dataUrl : null;
+                });
+              });
+            })
+            .catch(function () {
+              return null;
+            })
+        : Promise.resolve(null);
+    return fetchStep.then(function (dataUrl) {
+      if (dataUrl) return Object.assign({}, photo, { dataUrl: dataUrl });
+      return rasterize().then(function (painted) {
+        if (painted) return Object.assign({}, photo, { dataUrl: painted });
         return photo;
       });
+    });
   }
 
   /** Resolve a whole tray, keeping order; failures fall back to their URL. */

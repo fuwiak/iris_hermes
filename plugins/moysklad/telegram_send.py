@@ -403,12 +403,17 @@ def _send_photo_via_user_account(
     try:
         if not tg_user.is_authorized():
             return None
+        # Never hand Telethon a remote URL — it fetches from THIS host, which
+        # often has no marketplace CDN route (Errno 101). Bytes only, like the
+        # live @pawels2137 test. URL photos go to Bot API (Telegram fetches).
+        if not image_bytes:
+            return None
         result = tg_user.send_photo(
             peer=peer,
             caption=text or "",
             image_bytes=image_bytes,
             image_name=image_name or "photo.jpg",
-            image_url=image_url or "",
+            image_url="",
         )
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("telegram user photo send crashed: %s", exc)

@@ -108,17 +108,35 @@ describe('resolvePhotoBytes', () => {
     ).toEqual({ name: 'Букет', url: '//cdn/x.jpg', dataUrl: 'data:image/jpeg;base64,AAAA' })
   })
 
-  it('keeps the url when the fetch fails, so the send is never blocked', async () => {
+  it('rasterizes via canvas when fetch is CORS-blocked — same path as the live send', async () => {
     const boom = (async () => {
       throw new Error('CORS')
     }) as unknown as typeof fetch
     const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
 
-    expect(await resolvePhotoBytes(photo, { fetchImpl: boom, toDataUrl })).toEqual(photo)
+    expect(
+      await resolvePhotoBytes(photo, {
+        fetchImpl: boom,
+        rasterize: async () => 'data:image/jpeg;base64,FROMIMG'
+      })
+    ).toEqual({ ...photo, dataUrl: 'data:image/jpeg;base64,FROMIMG' })
+  })
+
+  it('keeps the url only when fetch AND rasterize both fail', async () => {
+    const boom = (async () => {
+      throw new Error('CORS')
+    }) as unknown as typeof fetch
+    const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
+
+    expect(
+      await resolvePhotoBytes(photo, { fetchImpl: boom, rasterize: async () => '' })
+    ).toEqual(photo)
 
     const notOk = (async () => ({ ok: false, blob: async () => blob(1) })) as unknown as typeof fetch
 
-    expect(await resolvePhotoBytes(photo, { fetchImpl: notOk, toDataUrl })).toEqual(photo)
+    expect(
+      await resolvePhotoBytes(photo, { fetchImpl: notOk, rasterize: async () => '' })
+    ).toEqual(photo)
   })
 
   it('refuses a blob Telegram would reject anyway', async () => {
@@ -128,7 +146,9 @@ describe('resolvePhotoBytes', () => {
     })) as unknown as typeof fetch
     const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
 
-    expect(await resolvePhotoBytes(photo, { fetchImpl: huge, toDataUrl })).toEqual(photo)
+    expect(
+      await resolvePhotoBytes(photo, { fetchImpl: huge, toDataUrl, rasterize: async () => '' })
+    ).toEqual(photo)
   })
 
   it('leaves uploads and non-http attachments alone', async () => {
@@ -157,7 +177,11 @@ describe('resolveTrayBytes', () => {
         { name: 'A', url: 'https://cdn/a.jpg' },
         { name: 'B', url: 'https://cdn/bad.jpg' }
       ],
-      { fetchImpl, toDataUrl: async () => 'data:image/jpeg;base64,AAAA' }
+      {
+        fetchImpl,
+        toDataUrl: async () => 'data:image/jpeg;base64,AAAA',
+        rasterize: async () => ''
+      }
     )
 
     expect(out.map(p => p.name)).toEqual(['A', 'B'])

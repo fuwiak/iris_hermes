@@ -95,7 +95,8 @@ export function isDataImageUrl(url: string): boolean {
 
 /**
  * Split a composer attachment into API fields Telegram can actually send.
- * Prefer http(s) URL (small JSON). data: → base64. Never put data: in image_url.
+ * Bytes first — the backend host often cannot reach marketplace CDNs
+ * (Errno 101). A leftover URL is last-resort for Bot API (Telegram fetches).
  */
 export function buildImageSendFields(image: SendImageLike | null | undefined): ImageSendFields {
   const image_name = (image?.name || 'photo.jpg').trim() || 'photo.jpg'
@@ -112,12 +113,11 @@ export function buildImageSendFields(image: SendImageLike | null | undefined): I
   if (isDataImageUrl(url)) {
     return { image_url: '', image_base64: url, image_name }
   }
-  if (isHttpImageUrl(url)) {
-    return { image_url: url, image_base64: '', image_name }
-  }
-  // Relative / unknown — keep whatever we have; backend may fetch or reject.
   if (dataUrl) {
     return { image_url: '', image_base64: dataUrl, image_name }
+  }
+  if (isHttpImageUrl(url)) {
+    return { image_url: url, image_base64: '', image_name }
   }
   return { image_url: url, image_base64: '', image_name }
 }
@@ -147,11 +147,60 @@ export const MAX_PHOTO_BYTES = 9 * 1024 * 1024
  * Best-effort: anything that goes wrong (CORS, offline, oversize) returns the
  * photo untouched, and the URL still rides to the backend as before.
  */
+export async function rasterizeRemoteImage(
+  url: string,
+  deps: {
+    ImageCtor?: typeof Image
+    documentObj?: Pick<Document, 'createElement'>
+  } = {}
+): Promise<string> {
+  const href = normalizeRemoteImageUrl(url)
+  if (!isHttpImageUrl(href)) {
+    return ''
+  }
+
+  const ImageCtor = deps.ImageCtor ?? (typeof Image === 'function' ? Image : undefined)
+  const doc = deps.documentObj ?? (typeof document !== 'undefined' ? document : undefined)
+
+  if (!ImageCtor || !doc) {
+    return ''
+  }
+
+  return new Promise(resolve => {
+    const img = new ImageCtor()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = doc.createElement('canvas') as HTMLCanvasElement
+        canvas.width = img.naturalWidth || img.width
+        canvas.height = img.naturalHeight || img.height
+        if (!canvas.width || !canvas.height) {
+          resolve('')
+          return
+        }
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve('')
+          return
+        }
+        ctx.drawImage(img, 0, 0)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+        resolve(isDataImageUrl(dataUrl) ? dataUrl : '')
+      } catch {
+        resolve('')
+      }
+    }
+    img.onerror = () => resolve('')
+    img.src = href
+  })
+}
+
 export async function resolvePhotoBytes(
   photo: SendImageLike,
   deps: {
     fetchImpl?: typeof fetch
     toDataUrl?: (blob: Blob) => Promise<string>
+    rasterize?: (url: string) => Promise<string>
   } = {}
 ): Promise<SendImageLike> {
   const url = normalizeRemoteImageUrl(photo.url || '')
@@ -162,31 +211,37 @@ export async function resolvePhotoBytes(
 
   const doFetch = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined)
 
-  if (!doFetch) {
-    return photo
+  if (doFetch) {
+    try {
+      const resp = await doFetch(url, { mode: 'cors', referrerPolicy: 'no-referrer' } as RequestInit)
+
+      if (resp.ok) {
+        const blob = await resp.blob()
+
+        if (blob.size && blob.size <= MAX_PHOTO_BYTES) {
+          const dataUrl = await (deps.toDataUrl ?? blobToDataUrl)(blob)
+
+          if (isDataImageUrl(dataUrl)) {
+            return { ...photo, dataUrl }
+          }
+        }
+      }
+    } catch {
+      // CORS on fetch() is common even when <img> already painted the card.
+    }
   }
 
+  const rasterize = deps.rasterize ?? ((href: string) => rasterizeRemoteImage(href))
   try {
-    const resp = await doFetch(url)
-
-    if (!resp.ok) {
-      return photo
+    const painted = await rasterize(url)
+    if (isDataImageUrl(painted)) {
+      return { ...photo, dataUrl: painted }
     }
-
-    const blob = await resp.blob()
-
-    if (!blob.size || blob.size > MAX_PHOTO_BYTES) {
-      return photo
-    }
-
-    const dataUrl = await (deps.toDataUrl ?? blobToDataUrl)(blob)
-
-    return isDataImageUrl(dataUrl) ? { ...photo, dataUrl } : photo
   } catch {
-    // Offline, blocked, or a CDN that changed its mind about CORS — the
-    // backend still gets the URL and Telegram may fetch it server-side.
-    return photo
+    // tainted canvas / no DOM
   }
+
+  return photo
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

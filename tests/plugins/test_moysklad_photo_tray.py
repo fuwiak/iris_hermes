@@ -153,10 +153,12 @@ class TestUnreachableCdn:
         monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
         monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
         monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: True)
+        user_photo_calls: list[dict[str, Any]] = []
         monkeypatch.setattr(
             ts.tg_user,
             "send_photo",
-            lambda **kw: (_ for _ in ()).throw(OSError("[Errno 101] Network is unreachable")),
+            lambda **kw: user_photo_calls.append(kw)
+            or (_ for _ in ()).throw(OSError("[Errno 101] Network is unreachable")),
         )
 
         calls: list[str] = []
@@ -176,6 +178,8 @@ class TestUnreachableCdn:
 
         assert out["ok"] is True
         assert calls == ["sendPhoto"]
+        # Telethon must never be asked to fetch the CDN (Errno 101).
+        assert user_photo_calls == []
 
     def test_user_mode_uploaded_bytes_still_fall_back_to_bot(
         self, monkeypatch: pytest.MonkeyPatch
@@ -263,6 +267,60 @@ class TestOutreachWireTextThenPhoto:
         # Follow-up photo: empty caption, URL handed to Bot API.
         assert wire[1]["json"].get("photo") == "https://cdn.example/bouquet.jpg"
         assert not wire[1]["json"].get("caption")
+
+    def test_auto_user_does_not_telethon_fetch_cdn_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """UI used to send URL; Telethon on a CDN-less host blew Errno 101.
+
+        Live test that worked downloaded bytes first. URL-only must skip
+        MTProto fetch and let Bot API (Telegram's servers) pull the CDN.
+        """
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: True)
+        monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
+        user_calls: list[Any] = []
+        monkeypatch.setattr(
+            ts.tg_user,
+            "send_photo",
+            lambda **kw: user_calls.append(kw)
+            or {"ok": False, "detail": "[Errno 101] Network is unreachable"},
+        )
+        monkeypatch.setattr(
+            ts.tg_user,
+            "send_message",
+            lambda **kw: {"ok": True, "message_id": 1, "chat_id": "123456789"},
+        )
+
+        wire: list[str] = []
+        monkeypatch.setattr(
+            ts,
+            "telegram_api",
+            lambda method, **kw: wire.append(method)
+            or {
+                "ok": True,
+                "result": {"message_id": len(wire) + 1, "chat": {"id": 123456789}},
+            },
+        )
+
+        out = ts.send_outreach_to_client(
+            text="привет",
+            tg_chat_id="123456789",
+            via="auto",
+            images=[
+                {
+                    "image_url": "https://content2.flowwow-images.com/x.jpg",
+                    "image_base64": "",
+                    "image_name": "Букет",
+                }
+            ],
+        )
+        assert out["ok"] is True, out
+        assert user_calls == []
+        assert wire == ["sendPhoto"] or wire == ["sendMessage", "sendPhoto"]
+        # Text may go MTProto; photo must be Bot API sendPhoto, never Telethon URL.
+        assert "sendPhoto" in wire
 
     def test_send_outreach_with_uploaded_bytes_uses_multipart_sendPhoto(
         self, monkeypatch: pytest.MonkeyPatch
