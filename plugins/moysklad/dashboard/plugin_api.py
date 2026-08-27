@@ -555,6 +555,7 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
     error: str | None = None
     stats: dict[str, Any] = {}
     try:
+        from plugins.moysklad.catalog_cache import invalidate_all_page_snapshots
         from plugins.moysklad.tg_verify import (
             mark_active_from_threads,
             match_catalog_phones_to_contacts,
@@ -580,6 +581,45 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
         stats["from_history"] = mark_active_from_threads(rows)
         stamped = stamp_catalog_rows_from_verify(rows)
         stats["stamped"] = stamped
+
+        # Prefer IRbots Number Checker when keyed — definitive active/inactive
+        # for every phone, with by-phone credit cache (100k limit).
+        try:
+            from plugins.moysklad.irbots_checker import (
+                api_key_configured,
+                verify_rows_via_irbots,
+                write_full_report,
+            )
+
+            if api_key_configured():
+                with _TG_PHONE_VERIFY_LOCK:
+                    _TG_PHONE_VERIFY_STATE["progress"] = {
+                        "phase": "irbots",
+                        "queued": len(rows),
+                        "checked": 0,
+                    }
+                irbots_stats = verify_rows_via_irbots(
+                    rows,
+                    only_unchecked=True,
+                    force=False,
+                )
+                stats["irbots"] = irbots_stats
+                try:
+                    report_path = write_full_report(rows)
+                    stats["report_path"] = str(report_path)
+                except Exception:
+                    log.warning("IRbots status report write failed", exc_info=True)
+                with _TG_PHONE_VERIFY_LOCK:
+                    _TG_PHONE_VERIFY_STATE["progress"] = {
+                        "phase": "irbots_done",
+                        "checked": int(irbots_stats.get("written") or 0),
+                        "active": int(irbots_stats.get("active") or 0),
+                        "inactive": int(irbots_stats.get("inactive") or 0),
+                    }
+        except Exception as exc:
+            log.warning("IRbots phone verify skipped: %s", exc)
+            stats["irbots_error"] = str(exc)
+
         if live:
             remaining = [
                 r
@@ -604,6 +644,7 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
             # Phones first, in batches: one importContacts per chunk. Probing
             # per client burned the contact-import budget and stalled for
             # hours in FLOOD_WAIT, so «TG активен» stayed almost empty.
+            # When IRbots already covered everyone, remaining is empty.
             phone_stats = verify_rows_by_phone_bulk(remaining)
             stats["phones"] = phone_stats
             with _TG_PHONE_VERIFY_LOCK:
@@ -654,6 +695,10 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
                 "inactive": inactive,
                 "skipped": skipped,
             }
+        try:
+            stats["snapshots_cleared"] = invalidate_all_page_snapshots()
+        except Exception:
+            log.warning("page snapshot invalidate after tg-verify failed", exc_info=True)
         with _TG_PHONE_VERIFY_LOCK:
             _TG_PHONE_VERIFY_STATE["stats"] = stats
     except Exception as exc:
@@ -697,10 +742,22 @@ def _tg_verify_auto_enabled() -> bool:
 
 def _maybe_kick_telegram_phone_verify() -> None:
     """Обработчик «каждый клиент проверен на ТГ»: every keep-warm tick verifies
-    the next slice of unchecked phones (batched importContacts — cheap), so the
-    «Telegram» filter converges on everyone actually reachable."""
+    the next slice of unchecked phones so the «Telegram» filter converges.
+
+    Prefer IRbots when ``IRBOTS_API_KEY`` is set (definitive + phone credit
+    cache). Else fall back to batched importContacts (needs user session).
+    """
     if not _tg_verify_auto_enabled():
         return
+    try:
+        from plugins.moysklad.irbots_checker import api_key_configured
+
+        if api_key_configured():
+            # Full pass is cheap when phone cache is warm; limit=0 = all misses.
+            start_telegram_phone_verify(live=True, limit=0, delay_ms=400)
+            return
+    except Exception:
+        pass
     try:
         from plugins.platforms.telegram_user import client as tg_user
 
@@ -3516,16 +3573,17 @@ def get_clients_conversations_telegram_sync() -> dict[str, Any]:
 @router.post("/clients/telegram-verify")
 def post_clients_telegram_verify(
     live: bool = Query(True),
-    limit: int = Query(400, ge=0, le=5000),
+    limit: int = Query(0, ge=0, le=100_000),
     delay_ms: int = Query(400, ge=0, le=5000),
     reset_inactive: bool = Query(
         False,
         description="Сбросить прежние «не найден» и перепроверить их заново.",
     ),
 ) -> dict[str, Any]:
-    """Check колонка Телефон against Telegram (contacts cache + ImportContacts).
+    """Check колонка Телефон against Telegram (IRbots when keyed, else ImportContacts).
 
     Writes ``tg_active`` for Клиенты column «TG активен» and Рассылки filter.
+    ``limit=0`` = all unchecked phones (IRbots phone cache skips duplicates).
     """
     try:
         if reset_inactive:

@@ -763,6 +763,57 @@ def invalidate(key: str | None = None) -> None:
         log.warning("MoySklad file cache delete failed: %s", exc)
 
 
+def invalidate_all_page_snapshots() -> dict[str, int]:
+    """Drop clients page windows so Клиенты / Рассылки re-stamp tg_active.
+
+    Overlay writes alone leave Redis/file snapshots with stale ``tg_active``.
+    """
+    dropped_mem = 0
+    with _LOCK:
+        dropped_mem = len(_PAGE_MEMORY)
+        _PAGE_MEMORY.clear()
+
+    dropped_files = 0
+    root = get_hermes_home() / "moysklad" / "cache"
+    if root.is_dir():
+        for path in root.glob("*.json"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            # Page envelopes are ``{synced_at, page:{clients…}}`` — not catalog.
+            if "page" in raw and "catalog" not in raw:
+                try:
+                    path.unlink()
+                    dropped_files += 1
+                except Exception as exc:
+                    log.warning("page snapshot file delete failed: %s", exc)
+
+    dropped_redis = 0
+    client = _redis_client()
+    if client is not None:
+        try:
+            # Keys look like ``moysklad:clients:page:v6:…``.
+            cursor = 0
+            pattern = "moysklad:clients:page:*"
+            while True:
+                cursor, keys = client.scan(cursor=cursor, match=pattern, count=200)
+                if keys:
+                    dropped_redis += int(client.delete(*keys))
+                if cursor == 0:
+                    break
+        except Exception as exc:
+            log.warning("page snapshot Redis scan/delete failed: %s", exc)
+
+    return {
+        "memory": dropped_mem,
+        "files": dropped_files,
+        "redis": dropped_redis,
+    }
+
+
 def cache_backend_name() -> str:
     parts: list[str] = []
     try:

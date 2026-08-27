@@ -3183,27 +3183,44 @@ function ClientsPage() {
     }
   }
 
-  /** Match колонка Телефон → Telegram contacts, then live ImportContacts. */
+  /** Match колонка Телефон → IRbots checker (cached) + Telegram contacts. */
   const runTgPhoneVerify = async () => {
     setTgPhoneVerifyBusy(true)
     setTgImportNote('Проверка Telegram по телефонам запущена…')
 
     try {
-      await call('/clients/telegram-verify?live=true&limit=400&delay_ms=400', {
+      // limit=0 → all phones; IRbots phone cache skips duplicates (100k credits).
+      await call('/clients/telegram-verify?live=true&limit=0&delay_ms=400', {
         method: 'POST'
       })
 
-      for (let i = 0; i < 180; i += 1) {
+      for (let i = 0; i < 900; i += 1) {
         await new Promise(r => setTimeout(r, 4000))
 
         const data = await call<{
           state?: {
             running?: boolean
             error?: string | null
+            progress?: {
+              phase?: string
+              checked?: number
+              active?: number
+              inactive?: number
+              queued?: number
+            }
             stats?: {
               cache?: { scanned?: number; matched?: number; contacts_with_phone?: number }
+              irbots?: {
+                written?: number
+                active?: number
+                inactive?: number
+                cache_hits?: number
+                api_fetched?: number
+                phones?: number
+              }
               live?: { active?: number; inactive?: number; skipped?: number }
               live_queued?: number
+              report_path?: string
             } | null
           }
         }>('/clients/telegram-verify')
@@ -3211,6 +3228,15 @@ function ClientsPage() {
         const state = data.state
 
         if (state?.running) {
+          const p = state.progress
+          if (p?.phase) {
+            setTgImportNote(
+              `TG телефоны: ${p.phase}` +
+                (p.checked != null ? ` · ${p.checked}` : '') +
+                (p.active != null ? ` · OK ${p.active}` : '') +
+                (p.inactive != null ? ` / нет ${p.inactive}` : '')
+            )
+          }
           continue
         }
 
@@ -3218,13 +3244,27 @@ function ClientsPage() {
           setTgImportNote(`TG телефоны: ${state.error}`)
         } else {
           const cache = state?.stats?.cache || {}
+          const irbots = state?.stats?.irbots || {}
           const live = state?.stats?.live || {}
-          setTgImportNote(
-            `TG по телефону: в кэше контактов ${cache.contacts_with_phone ?? 0}` +
-              ` · совпало ${cache.matched ?? 0}` +
-              ` · live OK ${live.active ?? 0} / нет ${live.inactive ?? 0}` +
-              ((live.skipped ?? 0) > 0 ? ` · skip ${live.skipped}` : '')
+          const bits: string[] = []
+          if (irbots.phones != null || irbots.written != null) {
+            bits.push(
+              `IRbots телефонов ${irbots.phones ?? 0}` +
+                ` · записано ${irbots.written ?? 0}` +
+                ` · OK ${irbots.active ?? 0} / нет ${irbots.inactive ?? 0}` +
+                ` · cache ${irbots.cache_hits ?? 0} / api ${irbots.api_fetched ?? 0}`
+            )
+          }
+          bits.push(
+            `контакты ${cache.contacts_with_phone ?? 0} · совпало ${cache.matched ?? 0}`
           )
+          if ((live.active ?? 0) + (live.inactive ?? 0) + (live.skipped ?? 0) > 0) {
+            bits.push(
+              `live OK ${live.active ?? 0} / нет ${live.inactive ?? 0}` +
+                ((live.skipped ?? 0) > 0 ? ` · skip ${live.skipped}` : '')
+            )
+          }
+          setTgImportNote(`TG по телефону: ${bits.join(' · ')}`)
           await load({ refresh: false })
         }
 

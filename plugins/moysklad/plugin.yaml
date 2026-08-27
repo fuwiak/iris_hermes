@@ -50,3 +50,12 @@ optional_env:
     description: "Legacy alias for TELEGRAM_BUSINESS_CONNECTION_ID. Prefer Office → Telegram Business."
     prompt: "Telegram business_connection_id (legacy)"
     password: false
+  - name: IRBOTS_API_KEY
+    description: "IRbots Telegram Number Checker API key (Клиенты TG статус). Get via bot /api."
+    prompt: "IRbots checker API key"
+    url: "https://irbots.com/TG-Number-Analyzer/#api-section"
+    password: true
+  - name: IRBOTS_API_URL
+    description: "IRbots checker endpoint (default http://api.irbots.com)"
+    prompt: "IRbots API URL"
+    password: false

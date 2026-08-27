@@ -723,6 +723,36 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         pass
     cid = str(client.get("id") or "").strip()
+    # Re-stamp TG active from overlay on every paint (page snapshots go stale
+    # after IRbots / ImportContacts writes without busting Redis windows).
+    try:
+        from plugins.moysklad.tg_verify import (
+            overlay_for_client,
+            tg_active_label,
+        )
+
+        entry = overlay_for_client(cid) if cid else None
+        if isinstance(entry, dict) and "active" in entry:
+            active = bool(entry.get("active"))
+            client = dict(client)
+            client["tg_active"] = active
+            client["tg_active_label"] = tg_active_label(
+                active=active,
+                has_contact=bool(
+                    str(client.get("phone") or client.get("Телефон") or "").strip()
+                ),
+            )
+            detail = str(entry.get("detail") or "").strip()
+            if detail:
+                client["tg_active_detail"] = detail
+            nick = normalize_tg_nick(entry.get("resolved_nick") or "")
+            if nick:
+                client["tg_active_nick"] = nick
+            checked_at = entry.get("checked_at")
+            if checked_at is not None:
+                client["tg_active_checked_at"] = checked_at
+    except Exception:
+        pass
     phone = str(client.get("phone") or "")
     tg_nick = str(client.get("tg_nick") or "")
     attr = str(client.get("tg_conversation") or "")
