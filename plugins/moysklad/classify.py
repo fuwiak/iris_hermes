@@ -424,17 +424,11 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         str(row.get("Группы") or "").strip()
         or ", ".join(ms_tags)
     )
-    from plugins.moysklad.dedupe import normalize_phone as _norm_phone
-
-    has_phone = bool(_norm_phone(row.get("Телефон") or row.get("phone")))
     if row.get("tg_active") is True:
         tg_state = "АКТИВНЫЙ"
-    elif row.get("tg_active") is False:
-        tg_state = "НЕАКТИВНЫЙ"
-    elif has_phone:
-        tg_state = "НЕ ПРОВЕРЕН"
     else:
-        tg_state = ""
+        # Binary only: missing/False → НЕАКТИВНЫЙ (no «НЕ ПРОВЕРЕН»).
+        tg_state = "НЕАКТИВНЫЙ"
     public = {
         "id": row.get("_moysklad_id") or "",
         "name": row.get("Наименование") or "",
@@ -536,12 +530,13 @@ def clients_page(
     loyalty_only: bool = False,
     last_contact_from: str = "",
     last_contact_to: str = "",
+    tg_status: str = "",
 ) -> dict[str, Any]:
     """Dashboard /clients payload: filtered rows + group chip cloud.
 
     Extra audience knobs (channel_kind / require_* / vip / birthday /
-    group_source / days_before_event) share the same deduped catalog as the
-    Clients table — ``matched_total`` is post-dedupe.
+    group_source / days_before_event / tg_status) share the same deduped
+    catalog as the Clients table — ``matched_total`` is post-dedupe.
     """
     filter_key = _normalize_filter_key(sales_filter)
     catalog = catalog or build_enriched_catalog(
@@ -612,6 +607,7 @@ def clients_page(
             loyalty_only=bool(loyalty_only),
             last_contact_from=lc_from,
             last_contact_to=lc_to,
+            tg_status=tg_status,
         )
     ]
 
@@ -623,6 +619,9 @@ def clients_page(
     next_offset = offset + returned
     has_more = next_offset < matched_total
 
+    from plugins.moysklad.audience import normalize_tg_status
+
+    tg_status_key = normalize_tg_status(tg_status)
     payload = {
         "ok": True,
         "sales_filter": filter_key,
@@ -639,6 +638,7 @@ def clients_page(
         "event_date_to": ev_to,
         "last_contact_from": lc_from,
         "last_contact_to": lc_to,
+        "tg_status": tg_status_key,
         "stage": stage_key,
         "entity_type": (entity_type or "all").strip().lower() or "all",
         "loyalty_only": bool(loyalty_only),

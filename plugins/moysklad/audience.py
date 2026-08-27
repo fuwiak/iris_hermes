@@ -567,6 +567,30 @@ def row_matches_entity_type(row: dict[str, Any], entity_type: str = "all") -> bo
     return True
 
 
+def normalize_tg_status(value: Any) -> str:
+    """``active`` / ``inactive`` / ``""`` for Клиенты «Статус» server filter."""
+    key = str(value or "").strip().lower().replace("ё", "е")
+    if key in ("active", "активный", "ok", "true", "1"):
+        return "active"
+    if key in ("inactive", "неактивный", "bad", "false", "0"):
+        return "inactive"
+    return ""
+
+
+def row_matches_tg_status(row: dict[str, Any], tg_status: str) -> bool:
+    """Binary TG status filter — АКТИВНЫЙ vs НЕАКТИВНЫЙ (no third state)."""
+    st = normalize_tg_status(tg_status)
+    if not st:
+        return True
+    from plugins.moysklad.tg_verify import row_tg_active
+
+    active = row_tg_active(row)
+    if st == "active":
+        return active is True
+    # inactive: everything that is not green (False or missing → НЕАКТИВНЫЙ)
+    return active is not True
+
+
 def row_matches_audience_extras(
     row: dict[str, Any],
     *,
@@ -585,6 +609,7 @@ def row_matches_audience_extras(
     loyalty_only: bool = False,
     last_contact_from: str = "",
     last_contact_to: str = "",
+    tg_status: str = "",
 ) -> bool:
     source = normalize_group_source(group_source)
     if group and not row_has_group(row, group, source=source):
@@ -600,6 +625,8 @@ def row_matches_audience_extras(
     if require_phone and not row_has_phone(row):
         return False
     if require_telegram and not row_passes_telegram_filter(row):
+        return False
+    if not row_matches_tg_status(row, tg_status):
         return False
     if vip_only and not row_is_vip(row):
         return False

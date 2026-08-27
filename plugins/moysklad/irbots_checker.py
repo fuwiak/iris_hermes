@@ -612,7 +612,7 @@ def verify_rows_via_irbots(
 
 
 def format_row_report_line(row: dict[str, Any], entry: dict[str, Any] | None) -> str:
-    """One text line: full identity + active/inactive verdict."""
+    """One text line: full identity + active/inactive verdict (binary only)."""
     cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
     name = str(row.get("Наименование") or row.get("name") or "").strip()
     phone = str(row.get("Телефон") or row.get("phone") or "").strip()
@@ -629,9 +629,10 @@ def format_row_report_line(row: dict[str, Any], entry: dict[str, Any] | None) ->
             else ""
         )
     else:
-        verdict = "НЕ ПРОВЕРЕН"
-        detail = ""
-        via = ""
+        # Binary only — missing overlay → НЕАКТИВНЫЙ (never «НЕ ПРОВЕРЕН»).
+        verdict = "НЕАКТИВНЫЙ"
+        detail = "неактивный (нет проверки / нет телефона)"
+        via = "irbots"
         checked_s = ""
     parts = [
         f"id={cid}",
@@ -648,6 +649,178 @@ def format_row_report_line(row: dict[str, Any], entry: dict[str, Any] | None) ->
     if checked_s:
         parts.append(f"checked_at={checked_s}")
     return " | ".join(parts)
+
+
+def force_complete_unchecked_rows(
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Mark every client without overlay as НЕАКТИВНЫЙ (no third status).
+
+    No-phone / never-checked → inactive. Then rewrite report + stamp catalog.
+    Refuses to run (and never wipes overlay) when catalog rows are empty.
+    """
+    from plugins.moysklad.tg_verify import (
+        load_overlay,
+        overlay_for_client,
+        persist_verify_into_catalog,
+        save_verify_results_bulk,
+        stamp_catalog_rows_from_verify,
+    )
+
+    if rows is None:
+        rows = _load_catalog_rows()
+
+    if not rows:
+        return {
+            "ok": False,
+            "error": "no catalog rows — refuse wipe",
+            "forced": 0,
+            "written": 0,
+        }
+
+    overlay = load_overlay()
+    by_id = overlay.get("by_client_id") if isinstance(overlay, dict) else {}
+    if not isinstance(by_id, dict):
+        by_id = {}
+
+    # Seed overlay from already-stamped catalog / phone cache when overlay empty.
+    seeded = _seed_overlay_from_rows(rows, by_id)
+    if seeded:
+        save_verify_results_bulk(seeded)
+        by_id = load_overlay().get("by_client_id") or {}
+        if not isinstance(by_id, dict):
+            by_id = {}
+
+    results: dict[str, dict[str, Any]] = {}
+    now = time.time()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if not cid:
+            continue
+        existing = by_id.get(cid)
+        if not isinstance(existing, dict):
+            existing = overlay_for_client(cid)
+        if isinstance(existing, dict) and "active" in existing:
+            continue
+        phones = phones_from_row(row)
+        detail = (
+            "неактивный (нет TG / не найден)"
+            if phones
+            else "неактивный (нет телефона)"
+        )
+        results[cid] = {
+            "active": False,
+            "checked_at": now,
+            "resolved_nick": "",
+            "chat_id": "",
+            "via": "irbots",
+            "detail": detail,
+        }
+
+    written = 0
+    if results:
+        written = save_verify_results_bulk(results)
+
+    stamp_catalog_rows_from_verify(list(rows))
+    report = write_full_report(list(rows))
+    dest = _copy_report_beside_repo(report)
+    persisted = persist_verify_into_catalog(list(rows))
+    return {
+        "ok": True,
+        "forced": len(results),
+        "seeded": len(seeded),
+        "written": written,
+        "report": str(report),
+        "report_copy": str(dest) if dest else "",
+        "catalog": persisted,
+        "clients": len(rows),
+    }
+
+
+def _load_catalog_rows() -> list[dict[str, Any]]:
+    try:
+        from plugins.moysklad.catalog_cache import get_cached, cache_key
+
+        env = get_cached(cache_key())
+        catalog = env.get("catalog") if isinstance(env, dict) else None
+        rows = list((catalog or {}).get("rows") or [])
+        if rows:
+            return rows
+    except Exception:
+        pass
+    # Fallback: largest on-disk catalog under HERMES_HOME/moysklad/cache.
+    root = get_hermes_home() / "moysklad" / "cache"
+    if not root.is_dir():
+        return []
+    best: list[dict[str, Any]] = []
+    for path in root.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        cat = data.get("catalog") if isinstance(data, dict) else None
+        rows = list((cat or {}).get("rows") or []) if isinstance(cat, dict) else []
+        if len(rows) > len(best):
+            best = rows
+    return best
+
+
+def _seed_overlay_from_rows(
+    rows: list[dict[str, Any]],
+    by_id: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Rebuild missing overlay entries from stamped row.tg_active + phone cache."""
+    phone_cache = load_phone_cache().get("by_phone") or {}
+    seeded: dict[str, dict[str, Any]] = {}
+    now = time.time()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+        if not cid or (isinstance(by_id.get(cid), dict) and "active" in (by_id.get(cid) or {})):
+            continue
+        active = row.get("tg_active")
+        detail = str(row.get("tg_active_detail") or row.get("tg_active_label") or "").strip()
+        via = str(row.get("tg_active_via") or "irbots").strip() or "irbots"
+        if active is not True and active is not False:
+            # Try phone cache before leaving for force-inactive pass.
+            for e164 in phones_from_row(row):
+                key = cache_key_for_phone(e164)
+                entry = phone_cache.get(key) if isinstance(phone_cache, dict) else None
+                if isinstance(entry, dict) and "active" in entry:
+                    active = bool(entry.get("active"))
+                    detail = str(entry.get("label") or entry.get("detail") or detail)
+                    via = "irbots"
+                    break
+        if active is not True and active is not False:
+            continue
+        seeded[cid] = {
+            "active": bool(active),
+            "checked_at": float(row.get("tg_active_checked_at") or now),
+            "resolved_nick": str(row.get("tg_active_nick") or ""),
+            "chat_id": str(row.get("tg_chat_id") or ""),
+            "via": via,
+            "detail": detail
+            or (
+                "активный (есть сессия TG)"
+                if active
+                else "неактивный (нет TG / не найден)"
+            ),
+        }
+    return seeded
+
+
+def _copy_report_beside_repo(report: Path) -> Path | None:
+    try:
+        data_dir = Path(__file__).resolve().parents[2] / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        dest = data_dir / "irbots_clients_status.txt"
+        dest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+        return dest
+    except Exception:
+        return None
 
 
 def write_full_report(
@@ -667,7 +840,7 @@ def write_full_report(
         f"# clients={len(rows)} overlay={len(by_id)} phones_cached={len(phone_cache)}",
         "",
     ]
-    active = inactive = unchecked = 0
+    active = inactive = 0
     for row in rows or []:
         if not isinstance(row, dict):
             continue
@@ -675,17 +848,15 @@ def write_full_report(
         entry = by_id.get(cid) if cid else None
         if not isinstance(entry, dict):
             entry = overlay_for_client(cid) if cid else None
+        # Always binary: missing entry renders as НЕАКТИВНЫЙ in the line.
         lines.append(format_row_report_line(row, entry if isinstance(entry, dict) else None))
-        if isinstance(entry, dict) and "active" in entry:
-            if entry.get("active"):
-                active += 1
-            else:
-                inactive += 1
+        if isinstance(entry, dict) and entry.get("active") is True:
+            active += 1
         else:
-            unchecked += 1
+            inactive += 1
     lines[1] = (
         f"# clients={len(rows)} active={active} inactive={inactive} "
-        f"unchecked={unchecked} phones_cached={len(phone_cache)}"
+        f"unchecked=0 phones_cached={len(phone_cache)}"
     )
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out

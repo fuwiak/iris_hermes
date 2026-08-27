@@ -108,7 +108,7 @@ def test_apply_ai_fill_ignores_legacy_state_новый(tmp_path, monkeypatch):
     public = apply_ai_fill_to_public(
         {"id": "c-legacy", "name": "X", "state": "", "sex": "", "groups": "", "tags": []}
     )
-    assert public.get("state") in ("", None)  # not «новый»
+    assert public.get("state") in ("", None, "НЕАКТИВНЫЙ")  # not «новый»
     assert public.get("sex") == "Женский"
     assert "state" not in (public.get("ai_fields") or [])
 
@@ -139,7 +139,7 @@ def test_fill_empty_persists_ai_fields(tmp_path, monkeypatch):
     )
     assert public.get("ai_fields")
     assert public.get("sex") or public.get("groups")
-    assert public.get("state") in ("", None)  # AI must not set Статус
+    assert public.get("state") in ("", None, "НЕАКТИВНЫЙ")  # AI must not set Статус
     assert public.get("ai_fill_cached") is True
 
 

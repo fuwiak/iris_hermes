@@ -1,17 +1,12 @@
-/** Pure TG status labels shared by Клиенты table + Рассылки chips. */
+/** Pure TG status labels — only two values (file + Клиенты «Статус»). */
 
-export type TgActiveStatusWord = 'АКТИВНЫЙ' | 'НЕАКТИВНЫЙ' | 'НЕ ПРОВЕРЕН'
+export type TgActiveStatusWord = 'АКТИВНЫЙ' | 'НЕАКТИВНЫЙ'
 
+/** Binary TG status: green АКТИВНЫЙ / red НЕАКТИВНЫЙ. No third state. */
 export function tgActiveStatusWord(row: {
   tg_active?: boolean | null
 }): TgActiveStatusWord {
-  if (row.tg_active === true) {
-    return 'АКТИВНЫЙ'
-  }
-  if (row.tg_active === false) {
-    return 'НЕАКТИВНЫЙ'
-  }
-  return 'НЕ ПРОВЕРЕН'
+  return row.tg_active === true ? 'АКТИВНЫЙ' : 'НЕАКТИВНЫЙ'
 }
 
 export function tgActiveCellTitle(row: {
@@ -29,8 +24,40 @@ export function tgActiveCellTitle(row: {
     }
     return nick ? `Есть Telegram · ${nick}` : 'Есть Telegram'
   }
-  if (row.tg_active === false) {
-    return detail || 'Нет активного Telegram по номеру'
+  return detail || 'Нет активного Telegram'
+}
+
+/** Map UI filter selection → API ``tg_status`` query. */
+export function tgStatusFilterParam(opts: {
+  selected?: string[] | null
+  query?: string
+}): '' | 'active' | 'inactive' {
+  const selected = opts.selected
+  const q = String(opts.query || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+
+  if (selected != null && selected.length > 0) {
+    const hasActive = selected.includes('АКТИВНЫЙ')
+    const hasInactive = selected.includes('НЕАКТИВНЫЙ')
+    if (hasActive && !hasInactive) {
+      return 'active'
+    }
+    if (hasInactive && !hasActive) {
+      return 'inactive'
+    }
+    return ''
   }
-  return detail || 'Ещё не проверен'
+
+  if (!q) {
+    return ''
+  }
+  if (q.includes('неактив')) {
+    return 'inactive'
+  }
+  if (q.includes('актив')) {
+    return 'active'
+  }
+  return ''
 }

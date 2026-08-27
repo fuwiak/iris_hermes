@@ -2054,48 +2054,30 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [title, setTitle] = useState("Рассылка по фильтрам");
-    const [sendImage, setSendImage] = useState(null); // {name, dataUrl?, url?}
+    // Photos attached to the draft, appended after the text on send. A tray,
+    // not one slot: a sales draft quotes several cards, and a Telegram caption
+    // holds one picture and 1024 chars.
+    const [sendPhotos, setSendPhotos] = useState([]);
+
+    function attachPhoto(photo) {
+      setSendPhotos(function (prev) {
+        return addPhotoToTray(prev, photo);
+      });
+    }
+
+    function removeSendPhoto(key) {
+      setSendPhotos(function (prev) {
+        return prev.filter(function (photo) {
+          return photoKey(photo) !== key;
+        });
+      });
+    }
     const [sendCards, setSendCards] = useState([]); // [{name, block, image}]
     const [insertMenuOpen, setInsertMenuOpen] = useState(false);
     const [pickerCards, setPickerCards] = useState(null); // combined list for the photo picker
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerCard, setPickerCard] = useState(null); // card chosen inside the picker
 
-    // Text-only drafts get their card photo back (see photoForDraftText).
-    const [photoCatalog, setPhotoCatalog] = useState(null);
-    const draftMentionsCard = /«[^«»]{1,200}»/.test(offer);
-
-    useEffect(
-      function () {
-        if (!draftMentionsCard || photoCatalog) return;
-        var alive = true;
-        api("/cards/marketplaces?limit=100")
-          .then(function (payload) {
-            if (alive) setPhotoCatalog(payload.combined || []);
-          })
-          // Silent: no catalog only means no auto-photo, never a failed send.
-          .catch(function () {
-            if (alive) setPhotoCatalog([]);
-          });
-        return function () {
-          alive = false;
-        };
-      },
-      [draftMentionsCard, photoCatalog],
-    );
-
-    useEffect(
-      function () {
-        if (!photoCatalog || !photoCatalog.length) return;
-        setSendImage(function (prev) {
-          if (draftKeepsPhoto(offer, prev, photoCatalog)) return prev;
-          var next = photoForDraftText(offer, photoCatalog);
-          if (next && prev && next.url === prev.url) return prev;
-          return next;
-        });
-      },
-      [offer, photoCatalog],
-    );
 
     function openCardPicker() {
       setInsertMenuOpen(false);
@@ -2126,7 +2108,7 @@
     }
 
     function pickPhoto(card, src) {
-      setSendImage({ name: (card && card.name) || "card.jpg", url: src });
+      attachPhoto({ name: (card && card.name) || "card.jpg", url: src });
       setPickerOpen(false);
       setPickerCard(null);
     }
@@ -2142,8 +2124,8 @@
       setOffer(nextText);
       offerRef.current = nextText;
       if (entry.image) {
-        // Photo MUST travel with the card — the freshly added card wins.
-        setSendImage({ name: entry.name, url: entry.image });
+        // Every quoted card keeps its own picture — the tray holds them all.
+        attachPhoto({ name: entry.name, url: entry.image });
       }
     }
 
@@ -2160,15 +2142,15 @@
           var nextText = current.split("\n\n" + entry.block).join("").split(entry.block).join("").trim();
           setOffer(nextText);
           offerRef.current = nextText;
-          setSendImage(function (image) {
-            if (image && image.url && image.url === entry.image) {
-              for (var i = 0; i < rest.length; i++) {
-                if (rest[i].image) return { name: rest[i].name, url: rest[i].image };
-              }
-              return null;
-            }
-            return image;
-          });
+          // The card's own photo leaves with it; uploads and other cards stay.
+          if (entry.image) {
+            var goneImage = entry.image;
+            setSendPhotos(function (tray) {
+              return tray.filter(function (photo) {
+                return photo.url !== goneImage;
+              });
+            });
+          }
         }
         return rest;
       });
@@ -2867,7 +2849,8 @@
           ? "Отправка через Telegram Business bot…"
           : "Пишем исходящее в историю…"
       );
-      var imageFields = buildImageSendFields(sendImage);
+      // Whole tray — the backend appends each picture after the text, in order.
+      var images = sendPhotos.map(buildImageSendFields);
       api("/campaigns/mark-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2877,9 +2860,7 @@
           client_id: selectedClientId,
           open_deep_link: true,
           deliver: true,
-          image_base64: imageFields.image_base64,
-          image_url: imageFields.image_url,
-          image_name: imageFields.image_name,
+          images: images,
         }),
       })
         .then(function (data) {
@@ -2892,7 +2873,12 @@
           }
           setOffer(draft);
           if (data.delivery && data.delivery.ok) {
-            setActionStatus("✓ Отправлено в Telegram (Business bot) + история.");
+            setSendPhotos([]);
+            setActionStatus(
+              images.length
+                ? "✓ Отправлено в Telegram: текст + фото " + images.length + " + история."
+                : "✓ Отправлено в Telegram (Business bot) + история.",
+            );
             setSkillPromptText(draft);
           } else if (
             String(channel || "").indexOf("telegram") === 0 &&
@@ -3022,7 +3008,7 @@
           "div",
           null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
-          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.3"),
+          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.18.0"),
           h(
             "p",
             { className: "ms-muted" },
@@ -3893,7 +3879,7 @@
                             }
                             var reader = new FileReader();
                             reader.onload = function () {
-                              setSendImage({
+                              attachPhoto({
                                 name: file.name || "photo.jpg",
                                 dataUrl: String(reader.result || ""),
                               });
@@ -3908,25 +3894,6 @@
               h(
                 "div",
                 { className: "ms-msg-box" },
-                sendImage
-                  ? h(
-                      "div",
-                      { className: "ms-msg-photo" },
-                      h("img", { src: sendImage.dataUrl || sendImage.url, alt: sendImage.name || "" }),
-                      h(
-                        "button",
-                        {
-                          type: "button",
-                          className: "ms-msg-photo-x",
-                          title: "Убрать фото",
-                          onClick: function () {
-                            setSendImage(null);
-                          },
-                        },
-                        "✕",
-                      ),
-                    )
-                  : null,
               h("textarea", {
               rows: 8,
               value: offer,
@@ -3961,7 +3928,7 @@
                     offerRef.current = nextText;
                   }
                   if (card.image) {
-                    setSendImage({ name: card.name || "card.jpg", url: card.image });
+                    attachPhoto({ name: card.name || "card.jpg", url: card.image });
                   }
                 } catch (_) {}
               },
@@ -3982,13 +3949,20 @@
                 }
                 var reader = new FileReader();
                 reader.onload = function () {
-                  setSendImage({ name: file.name || "clipboard.png", dataUrl: String(reader.result || "") });
+                  attachPhoto({ name: file.name || "clipboard.png", dataUrl: String(reader.result || "") });
                 };
                 reader.readAsDataURL(file);
               },
             }),
               ),
             ),
+            h(PhotoTray, {
+              photos: sendPhotos,
+              onRemove: removeSendPhoto,
+              onClear: function () {
+                setSendPhotos([]);
+              },
+            }),
           ),
           selectedClientId
             ? h(
@@ -5720,45 +5694,80 @@
     return discount > 0 ? base + " · скидка " + discount + "%" : base;
   }
 
-  // ── Card photo ⇄ draft text ────────────────────────────────────────────
-  // A draft is persisted server-side as TEXT ONLY (set_outreach_draft keeps
-  // `message`), so restoring one — picking another client, «Сгенерировать AI»,
-  // «Букет из истории» — used to bring the «Карточка» blocks back with no
-  // picture and the send went out text-only. The blocks name their cards, so
-  // re-attach the photo from the text.
-  function normalizeCardName(name) {
-    return String(name || "")
-      .toLowerCase()
-      .replace(/[^0-9a-zA-Zа-яёА-ЯЁ]+/g, " ")
-      .trim()
-      .replace(/\s+/g, " ");
+  /**
+   * «Прикреплённые фото» — every picture attached to the draft, in send order.
+   *
+   * Its own panel on purpose. The old single slot floated over the textarea,
+   * held exactly one picture, and silently went missing whenever the draft text
+   * was refilled; a seller quoting four cards could not tell what would be
+   * delivered. Here the tray IS the payload: what you see is appended after the
+   * message text, top to bottom.
+   */
+  function PhotoTray(props) {
+    var photos = props.photos || [];
+    return h(
+      "div",
+      { className: "ms-photo-tray" },
+      h(
+        "div",
+        { className: "ms-photo-tray-head" },
+        h("strong", null, "Прикреплённые фото" + (photos.length ? " · " + photos.length : "")),
+        photos.length
+          ? h(
+              "button",
+              { type: "button", className: "ms-link-btn", onClick: props.onClear },
+              "Убрать все",
+            )
+          : null,
+      ),
+      photos.length
+        ? h(
+            "div",
+            { className: "ms-photo-tray-strip" },
+            photos.map(function (photo, idx) {
+              var key = photoKey(photo);
+              return h(
+                "figure",
+                { className: "ms-photo-tray-item", key: key },
+                h("img", { src: photo.dataUrl || photo.url, alt: photo.name || "" }),
+                h("span", { className: "ms-photo-tray-idx" }, String(idx + 1)),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ms-photo-tray-x",
+                    title: "Убрать фото",
+                    onClick: function () {
+                      props.onRemove(key);
+                    },
+                  },
+                  "✕",
+                ),
+                h("figcaption", { title: photo.name || "" }, photo.name || ""),
+              );
+            }),
+          )
+        : null,
+      h(
+        "p",
+        { className: "ms-muted ms-photo-tray-hint" },
+        photos.length
+          ? "Уйдут отдельными сообщениями сразу после текста, в этом порядке."
+          : "Пусто. «+» / «Вставить» или карточка из списка — фото попадёт сюда и уйдёт вслед за текстом.",
+      ),
+    );
   }
 
-  function cardNamesInText(text) {
-    var out = [];
-    var re = /«([^«»]{1,200})»/g;
-    var m;
-    while ((m = re.exec(String(text || "")))) {
-      var name = m[1].trim();
-      if (name) out.push(name);
-    }
-    return out;
+  /** Key a photo by what it actually is, so the same picture never lands twice. */
+  function photoKey(photo) {
+    return photo.dataUrl || photo.url || photo.name;
   }
 
-  /** Photo for a draft, or null. Last quoted card wins, like addCardToMessage. */
-  function photoForDraftText(text, cards) {
-    var names = cardNamesInText(text);
-    if (!names.length || !cards || !cards.length) return null;
-    var byName = {};
-    cards.forEach(function (card) {
-      var key = normalizeCardName(card && card.name);
-      if (key && card.image && !byName[key]) byName[key] = card;
-    });
-    for (var i = names.length - 1; i >= 0; i--) {
-      var card = byName[normalizeCardName(names[i])];
-      if (card && card.image) return { name: card.name || names[i], url: card.image };
-    }
-    return null;
+  /** Append a photo to the tray, ignoring one that is already there. */
+  function addPhotoToTray(tray, photo) {
+    var key = photoKey(photo);
+    for (var i = 0; i < tray.length; i++) if (photoKey(tray[i]) === key) return tray;
+    return tray.concat([photo]);
   }
 
   /** `//host/path` → `https://host/path`; leave data:/http alone. */
@@ -5786,21 +5795,6 @@
     // Relative / unknown — keep whatever we have; backend may fetch or reject.
     if (dataUrl) return { image_url: "", image_base64: dataUrl, image_name: name };
     return { image_url: url, image_base64: "", image_name: name };
-  }
-
-  /** Does this draft still sell the attached card? */
-  function draftKeepsPhoto(text, photo, cards) {
-    if (!photo) return false;
-    // Uploads and hand-picked shots are not tied to any card block.
-    if (photo.dataUrl || !photo.url) return true;
-    var known = (cards || []).some(function (card) {
-      return card && card.image && card.image === photo.url;
-    });
-    if (!known) return true;
-    var wanted = normalizeCardName(photo.name);
-    return cardNamesInText(text).some(function (name) {
-      return normalizeCardName(name) === wanted;
-    });
   }
 
   function cardMessageBlock(card) {

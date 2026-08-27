@@ -1146,8 +1146,6 @@ td.ms-tg-active-unknown {
   border: 1px solid #e8eaf0;
   border-radius: 0.5rem;
   min-width: 0;
-  /* Anchor for the freely draggable photo (.ms-msg-photo is absolute). */
-  position: relative;
 }
 
 .ms-msg-box textarea {
@@ -1158,57 +1156,96 @@ td.ms-tg-active-unknown {
   box-sizing: border-box;
 }
 
-/* Room for blank-line photo parking when one is attached. */
-.ms-msg-box.has-photo {
-  min-height: 18rem;
+/* «Прикреплённые фото» — the send payload, listed in send order. Its own panel
+   rather than a preview floating over the textarea: a draft quoting several
+   cards carries several pictures, and the seller has to see all of them. */
+.ms-photo-tray {
+  margin-top: 0.5rem;
+  border: 1px dashed #d9d3ea;
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: #faf8ff;
 }
 
-/* Absolute over the textarea, but JS parks it only on empty lines and expands
-   a blank run so the preview never covers glyphs. translate() comes from
-   component state; overflow on the box clips at the edges. */
-.ms-msg-photo {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  padding: 0.45rem;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  /* Cap the shell so clampPhotoOffset always has horizontal/vertical slack —
-     max-width:100% on the img made photoW≈boxW and killed free drag. */
-  max-width: 42%;
+.ms-photo-tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
 }
 
-.ms-msg-photo:active {
-  cursor: grabbing;
+.ms-photo-tray-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
 }
 
-.ms-msg-photo img {
+.ms-photo-tray-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.ms-photo-tray-item {
+  position: relative;
+  margin: 0;
+  width: 6.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.ms-photo-tray-item img {
   display: block;
-  max-height: 160px;
-  max-width: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 6.5rem;
+  object-fit: cover;
   border-radius: 0.4rem;
-  /* Never start the browser's native image drag mid-reposition. */
-  pointer-events: none;
-  -webkit-user-drag: none;
+  border: 1px solid #e8eaf0;
+  background: #ffffff;
 }
 
-.ms-msg-photo-x {
+/* Send order is the tray order — number every shot so it is not a guess. */
+.ms-photo-tray-idx {
   position: absolute;
-  top: 0.7rem;
-  left: 0.7rem;
-  width: 1.6rem;
-  height: 1.6rem;
+  top: 0.25rem;
+  left: 0.25rem;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.25rem;
+  border-radius: 0.6rem;
+  background: rgba(36, 16, 40, 0.82);
+  color: #ffffff;
+  font-size: 0.7rem;
+  line-height: 1.15rem;
+  text-align: center;
+}
+
+.ms-photo-tray-x {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 1.3rem;
+  height: 1.3rem;
   border-radius: 50%;
   border: 1px solid #e8eaf0;
-  background: rgba(36, 16, 40, 0.92);
+  background: rgba(255, 255, 255, 0.95);
   color: #1e2033;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   line-height: 1;
+  padding: 0;
+}
+
+.ms-photo-tray-item figcaption {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: #6b6580;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .ms-facts-panel {

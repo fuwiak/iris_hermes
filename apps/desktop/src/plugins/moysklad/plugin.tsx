@@ -34,13 +34,9 @@ import {
 } from './audience-pick'
 import {
   tgActiveCellTitle,
-  tgActiveStatusWord
+  tgActiveStatusWord,
+  tgStatusFilterParam
 } from './tg-active-label'
-import {
-  type CardPhotoLike,
-  draftKeepsPhoto,
-  photoForDraftText
-} from './card-photo-sync'
 import {
   cardMessageBlock,
   CardPhotoPicker,
@@ -78,18 +74,10 @@ import {
   terminalPrefixLength
 } from './mass-send'
 import {
-  dragPhotoOffset,
-  type LineMetrics,
-  parkPhotoAtY,
-  PHOTO_ORIGIN,
-  type PhotoDragBounds,
-  type PhotoDragStart,
-  type PhotoOffset,
-  photoYForLine,
-  reflowPhotoOffset,
-  snapPhotoToEmptyLine
-} from './photo-drag'
-import { buildImageSendFields, cardPhotoAttachment } from './photo-send'
+  buildImageSendFields,
+  cardPhotoAttachment,
+  type ComposerImage
+} from './photo-send'
 
 // Chat refine — DeepSeek only (OpenRouter id).
 // Verified live via OpenRouter on this key (probe 17.08.2026):
@@ -1204,12 +1192,9 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'state',
     label: 'Статус',
-    // IRbots TG only — never AI «новый» / MoySklad counterparty state.
+    // IRbots TG only — binary АКТИВНЫЙ / НЕАКТИВНЫЙ (green / red).
     sortValue: r => tgActiveStatusWord(r),
-    render: r =>
-      r.tg_active === true || r.tg_active === false || r.phone
-        ? tgActiveStatusWord(r)
-        : r.state || ''
+    render: r => tgActiveStatusWord(r)
   },
   {
     key: 'sales_type',
@@ -1315,17 +1300,13 @@ const CLIENT_COLUMNS: Array<{
   {
     key: 'tg_active',
     label: 'TG активен',
-    sortValue: r =>
-      r.tg_active === true ? 2 : r.tg_active === false ? 0 : r.tg_nick ? 1 : -1,
+    sortValue: r => (r.tg_active === true ? 1 : 0),
     render: r => {
       const word = tgActiveStatusWord(r)
-      if (r.tg_active === true) {
-        return r.tg_active_nick ? `${word} · ${r.tg_active_nick}` : word
+      if (r.tg_active === true && r.tg_active_nick) {
+        return `${word} · ${r.tg_active_nick}`
       }
-      if (r.tg_active === false) {
-        return word
-      }
-      return r.tg_nick ? word : '—'
+      return word
     }
   },
   {
@@ -1439,6 +1420,11 @@ function applyClientColumnFilters(
           return rowMatchesSalesChannelColumnFilter(row, f.query, f.selected, BLANK_FILTER_LABEL)
         }
 
+        // «Статус» filtered server-side via tg_status — skip local page-only filter.
+        if (col.key === 'state' && tgStatusFilterParam(f)) {
+          return true
+        }
+
         const display = columnDisplayValue(col, row)
         const label = filterLabel(display)
 
@@ -1476,6 +1462,11 @@ function uniqueColumnValues(rows: ClientRow[], col: (typeof CLIENT_COLUMNS)[numb
   const counts = new Map<string, number>()
 
   for (const row of rows) {
+    if (col.key === 'state') {
+      // Fixed binary options — not derived from the current 100-row page.
+      continue
+    }
+
     if (col.key === 'channel_display') {
       const tokens = clientSalesChannelTokens(row)
 
@@ -1491,6 +1482,10 @@ function uniqueColumnValues(rows: ClientRow[], col: (typeof CLIENT_COLUMNS)[numb
 
     const label = filterLabel(columnDisplayValue(col, row))
     counts.set(label, (counts.get(label) || 0) + 1)
+  }
+
+  if (col.key === 'state') {
+    return ['АКТИВНЫЙ', 'НЕАКТИВНЫЙ']
   }
 
   return [...counts.entries()]
@@ -2059,6 +2054,88 @@ function factsFromDetail(detail: ClientDetail): ClientFacts {
     fact_blocks: blocks,
     conversation: detail.conversation
   }
+}
+
+/** Key a photo by what it actually is, so the same picture never lands twice. */
+function photoKey(photo: ComposerImage): string {
+  return photo.dataUrl || photo.url || photo.name
+}
+
+/** Append a photo to the tray, ignoring one that is already there. */
+function addPhotoToTray(tray: ComposerImage[], photo: ComposerImage): ComposerImage[] {
+  const key = photoKey(photo)
+
+  return tray.some(item => photoKey(item) === key) ? tray : [...tray, photo]
+}
+
+/**
+ * «Прикреплённые фото» — every picture attached to the draft, in send order.
+ *
+ * Its own panel on purpose. The old single slot floated over the textarea, held
+ * exactly one picture, and silently went missing whenever the draft text was
+ * refilled; a seller quoting four cards could not tell what would actually be
+ * delivered. Here the tray IS the payload: what you see is appended after the
+ * message text, top to bottom.
+ */
+function PhotoTray({
+  onClear,
+  onRemove,
+  photos,
+  title = 'Прикреплённые фото'
+}: {
+  onClear: () => void
+  onRemove: (key: string) => void
+  photos: ComposerImage[]
+  title?: string
+}) {
+  return (
+    <div className="ms-photo-tray">
+      <div className="ms-photo-tray-head">
+        <strong>
+          {title}
+          {photos.length ? ` · ${photos.length}` : ''}
+        </strong>
+        {photos.length ? (
+          <button className="ms-link-btn" onClick={onClear} type="button">
+            Убрать все
+          </button>
+        ) : null}
+      </div>
+      {photos.length ? (
+        <>
+          <div className="ms-photo-tray-strip">
+            {photos.map((photo, idx) => {
+              const key = photoKey(photo)
+
+              return (
+                <figure className="ms-photo-tray-item" key={key}>
+                  <img alt={photo.name} src={photo.dataUrl || photo.url} />
+                  <span className="ms-photo-tray-idx">{idx + 1}</span>
+                  <button
+                    className="ms-photo-tray-x"
+                    onClick={() => onRemove(key)}
+                    title="Убрать фото"
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                  <figcaption title={photo.name}>{photo.name}</figcaption>
+                </figure>
+              )
+            })}
+          </div>
+          <p className="ms-muted ms-photo-tray-hint">
+            Уйдут отдельными сообщениями сразу после текста, в этом порядке.
+          </p>
+        </>
+      ) : (
+        <p className="ms-muted ms-photo-tray-hint">
+          Пусто. «+» / «Вставить» или карточка из списка справа — фото попадёт
+          сюда и уйдёт вслед за текстом.
+        </p>
+      )}
+    </div>
+  )
 }
 
 function FactsPanel({
@@ -2863,7 +2940,7 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 100
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v6:'
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v7:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
@@ -3357,6 +3434,11 @@ function ClientsPage() {
   const clientsRef = useRef<ClientRow[]>([])
   clientsRef.current = clients
 
+  const tgStatus = useMemo(
+    () => tgStatusFilterParam(columnFilters.state || EMPTY_FILTER),
+    [columnFilters.state]
+  )
+
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 280)
 
@@ -3528,6 +3610,8 @@ function ClientsPage() {
 
         if (loyaltyOnly) {params.set('loyalty_only', 'true')}
 
+        if (tgStatus) {params.set('tg_status', tgStatus)}
+
         if (opts?.refresh) {params.set('refresh', 'true')}
 
         const data = await call<{
@@ -3662,7 +3746,7 @@ function ClientsPage() {
         }
       }
     },
-    [call, entityType, group, groupSource, hasMore, loyaltyOnly, nextOffset, qDebounced, salesFilter, stage]
+    [call, entityType, group, groupSource, hasMore, loyaltyOnly, nextOffset, qDebounced, salesFilter, stage, tgStatus]
   )
 
   /** Two steps on purpose: dry-run first, write only on a second, armed click. */
@@ -3719,7 +3803,7 @@ function ClientsPage() {
 
   useEffect(() => {
     void load()
-  }, [salesFilter, group, groupSource, qDebounced, stage, entityType, loyaltyOnly]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
+  }, [salesFilter, group, groupSource, qDebounced, stage, entityType, loyaltyOnly, tgStatus]) // eslint-disable-line react-hooks/exhaustive-deps -- reset list on filter change
 
   // Drop Excel column filters when the main audience filter changes.
   useEffect(() => {
@@ -4328,26 +4412,17 @@ function ClientsPage() {
                       )
                     }
 
-                    if (col.key === 'tg_active') {
+                    if (col.key === 'tg_active' || col.key === 'state') {
                       const title = tgActiveCellTitle(row)
                       const cls =
-                        row.tg_active === true
-                          ? 'ms-tg-active-ok'
-                          : row.tg_active === false
-                            ? 'ms-tg-active-bad'
-                            : row.tg_active == null && (row.phone || row.tg_nick)
-                              ? 'ms-tg-active-unknown'
-                              : ''
-                      // Same words as irbots_clients_status.txt status= column.
+                        row.tg_active === true ? 'ms-tg-active-ok' : 'ms-tg-active-bad'
                       const shownValue =
-                        row.tg_active === true || row.tg_active === false
-                          ? tgActiveStatusWord(row)
-                          : row.phone || row.tg_nick
-                            ? tgActiveStatusWord(row)
-                            : '—'
+                        col.key === 'tg_active' && row.tg_active === true && row.tg_active_nick
+                          ? `${tgActiveStatusWord(row)} · ${row.tg_active_nick}`
+                          : tgActiveStatusWord(row)
 
                       return (
-                        <td className={cls || undefined} key={col.key} title={title}>
+                        <td className={cls} key={col.key} title={title}>
                           {shownValue}
                         </td>
                       )
@@ -4449,139 +4524,12 @@ function CampaignsPage() {
   const [offer, setOffer] = useState('')
   const offerRef = useRef('')
   const [offerTick, setOfferTick] = useState(0)
-  /** Photo shown inside «Текст сообщения» and sent with mark-sent / mass. */
-  const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
-  // Photo parks on empty lines only (drag + blank-run spacer — never over text).
-  const [sendImagePos, setSendImagePos] = useState<PhotoOffset>(PHOTO_ORIGIN)
-  /** Marketplace titles+photos, so a text-only draft can get its picture back. */
-  const [photoCatalog, setPhotoCatalog] = useState<CardPhotoLike[] | null>(null)
-  const msgBoxRef = useRef<HTMLDivElement>(null)
-  const photoRef = useRef<HTMLDivElement>(null)
-  const photoDragRef = useRef<PhotoDragStart | null>(null)
-
-  const photoDragBounds = useCallback((): PhotoDragBounds | null => {
-    const boxEl = msgBoxRef.current
-    const photoEl = photoRef.current
-
-    // client/offset size ignores translate() — getBoundingClientRect after a
-    // drag would still be fine for W/H, but offset is what CSS layout owns.
-    if (!boxEl || !photoEl) {
-      return null
-    }
-
-    return {
-      boxW: boxEl.clientWidth,
-      boxH: boxEl.clientHeight,
-      photoW: photoEl.offsetWidth,
-      photoH: photoEl.offsetHeight
-    }
-  }, [])
-
-  const photoLineMetrics = useCallback((): LineMetrics => {
-    const ta = msgBoxRef.current?.querySelector('textarea')
-
-    if (!ta) {
-      return { lineHeight: 20, paddingTop: 8 }
-    }
-
-    const style = window.getComputedStyle(ta)
-    const lh = parseFloat(style.lineHeight)
-    const pad = parseFloat(style.paddingTop)
-
-    return {
-      lineHeight: Number.isFinite(lh) && lh > 0 ? lh : 20,
-      paddingTop: Number.isFinite(pad) && pad >= 0 ? pad : 8
-    }
-  }, [])
-
-  /** Park on empty lines only — expands blank run so the preview never covers text. */
-  const parkSendImageAt = useCallback(
-    (y: number, offsetX: number) => {
-      const bounds = photoDragBounds()
-
-      if (!bounds) {
-        return
-      }
-
-      const parked = parkPhotoAtY(
-        offerRef.current || offer,
-        y,
-        photoLineMetrics(),
-        bounds.photoH,
-        bounds,
-        offsetX
-      )
-
-      if (parked.text !== (offerRef.current || offer)) {
-        setOffer(parked.text)
-        offerRef.current = parked.text
-      }
-
-      setSendImagePos(parked.offset)
-    },
-    [offer, photoDragBounds, photoLineMetrics]
-  )
-
-  const sendImageKey = sendImage?.dataUrl || sendImage?.url || ''
-
-  // New picture: park on empty lines (insert blanks) so preview never covers text.
-  useEffect(() => {
-    if (!sendImageKey) {
-      setSendImagePos(PHOTO_ORIGIN)
-
-      return
-    }
-
-    const id = window.requestAnimationFrame(() => {
-      const bounds = photoDragBounds()
-
-      if (!bounds) {
-        setSendImagePos(PHOTO_ORIGIN)
-
-        return
-      }
-
-      const metrics = photoLineMetrics()
-      const draft = offerRef.current || offer
-      const endY = photoYForLine(draft.split('\n').length, metrics)
-      const parked = parkPhotoAtY(draft, endY, metrics, bounds.photoH, bounds, 0)
-
-      if (parked.text !== draft) {
-        setOffer(parked.text)
-        offerRef.current = parked.text
-      }
-
-      setSendImagePos(parked.offset)
-    })
-
-    return () => window.cancelAnimationFrame(id)
-  }, [sendImageKey]) // eslint-disable-line react-hooks/exhaustive-deps -- only on new picture
-
-  // A narrower window shrinks the box under a parked photo — pull it back in.
-  useEffect(() => {
-    if (!sendImageKey) {
-      return
-    }
-
-    const onResize = () => {
-      const bounds = photoDragBounds()
-
-      if (bounds) {
-        setSendImagePos(prev =>
-          snapPhotoToEmptyLine(
-            reflowPhotoOffset(prev, bounds),
-            offerRef.current || offer,
-            photoLineMetrics(),
-            bounds
-          )
-        )
-      }
-    }
-
-    window.addEventListener('resize', onResize)
-
-    return () => window.removeEventListener('resize', onResize)
-  }, [offer, photoDragBounds, photoLineMetrics, sendImageKey])
+  /**
+   * Photos attached to the draft, shown in «Прикреплённые фото» and appended
+   * after the text on send. A tray, not one slot: a sales draft quotes several
+   * cards, and a Telegram caption holds one picture and 1024 chars.
+   */
+  const [sendPhotos, setSendPhotos] = useState<ComposerImage[]>([])
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
   const insertMenuRef = useRef<HTMLSpanElement>(null)
@@ -6473,125 +6421,73 @@ function CampaignsPage() {
 
   // ── Массовая рассылка: background job + per-recipient status ──
   const [massText, setMassText] = useState('')
-  const [massImage, setMassImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
+  const [massPhotos, setMassPhotos] = useState<ComposerImage[]>([])
   const [massCards, setMassCards] = useState<{ name: string; block: string; image: string }[]>([])
   const [massInsertMenu, setMassInsertMenu] = useState(false)
   const [massPhotoPicker, setMassPhotoPicker] = useState(false)
 
-  // A draft is persisted server-side as TEXT ONLY (set_outreach_draft keeps
-  // `message`, nothing else), so restoring one — picking another client,
-  // «Сгенерировать AI», «Букет из истории» — brought the «Карточка» blocks back
-  // with no picture and the send went out text-only. The blocks name their
-  // cards, so pull the catalog once and re-attach the photo from the text.
-  const draftMentionsCard = /«[^«»]{1,200}»/.test(offer) || /«[^«»]{1,200}»/.test(massText)
-
-  useEffect(() => {
-    if (!draftMentionsCard || photoCatalog) {
-      return
-    }
-
-    let alive = true
-
-    call<{ combined?: CardPhotoLike[] }>('/cards/marketplaces?limit=100', {
-      timeoutMs: 120_000
-    })
-      .then(payload => {
-        if (alive) {
-          setPhotoCatalog(payload.combined || [])
-        }
-      })
-      // Silent: a missing catalog only means no auto-photo, never a failed send.
-      .catch(() => {
-        if (alive) {
-          setPhotoCatalog([])
-        }
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [draftMentionsCard, photoCatalog, call])
-
-  useEffect(() => {
-    if (!photoCatalog?.length) {
-      return
-    }
-
-    const sync = (
-      text: string,
-      image: { name: string; dataUrl?: string; url?: string } | null
-    ) => {
-      // Uploads and hand-picked shots survive; a card photo only lives as long
-      // as its block does.
-      if (draftKeepsPhoto(text, image, photoCatalog)) {
-        return image
-      }
-
-      return photoForDraftText(text, photoCatalog)
-    }
-
-    setSendImage(prev => {
-      const next = sync(offer, prev)
-
-      return next === prev || (next?.url && next.url === prev?.url) ? prev : next
-    })
-    setMassImage(prev => {
-      const next = sync(massText, prev)
-
-      return next === prev || (next?.url && next.url === prev?.url) ? prev : next
-    })
-  }, [offer, massText, photoCatalog])
-
-  const applyImageFile = useCallback((file: File) => {
-    if (file.size > 9 * 1024 * 1024) {
-      setError('Картинка больше 9 МБ — Telegram не примет.')
-
-      return
-    }
-
-    const reader = new FileReader()
-
-    reader.onload = () => {
-      const next = { name: file.name || 'photo.jpg', dataUrl: String(reader.result || '') }
-      setSendImage(next)
-      setMassImage(next)
-    }
-
-    reader.readAsDataURL(file)
+  /** One picture into both trays — the single draft and the mass draft. */
+  const attachPhoto = useCallback((photo: ComposerImage) => {
+    setSendPhotos(prev => addPhotoToTray(prev, photo))
+    setMassPhotos(prev => addPhotoToTray(prev, photo))
   }, [])
 
-  const addCardToMessage = useCallback((card: CombinedCard, photoUrl?: string) => {
-    const entry = cardMessageBlock(card)
+  const applyImageFile = useCallback(
+    (file: File) => {
+      if (file.size > 9 * 1024 * 1024) {
+        setError('Картинка больше 9 МБ — Telegram не примет.')
 
-    setMassCards(prev => (prev.some(e => e.name === entry.name) ? prev : [...prev, entry]))
-
-    setOffer(prev => {
-      if (prev.includes(entry.block)) {
-        return prev
+        return
       }
 
-      const next = prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
-      offerRef.current = next
+      const reader = new FileReader()
 
-      return next
-    })
+      reader.onload = () =>
+        attachPhoto({
+          name: file.name || 'photo.jpg',
+          dataUrl: String(reader.result || '')
+        })
 
-    setMassText(prev => {
-      if (prev.includes(entry.block)) {
-        return prev
+      reader.readAsDataURL(file)
+    },
+    [attachPhoto]
+  )
+
+  const addCardToMessage = useCallback(
+    (card: CombinedCard, photoUrl?: string) => {
+      const entry = cardMessageBlock(card)
+
+      setMassCards(prev => (prev.some(e => e.name === entry.name) ? prev : [...prev, entry]))
+
+      setOffer(prev => {
+        if (prev.includes(entry.block)) {
+          return prev
+        }
+
+        const next = prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
+        offerRef.current = next
+
+        return next
+      })
+
+      setMassText(prev => {
+        if (prev.includes(entry.block)) {
+          return prev
+        }
+
+        return prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
+      })
+
+      const imageUrl = photoUrl || entry.image
+
+      // Every quoted card keeps its own picture: the tray holds them all, so a
+      // second card no longer throws the first card's photo away.
+      if (imageUrl) {
+        attachPhoto(cardPhotoAttachment(entry.name, imageUrl))
       }
-
-      return prev.trim() ? `${prev.trimEnd()}\n\n${entry.block}` : entry.block
-    })
-
-    const imageUrl = photoUrl || entry.image
-
-    if (imageUrl) {
-      const photo = cardPhotoAttachment(entry.name, imageUrl)
-      setSendImage(photo)
-      setMassImage(photo)
-    }
-  }, [])
+    },
+    [attachPhoto]
+  )
 
   const removeCardFromMessage = useCallback((name: string) => {
     setMassCards(prev => {
@@ -6610,24 +6506,26 @@ function CampaignsPage() {
           return next
         })
 
-        const clearPhoto = (
-          image: { name: string; dataUrl?: string; url?: string } | null
-        ) => {
-          if (image?.url && image.url === entry.image) {
-            const next = rest.find(item => item.image)
+        // The card's own photo leaves with it; uploads and other cards stay.
+        if (entry.image) {
+          const dropCardPhoto = (tray: ComposerImage[]) =>
+            tray.filter(photo => photo.url !== entry.image)
 
-            return next ? { name: next.name, url: next.image } : null
-          }
-
-          return image
+          setSendPhotos(dropCardPhoto)
+          setMassPhotos(dropCardPhoto)
         }
-
-        setMassImage(clearPhoto)
-        setSendImage(clearPhoto)
       }
 
       return rest
     })
+  }, [])
+
+  const removeSendPhoto = useCallback((key: string) => {
+    setSendPhotos(prev => prev.filter(photo => photoKey(photo) !== key))
+  }, [])
+
+  const removeMassPhoto = useCallback((key: string) => {
+    setMassPhotos(prev => prev.filter(photo => photoKey(photo) !== key))
   }, [])
 
   const [massIds, setMassIds] = useState<string[]>([])
@@ -6962,7 +6860,8 @@ function CampaignsPage() {
     setError('')
 
     try {
-      const imageFields = buildImageSendFields(massImage)
+      // Whole tray — the backend appends each picture after the text, in order.
+      const images = massPhotos.map(buildImageSendFields)
 
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
@@ -6973,7 +6872,7 @@ function CampaignsPage() {
           channel,
           deliver: true,
           stop_on_error: false,
-          ...imageFields
+          images
         }
       })
 
@@ -7108,7 +7007,7 @@ function CampaignsPage() {
       // Prefer a remote URL when the card already has one — huge data-URLs
       // inflate the JSON body and trip the desktop timeout. data: must ride
       // as image_base64; protocol-relative CDN urls are upgraded to https.
-      const imageFields = buildImageSendFields(sendImage)
+      const images = sendPhotos.map(buildImageSendFields)
 
       const data = await call<{
         conversation?: ClientConversation
@@ -7124,7 +7023,7 @@ function CampaignsPage() {
           client_id: clientId,
           open_deep_link: true,
           deliver: true,
-          ...imageFields
+          images
         }
       })
 
@@ -7138,10 +7037,13 @@ function CampaignsPage() {
 
       if (data.delivery?.ok) {
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
-        setSendImage(null)
-        setMassImage(null)
-        setSendImagePos(PHOTO_ORIGIN)
-        setActionStatus('✓ Ушло. Выберите другого клиента или соберите ответы.')
+        setSendPhotos([])
+        setMassPhotos([])
+        setActionStatus(
+          images.length
+            ? `✓ Ушло: текст + фото ${images.length}. Выберите другого клиента или соберите ответы.`
+            : '✓ Ушло. Выберите другого клиента или соберите ответы.'
+        )
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
         applyOfferText(draft, `⚠ В историю записано; Bot API: ${detail}`)
@@ -8384,34 +8286,6 @@ function CampaignsPage() {
               flexDirection: 'column'
             }}
           >
-          {massImage ? (
-            <div style={{ position: 'relative', padding: '6px 6px 0' }}>
-              <img
-                alt={massImage.name}
-                src={massImage.dataUrl || massImage.url}
-                style={{ display: 'block', maxHeight: 200, maxWidth: '100%', borderRadius: 6 }}
-              />
-              <button
-                onClick={() => setMassImage(null)}
-                style={{
-                  position: 'absolute',
-                  top: 10,
-                  left: 10,
-                  width: 26,
-                  height: 26,
-                  borderRadius: '50%',
-                  border: '1px solid var(--hermes-border, rgba(139,58,160,.9))',
-                  background: 'rgba(255,255,255,.95)',
-                  color: '#1e2033',
-                  cursor: 'pointer'
-                }}
-                title="Убрать фото"
-                type="button"
-              >
-                ✕
-              </button>
-            </div>
-          ) : null}
           <textarea
             onChange={e => setMassText(e.target.value)}
             onDragOver={e => {
@@ -8436,8 +8310,12 @@ function CampaignsPage() {
                   setMassText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${addition}` : addition))
                 }
 
-                if (card.image) {
-                  setMassImage({ name: card.name || 'card.jpg', url: card.image })
+                const cardImage = card.image
+
+                if (cardImage) {
+                  setMassPhotos(prev =>
+                    addPhotoToTray(prev, cardPhotoAttachment(card.name || 'card.jpg', cardImage))
+                  )
                 }
               } catch {
                 // not our payload — ignore
@@ -8463,10 +8341,12 @@ function CampaignsPage() {
               const reader = new FileReader()
 
               reader.onload = () =>
-                setMassImage({
-                  name: file.name || 'clipboard.png',
-                  dataUrl: String(reader.result || '')
-                })
+                setMassPhotos(prev =>
+                  addPhotoToTray(prev, {
+                    name: file.name || 'clipboard.png',
+                    dataUrl: String(reader.result || '')
+                  })
+                )
               reader.readAsDataURL(file)
             }}
             placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку, карточку можно перетащить из списка справа. (возьмите текст из черновика или напишите здесь)"
@@ -8476,6 +8356,12 @@ function CampaignsPage() {
           />
           </div>
         </label>
+        <PhotoTray
+          onClear={() => setMassPhotos([])}
+          onRemove={removeMassPhoto}
+          photos={massPhotos}
+          title="Прикреплённые фото рассылки"
+        />
         <div className="ms-compose-actions">
           <span style={{ position: 'relative', display: 'inline-block' }}>
             <button className="ms-btn" onClick={() => setMassInsertMenu(open => !open)} type="button">
@@ -8534,8 +8420,7 @@ function CampaignsPage() {
 
                       reader.onload = () => {
                         const next = { name: file.name, dataUrl: String(reader.result || '') }
-                        setSendImage(next)
-                        setMassImage(next)
+                        attachPhoto(next)
                       }
 
                       reader.readAsDataURL(file)
@@ -9061,85 +8946,7 @@ function CampaignsPage() {
                   </div>
                 ) : null}
               </span>
-              <div className={`ms-msg-box${sendImage ? ' has-photo' : ''}`} ref={msgBoxRef}>
-                {sendImage ? (
-                  <div
-                    className="ms-msg-photo"
-                    onPointerDown={ev => {
-                      // The ✕ is a button on top — let it click instead of dragging.
-                      if ((ev.target as HTMLElement).closest('.ms-msg-photo-x')) {
-                        return
-                      }
-
-                      photoDragRef.current = {
-                        pointerX: ev.clientX,
-                        pointerY: ev.clientY,
-                        offsetX: sendImagePos.x,
-                        offsetY: sendImagePos.y
-                      }
-                      ev.currentTarget.setPointerCapture(ev.pointerId)
-                    }}
-                    onPointerMove={ev => {
-                      const start = photoDragRef.current
-                      const bounds = photoDragBounds()
-
-                      if (!start || !bounds) {
-                        return
-                      }
-
-                      ev.preventDefault()
-                      // Mid-drag: snap to existing empty lines only — never rest on text.
-                      setSendImagePos(
-                        snapPhotoToEmptyLine(
-                          dragPhotoOffset(start, { x: ev.clientX, y: ev.clientY }, bounds),
-                          offerRef.current || offer,
-                          photoLineMetrics(),
-                          bounds
-                        )
-                      )
-                    }}
-                    onPointerUp={ev => {
-                      const start = photoDragRef.current
-                      const bounds = photoDragBounds()
-                      photoDragRef.current = null
-                      ev.currentTarget.releasePointerCapture(ev.pointerId)
-
-                      if (!start || !bounds) {
-                        return
-                      }
-
-                      // Drop: open/expand a blank run under the pointer so text clears.
-                      const raw = dragPhotoOffset(
-                        start,
-                        { x: ev.clientX, y: ev.clientY },
-                        bounds
-                      )
-
-                      parkSendImageAt(raw.y, raw.x)
-                    }}
-                    ref={photoRef}
-                    style={{ transform: `translate(${sendImagePos.x}px, ${sendImagePos.y}px)` }}
-                    title="Перетащите фото на пустую строку — на текст не накладывается"
-                  >
-                    <img
-                      alt={sendImage.name}
-                      draggable={false}
-                      src={sendImage.dataUrl || sendImage.url}
-                    />
-                    <button
-                      className="ms-msg-photo-x"
-                      onClick={() => {
-                        setSendImage(null)
-                        setMassImage(null)
-                        setSendImagePos(PHOTO_ORIGIN)
-                      }}
-                      title="Убрать фото"
-                      type="button"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : null}
+              <div className="ms-msg-box">
                 <textarea
                   key={`offer-${offerTick}`}
                   onChange={e => {
@@ -9185,9 +8992,9 @@ function CampaignsPage() {
                         })
 
                         if (card.image) {
-                          const photo = { name: card.name || 'card.jpg', url: card.image }
-                          setSendImage(photo)
-                          setMassImage(photo)
+                          attachPhoto(
+                            cardPhotoAttachment(card.name || 'card.jpg', card.image)
+                          )
                         }
                       } else {
                         const addition = [card.name, card.url].filter(Boolean).join('\n')
@@ -9202,9 +9009,9 @@ function CampaignsPage() {
                         }
 
                         if (card.image) {
-                          const photo = { name: card.name || 'card.jpg', url: card.image }
-                          setSendImage(photo)
-                          setMassImage(photo)
+                          attachPhoto(
+                            cardPhotoAttachment(card.name || 'card.jpg', card.image)
+                          )
                         }
                       }
                     } catch {
@@ -9233,6 +9040,11 @@ function CampaignsPage() {
                 />
               </div>
             </div>
+            <PhotoTray
+              onClear={() => setSendPhotos([])}
+              onRemove={removeSendPhoto}
+              photos={sendPhotos}
+            />
           </div>
           {selectedClientId ? (
             <div className="ms-chat-panel">

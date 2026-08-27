@@ -868,6 +868,146 @@ def _send_photo_via_bot(
     return out
 
 
+MAX_OUTREACH_PHOTOS = 10
+
+
+def normalize_image_attachments(
+    images: Any = None,
+    image_base64: str = "",
+    image_name: str = "photo.jpg",
+    image_url: str = "",
+) -> list[dict[str, str]]:
+    """Fold the photo tray (plus the legacy single-photo fields) into one list.
+
+    Callers may send ``images=[{url|base64|name}, …]`` and/or the older
+    ``image_url`` / ``image_base64`` pair. Duplicates are dropped so a client
+    never receives the same picture twice, and the list is capped — Telegram
+    albums hold 10.
+    """
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _push(url: str, b64: str, name: str) -> None:
+        url = _normalize_image_url(url)
+        b64 = (b64 or "").strip()
+        if url.startswith("data:"):
+            url, b64 = "", url
+        if not url and not b64:
+            return
+        key = url or b64[:256]
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(
+            {
+                "image_url": url,
+                "image_base64": b64,
+                "image_name": (name or "").strip() or "photo.jpg",
+            }
+        )
+
+    for item in list(images or []):
+        if isinstance(item, str):
+            _push(item, "", "photo.jpg")
+        elif isinstance(item, dict):
+            _push(
+                str(item.get("image_url") or item.get("url") or ""),
+                str(item.get("image_base64") or item.get("base64") or ""),
+                str(item.get("image_name") or item.get("name") or ""),
+            )
+        else:  # pydantic model
+            _push(
+                str(getattr(item, "image_url", "") or getattr(item, "url", "") or ""),
+                str(getattr(item, "image_base64", "") or getattr(item, "base64", "") or ""),
+                str(getattr(item, "image_name", "") or getattr(item, "name", "") or ""),
+            )
+
+    _push(image_url, image_base64, image_name)
+    return out[:MAX_OUTREACH_PHOTOS]
+
+
+def send_telegram_bundle(
+    *,
+    text: str,
+    chat_id: str,
+    via: str = "",
+    attachments: list[dict[str, str]] | None = None,
+    business_connection_id: Optional[str] = None,
+    token: str | None = None,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Message first, then every attached photo — the tray order, appended.
+
+    A caption tops out at 1024 chars and holds one picture, so a real sales
+    draft with several cards cannot ride as one captioned photo. Send the text
+    as text, then the photos after it.
+
+    ``ok`` is False when ANY part fails. Reporting ok on a text-only delivery is
+    exactly how attachments used to disappear without a word.
+    """
+    shots = list(attachments or [])
+    if not shots:
+        return send_telegram_message(
+            text=text,
+            chat_id=chat_id,
+            via=via,
+            business_connection_id=business_connection_id,
+            token=token,
+            timeout=timeout,
+        )
+
+    body = (text or "").strip()
+    head: dict[str, Any] = {"ok": True}
+    if body:
+        head = send_telegram_message(
+            text=body,
+            chat_id=chat_id,
+            via=via,
+            business_connection_id=business_connection_id,
+            token=token,
+            timeout=timeout,
+        )
+        if not head.get("ok"):
+            return head
+
+    sent = 0
+    failures: list[str] = []
+    last: dict[str, Any] = {}
+    for shot in shots:
+        # Empty caption: the text already went out as its own message.
+        res = send_telegram_message(
+            text="",
+            chat_id=chat_id,
+            via=via,
+            image_base64=shot.get("image_base64", ""),
+            image_name=shot.get("image_name", "photo.jpg"),
+            image_url=shot.get("image_url", ""),
+            business_connection_id=business_connection_id,
+            token=token,
+            timeout=timeout,
+        )
+        last = res
+        if res.get("ok"):
+            sent += 1
+        else:
+            failures.append(str(res.get("detail") or res.get("error") or "ошибка"))
+
+    out: dict[str, Any] = {
+        "ok": sent == len(shots),
+        "message_id": head.get("message_id") or last.get("message_id"),
+        "chat_id": head.get("chat_id") or last.get("chat_id") or chat_id,
+        "via": head.get("via") or last.get("via") or "",
+        "photos_sent": sent,
+        "photos_total": len(shots),
+    }
+    if failures:
+        out["error"] = "photo_send_failed"
+        out["detail"] = (
+            f"Текст ушёл, фото {sent}/{len(shots)}: " + "; ".join(failures[:3])
+        )
+    return out
+
+
 def send_outreach_to_client(
     *,
     text: str,
@@ -878,18 +1018,19 @@ def send_outreach_to_client(
     image_base64: str = "",
     image_name: str = "photo.jpg",
     image_url: str = "",
+    images: Any = None,
 ) -> dict[str, Any]:
-    """Resolve client TG target and send. Returns send_telegram_message result."""
+    """Resolve client TG target and send text + the whole photo tray."""
     chat_id = resolve_telegram_chat_id(
         tg_nick=tg_nick,
         tg_conversation=tg_conversation,
         tg_chat_id=tg_chat_id,
     )
-    return send_telegram_message(
+    return send_telegram_bundle(
         text=text,
         chat_id=chat_id,
         via=via,
-        image_base64=image_base64,
-        image_name=image_name,
-        image_url=image_url,
+        attachments=normalize_image_attachments(
+            images, image_base64, image_name, image_url
+        ),
     )

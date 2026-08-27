@@ -542,10 +542,13 @@ def page_snapshot_key(
     stage: str = "all",
     entity_type: str = "all",
     loyalty_only: bool = False,
+    tg_status: str = "",
 ) -> str:
     """Stable key for the clients page window snapshot (filter dims only)."""
+    from plugins.moysklad.audience import normalize_tg_status
+
     parts = (
-        "moysklad:clients:page:v6",
+        "moysklad:clients:page:v7",
         _account_fingerprint(),
         f"sf={(sales_filter or 'all').strip().lower()}",
         f"g={(group or '').strip().lower()}",
@@ -562,6 +565,7 @@ def page_snapshot_key(
         f"st={(stage or 'all').strip().lower()}",
         f"et={(entity_type or 'all').strip().lower()}",
         f"lp={1 if loyalty_only else 0}",
+        f"tgs={normalize_tg_status(tg_status)}",
     )
     return ":".join(parts)
 

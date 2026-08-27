@@ -269,6 +269,7 @@ def _schedule_snapshot_refresh(
     include_archived: bool,
     entity_type: str = "all",
     loyalty_only: bool = False,
+    tg_status: str = "",
 ) -> bool:
     """Rebuild first-100 snapshot + telegram export in a daemon thread."""
     if catalog is None or not isinstance(catalog, dict):
@@ -307,6 +308,7 @@ def _schedule_snapshot_refresh(
                 stage=stage,
                 entity_type=entity_type,
                 loyalty_only=loyalty_only,
+                tg_status=tg_status,
                 limit=PAGE_SNAPSHOT_ROWS,
                 offset=0,
                 max_orders=max_orders,
@@ -1279,6 +1281,14 @@ class OutreachPersonalizeBody(BaseModel):
     include_archived: bool = False
 
 
+class ImageAttachment(BaseModel):
+    """One photo from the composer tray — a remote URL or an uploaded data-URL."""
+
+    image_url: str = ""
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
+
+
 class ConversationAppendBody(BaseModel):
     text: str = ""
     direction: str = "outbound"
@@ -1291,6 +1301,8 @@ class ConversationAppendBody(BaseModel):
     image_name: str = "photo.jpg"
     #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
     image_url: str = ""
+    #: Photo tray — every picture is appended after the message text, in order.
+    images: list[ImageAttachment] = Field(default_factory=list)
 
 
 class ConversationSyncBody(BaseModel):
@@ -1343,6 +1355,8 @@ class MarkSentBody(BaseModel):
     image_name: str = "photo.jpg"
     #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
     image_url: str = ""
+    #: Photo tray — every picture is appended after the message text, in order.
+    images: list[ImageAttachment] = Field(default_factory=list)
 
 
 # Per HTTP request — UI chunks larger audiences into several calls.
@@ -1362,6 +1376,8 @@ class MarkSentBatchBody(BaseModel):
     via: str = ""
     #: Stop the batch as soon as one send fails (default: keep going).
     stop_on_error: bool = False
+    #: Photo tray — every picture is appended after the message text, in order.
+    images: list[ImageAttachment] = Field(default_factory=list)
 
 
 class CollectRepliesBody(BaseModel):
@@ -1389,6 +1405,8 @@ class MassSendStartBody(BaseModel):
     image_name: str = "photo.jpg"
     #: Or a remote photo URL (e.g. marketplace card image) — Telegram fetches it.
     image_url: str = ""
+    #: Photo tray — every picture is appended after the message text, in order.
+    images: list[ImageAttachment] = Field(default_factory=list)
 
 
 class OutreachContactBody(BaseModel):
@@ -1686,6 +1704,7 @@ def get_clients(
     stage: str = Query("all"),
     entity_type: str = Query("all"),
     loyalty_only: bool = Query(False),
+    tg_status: str = Query(""),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -1709,6 +1728,7 @@ def get_clients(
         stage=stage,
         entity_type=entity_type,
         loyalty_only=loyalty_only,
+        tg_status=tg_status,
     )
     catalog_key = cache_key(
         max_orders=max_orders,
@@ -1779,6 +1799,7 @@ def get_clients(
                                 stage=stage,
                                 entity_type=entity_type,
                                 loyalty_only=loyalty_only,
+                                tg_status=tg_status,
                                 max_orders=max_orders,
                                 max_counterparties=max_counterparties,
                                 include_archived=include_archived,
@@ -1879,6 +1900,7 @@ def get_clients(
             stage=stage,
             entity_type=entity_type,
             loyalty_only=loyalty_only,
+            tg_status=tg_status,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -1931,6 +1953,7 @@ def get_clients(
                         stage=stage,
                         entity_type=entity_type,
                         loyalty_only=loyalty_only,
+                        tg_status=tg_status,
                         max_orders=max_orders,
                         max_counterparties=max_counterparties,
                         include_archived=include_archived,
@@ -1985,6 +2008,7 @@ def get_clients_ids(
     stage: str = Query("all"),
     entity_type: str = Query("all"),
     loyalty_only: bool = Query(False),
+    tg_status: str = Query(""),
     limit: int = Query(MASS_AUDIENCE_IDS_MAX, ge=1, le=MASS_AUDIENCE_IDS_MAX),
     offset: int = Query(0, ge=0),
     max_orders: int = Query(25000, ge=0, le=100_000),
@@ -2024,6 +2048,7 @@ def get_clients_ids(
             stage=stage,
             entity_type=entity_type,
             loyalty_only=loyalty_only,
+            tg_status=tg_status,
             limit=limit,
             offset=offset,
             max_orders=max_orders,
@@ -2249,6 +2274,7 @@ def post_client_conversation(
                 image_base64=body.image_base64,
                 image_name=body.image_name or "photo.jpg",
                 image_url=body.image_url,
+                images=body.images,
             )
             if delivery.get("ok"):
                 source = "client_card_telegram_bot"
@@ -2356,6 +2382,7 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 image_base64=body.image_base64,
                 image_name=body.image_name or "photo.jpg",
                 image_url=body.image_url,
+                images=body.images,
             )
 
         source = "campaign_send"
@@ -2697,6 +2724,7 @@ def post_campaign_mass_send(body: MassSendStartBody) -> dict[str, Any]:
                     image_base64=body.image_base64,
                     image_name=body.image_name or "photo.jpg",
                     image_url=body.image_url,
+                    images=body.images,
                 )
             source = "campaign_send_mass"
             if delivery.get("ok"):

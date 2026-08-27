@@ -26,6 +26,19 @@ def test_require_telegram_audience_extras_uses_verified_only() -> None:
     assert row_matches_audience_extras(unchecked, require_telegram=True) is False
 
 
+def test_tg_status_audience_filter_binary() -> None:
+    active = {"tg_active": True, "_moysklad_tags": []}
+    dead = {"tg_active": False, "_moysklad_tags": []}
+    unchecked = {"_moysklad_tags": []}
+    assert row_matches_audience_extras(active, tg_status="active") is True
+    assert row_matches_audience_extras(dead, tg_status="active") is False
+    assert row_matches_audience_extras(unchecked, tg_status="active") is False
+    assert row_matches_audience_extras(active, tg_status="inactive") is False
+    assert row_matches_audience_extras(dead, tg_status="неактивный") is True
+    assert row_matches_audience_extras(unchecked, tg_status="inactive") is True
+    assert row_matches_audience_extras(active, tg_status="") is True
+
+
 def test_match_catalog_phones_to_contacts(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     from plugins.platforms.telegram_user import client as tu

@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { tgActiveCellTitle, tgActiveStatusWord } from './tg-active-label'
+import {
+  tgActiveCellTitle,
+  tgActiveStatusWord,
+  tgStatusFilterParam
+} from './tg-active-label'
 
 describe('tgActiveStatusWord', () => {
-  it('matches irbots_clients_status.txt status= words', () => {
+  it('only two statuses — never НЕ ПРОВЕРЕН', () => {
     expect(tgActiveStatusWord({ tg_active: true })).toBe('АКТИВНЫЙ')
     expect(tgActiveStatusWord({ tg_active: false })).toBe('НЕАКТИВНЫЙ')
-    expect(tgActiveStatusWord({ tg_active: null })).toBe('НЕ ПРОВЕРЕН')
-    expect(tgActiveStatusWord({})).toBe('НЕ ПРОВЕРЕН')
+    expect(tgActiveStatusWord({ tg_active: null })).toBe('НЕАКТИВНЫЙ')
+    expect(tgActiveStatusWord({})).toBe('НЕАКТИВНЫЙ')
   })
 })
 
@@ -19,9 +23,14 @@ describe('tgActiveCellTitle', () => {
       })
     ).toBe('неактивный (не зарегистрирован)')
   })
+})
 
-  it('does not claim privacy hide for definitive inactive', () => {
-    const title = tgActiveCellTitle({ tg_active: false })
-    expect(title.toLowerCase()).not.toContain('приват')
+describe('tgStatusFilterParam', () => {
+  it('maps checkbox / query to API tg_status', () => {
+    expect(tgStatusFilterParam({ selected: ['НЕАКТИВНЫЙ'] })).toBe('inactive')
+    expect(tgStatusFilterParam({ selected: ['АКТИВНЫЙ'] })).toBe('active')
+    expect(tgStatusFilterParam({ selected: ['АКТИВНЫЙ', 'НЕАКТИВНЫЙ'] })).toBe('')
+    expect(tgStatusFilterParam({ query: 'неактивный' })).toBe('inactive')
+    expect(tgStatusFilterParam({ query: 'активный' })).toBe('active')
   })
 })

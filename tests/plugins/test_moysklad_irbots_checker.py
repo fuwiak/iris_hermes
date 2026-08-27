@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
@@ -104,6 +106,40 @@ def test_verify_rows_writes_overlay_active_and_inactive(monkeypatch):
     assert not tg_verify.overlay_for_client("c3")
 
 
+def test_force_complete_and_report_binary_only(tmp_path, monkeypatch):
+    from plugins.moysklad import irbots_checker, tg_verify
+
+    rows = [
+        {
+            "_moysklad_id": "c1",
+            "Наименование": "Активный",
+            "Телефон": "+79153588839",
+        },
+        {
+            "_moysklad_id": "c2",
+            "Наименование": "Без телефона",
+            "Телефон": "",
+        },
+    ]
+    tg_verify.save_verify_results_bulk(
+        {
+            "c1": {
+                "active": True,
+                "via": "irbots",
+                "detail": "активный (есть сессия TG)",
+            }
+        }
+    )
+    out = irbots_checker.force_complete_unchecked_rows(rows)
+    assert out["forced"] == 1
+    assert tg_verify.overlay_for_client("c2")["active"] is False
+    text = Path(out["report"]).read_text(encoding="utf-8")
+    assert "НЕ ПРОВЕРЕН" not in text
+    assert text.count("status=АКТИВНЫЙ") == 1
+    assert text.count("status=НЕАКТИВНЫЙ") == 1
+    assert "unchecked=0" in text
+
+
 def test_write_full_report_contains_verdict(tmp_path, monkeypatch):
     from plugins.moysklad import irbots_checker, tg_verify
 
@@ -122,10 +158,17 @@ def test_write_full_report_contains_verdict(tmp_path, monkeypatch):
             "Наименование": "Виктор",
             "Телефон": "+79153588839",
             "Группы": "тест",
-        }
+        },
+        {
+            "_moysklad_id": "c2",
+            "Наименование": "Без оверлея",
+            "Телефон": "",
+        },
     ]
     path = irbots_checker.write_full_report(rows, path=tmp_path / "report.txt")
     text = path.read_text(encoding="utf-8")
     assert "АКТИВНЫЙ" in text
     assert "Виктор" in text
     assert "+79153588839" in text
+    assert "НЕ ПРОВЕРЕН" not in text
+    assert "НЕАКТИВНЫЙ" in text
