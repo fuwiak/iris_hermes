@@ -33,6 +33,10 @@ import {
   seedFactsFromAudienceRow
 } from './audience-pick'
 import {
+  tgActiveCellTitle,
+  tgActiveStatusWord
+} from './tg-active-label'
+import {
   cardMessageBlock,
   CardPhotoPicker,
   CardsPage,
@@ -977,6 +981,8 @@ interface ClientRow {
   tg_active?: boolean | null
   tg_active_label?: string
   tg_active_nick?: string
+  tg_active_detail?: string
+  tg_active_via?: string
   /** ISO ts последнего реального обмена в Telegram (входящее или исходящее). */
   tg_last_contact_at?: string
   tg_conversation?: string
@@ -1298,19 +1304,14 @@ const CLIENT_COLUMNS: Array<{
     sortValue: r =>
       r.tg_active === true ? 2 : r.tg_active === false ? 0 : r.tg_nick ? 1 : -1,
     render: r => {
+      const word = tgActiveStatusWord(r)
       if (r.tg_active === true) {
-        return r.tg_active_nick || r.tg_active_label || '✓'
+        return r.tg_active_nick ? `${word} · ${r.tg_active_nick}` : word
       }
-
       if (r.tg_active === false) {
-        return r.tg_active_label || '✗'
+        return word
       }
-
-      if (r.tg_nick) {
-        return r.tg_active_label || '?'
-      }
-
-      return '—'
+      return r.tg_nick ? word : '—'
     }
   },
   {
@@ -4313,22 +4314,22 @@ function ClientsPage() {
                     }
 
                     if (col.key === 'tg_active') {
-                      const title =
-                        row.tg_active === true
-                          ? `Есть Telegram${row.tg_active_nick ? ` · ${row.tg_active_nick}` : ''}`
-                          : row.tg_active === false
-                            ? 'Не находится по номеру — возможно, поиск скрыт настройками приватности. Проверьте по нику или вручную.'
-                            : 'Ещё не проверен — проверка идёт автоматически в фоне'
-
+                      const title = tgActiveCellTitle(row)
                       const cls =
-                        row.tg_active === true ? 'ms-tg-active-ok' : ''
-
-                      // Две категории на экране: ✓ есть TG — или пусто.
-                      // Детали (не найден / не проверен) остаются в tooltip.
-                      const shownValue =
                         row.tg_active === true
-                          ? row.tg_active_nick || '✓'
-                          : '—'
+                          ? 'ms-tg-active-ok'
+                          : row.tg_active === false
+                            ? 'ms-tg-active-bad'
+                            : row.tg_active == null && (row.phone || row.tg_nick)
+                              ? 'ms-tg-active-unknown'
+                              : ''
+                      // Same words as irbots_clients_status.txt status= column.
+                      const shownValue =
+                        row.tg_active === true || row.tg_active === false
+                          ? tgActiveStatusWord(row)
+                          : row.phone || row.tg_nick
+                            ? tgActiveStatusWord(row)
+                            : '—'
 
                       return (
                         <td className={cls || undefined} key={col.key} title={title}>
@@ -8149,23 +8150,18 @@ function CampaignsPage() {
                           <button
                             className={`ms-chip${active ? ' is-active' : ''}${
                               tgOk ? ' is-tg-verified' : ''
-                            }`}
+                            }${tgBad ? ' is-tg-inactive' : ''}`}
                             key={row.id || row.name}
                             onClick={() => selectAudienceClient(row)}
-                            title={
-                              tgOk
-                                ? `@${nick || row.tg_active_nick || ''} · есть Telegram`
-                                : tgBad
-                                  ? `${nick ? `@${nick} · ` : ''}не находится по номеру (возможно, скрыт приватностью) — не значит, что Telegram нет`
-                                  : nick
-                                    ? `@${nick} · ещё не проверен`
-                                    : row.phone || row.id
-                            }
+                            title={tgActiveCellTitle(row)}
                             type="button"
                           >
                             {row.name || row.phone || row.id}
                             {nick ? <span>@{nick}</span> : null}
                             {tgOk ? <span className="ms-chip-tg-dot">✓</span> : null}
+                            {tgBad ? (
+                              <span className="ms-chip-tg-bad">НЕАКТИВНЫЙ</span>
+                            ) : null}
                             {row.order_count != null ? <span>{row.order_count}</span> : null}
                           </button>
                         )

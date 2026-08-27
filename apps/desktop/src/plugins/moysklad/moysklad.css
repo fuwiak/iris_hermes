@@ -205,6 +205,18 @@
   margin-left: 0.15rem;
 }
 
+.ms-chip-tg-bad {
+  color: #f85149;
+  font-weight: 700;
+  font-size: 0.72em;
+  margin-left: 0.25rem;
+  letter-spacing: 0.02em;
+}
+
+.ms-chip.is-tg-inactive {
+  border-color: rgba(248, 81, 73, 0.35);
+}
+
 td.ms-tg-active-ok {
   color: #2ea043;
   font-weight: 600;
@@ -212,6 +224,7 @@ td.ms-tg-active-ok {
 
 td.ms-tg-active-bad {
   color: #f85149;
+  font-weight: 600;
 }
 
 td.ms-tg-active-unknown {

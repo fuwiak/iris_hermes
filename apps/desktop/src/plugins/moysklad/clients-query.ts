@@ -95,6 +95,8 @@ export interface ClientQueryRow {
   tg_active?: boolean | null
   tg_active_label?: string | null
   tg_active_nick?: string | null
+  tg_active_detail?: string | null
+  tg_active_via?: string | null
   actual_address?: string | null
   client_stage?: string | null
   company_type?: string | null
