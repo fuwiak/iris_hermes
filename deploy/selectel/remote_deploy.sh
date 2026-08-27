@@ -13,8 +13,28 @@ exec > >(tee -a "$LOG") 2>&1
 echo "=== iris deploy $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y ca-certificates curl git ufw
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Selectel images pin http://mirror.selectel.ru/ubuntu — IPv6 ENETUNREACH (101)
+# and apt then claims "no longer has a Release file". Rewrite to archive.ubuntu.com
+# and force IPv4 before the first apt-get. CI rsyncs this tree before we run.
+if [ -f "$REPO_ROOT/scripts/rewrite_selectel_apt_mirrors.py" ]; then
+  python3 "$REPO_ROOT/scripts/rewrite_selectel_apt_mirrors.py" || true
+fi
+
+host_tools_ok() {
+  command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1 \
+    && command -v docker >/dev/null 2>&1
+}
+
+if apt-get -o Acquire::ForceIPv4=true update -y; then
+  apt-get -o Acquire::ForceIPv4=true install -y ca-certificates curl git ufw
+elif host_tools_ok; then
+  echo "WARN: apt-get update failed; curl/git/docker already present — skipping apt"
+else
+  echo "FATAL: apt-get update failed and host tools are missing" >&2
+  exit 1
+fi
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
