@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -478,3 +479,40 @@ def test_undownloadable_photo_names_the_reason(monkeypatch: pytest.MonkeyPatch) 
     assert out["ok"] is False
     assert out["error"] == "image_unusable"
     assert "Приложите файл вручную" in out["detail"]
+
+
+class TestPhotoTraceLog:
+    def test_trace_strips_base64_and_keeps_event(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        from plugins.moysklad.photo_trace import photo_trace, photo_trace_tail
+
+        photo_trace(
+            "unit_secret",
+            image_base64="data:image/jpeg;base64,SECRETSECRETSECRET",
+            bytes_len=99,
+        )
+        tail = photo_trace_tail(20)
+        blob = json.dumps(tail)
+        assert "SECRETSECRET" not in blob
+        assert tail["ok"] is True
+        assert any(row.get("event") == "unit_secret" for row in tail["lines"] if isinstance(row, dict))
+
+    def test_empty_text_bundle_is_photo_only(self, sent: list[dict[str, Any]]) -> None:
+        """send-photo HTTP: text already left, this request is the picture."""
+        out = ts.send_telegram_bundle(
+            text="  ",
+            chat_id="42",
+            attachments=[
+                {
+                    "image_base64": "data:image/jpeg;base64,aa",
+                    "image_url": "",
+                    "image_name": "p.jpg",
+                }
+            ],
+        )
+        assert out["ok"] is True
+        assert out["photos_sent"] == 1
+        assert len(sent) == 1
+        assert sent[0]["text"] == ""
+        assert sent[0]["image_base64"]
+

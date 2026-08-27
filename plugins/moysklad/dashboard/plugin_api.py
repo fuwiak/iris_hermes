@@ -89,6 +89,12 @@ from plugins.moysklad.telegram_send import (
     telegram_send_status,
     telegram_user_status,
 )
+from plugins.moysklad.photo_trace import (
+    log_path as photo_log_path,
+    photo_trace,
+    photo_trace_tail,
+    summarize_attachments,
+)
 from plugins.platforms.telegram_user import client as tg_user
 from plugins.moysklad.outreach_contacts import (
     add_custom_contact,
@@ -1359,6 +1365,24 @@ class MarkSentBody(BaseModel):
     images: list[ImageAttachment] = Field(default_factory=list)
 
 
+class PhotoTraceBody(BaseModel):
+    """UI breadcrumb — landed in the same photo_send.log as the backend hops."""
+
+    event: str = ""
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class SendPhotoBody(BaseModel):
+    """One tray photo after the text already left (separate HTTP so it cannot vanish)."""
+
+    client_id: str = ""
+    channel: str = "telegram"
+    via: str = ""
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
+    image_url: str = ""
+
+
 # Per HTTP request — UI chunks larger audiences into several calls.
 MASS_SEND_BATCH_MAX = 100
 MASS_AUDIENCE_IDS_MAX = 10_000
@@ -1635,6 +1659,42 @@ def _outreach_target_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "client_name": client_name,
         "telegram_url": str(msg.get("telegram_url") or ""),
         "whatsapp_url": str(msg.get("whatsapp_url") or ""),
+    }
+
+
+def _telegram_coords_for_client(client_id: str) -> dict[str, str]:
+    """Nick / chat id for a catalog row or custom contact. Raises HTTPException."""
+    cid = (client_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="client_id required")
+    if _is_contact_id(cid):
+        contact = get_contact(cid)
+        if contact is None:
+            raise HTTPException(status_code=404, detail="custom contact not found")
+        return {
+            "tg_nick": str(contact.get("tg_nick") or ""),
+            "tg_conversation": "",
+            "tg_chat_id": str(contact.get("tg_chat_id") or ""),
+            "client_name": str(contact.get("name") or ""),
+        }
+    catalog, _meta = _get_catalog(force=False)
+    row = find_row_in_catalog(catalog, cid)
+    if row is None:
+        contact = get_contact(cid)
+        if contact is None:
+            raise HTTPException(status_code=404, detail="client not found in catalog")
+        return {
+            "tg_nick": str(contact.get("tg_nick") or ""),
+            "tg_conversation": "",
+            "tg_chat_id": str(contact.get("tg_chat_id") or ""),
+            "client_name": str(contact.get("name") or ""),
+        }
+    target = _outreach_target_from_row(row)
+    return {
+        "tg_nick": str(target.get("tg_nick") or ""),
+        "tg_conversation": str(target.get("tg_conversation") or ""),
+        "tg_chat_id": str(target.get("tg_chat_id") or ""),
+        "client_name": str(target.get("client_name") or ""),
     }
 
 
@@ -2372,6 +2432,19 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 facts_payload = None  # filled after append
 
         delivery: dict[str, Any] = {"ok": False, "skipped": True}
+        photo_trace(
+            "http_mark_sent",
+            client_id=client_id,
+            channel=channel,
+            deliver=bool(body.deliver),
+            via=body.via,
+            text_len=len(text),
+            tg_nick=tg_nick,
+            tg_chat_id=tg_chat_id,
+            tray=summarize_attachments(body.images),
+            legacy_b64_len=len((body.image_base64 or "").strip()),
+            legacy_url=body.image_url,
+        )
         if body.deliver and channel.startswith("telegram"):
             delivery = send_outreach_to_client(
                 text=text,
@@ -2384,6 +2457,19 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
                 image_url=body.image_url,
                 images=body.images,
             )
+        delivery["photo_log"] = str(photo_log_path())
+        photo_trace(
+            "http_mark_sent_done",
+            client_id=client_id,
+            ok=delivery.get("ok"),
+            skipped=delivery.get("skipped"),
+            via=delivery.get("via"),
+            photo_via=delivery.get("photo_via"),
+            photos_sent=delivery.get("photos_sent"),
+            photos_total=delivery.get("photos_total"),
+            error=delivery.get("error"),
+            detail=delivery.get("detail"),
+        )
 
         source = "campaign_send"
         if delivery.get("ok"):
@@ -2431,6 +2517,75 @@ def post_campaign_mark_sent(body: MarkSentBody) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover
         log.exception("moysklad /campaigns/mark-sent failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/photo-trace")
+def post_campaign_photo_trace(body: PhotoTraceBody) -> dict[str, Any]:
+    """UI-side breadcrumb into ``photo_send.log`` (same file as backend hops)."""
+    event = (body.event or "").strip() or "ui"
+    fields = body.fields if isinstance(body.fields, dict) else {}
+    photo_trace(event, source="ui", **fields)
+    return {"ok": True, "path": str(photo_log_path())}
+
+
+@router.get("/campaigns/photo-send-log")
+def get_campaign_photo_send_log(tail: int = 80) -> dict[str, Any]:
+    """Last lines of the photo-send breadcrumb log."""
+    return photo_trace_tail(tail)
+
+
+@router.post("/campaigns/send-photo")
+def post_campaign_send_photo(body: SendPhotoBody) -> dict[str, Any]:
+    """Send one tray photo as its own Telegram message (text already delivered)."""
+    client_id = (body.client_id or "").strip()
+    channel = (body.channel or "telegram").strip().lower()
+    b64 = (body.image_base64 or "").strip()
+    url = (body.image_url or "").strip()
+    name = (body.image_name or "photo.jpg").strip() or "photo.jpg"
+    photo_trace(
+        "http_send_photo",
+        client_id=client_id,
+        channel=channel,
+        via=body.via,
+        has_bytes=bool(b64),
+        b64_len=len(b64),
+        url=url,
+        name=name,
+    )
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id required")
+    if not b64 and not url:
+        photo_trace("http_send_photo_reject", reason="no_image", client_id=client_id)
+        raise HTTPException(status_code=400, detail="image_base64 or image_url required")
+    if not channel.startswith("telegram"):
+        raise HTTPException(status_code=400, detail="send-photo is Telegram only")
+
+    coords = _telegram_coords_for_client(client_id)
+    delivery = send_outreach_to_client(
+        text="",
+        tg_nick=coords["tg_nick"],
+        tg_conversation=coords["tg_conversation"],
+        tg_chat_id=coords["tg_chat_id"],
+        via=body.via,
+        image_base64=b64,
+        image_name=name,
+        image_url=url,
+    )
+    delivery["photo_log"] = str(photo_log_path())
+    photo_trace(
+        "http_send_photo_done",
+        client_id=client_id,
+        ok=delivery.get("ok"),
+        via=delivery.get("via"),
+        photo_via=delivery.get("photo_via"),
+        photos_sent=delivery.get("photos_sent"),
+        photos_total=delivery.get("photos_total"),
+        error=delivery.get("error"),
+        detail=delivery.get("detail"),
+        message_id=delivery.get("message_id"),
+        chat_id=delivery.get("chat_id"),
+    )
+    return {"ok": bool(delivery.get("ok")), "delivery": delivery}
 
 
 @router.post("/campaigns/mark-sent-batch")

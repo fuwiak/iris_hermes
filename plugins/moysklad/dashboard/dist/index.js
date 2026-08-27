@@ -2845,28 +2845,67 @@
       setCheckingSanity(true);
       setError("");
       setActionStatus(
-        String(channel || "").indexOf("telegram") === 0
-          ? "Отправка через Telegram Business bot…"
-          : "Пишем исходящее в историю…"
+        sendPhotos && sendPhotos.length
+          ? "Готовлю фото (скачиваю байты)…"
+          : String(channel || "").indexOf("telegram") === 0
+            ? "Отправка через Telegram…"
+            : "Пишем исходящее в историю…"
       );
-      // Whole tray — the backend appends each picture after the text, in order.
-      // Bytes are fetched HERE: the backend has no egress to the marketplace
-      // CDNs, so a bare URL came back «фото 0/1: Network is unreachable».
-      resolveTrayBytes(sendPhotos).then(function (resolved) {
-      var images = resolved.map(buildImageSendFields);
-      return api("/campaigns/mark-sent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: draft,
-          channel: channel,
-          client_id: selectedClientId,
-          open_deep_link: true,
-          deliver: true,
-          images: images,
-        }),
-      })
-        .then(function (data) {
+      function trace(event, fields) {
+        console.info("[ms-photo]", event, fields);
+        api("/campaigns/photo-trace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event: event, fields: fields || {} }),
+        }).catch(function () {});
+      }
+      resolveTrayBytes(sendPhotos)
+        .then(function (resolved) {
+          var images = resolved.map(buildImageSendFields);
+          var missing = images.filter(function (item) {
+            return !String(item.image_base64 || "").trim();
+          });
+          trace("ui_tray_resolved", {
+            client_id: selectedClientId,
+            tray: (sendPhotos || []).length,
+            missing: missing.length,
+            names: images.map(function (item) { return item.image_name; }),
+            b64_lens: images.map(function (item) { return String(item.image_base64 || "").length; }),
+          });
+          if ((sendPhotos || []).length && missing.length) {
+            setError(
+              "Лоток «Прикреплённые фото · " +
+                sendPhotos.length +
+                "», но байты не скачались. Текст НЕ отправлен. Лог: ~/.hermes/moysklad/photo_send.log"
+            );
+            setActionStatus("");
+            setCheckingSanity(false);
+            return null;
+          }
+          setActionStatus(
+            images.length
+              ? "Шлём текст, потом фото " + images.length + " отдельным сообщением…"
+              : "Отправка через Telegram…"
+          );
+          return api("/campaigns/mark-sent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: draft,
+              channel: channel,
+              client_id: selectedClientId,
+              open_deep_link: true,
+              deliver: true,
+              images: [],
+            }),
+          }).then(function (data) {
+            return { data: data, images: images };
+          });
+        })
+        .then(function (pack) {
+          if (!pack) return;
+          var data = pack.data;
+          var images = pack.images || [];
           var draft = String(offerRef.current || "").trim();
           if (data.facts) setFacts(data.facts);
           else if (data.conversation) {
@@ -2876,13 +2915,46 @@
           }
           setOffer(draft);
           if (data.delivery && data.delivery.ok) {
-            setSendPhotos([]);
-            setActionStatus(
-              images.length
-                ? "✓ Отправлено в Telegram: текст + фото " + images.length + " + история."
-                : "✓ Отправлено в Telegram (Business bot) + история.",
-            );
-            setSkillPromptText(draft);
+            var chain = Promise.resolve();
+            var photosSent = 0;
+            var photoErrors = [];
+            images.forEach(function (shot, i) {
+              chain = chain.then(function () {
+                setActionStatus("Текст ушёл. Шлём фото " + (i + 1) + "/" + images.length + "…");
+                trace("ui_photo_start", { index: i, name: shot.image_name, b64_len: String(shot.image_base64 || "").length });
+                return api("/campaigns/send-photo", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    client_id: selectedClientId,
+                    channel: channel,
+                    image_base64: shot.image_base64,
+                    image_name: shot.image_name,
+                  }),
+                }).then(function (photoRes) {
+                  var ok = !!(photoRes && (photoRes.ok || (photoRes.delivery && photoRes.delivery.ok)));
+                  trace("ui_photo_done", { index: i, ok: ok, detail: photoRes && photoRes.delivery && photoRes.delivery.detail });
+                  if (ok) photosSent += 1;
+                  else photoErrors.push(String((photoRes && photoRes.delivery && (photoRes.delivery.detail || photoRes.delivery.error)) || "фото не ушло"));
+                }).catch(function (err) {
+                  photoErrors.push((err && err.message) || String(err));
+                });
+              });
+            });
+            return chain.then(function () {
+              if (!photoErrors.length) setSendPhotos([]);
+              setSkillPromptText(draft);
+              setActionStatus(
+                images.length === 0
+                  ? "✓ Ушло. Выберите другого клиента или соберите ответы."
+                  : photosSent === images.length
+                    ? "✓ Ушло: текст + фото " + photosSent + "/" + images.length + " отдельными сообщениями."
+                    : "⚠ Текст ушёл, фото " + photosSent + "/" + images.length + ": " + photoErrors.slice(0, 2).join("; ")
+              );
+              if (photoErrors.length) {
+                setError("Telegram фото: " + photoErrors.slice(0, 3).join("; ") + " · лог ~/.hermes/moysklad/photo_send.log");
+              }
+            });
           } else if (
             String(channel || "").indexOf("telegram") === 0 &&
             data.delivery &&
@@ -2897,19 +2969,13 @@
           if (data.deep_link) window.open(data.deep_link, "_blank", "noopener");
         })
         .catch(function (err) {
+          console.error("[ms-photo] send failed", err);
           setError((err && err.message) || String(err));
           setActionStatus("");
         })
         .finally(function () {
           setCheckingSanity(false);
         });
-      })
-      // Never leave «Отправляю…» stuck if resolving the tray itself throws.
-      .catch(function (err) {
-        setError((err && err.message) || String(err));
-        setActionStatus("");
-        setCheckingSanity(false);
-      });
     }
 
     useEffect(
@@ -5836,11 +5902,16 @@
           resolve("");
         };
         img.src = url;
+        setTimeout(function () {
+          resolve("");
+        }, 8000);
       });
     }
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var abortTimer = controller ? setTimeout(function () { controller.abort(); }, 12000) : null;
     var fetchStep =
       typeof fetch === "function"
-        ? fetch(url, { mode: "cors", referrerPolicy: "no-referrer" })
+        ? fetch(url, { mode: "cors", referrerPolicy: "no-referrer", signal: controller && controller.signal })
             .then(function (resp) {
               if (!resp.ok) return null;
               return resp.blob().then(function (blob) {
@@ -5853,11 +5924,22 @@
             .catch(function () {
               return null;
             })
+            .then(function (dataUrl) {
+              if (abortTimer) clearTimeout(abortTimer);
+              return dataUrl;
+            })
         : Promise.resolve(null);
     return fetchStep.then(function (dataUrl) {
-      if (dataUrl) return Object.assign({}, photo, { dataUrl: dataUrl });
+      if (dataUrl) {
+        console.info("[ms-photo] resolve fetch", photo && photo.name);
+        return Object.assign({}, photo, { dataUrl: dataUrl });
+      }
       return rasterize().then(function (painted) {
-        if (painted) return Object.assign({}, photo, { dataUrl: painted });
+        if (painted) {
+          console.info("[ms-photo] resolve canvas", photo && photo.name);
+          return Object.assign({}, photo, { dataUrl: painted });
+        }
+        console.warn("[ms-photo] resolve no_bytes", photo && photo.name, url);
         return photo;
       });
     });

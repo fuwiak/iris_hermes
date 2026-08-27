@@ -4,6 +4,8 @@ import {
   addPhotoToTray,
   buildImageSendFields,
   cardPhotoAttachment,
+  describeImageFields,
+  fieldsMissingBytes,
   isHttpImageUrl,
   MAX_PHOTO_BYTES,
   normalizeRemoteImageUrl,
@@ -122,6 +124,24 @@ describe('resolvePhotoBytes', () => {
     ).toEqual({ ...photo, dataUrl: 'data:image/jpeg;base64,FROMIMG' })
   })
 
+  it('uses electronFetch when renderer fetch and canvas both fail', async () => {
+    const boom = (async () => {
+      throw new Error('CORS')
+    }) as unknown as typeof fetch
+    const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
+    const steps: string[] = []
+
+    expect(
+      await resolvePhotoBytes(photo, {
+        fetchImpl: boom,
+        rasterize: async () => '',
+        electronFetch: async () => 'data:image/jpeg;base64,FROMMAIN',
+        onStep: step => steps.push(step.via)
+      })
+    ).toEqual({ ...photo, dataUrl: 'data:image/jpeg;base64,FROMMAIN' })
+    expect(steps).toContain('electron')
+  })
+
   it('keeps the url only when fetch AND rasterize both fail', async () => {
     const boom = (async () => {
       throw new Error('CORS')
@@ -162,6 +182,18 @@ describe('resolvePhotoBytes', () => {
       name: 'p.jpg',
       url: 'p1.jpg'
     })
+  })
+})
+
+describe('describeImageFields', () => {
+  it('shows byte counts so a URL-only tray is obvious before send', () => {
+    const withBytes = buildImageSendFields({
+      name: 'A',
+      dataUrl: 'data:image/jpeg;base64,AAAA'
+    })
+    const urlOnly = buildImageSendFields({ name: 'B', url: 'https://cdn/x.jpg' })
+    expect(describeImageFields([withBytes])).toMatch(/bytes=/)
+    expect(fieldsMissingBytes([withBytes, urlOnly])).toEqual([urlOnly])
   })
 })
 

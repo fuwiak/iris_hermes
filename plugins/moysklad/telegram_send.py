@@ -21,6 +21,7 @@ import time
 from typing import Any, Optional
 
 from plugins.moysklad.conversations import normalize_tg_nick
+from plugins.moysklad.photo_trace import photo_trace, summarize_attachments
 from plugins.platforms.telegram_business.client import (
     business_bot_token as outreach_bot_token,
     business_bot_username as outreach_bot_username,
@@ -399,15 +400,30 @@ def _send_photo_via_user_account(
     """
     peer = str(chat_id or "").strip()
     if not peer:
+        photo_trace("user_photo_skip", reason="empty_peer")
         return None
     try:
         if not tg_user.is_authorized():
+            photo_trace("user_photo_skip", reason="not_authorized", peer=peer)
             return None
         # Never hand Telethon a remote URL — it fetches from THIS host, which
         # often has no marketplace CDN route (Errno 101). Bytes only, like the
         # live @pawels2137 test. URL photos go to Bot API (Telegram fetches).
         if not image_bytes:
+            photo_trace(
+                "user_photo_skip",
+                reason="no_bytes",
+                peer=peer,
+                name=image_name,
+                url=image_url,
+            )
             return None
+        photo_trace(
+            "user_photo_send",
+            peer=peer,
+            name=image_name,
+            bytes_len=len(image_bytes),
+        )
         result = tg_user.send_photo(
             peer=peer,
             caption=text or "",
@@ -417,9 +433,23 @@ def _send_photo_via_user_account(
         )
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("telegram user photo send crashed: %s", exc)
+        photo_trace("user_photo_crash", peer=peer, detail=str(exc))
         return {"ok": False, "error": "telegram_user_error", "detail": str(exc)}
     if not result.get("ok"):
+        photo_trace(
+            "user_photo_fail",
+            peer=peer,
+            error=result.get("error"),
+            detail=result.get("detail"),
+            via=result.get("via"),
+        )
         return result
+    photo_trace(
+        "user_photo_ok",
+        peer=peer,
+        message_id=result.get("message_id"),
+        via=result.get("via") or "user_account_photo",
+    )
 
     out = {
         "ok": True,
@@ -589,15 +619,24 @@ def _resolve_send_image(
 
     image_bytes = _decode_image(raw_b64)
     if image_bytes:
+        photo_trace("resolve_image", via="base64", bytes_len=len(image_bytes), b64_len=len(raw_b64))
         return image_bytes, "", wanted
 
     if raw_url.startswith(("http://", "https://")):
         fetched = _download_image_url(raw_url)
         if fetched:
+            photo_trace("resolve_image", via="cdn_download", bytes_len=len(fetched), url=raw_url)
             return fetched, "", wanted
+        photo_trace(
+            "resolve_image",
+            via="url_only",
+            url=raw_url,
+            fetch_error=_LAST_IMAGE_FETCH_ERROR,
+        )
         # Telegram may still fetch the URL itself (Bot API sendPhoto photo=url).
         return None, raw_url, wanted
 
+    photo_trace("resolve_image", via="empty", wanted=wanted, b64_len=len(raw_b64))
     return None, "", wanted
 
 
@@ -626,8 +665,26 @@ def send_telegram_message(
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
 
+    photo_trace(
+        "send_message_enter",
+        chat_id=chat_id,
+        via=mode,
+        text_len=len((text or "").strip()),
+        has_b64=bool((image_base64 or "").strip()),
+        b64_len=len((image_base64 or "").strip()),
+        url=image_url,
+        name=image_name,
+    )
     image_bytes, resolved_url, image_wanted = _resolve_send_image(
         image_base64, image_url
+    )
+    photo_trace(
+        "send_message_resolved",
+        chat_id=chat_id,
+        bytes_len=len(image_bytes) if image_bytes else 0,
+        resolved_url=resolved_url,
+        image_wanted=image_wanted,
+        mode=mode,
     )
     if image_bytes or resolved_url.startswith(("http://", "https://")):
         # Personal account first: the Business bot can only reply inside chats
@@ -653,10 +710,28 @@ def send_telegram_message(
                     "telegram user photo send failed (%s), falling back to Business bot",
                     user_photo.get("error"),
                 )
+                photo_trace(
+                    "photo_fallback_bot",
+                    reason="user_photo_failed",
+                    error=user_photo.get("error"),
+                    detail=user_photo.get("detail"),
+                )
             elif mode == "user":
                 # Not authorized / unavailable — still try the bot before dying.
-                pass
+                photo_trace("photo_fallback_bot", reason="user_unavailable")
+            else:
+                photo_trace(
+                    "photo_fallback_bot",
+                    reason="user_skipped_no_bytes" if not image_bytes else "user_skipped",
+                    has_bytes=bool(image_bytes),
+                )
 
+        photo_trace(
+            "photo_via_bot",
+            chat_id=chat_id,
+            has_bytes=bool(image_bytes),
+            url=resolved_url,
+        )
         return _send_photo_via_bot(
             text=text,
             chat_id=chat_id,
@@ -670,6 +745,7 @@ def send_telegram_message(
 
     if image_wanted:
         why = _LAST_IMAGE_FETCH_ERROR
+        photo_trace("image_unusable", chat_id=chat_id, why=why, url=image_url)
         return {
             "ok": False,
             "error": "image_unusable",
@@ -829,6 +905,14 @@ def _send_photo_via_bot(
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """``sendPhoto`` through the Business bot (multipart upload or URL)."""
+    photo_trace(
+        "bot_photo_enter",
+        chat_id=chat_id,
+        has_bytes=bool(image_bytes),
+        bytes_len=len(image_bytes) if image_bytes else 0,
+        url=image_url,
+        name=image_name,
+    )
     token = (token or outreach_bot_token()).strip()
     chat_id = str(chat_id or "").strip()
     if not token:
@@ -876,8 +960,16 @@ def _send_photo_via_bot(
         payload["photo"] = image_url
         data = telegram_api("sendPhoto", token=token, json_body=payload, timeout=timeout)
     if not data.get("ok"):
+        photo_trace(
+            "bot_photo_fail",
+            chat_id=chat_id,
+            error=data.get("error"),
+            detail=data.get("detail"),
+            error_code=data.get("error_code"),
+        )
         return data
     result = data.get("result") or {}
+    photo_trace("bot_photo_ok", chat_id=chat_id, message_id=result.get("message_id"))
     out = {
         "ok": True,
         "message_id": result.get("message_id"),
@@ -976,6 +1068,14 @@ def send_telegram_bundle(
     is exactly how attachments used to disappear without a word.
     """
     shots = list(attachments or [])
+    photo_trace(
+        "bundle_enter",
+        chat_id=chat_id,
+        via=via,
+        text_len=len((text or "").strip()),
+        photos=len(shots),
+        tray=summarize_attachments(shots),
+    )
     if not shots:
         return send_telegram_message(
             text=text,
@@ -998,12 +1098,34 @@ def send_telegram_bundle(
             timeout=timeout,
         )
         if not head.get("ok"):
+            photo_trace(
+                "bundle_text_fail",
+                chat_id=chat_id,
+                error=head.get("error"),
+                detail=head.get("detail"),
+            )
             return head
+        photo_trace(
+            "bundle_text_ok",
+            chat_id=chat_id,
+            via=head.get("via"),
+            message_id=head.get("message_id"),
+        )
 
     sent = 0
     failures: list[str] = []
     last: dict[str, Any] = {}
-    for shot in shots:
+    for idx, shot in enumerate(shots):
+        photo_trace(
+            "bundle_photo_start",
+            index=idx,
+            total=len(shots),
+            chat_id=chat_id,
+            has_bytes=bool((shot.get("image_base64") or "").strip()),
+            b64_len=len((shot.get("image_base64") or "").strip()),
+            url=shot.get("image_url") or "",
+            name=shot.get("image_name") or "",
+        )
         # Empty caption on purpose — the text already left as its own message.
         res = send_telegram_message(
             text="",
@@ -1019,8 +1141,20 @@ def send_telegram_bundle(
         last = res
         if res.get("ok"):
             sent += 1
+            photo_trace(
+                "bundle_photo_ok",
+                index=idx,
+                via=res.get("via"),
+                message_id=res.get("message_id"),
+            )
         else:
             failures.append(str(res.get("detail") or res.get("error") or "ошибка"))
+            photo_trace(
+                "bundle_photo_fail",
+                index=idx,
+                error=res.get("error"),
+                detail=res.get("detail"),
+            )
 
     out: dict[str, Any] = {
         "ok": sent == len(shots),
@@ -1036,6 +1170,16 @@ def send_telegram_bundle(
         out["detail"] = (
             f"Текст ушёл, фото {sent}/{len(shots)}: " + "; ".join(failures[:3])
         )
+    photo_trace(
+        "bundle_done",
+        chat_id=out.get("chat_id"),
+        ok=out.get("ok"),
+        photos_sent=sent,
+        photos_total=len(shots),
+        via=out.get("via"),
+        photo_via=out.get("photo_via"),
+        detail=out.get("detail"),
+    )
     return out
 
 
@@ -1056,6 +1200,17 @@ def send_outreach_to_client(
         tg_nick=tg_nick,
         tg_conversation=tg_conversation,
         tg_chat_id=tg_chat_id,
+    )
+    photo_trace(
+        "outreach_enter",
+        chat_id=chat_id,
+        tg_nick=tg_nick,
+        tg_chat_id=tg_chat_id,
+        via=via,
+        text_len=len((text or "").strip()),
+        tray=summarize_attachments(images if isinstance(images, list) else []),
+        has_legacy_b64=bool((image_base64 or "").strip()),
+        legacy_url=image_url,
     )
     return send_telegram_bundle(
         text=text,

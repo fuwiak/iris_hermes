@@ -73,7 +73,10 @@ import {
   buildImageSendFields,
   cardPhotoAttachment,
   type ComposerImage,
+  describeImageFields,
+  fieldsMissingBytes,
   photoKey,
+  type PhotoResolveStep,
   resolveTrayBytes
 } from './photo-send'
 import {
@@ -4491,6 +4494,16 @@ function ClientsPage() {
 function CampaignsPage() {
   const call = useMsRest()
   const callStream = useMsRestStream()
+  const photoTrace = (event: string, fields: Record<string, unknown> = {}) => {
+    console.info('[ms-photo]', event, fields)
+    void call('/campaigns/photo-trace', {
+      method: 'POST',
+      timeoutMs: 8_000,
+      body: { event, fields }
+    }).catch(err => {
+      console.warn('[ms-photo] trace failed', err)
+    })
+  }
   const [salesFilter, setSalesFilter] = useState('all')
   const [title, setTitle] = useState('Рассылка по фильтрам')
   const [channel, setChannel] = useState('telegram')
@@ -6860,10 +6873,30 @@ function CampaignsPage() {
     setError('')
 
     try {
-      // Whole tray — the backend appends each picture after the text, in order.
-      // Bytes are fetched HERE: the backend has no egress to the marketplace
-      // CDNs, so a bare URL came back «фото 0/1: Network is unreachable».
-      const images = (await resolveTrayBytes(sendPhotos)).map(buildImageSendFields)
+      setActionStatus('Готовлю фото рассылки (скачиваю байты)…')
+      const steps: PhotoResolveStep[] = []
+      const images = (
+        await resolveTrayBytes(sendPhotos, {
+          onStep: step => {
+            steps.push(step)
+            console.info('[ms-photo] resolve', step)
+          }
+        })
+      ).map(buildImageSendFields)
+      const trayLine = describeImageFields(images)
+      photoTrace('ui_mass_tray', {
+        tray: sendPhotos.length,
+        summary: trayLine,
+        steps
+      })
+      const missing = fieldsMissingBytes(images)
+      if (sendPhotos.length && missing.length) {
+        setError(
+          `Фото в лотке есть, байты не скачались (${trayLine}). Массовая рассылка не запущена — иначе уйдёт только текст.`
+        )
+        setActionStatus('')
+        return
+      }
 
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
@@ -7006,13 +7039,46 @@ function CampaignsPage() {
     )
 
     try {
-      // Prefer a remote URL when the card already has one — huge data-URLs
-      // inflate the JSON body and trip the desktop timeout. data: must ride
-      // as image_base64; protocol-relative CDN urls are upgraded to https.
-      // Download in the app, upload bytes: the backend cannot always reach the
-      // marketplace CDNs, and neither Telegram leg can send what nobody fetched.
-      // A photo that fails to download here still rides as its URL.
-      const images = (await resolveTrayBytes(sendPhotos)).map(buildImageSendFields)
+      setActionStatus(
+        sendPhotos.length
+          ? `Готовлю фото ${sendPhotos.length} (скачиваю байты в приложении)…`
+          : channel.startsWith('telegram')
+            ? 'Отправка через Telegram…'
+            : 'Пишем исходящее в историю…'
+      )
+      const steps: PhotoResolveStep[] = []
+      const images = (
+        await resolveTrayBytes(sendPhotos, {
+          onStep: step => {
+            steps.push(step)
+            console.info('[ms-photo] resolve', step)
+          }
+        })
+      ).map(buildImageSendFields)
+      const trayLine = describeImageFields(images)
+      photoTrace('ui_tray_resolved', {
+        client_id: clientId,
+        tray: sendPhotos.length,
+        summary: trayLine,
+        steps,
+        text_len: draft.length
+      })
+      const missing = fieldsMissingBytes(images)
+      if (sendPhotos.length && missing.length) {
+        const msg =
+          `Лоток «Прикреплённые фото · ${sendPhotos.length}», но байты не скачались: ${trayLine}. ` +
+          'Текст НЕ отправлен. Лог: ~/.hermes/moysklad/photo_send.log'
+        photoTrace('ui_refuse_no_bytes', { client_id: clientId, summary: trayLine, steps })
+        setError(msg)
+        setActionStatus('')
+        return
+      }
+
+      setActionStatus(
+        images.length
+          ? `Шлём текст, потом фото ${images.length} отдельным сообщением…`
+          : 'Отправка через Telegram…'
+      )
 
       const data = await call<{
         conversation?: ClientConversation
@@ -7025,6 +7091,7 @@ function CampaignsPage() {
           skipped?: boolean
           photos_sent?: number
           photos_total?: number
+          photo_log?: string
         }
       }>('/campaigns/mark-sent', {
         method: 'POST',
@@ -7035,8 +7102,15 @@ function CampaignsPage() {
           client_id: clientId,
           open_deep_link: true,
           deliver: true,
-          images
+          images: []
         }
+      })
+      photoTrace('ui_text_done', {
+        client_id: clientId,
+        ok: data.delivery?.ok,
+        skipped: data.delivery?.skipped,
+        detail: data.delivery?.detail,
+        via: (data.delivery as { via?: string } | undefined)?.via
       })
 
       setLastSentClientIds(ids => mergeUniqueIds(ids, [clientId]))
@@ -7048,32 +7122,98 @@ function CampaignsPage() {
       }
 
       if (data.delivery?.ok) {
+        let photosSent = 0
+        const photoErrors: string[] = []
+        for (let i = 0; i < images.length; i++) {
+          const shot = images[i]!
+          setActionStatus(`Текст ушёл. Шлём фото ${i + 1}/${images.length} отдельным сообщением…`)
+          photoTrace('ui_photo_start', {
+            client_id: clientId,
+            index: i,
+            total: images.length,
+            name: shot.image_name,
+            b64_len: shot.image_base64.length
+          })
+          try {
+            const photoRes = await call<{
+              ok?: boolean
+              delivery?: {
+                ok?: boolean
+                detail?: string
+                error?: string
+                via?: string
+                photo_via?: string
+                photos_sent?: number
+                message_id?: number
+              }
+            }>('/campaigns/send-photo', {
+              method: 'POST',
+              timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
+              body: {
+                client_id: clientId,
+                channel,
+                image_base64: shot.image_base64,
+                image_name: shot.image_name
+              }
+            })
+            const ok = Boolean(photoRes.ok ?? photoRes.delivery?.ok)
+            photoTrace('ui_photo_done', {
+              client_id: clientId,
+              index: i,
+              ok,
+              via: photoRes.delivery?.via || photoRes.delivery?.photo_via,
+              detail: photoRes.delivery?.detail,
+              error: photoRes.delivery?.error,
+              message_id: photoRes.delivery?.message_id
+            })
+            if (ok) {
+              photosSent += 1
+            } else {
+              photoErrors.push(
+                String(photoRes.delivery?.detail || photoRes.delivery?.error || 'фото не ушло')
+              )
+            }
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err)
+            photoErrors.push(detail)
+            photoTrace('ui_photo_http_fail', { client_id: clientId, index: i, detail })
+          }
+        }
+
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
-        setSendPhotos([])
-        const photosSent = Number(data.delivery.photos_sent ?? 0)
-        const photosTotal = Number(data.delivery.photos_total ?? images.length)
+        if (photoErrors.length === 0) {
+          setSendPhotos([])
+        }
         setActionStatus(
-          photosSent > 0
-            ? `✓ Ушло: текст + фото ${photosSent}${photosTotal && photosTotal !== photosSent ? `/${photosTotal}` : ''}. Выберите другого клиента или соберите ответы.`
-            : images.length
-              ? '✓ Текст ушёл, но фото сервер не подтвердил — проверьте доставку.'
-              : '✓ Ушло. Выберите другого клиента или соберите ответы.'
+          images.length === 0
+            ? '✓ Ушло. Выберите другого клиента или соберите ответы.'
+            : photosSent === images.length
+              ? `✓ Ушло: текст + фото ${photosSent}/${images.length} отдельными сообщениями.`
+              : `⚠ Текст ушёл, фото ${photosSent}/${images.length}: ${photoErrors.slice(0, 2).join('; ')}`
         )
+        if (photoErrors.length) {
+          setError(`Telegram фото: ${photoErrors.slice(0, 3).join('; ')} · лог ~/.hermes/moysklad/photo_send.log`)
+        }
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
         applyOfferText(draft, `⚠ В историю записано; Bot API: ${detail}`)
         setError(`Telegram: ${detail}`)
         setActionStatus('')
+        photoTrace('ui_text_fail', { client_id: clientId, detail })
       } else {
         applyOfferText(draft, '⚠ НЕ доставлено в Telegram — записано только в историю (клиент недоступен или доставка не настроена).')
         setActionStatus('✓ В истории. Можно выбрать следующего клиента.')
+        photoTrace('ui_text_skipped', { client_id: clientId, delivery: data.delivery })
       }
 
       if (data.deep_link) {
         window.open(data.deep_link, '_blank', 'noopener')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const detail = err instanceof Error ? err.message : String(err)
+      console.error('[ms-photo] send failed', err)
+      photoTrace('ui_send_crash', { detail })
+      setError(detail)
       setActionStatus('')
       setBatchProgress('')
     } finally {

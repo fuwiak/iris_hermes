@@ -455,6 +455,7 @@ export function installHermesDesktopStub(): void {
       }
     },
     saveImageFromUrl: async () => false,
+    fetchUrlAsDataUrl: async () => "",
     saveImageBuffer: async () => {
       throw new Error("Saving files is not available in the browser dashboard.");
     },

@@ -2186,10 +2186,18 @@ def send_photo(
     «текст ушёл, фото нет».
     """
     if not image_bytes and not str(image_url or "").strip():
+        log.info("telegram_user send_photo missing image peer=%s", peer)
         return _err("image_missing", "Нет фото (bytes/url)")
 
     caption_s = (caption or "")[:1024]
     name = image_name or "photo.jpg"
+    log.info(
+        "telegram_user send_photo peer=%s bytes=%s url=%s gateway=%s",
+        peer,
+        len(image_bytes or b""),
+        bool(str(image_url or "").strip()),
+        bool(_gateway_base()),
+    )
 
     if _gateway_base():
         payload: dict[str, Any] = {
@@ -2211,6 +2219,7 @@ def send_photo(
         )
         if res.get("ok"):
             res["via"] = "user_account_photo_gateway"
+            log.info("telegram_user send_photo gateway ok peer=%s mid=%s", peer, res.get("message_id"))
             return res
         # Text-only / old gateway — do not abort; local MTProto may still work.
         log.info(

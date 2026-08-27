@@ -30,6 +30,25 @@ export interface ImageSendFields {
   image_name: string
 }
 
+export interface PhotoResolveStep {
+  name: string
+  url: string
+  via: 'already' | 'fetch' | 'electron' | 'canvas' | 'none'
+  byteLength: number
+  error?: string
+}
+
+export interface ResolvePhotoDeps {
+  fetchImpl?: typeof fetch
+  toDataUrl?: (blob: Blob) => Promise<string>
+  rasterize?: (url: string) => Promise<string>
+  /** Main-process download (no CORS). Desktop only. */
+  electronFetch?: (url: string) => Promise<string>
+  onStep?: (step: PhotoResolveStep) => void
+  fetchTimeoutMs?: number
+  canvasTimeoutMs?: number
+}
+
 /** Stable React key / remove handle — never reuse across adds. */
 export function newPhotoId(): string {
   return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
@@ -122,6 +141,25 @@ export function buildImageSendFields(image: SendImageLike | null | undefined): I
   return { image_url: url, image_base64: '', image_name }
 }
 
+/** Compact tray line for the status bar / breadcrumb log. No payload. */
+export function describeImageFields(fields: ImageSendFields[]): string {
+  if (!fields.length) {
+    return 'tray=0'
+  }
+  return fields
+    .map((item, idx) => {
+      const raw = (item.image_base64 || '').replace(/^data:[^,]*,/, '')
+      const bytes = raw ? Math.floor((raw.length * 3) / 4) : 0
+      const url = (item.image_url || '').slice(0, 48)
+      return `#${idx + 1} ${item.image_name} bytes=${bytes}${url ? ` url=${url}` : ''}`
+    })
+    .join('; ')
+}
+
+export function fieldsMissingBytes(fields: ImageSendFields[]): ImageSendFields[] {
+  return fields.filter(item => !String(item.image_base64 || '').trim())
+}
+
 /** Normalize a marketplace photo for composer state (url or dataUrl). */
 export function cardPhotoAttachment(name: string, photoUrl: string): ComposerImage {
   const url = normalizeRemoteImageUrl(photoUrl)
@@ -133,6 +171,31 @@ export function cardPhotoAttachment(name: string, photoUrl: string): ComposerIma
 
 /** Telegram rejects anything past 10 MB; stay under it before we upload. */
 export const MAX_PHOTO_BYTES = 9 * 1024 * 1024
+export const PHOTO_FETCH_TIMEOUT_MS = 12_000
+export const PHOTO_CANVAS_TIMEOUT_MS = 8_000
+
+function dataUrlByteLength(dataUrl: string): number {
+  const raw = String(dataUrl || '')
+    .trim()
+    .replace(/^data:[^,]*,/, '')
+  return raw ? Math.floor((raw.length * 3) / 4) : 0
+}
+
+async function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>(resolve => {
+        timer = setTimeout(() => resolve(fallback), ms)
+      })
+    ])
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
+}
 
 /**
  * Turn a remote card photo into bytes, in the client, before sending.
@@ -140,18 +203,17 @@ export const MAX_PHOTO_BYTES = 9 * 1024 * 1024
  * The backend does not always have egress to the marketplace CDNs — a send
  * came back «Текст ушёл, фото 0/1: [Errno 101] Network is unreachable» — and
  * MTProto/Bot API cannot fetch what the server cannot reach either. The app
- * itself CAN: it renders these very thumbnails, and both flowwow and Yandex
- * answer with `access-control-allow-origin: *`. So download here and upload
- * the bytes.
+ * itself CAN: it renders these very thumbnails. Download here and upload bytes.
  *
- * Best-effort: anything that goes wrong (CORS, offline, oversize) returns the
- * photo untouched, and the URL still rides to the backend as before.
+ * Timeouts are mandatory: a hung fetch used to freeze «Отправка через Telegram…»
+ * forever after the text had already left.
  */
 export async function rasterizeRemoteImage(
   url: string,
   deps: {
     ImageCtor?: typeof Image
     documentObj?: Pick<Document, 'createElement'>
+    timeoutMs?: number
   } = {}
 ): Promise<string> {
   const href = normalizeRemoteImageUrl(url)
@@ -166,7 +228,19 @@ export async function rasterizeRemoteImage(
     return ''
   }
 
+  const timeoutMs = deps.timeoutMs ?? PHOTO_CANVAS_TIMEOUT_MS
+
   return new Promise(resolve => {
+    let settled = false
+    const finish = (value: string) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(''), timeoutMs)
     const img = new ImageCtor()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
@@ -175,72 +249,153 @@ export async function rasterizeRemoteImage(
         canvas.width = img.naturalWidth || img.width
         canvas.height = img.naturalHeight || img.height
         if (!canvas.width || !canvas.height) {
-          resolve('')
+          finish('')
           return
         }
         const ctx = canvas.getContext('2d')
         if (!ctx) {
-          resolve('')
+          finish('')
           return
         }
         ctx.drawImage(img, 0, 0)
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-        resolve(isDataImageUrl(dataUrl) ? dataUrl : '')
+        finish(isDataImageUrl(dataUrl) ? dataUrl : '')
       } catch {
-        resolve('')
+        finish('')
       }
     }
-    img.onerror = () => resolve('')
+    img.onerror = () => finish('')
     img.src = href
   })
 }
 
+function defaultElectronFetch(): ((url: string) => Promise<string>) | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+  const fn = window.hermesDesktop?.fetchUrlAsDataUrl
+  return typeof fn === 'function' ? (href: string) => fn.call(window.hermesDesktop, href) : undefined
+}
+
 export async function resolvePhotoBytes(
   photo: SendImageLike,
-  deps: {
-    fetchImpl?: typeof fetch
-    toDataUrl?: (blob: Blob) => Promise<string>
-    rasterize?: (url: string) => Promise<string>
-  } = {}
+  deps: ResolvePhotoDeps = {}
 ): Promise<SendImageLike> {
   const url = normalizeRemoteImageUrl(photo.url || '')
+  const emit = (step: PhotoResolveStep) => {
+    try {
+      deps.onStep?.(step)
+    } catch {
+      // logging must not break a send
+    }
+  }
 
   if (isDataImageUrl(photo.dataUrl || '') || !isHttpImageUrl(url)) {
+    emit({
+      name: photo.name || '',
+      url,
+      via: isDataImageUrl(photo.dataUrl || '') ? 'already' : 'none',
+      byteLength: dataUrlByteLength(photo.dataUrl || '')
+    })
     return photo
   }
 
   const doFetch = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined)
+  const fetchTimeout = deps.fetchTimeoutMs ?? PHOTO_FETCH_TIMEOUT_MS
 
   if (doFetch) {
     try {
-      const resp = await doFetch(url, { mode: 'cors', referrerPolicy: 'no-referrer' } as RequestInit)
+      const controller = typeof AbortController === 'function' ? new AbortController() : undefined
+      const abortTimer = controller ? setTimeout(() => controller.abort(), fetchTimeout) : undefined
+      const resp = await withTimeout(
+        doFetch(url, {
+          mode: 'cors',
+          referrerPolicy: 'no-referrer',
+          signal: controller?.signal
+        } as RequestInit),
+        fetchTimeout,
+        null as unknown as Response
+      )
+      if (abortTimer) {
+        clearTimeout(abortTimer)
+      }
 
-      if (resp.ok) {
+      if (resp && resp.ok) {
         const blob = await resp.blob()
 
         if (blob.size && blob.size <= MAX_PHOTO_BYTES) {
           const dataUrl = await (deps.toDataUrl ?? blobToDataUrl)(blob)
 
           if (isDataImageUrl(dataUrl)) {
+            emit({
+              name: photo.name || '',
+              url,
+              via: 'fetch',
+              byteLength: blob.size
+            })
             return { ...photo, dataUrl }
           }
         }
       }
-    } catch {
-      // CORS on fetch() is common even when <img> already painted the card.
+    } catch (err) {
+      emit({
+        name: photo.name || '',
+        url,
+        via: 'none',
+        byteLength: 0,
+        error: `fetch:${err instanceof Error ? err.message : String(err)}`
+      })
     }
   }
 
-  const rasterize = deps.rasterize ?? ((href: string) => rasterizeRemoteImage(href))
+  const electronFetch = deps.electronFetch ?? defaultElectronFetch()
+  if (electronFetch) {
+    try {
+      const painted = await withTimeout(electronFetch(url), fetchTimeout, '')
+      if (isDataImageUrl(painted) && dataUrlByteLength(painted) <= MAX_PHOTO_BYTES) {
+        emit({
+          name: photo.name || '',
+          url,
+          via: 'electron',
+          byteLength: dataUrlByteLength(painted)
+        })
+        return { ...photo, dataUrl: painted }
+      }
+    } catch (err) {
+      emit({
+        name: photo.name || '',
+        url,
+        via: 'none',
+        byteLength: 0,
+        error: `electron:${err instanceof Error ? err.message : String(err)}`
+      })
+    }
+  }
+
+  const rasterize =
+    deps.rasterize ?? ((href: string) => rasterizeRemoteImage(href, { timeoutMs: deps.canvasTimeoutMs }))
   try {
     const painted = await rasterize(url)
     if (isDataImageUrl(painted)) {
+      emit({
+        name: photo.name || '',
+        url,
+        via: 'canvas',
+        byteLength: dataUrlByteLength(painted)
+      })
       return { ...photo, dataUrl: painted }
     }
-  } catch {
-    // tainted canvas / no DOM
+  } catch (err) {
+    emit({
+      name: photo.name || '',
+      url,
+      via: 'none',
+      byteLength: 0,
+      error: `canvas:${err instanceof Error ? err.message : String(err)}`
+    })
   }
 
+  emit({ name: photo.name || '', url, via: 'none', byteLength: 0, error: 'no_bytes' })
   return photo
 }
 
@@ -257,7 +412,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 /** Resolve a whole tray, keeping order; failures fall back to their URL. */
 export function resolveTrayBytes(
   photos: readonly SendImageLike[],
-  deps?: Parameters<typeof resolvePhotoBytes>[1]
+  deps?: ResolvePhotoDeps
 ): Promise<SendImageLike[]> {
   return Promise.all(photos.map(photo => resolvePhotoBytes(photo, deps)))
 }

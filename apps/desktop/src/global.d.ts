@@ -134,6 +134,8 @@ declare global {
       writeClipboard: (text: string) => Promise<boolean>
       readClipboard: () => Promise<string>
       saveImageFromUrl: (url: string) => Promise<boolean>
+      /** Main-process HTTP GET → data URL. Bypasses renderer CORS for marketplace CDNs. */
+      fetchUrlAsDataUrl?: (url: string) => Promise<string>
       saveImageBuffer: (data: ArrayBuffer | Uint8Array, ext: string) => Promise<string>
       saveClipboardImage: () => Promise<string>
       getPathForFile: (file: File) => string

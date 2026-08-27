@@ -4815,6 +4815,91 @@ async function resourceBufferFromUrl(rawUrl) {
   })
 }
 
+const MAX_OUTREACH_PHOTO_BYTES = 9 * 1024 * 1024
+
+function httpGetBuffer(rawUrl, timeoutMs = 15_000, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    let parsed
+    try {
+      parsed = new URL(String(rawUrl || ''))
+    } catch (err) {
+      reject(err)
+      return
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      reject(new Error(`Unsupported photo URL protocol: ${parsed.protocol}`))
+      return
+    }
+
+    const client = parsed.protocol === 'https:' ? https : http
+    const req = client.get(parsed, res => {
+      const code = res.statusCode || 500
+      const location = res.headers.location
+
+      if (code >= 300 && code < 400 && location && redirectsLeft > 0) {
+        res.resume()
+        const next = new URL(String(location), parsed).href
+        resolve(httpGetBuffer(next, timeoutMs, redirectsLeft - 1))
+        return
+      }
+
+      if (code >= 400) {
+        reject(new Error(`Failed to fetch ${rawUrl}: ${code}`))
+        res.resume()
+        return
+      }
+
+      const chunks = []
+      let size = 0
+      res.on('error', reject)
+      res.on('data', chunk => {
+        size += chunk.length
+        if (size > MAX_OUTREACH_PHOTO_BYTES) {
+          req.destroy()
+          reject(new Error('Photo exceeds 9 MB'))
+          return
+        }
+        chunks.push(chunk)
+      })
+      res.on('end', () => {
+        resolve({
+          buffer: Buffer.concat(chunks),
+          mimeType: res.headers['content-type'] || 'image/jpeg'
+        })
+      })
+    })
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Timed out fetching photo after ${timeoutMs}ms`))
+    })
+    req.on('error', reject)
+  })
+}
+
+/** Renderer CORS cannot read marketplace CDNs; main process can. Returns data URL or ''. */
+async function fetchUrlAsDataUrl(rawUrl) {
+  const url = String(rawUrl || '').trim()
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return ''
+  }
+
+  try {
+    const { buffer, mimeType } = await httpGetBuffer(url)
+    if (!buffer?.length) {
+      return ''
+    }
+    let mime = String(mimeType || 'image/jpeg').split(';')[0].trim() || 'image/jpeg'
+    if (!mime.startsWith('image/')) {
+      mime = 'image/jpeg'
+    }
+    return `data:${mime};base64,${buffer.toString('base64')}`
+  } catch (error) {
+    rememberLog(`fetchUrlAsDataUrl failed: ${error?.message || error}`)
+    return ''
+  }
+}
+
 async function copyImageFromUrl(rawUrl) {
   const { buffer } = (await resourceBufferFromUrl(rawUrl)) as any
   const image = nativeImage.createFromBuffer(buffer)
@@ -10516,6 +10601,8 @@ ipcMain.handle('hermes:writeClipboard', (_event, text) => {
 ipcMain.handle('hermes:readClipboard', () => clipboard.readText())
 
 ipcMain.handle('hermes:saveImageFromUrl', (_event, url) => saveImageFromUrl(String(url || '')))
+
+ipcMain.handle('hermes:fetchUrlAsDataUrl', (_event, url) => fetchUrlAsDataUrl(String(url || '')))
 
 ipcMain.handle('hermes:saveImageBuffer', async (_event, payload) => {
   const data = payload?.data
