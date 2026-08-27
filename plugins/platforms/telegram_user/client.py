@@ -2172,6 +2172,7 @@ def send_photo(
     image_bytes: bytes | None = None,
     image_name: str = "photo.jpg",
     image_url: str = "",
+    timeout: float = 120.0,
 ) -> dict[str, Any]:
     """Send a photo from the connected personal account.
 
@@ -2215,7 +2216,7 @@ def send_photo(
             "POST",
             "send_photo",
             json_body=payload,
-            timeout=120.0,
+            timeout=max(1.0, float(timeout)),
         )
         if res.get("ok"):
             res["via"] = "user_account_photo_gateway"
@@ -2261,7 +2262,7 @@ def send_photo(
             "via": "user_account_photo",
         }
 
-    return _call(_send, timeout=120.0)
+    return _call(_send, timeout=max(1.0, float(timeout)))
 
 
 def _message_ts(msg: Any) -> str:

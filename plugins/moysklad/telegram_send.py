@@ -392,6 +392,7 @@ def _send_photo_via_user_account(
     image_bytes: bytes | None,
     image_name: str,
     image_url: str,
+    timeout: float = 5.0,
 ) -> dict[str, Any] | None:
     """Photo from the operator's own account. ``None`` when it isn't connected.
 
@@ -430,6 +431,7 @@ def _send_photo_via_user_account(
             image_bytes=image_bytes,
             image_name=image_name or "photo.jpg",
             image_url="",
+            timeout=max(1.0, float(timeout)),
         )
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("telegram user photo send crashed: %s", exc)
@@ -518,6 +520,16 @@ def send_delay_seconds() -> float:
     except ValueError:
         ms = 350.0
     return max(0.0, min(ms, 10_000.0)) / 1000.0
+
+
+def photo_send_step_timeout_seconds() -> float:
+    """Per-method timeout before hopping to the next photo-send fallback."""
+    raw = (os.getenv("MOYSKLAD_TELEGRAM_PHOTO_STEP_TIMEOUT_SEC") or "").strip()
+    try:
+        sec = float(raw) if raw else 5.0
+    except ValueError:
+        sec = 5.0
+    return max(1.0, min(sec, 30.0))
 
 
 def telegram_send_mode() -> str:
@@ -664,6 +676,8 @@ def send_telegram_message(
     mode = (via or telegram_send_mode()).strip().lower()
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
+    step_timeout = photo_send_step_timeout_seconds()
+    raw_image_url = _normalize_image_url(image_url)
 
     photo_trace(
         "send_message_enter",
@@ -697,6 +711,7 @@ def send_telegram_message(
                 image_bytes=image_bytes,
                 image_name=image_name or "photo.jpg",
                 image_url=resolved_url,
+                timeout=step_timeout,
             )
             if user_photo is not None and user_photo.get("ok"):
                 return user_photo
@@ -731,8 +746,9 @@ def send_telegram_message(
             chat_id=chat_id,
             has_bytes=bool(image_bytes),
             url=resolved_url,
+            timeout_sec=step_timeout,
         )
-        return _send_photo_via_bot(
+        bot_photo = _send_photo_via_bot(
             text=text,
             chat_id=chat_id,
             image_bytes=image_bytes,
@@ -740,8 +756,46 @@ def send_telegram_message(
             image_url=resolved_url,
             business_connection_id=business_connection_id,
             token=token,
-            timeout=max(timeout, 60.0),
+            timeout=step_timeout,
         )
+        if bot_photo.get("ok"):
+            return bot_photo
+        # Final fallback: multipart upload can fail while Telegram-side URL fetch
+        # still works, so try the same photo as URL before giving up.
+        fallback_url = (
+            resolved_url
+            if resolved_url.startswith(("http://", "https://"))
+            else (raw_image_url if raw_image_url.startswith(("http://", "https://")) else "")
+        )
+        if image_bytes and fallback_url:
+            photo_trace(
+                "photo_fallback_bot_url",
+                chat_id=chat_id,
+                reason="bot_bytes_failed",
+                error=bot_photo.get("error"),
+                detail=bot_photo.get("detail"),
+                url=fallback_url,
+                timeout_sec=step_timeout,
+            )
+            bot_url = _send_photo_via_bot(
+                text=text,
+                chat_id=chat_id,
+                image_bytes=None,
+                image_name=image_name or "photo.jpg",
+                image_url=fallback_url,
+                business_connection_id=business_connection_id,
+                token=token,
+                timeout=step_timeout,
+            )
+            if bot_url.get("ok"):
+                return bot_url
+            photo_trace(
+                "photo_fallback_bot_url_fail",
+                chat_id=chat_id,
+                error=bot_url.get("error"),
+                detail=bot_url.get("detail"),
+            )
+        return bot_photo
 
     if image_wanted:
         why = _LAST_IMAGE_FETCH_ERROR

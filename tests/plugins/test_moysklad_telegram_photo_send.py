@@ -232,7 +232,7 @@ def test_live_photo_send_to_recipient():
 def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls):
     sent: list[dict] = []
 
-    def fake_send_photo(*, peer, caption, image_bytes, image_name, image_url):
+    def fake_send_photo(*, peer, caption, image_bytes, image_name, image_url, timeout):
         sent.append(
             {
                 "peer": peer,
@@ -240,6 +240,7 @@ def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls
                 "has_bytes": bool(image_bytes),
                 "image_name": image_name,
                 "image_url": image_url,
+                "timeout": timeout,
             }
         )
         return {"ok": True, "message_id": 555, "chat_id": "796461007"}
@@ -265,6 +266,7 @@ def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls
             "has_bytes": True,
             "image_name": "bouquet.jpg",
             "image_url": "",
+            "timeout": 5.0,
         }
     ]
     # Фото бот не трогал — иначе получатель картинку бы не увидел.
@@ -326,6 +328,39 @@ def test_photo_via_user_mode_falls_back_to_bot(monkeypatch, bot_env, api_calls):
     assert out["ok"] is True
     assert out["via"] == "business_bot_photo"
     assert [c["method"] for c in api_calls] == ["sendPhoto"]
+
+
+def test_photo_bot_retries_url_after_bytes_failure(monkeypatch, bot_env):
+    attempts: list[dict[str, object]] = []
+
+    def fake_bot(**kw):
+        attempts.append(
+            {
+                "has_bytes": bool(kw.get("image_bytes")),
+                "image_url": kw.get("image_url"),
+                "timeout": kw.get("timeout"),
+            }
+        )
+        if len(attempts) == 1:
+            return {"ok": False, "error": "timeout", "detail": "step timeout"}
+        return {"ok": True, "via": "business_bot_photo", "message_id": 2, "chat_id": RECIPIENT_NICK}
+
+    monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
+    monkeypatch.setattr(tg, "_send_photo_via_bot", fake_bot)
+
+    out = tg.send_telegram_message(
+        text=CAPTION,
+        chat_id=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+        image_url="https://market.example/fallback.jpg",
+    )
+
+    assert out["ok"] is True
+    assert out["via"] == "business_bot_photo"
+    assert attempts == [
+        {"has_bytes": True, "image_url": "", "timeout": 5.0},
+        {"has_bytes": False, "image_url": "https://market.example/fallback.jpg", "timeout": 5.0},
+    ]
 
 
 def test_personal_photo_splits_long_caption(monkeypatch, bot_env, api_calls):
