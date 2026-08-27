@@ -752,6 +752,17 @@ def enrich_client_row(client: dict[str, Any]) -> dict[str, Any]:
             via = str(entry.get("via") or "").strip()
             if via:
                 client["tg_active_via"] = via
+            # «Статус» column mirrors file status= — never AI «новый».
+            client["state"] = (
+                "АКТИВНЫЙ" if active else "НЕАКТИВНЫЙ"
+            )
+            # Strip legacy AI green marker on status.
+            ai_fields = [
+                f
+                for f in list(client.get("ai_fields") or [])
+                if f != "state"
+            ]
+            client["ai_fields"] = ai_fields
     except Exception:
         pass
     phone = str(client.get("phone") or "")

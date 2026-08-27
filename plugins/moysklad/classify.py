@@ -424,12 +424,25 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         str(row.get("Группы") or "").strip()
         or ", ".join(ms_tags)
     )
+    from plugins.moysklad.dedupe import normalize_phone as _norm_phone
+
+    has_phone = bool(_norm_phone(row.get("Телефон") or row.get("phone")))
+    if row.get("tg_active") is True:
+        tg_state = "АКТИВНЫЙ"
+    elif row.get("tg_active") is False:
+        tg_state = "НЕАКТИВНЫЙ"
+    elif has_phone:
+        tg_state = "НЕ ПРОВЕРЕН"
+    else:
+        tg_state = ""
     public = {
         "id": row.get("_moysklad_id") or "",
         "name": row.get("Наименование") or "",
         "phone": row.get("Телефон") or "",
         "email": row.get("email") or row.get("E-mail") or "",
-        "state": row.get("_moysklad_state") or row.get("Статус") or "",
+        # «Статус» column = IRbots TG only. MoySklad counterparty state → ms_state.
+        "state": tg_state,
+        "ms_state": row.get("_moysklad_state") or row.get("Статус") or "",
         "tags": ms_tags,
         "groups": ms_groups,
         "ms_groups": ms_groups,

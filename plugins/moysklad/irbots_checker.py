@@ -689,3 +689,158 @@ def write_full_report(
     )
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out
+
+
+def parse_status_report(path: Path) -> dict[str, dict[str, Any]]:
+    """Parse ``irbots_clients_status.txt`` → client_id → overlay entry."""
+    text = path.read_text(encoding="utf-8")
+    out: dict[str, dict[str, Any]] = {}
+    for line in text.splitlines():
+        if not line.startswith("id="):
+            continue
+        parts = dict(p.split("=", 1) for p in line.split(" | ") if "=" in p)
+        cid = str(parts.get("id") or "").strip()
+        if not cid:
+            continue
+        status = str(parts.get("status") or "").strip().upper()
+        if status == "АКТИВНЫЙ":
+            active: bool | None = True
+        elif status == "НЕАКТИВНЫЙ":
+            active = False
+        else:
+            continue  # НЕ ПРОВЕРЕН — leave unchecked
+        checked_raw = str(parts.get("checked_at") or "").strip()
+        checked_at = time.time()
+        if checked_raw:
+            try:
+                checked_at = time.mktime(
+                    time.strptime(checked_raw, "%Y-%m-%d %H:%M:%S")
+                )
+            except ValueError:
+                pass
+        out[cid] = {
+            "active": active,
+            "checked_at": checked_at,
+            "resolved_nick": "",
+            "chat_id": "",
+            "via": str(parts.get("via") or "irbots").strip() or "irbots",
+            "detail": str(parts.get("detail") or "").strip(),
+        }
+    return out
+
+
+def apply_status_report_file(
+    path: Path | None = None,
+    *,
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Force overlay + catalog from the status text file (source of truth).
+
+    Wipes AI «новый» status pollution: clears page snapshots, strips ``state``
+    from ai_fill cache, stamps catalog, rewrites durable cache.
+    """
+    from plugins.moysklad.tg_verify import (
+        persist_verify_into_catalog,
+        save_verify_results_bulk,
+        save_overlay,
+        _empty_overlay,
+    )
+
+    report = path or (get_hermes_home() / "moysklad" / "irbots_clients_status.txt")
+    if not report.is_file():
+        alt = Path(__file__).resolve().parents[2] / "data" / "irbots_clients_status.txt"
+        if alt.is_file():
+            report = alt
+    if not report.is_file():
+        return {"ok": False, "error": f"missing report: {report}"}
+
+    parsed = parse_status_report(report)
+    # Replace overlay entirely with file contents.
+    save_overlay(_empty_overlay())
+    written = save_verify_results_bulk(parsed)
+
+    stripped_ai = _strip_ai_fill_state_fields()
+    persisted = persist_verify_into_catalog(rows)
+    return {
+        "ok": True,
+        "report": str(report),
+        "parsed": len(parsed),
+        "written": written,
+        "ai_state_stripped": stripped_ai,
+        "catalog": persisted,
+    }
+
+
+def _strip_ai_fill_state_fields() -> dict[str, int]:
+    """Remove legacy AI ``state`` / «новый» from ai_fill cache entries."""
+    try:
+        from plugins.moysklad import ai_fill
+    except Exception:
+        return {"entries": 0, "stripped": 0}
+
+    stripped = 0
+    entries = 0
+    root = get_hermes_home() / "moysklad" / "ai_fill_cache"
+    if root.is_dir():
+        for path in root.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            entries += 1
+            fields = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+            ai_fields = list(data.get("ai_fields") or [])
+            changed = False
+            if "state" in fields:
+                fields.pop("state", None)
+                changed = True
+            if "state" in ai_fields:
+                ai_fields = [f for f in ai_fields if f != "state"]
+                changed = True
+            if changed:
+                data["fields"] = fields
+                data["ai_fields"] = ai_fields
+                path.write_text(
+                    json.dumps(data, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+                stripped += 1
+                cid = str(data.get("client_id") or path.stem)
+                # Drop memory copy if present.
+                try:
+                    ai_fill._MEMORY.pop(cid, None)
+                except Exception:
+                    pass
+
+    legacy = get_hermes_home() / "moysklad" / "ai_fill.json"
+    if legacy.is_file():
+        try:
+            blob = json.loads(legacy.read_text(encoding="utf-8"))
+            by = blob.get("by_client_id") if isinstance(blob, dict) else None
+            if isinstance(by, dict):
+                for cid, entry in list(by.items()):
+                    if not isinstance(entry, dict):
+                        continue
+                    entries += 1
+                    fields = entry.get("fields") if isinstance(entry.get("fields"), dict) else {}
+                    ai_fields = list(entry.get("ai_fields") or [])
+                    if "state" in fields or "state" in ai_fields:
+                        fields.pop("state", None)
+                        entry["fields"] = fields
+                        entry["ai_fields"] = [f for f in ai_fields if f != "state"]
+                        by[cid] = entry
+                        stripped += 1
+                blob["by_client_id"] = by
+                legacy.write_text(
+                    json.dumps(blob, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+        except Exception:
+            pass
+
+    # Reset in-process AI fill memory so apply_ai_fill can't resurrect «новый».
+    try:
+        ai_fill._MEMORY.clear()
+    except Exception:
+        pass
+    return {"entries": entries, "stripped": stripped}

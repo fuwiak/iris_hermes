@@ -37,6 +37,11 @@ import {
   tgActiveStatusWord
 } from './tg-active-label'
 import {
+  type CardPhotoLike,
+  draftKeepsPhoto,
+  photoForDraftText
+} from './card-photo-sync'
+import {
   cardMessageBlock,
   CardPhotoPicker,
   CardsPage,
@@ -1196,7 +1201,16 @@ const CLIENT_COLUMNS: Array<{
 }> = [
   { key: 'name', label: 'Наименование', sortValue: r => r.name || '', render: r => r.name || '' },
   { key: 'phone', label: 'Телефон', sortValue: r => r.phone || '', render: r => r.phone || '' },
-  { key: 'state', label: 'Статус', sortValue: r => r.state || '', render: r => r.state || '' },
+  {
+    key: 'state',
+    label: 'Статус',
+    // IRbots TG only — never AI «новый» / MoySklad counterparty state.
+    sortValue: r => tgActiveStatusWord(r),
+    render: r =>
+      r.tg_active === true || r.tg_active === false || r.phone
+        ? tgActiveStatusWord(r)
+        : r.state || ''
+  },
   {
     key: 'sales_type',
     label: 'Тип канала продаж',
@@ -2849,7 +2863,7 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 100
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v5:'
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v6:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
@@ -2941,6 +2955,7 @@ function clearClientsLocalCaches(): void {
   try {
     const prefixes = [
       CLIENTS_LOCAL_CACHE_PREFIX,
+      'hermes.moysklad.clients.v5:',
       'hermes.moysklad.clients.v4:',
       'hermes.moysklad.clients.v3:'
     ]
@@ -4438,6 +4453,8 @@ function CampaignsPage() {
   const [sendImage, setSendImage] = useState<{ name: string; dataUrl?: string; url?: string } | null>(null)
   // Photo parks on empty lines only (drag + blank-run spacer — never over text).
   const [sendImagePos, setSendImagePos] = useState<PhotoOffset>(PHOTO_ORIGIN)
+  /** Marketplace titles+photos, so a text-only draft can get its picture back. */
+  const [photoCatalog, setPhotoCatalog] = useState<CardPhotoLike[] | null>(null)
   const msgBoxRef = useRef<HTMLDivElement>(null)
   const photoRef = useRef<HTMLDivElement>(null)
   const photoDragRef = useRef<PhotoDragStart | null>(null)
@@ -6460,6 +6477,70 @@ function CampaignsPage() {
   const [massCards, setMassCards] = useState<{ name: string; block: string; image: string }[]>([])
   const [massInsertMenu, setMassInsertMenu] = useState(false)
   const [massPhotoPicker, setMassPhotoPicker] = useState(false)
+
+  // A draft is persisted server-side as TEXT ONLY (set_outreach_draft keeps
+  // `message`, nothing else), so restoring one — picking another client,
+  // «Сгенерировать AI», «Букет из истории» — brought the «Карточка» blocks back
+  // with no picture and the send went out text-only. The blocks name their
+  // cards, so pull the catalog once and re-attach the photo from the text.
+  const draftMentionsCard = /«[^«»]{1,200}»/.test(offer) || /«[^«»]{1,200}»/.test(massText)
+
+  useEffect(() => {
+    if (!draftMentionsCard || photoCatalog) {
+      return
+    }
+
+    let alive = true
+
+    call<{ combined?: CardPhotoLike[] }>('/cards/marketplaces?limit=100', {
+      timeoutMs: 120_000
+    })
+      .then(payload => {
+        if (alive) {
+          setPhotoCatalog(payload.combined || [])
+        }
+      })
+      // Silent: a missing catalog only means no auto-photo, never a failed send.
+      .catch(() => {
+        if (alive) {
+          setPhotoCatalog([])
+        }
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [draftMentionsCard, photoCatalog, call])
+
+  useEffect(() => {
+    if (!photoCatalog?.length) {
+      return
+    }
+
+    const sync = (
+      text: string,
+      image: { name: string; dataUrl?: string; url?: string } | null
+    ) => {
+      // Uploads and hand-picked shots survive; a card photo only lives as long
+      // as its block does.
+      if (draftKeepsPhoto(text, image, photoCatalog)) {
+        return image
+      }
+
+      return photoForDraftText(text, photoCatalog)
+    }
+
+    setSendImage(prev => {
+      const next = sync(offer, prev)
+
+      return next === prev || (next?.url && next.url === prev?.url) ? prev : next
+    })
+    setMassImage(prev => {
+      const next = sync(massText, prev)
+
+      return next === prev || (next?.url && next.url === prev?.url) ? prev : next
+    })
+  }, [offer, massText, photoCatalog])
 
   const applyImageFile = useCallback((file: File) => {
     if (file.size > 9 * 1024 * 1024) {

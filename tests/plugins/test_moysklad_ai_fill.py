@@ -26,7 +26,7 @@ def test_is_empty_and_fillable_keys():
     }
     assert is_empty_cell("")
     assert is_empty_cell("—")
-    assert "state" in empty_fillable_keys(row)
+    assert "state" not in empty_fillable_keys(row)  # IRbots owns Статус
     assert "groups" in empty_fillable_keys(row)
     assert "sex" in empty_fillable_keys(row)
 
@@ -71,7 +71,7 @@ def test_sanitize_strips_direct_when_whatsapp_leaked_onto_mp_orders():
     assert "прямые продажи" not in proposed
 
 
-def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
+def test_heuristic_fill_groups_sex_no_state(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     clear_memory_for_tests()
     row = {
@@ -86,9 +86,31 @@ def test_heuristic_fill_groups_sex_state(tmp_path, monkeypatch):
     }
     fills = heuristic_fill_row(row)
     assert fills.get("sex") == "Женский"
-    assert fills.get("state") in {"активный", "новый", "спящий", "несостоявшийся"}
+    assert "state" not in fills  # IRbots owns Статус — never AI «новый»
     assert fills.get("groups")
     assert "постоянный клиент" in fills["groups"] or "премиум" in fills["groups"] or fills["groups"]
+
+
+def test_apply_ai_fill_ignores_legacy_state_новый(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    clear_memory_for_tests()
+    from plugins.moysklad.ai_fill import set_ai_fill_entry
+
+    set_ai_fill_entry(
+        "c-legacy",
+        {
+            "fields": {"state": "новый", "sex": "Женский"},
+            "ai_fields": ["state", "sex"],
+            "source": "heuristic",
+        },
+    )
+    public = apply_ai_fill_to_public(
+        {"id": "c-legacy", "name": "X", "state": "", "sex": "", "groups": "", "tags": []}
+    )
+    assert public.get("state") in ("", None)  # not «новый»
+    assert public.get("sex") == "Женский"
+    assert "state" not in (public.get("ai_fields") or [])
 
 
 def test_fill_empty_persists_ai_fields(tmp_path, monkeypatch):
@@ -116,7 +138,8 @@ def test_fill_empty_persists_ai_fields(tmp_path, monkeypatch):
         {"id": "c3", "name": "Анна Роза", "state": "", "groups": "", "tags": [], "sex": ""}
     )
     assert public.get("ai_fields")
-    assert public.get("state") or public.get("sex") or public.get("groups")
+    assert public.get("sex") or public.get("groups")
+    assert public.get("state") in ("", None)  # AI must not set Статус
     assert public.get("ai_fill_cached") is True
 
 

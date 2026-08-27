@@ -48,9 +48,10 @@ _MEMORY: dict[str, dict[str, Any]] = {}
 DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # Public API key → (row column candidates, human label for LLM)
+# NOTE: ``state`` / «Статус» is NOT AI-filled — column is owned by IRbots
+# TG check (АКТИВНЫЙ / НЕАКТИВНЫЙ). Heuristic «новый» polluted Клиенты.
 _FILLABLE: dict[str, tuple[tuple[str, ...], str]] = {
     "groups": (("Группы", "_moysklad_tags"), "Группы"),
-    "state": (("_moysklad_state", "Статус"), "Статус"),
     "sex": (("Пол",), "Пол"),
     "role": (("Заказчик или получатель",), "Заказчик или получатель"),
     "tg_nick": (("ТГ ник",), "ТГ ник"),
@@ -158,13 +159,13 @@ _FEMALE_EXPLICIT = frozenset(
 _SYSTEM = """Ты — аналитик CRM цветочного магазина (МойСклад).
 Заполни ТОЛЬКО пустые поля клиента. Не выдумывай телефоны, email, адреса, заказы.
 Отвечай строго JSON без markdown:
-{"results":[{"id":"...","Группы":["тег1","тег2"],"Статус":"...","Пол":"Мужской|Женский","Заказчик или получатель":"...","ТГ ник":"@nick или пусто","Тип контрагента":"..."}]}
+{"results":[{"id":"...","Группы":["тег1","тег2"],"Пол":"Мужской|Женский","Заказчик или получатель":"...","ТГ ник":"@nick или пусто","Тип контрагента":"..."}]}
 Правила:
-- Группы: короткие теги (премиум, постоянный клиент, новый, событие марта, 8 марта, маркетплейс, прямые продажи…)
+- Группы: короткие теги (премиум, постоянный клиент, событие марта, 8 марта, маркетплейс, прямые продажи…)
 - «прямые продажи» ставь ТОЛЬКО если в заказах есть реальный канал продаж Telegram / WhatsApp/MAX / Витрина / сайт.
   Группа МойСклада «WhatsApp» / «watsapp» / «Telegram» — это способ связи, НЕ канал продаж.
   Если заказы только с маркетплейсов (FlowWow, Ozon, WB и т.п.) — ставь «маркетплейс», не «прямые продажи».
-- Статус: активный / спящий / новый / архивный — по заказам
+- НЕ заполняй «Статус» — статус Telegram задаёт IRbots checker (АКТИВНЫЙ / НЕАКТИВНЫЙ), не модель.
 - Пол: только если ясно из имени; иначе опусти поле
 - ТГ ник: только если есть в данных; иначе опусти
 - Не заполняй поля, которые уже не пустые в current
@@ -557,8 +558,7 @@ def heuristic_fill_row(row: dict[str, Any]) -> dict[str, Any]:
             out["groups"] = sanitize_sales_type_groups(row, merged)
         elif proposed and is_empty_cell(existing):
             out["groups"] = sanitize_sales_type_groups(row, list(proposed))
-    if "state" in empty:
-        out["state"] = _guess_state(row)
+    # «Статус» is IRbots-only — never heuristic «новый» / «активный».
     if "sex" in empty:
         sex = _guess_sex_from_name(str(row.get("Наименование") or row.get("name") or ""))
         if sex:
@@ -785,6 +785,9 @@ def apply_ai_fill_to_public(client: dict[str, Any]) -> dict[str, Any]:
             out = _merge_ai_groups_into_public(out, ai_list)
             if ai_list:
                 ai_fields.append("groups")
+            continue
+        if key == "state":
+            # Legacy AI fills wrote «новый» here — ignore; IRbots owns Статус.
             continue
         if not is_empty_cell(out.get(key)):
             continue
