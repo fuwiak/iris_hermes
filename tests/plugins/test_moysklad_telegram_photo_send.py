@@ -4,6 +4,11 @@
 всего, потому что текстовая отправка продолжала работать, а фото молча
 уходило в другой метод Bot API.
 
+``send_outreach_to_client`` шлёт текст отдельным сообщением, а прикреплённые
+фото — следом за ним (подпись в 1024 символа не вмещает продающий черновик с
+несколькими карточками). Подпись и её обрезка живут уровнем ниже, в
+``send_telegram_message``, и проверяются там же.
+
 По умолчанию всё замокано и ничего наружу не уходит. Реальная отправка —
 только с MOYSKLAD_TG_PHOTO_LIVE=1 и настоящим токеном (см. хвост файла).
 """
@@ -69,6 +74,7 @@ def test_nick_resolves_to_recipient_chat_id():
 
 
 def test_send_uploaded_photo_to_recipient(bot_env, api_calls):
+    """Текст уходит сообщением, фото — следом, без подписи."""
     out = tg.send_outreach_to_client(
         text=CAPTION,
         tg_nick=RECIPIENT_NICK,
@@ -77,15 +83,35 @@ def test_send_uploaded_photo_to_recipient(bot_env, api_calls):
     )
 
     assert out["ok"] is True
-    assert out["via"] == "business_bot_photo"
-    assert out["message_id"] == 4242
+    assert out["photo_via"] == "business_bot_photo"
+    assert out["photos_sent"] == 1
 
-    assert len(api_calls) == 1
-    call = api_calls[0]
-    assert call["method"] == "sendPhoto"
-    assert call["json_body"]["chat_id"] == RECIPIENT_NICK
-    assert call["json_body"]["caption"] == CAPTION
-    assert call["files"] == {"photo": ("bouquet.jpg", PHOTO_BYTES)}
+    assert [c["method"] for c in api_calls] == ["sendMessage", "sendPhoto"]
+    assert api_calls[0]["json_body"]["text"] == CAPTION
+    photo = api_calls[1]
+    assert photo["json_body"]["chat_id"] == RECIPIENT_NICK
+    assert "caption" not in photo["json_body"]
+    assert photo["files"] == {"photo": ("bouquet.jpg", PHOTO_BYTES)}
+
+
+def test_every_tray_photo_is_delivered_in_order(bot_env, api_calls):
+    """Черновик с несколькими карточками: ни одно фото не теряется."""
+    out = tg.send_outreach_to_client(
+        text=CAPTION,
+        tg_nick=RECIPIENT_NICK,
+        images=[
+            {"url": "https://market.example/a.jpg", "name": "a.jpg"},
+            {"url": "//market.example/b.jpg", "name": "b.jpg"},
+        ],
+    )
+
+    assert out["ok"] is True
+    assert (out["photos_sent"], out["photos_total"]) == (2, 2)
+    assert [c["method"] for c in api_calls] == ["sendMessage", "sendPhoto", "sendPhoto"]
+    assert [c["json_body"]["photo"] for c in api_calls[1:]] == [
+        "https://market.example/a.jpg",
+        "https://market.example/b.jpg",
+    ]
 
 
 def test_send_data_url_photo_to_recipient(bot_env, api_calls):
@@ -97,7 +123,7 @@ def test_send_data_url_photo_to_recipient(bot_env, api_calls):
     )
 
     assert out["ok"] is True
-    assert api_calls[0]["files"] == {"photo": ("photo.jpg", PHOTO_BYTES)}
+    assert api_calls[1]["files"] == {"photo": ("photo.jpg", PHOTO_BYTES)}
 
 
 def test_send_card_photo_url_to_recipient(bot_env, api_calls):
@@ -109,16 +135,34 @@ def test_send_card_photo_url_to_recipient(bot_env, api_calls):
     )
 
     assert out["ok"] is True
-    call = api_calls[0]
+    call = api_calls[1]
     assert call["method"] == "sendPhoto"
     assert call["json_body"]["photo"] == "https://market.example/veresk-101.jpg"
     assert call["files"] is None
 
 
-def test_long_text_rides_as_caption_plus_tail(bot_env, api_calls):
-    """Caption обрезан на 1024 — остаток должен дойти отдельным сообщением."""
+def test_captioned_photo_still_splits_at_1024(bot_env, api_calls):
+    """Уровень ниже: если подпись всё же используется, остаток не теряется."""
     long_text = CAPTION + "\n" + ("описание букета " * 200)
     assert len(long_text) > 1024
+
+    out = tg.send_telegram_message(
+        text=long_text,
+        chat_id=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+    )
+
+    assert out["ok"] is True
+    assert out["tail_ok"] is True
+    assert [c["method"] for c in api_calls] == ["sendPhoto", "sendMessage"]
+    assert api_calls[0]["json_body"]["caption"] == long_text[:1024]
+    assert api_calls[1]["json_body"]["text"] == long_text[1024:].strip()
+    assert api_calls[1]["json_body"]["chat_id"] == RECIPIENT_NICK
+
+
+def test_long_draft_needs_no_caption_split(bot_env, api_calls):
+    """Через тред целиком: длинный текст уходит целым сообщением, потом фото."""
+    long_text = CAPTION + "\n" + ("описание букета " * 200)
 
     out = tg.send_outreach_to_client(
         text=long_text,
@@ -127,13 +171,9 @@ def test_long_text_rides_as_caption_plus_tail(bot_env, api_calls):
     )
 
     assert out["ok"] is True
-    assert out["tail_ok"] is True
-    methods = [c["method"] for c in api_calls]
-    assert methods == ["sendPhoto", "sendMessage"]
-    assert api_calls[0]["json_body"]["caption"] == long_text[:1024]
-    # Хвост уходит отдельным сообщением; send_telegram_message его стрипает.
-    assert api_calls[1]["json_body"]["text"] == long_text[1024:].strip()
-    assert api_calls[1]["json_body"]["chat_id"] == RECIPIENT_NICK
+    assert [c["method"] for c in api_calls] == ["sendMessage", "sendPhoto"]
+    assert api_calls[0]["json_body"]["text"] == long_text.strip()
+    assert "caption" not in api_calls[1]["json_body"]
 
 
 def test_photo_send_without_token_reports_business_bot(monkeypatch):
@@ -146,9 +186,9 @@ def test_photo_send_without_token_reports_business_bot(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
 
-    out = tg.send_outreach_to_client(
+    out = tg.send_telegram_message(
         text=CAPTION,
-        tg_nick=RECIPIENT_NICK,
+        chat_id=RECIPIENT_NICK,
         image_base64=PHOTO_B64,
     )
 
@@ -216,18 +256,19 @@ def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls
     )
 
     assert out["ok"] is True
-    assert out["via"] == "user_account_photo"
+    assert out["photo_via"] == "user_account_photo"
+    # Подпись пустая: текст ушёл своим сообщением.
     assert sent == [
         {
             "peer": RECIPIENT_NICK,
-            "caption": CAPTION,
+            "caption": "",
             "has_bytes": True,
             "image_name": "bouquet.jpg",
             "image_url": "",
         }
     ]
-    # Бот вообще не трогался — иначе получатель ничего бы не увидел.
-    assert api_calls == []
+    # Фото бот не трогал — иначе получатель картинку бы не увидел.
+    assert [c["method"] for c in api_calls] == ["sendMessage"]
 
 
 def test_photo_falls_back_to_bot_when_personal_account_fails(
@@ -248,8 +289,8 @@ def test_photo_falls_back_to_bot_when_personal_account_fails(
     )
 
     assert out["ok"] is True
-    assert out["via"] == "business_bot_photo"
-    assert [c["method"] for c in api_calls] == ["sendPhoto"]
+    assert out["photo_via"] == "business_bot_photo"
+    assert [c["method"] for c in api_calls] == ["sendMessage", "sendPhoto"]
 
 
 def test_photo_without_personal_account_still_uses_bot(monkeypatch, bot_env, api_calls):
@@ -263,7 +304,7 @@ def test_photo_without_personal_account_still_uses_bot(monkeypatch, bot_env, api
     )
 
     assert out["ok"] is True
-    assert out["via"] == "business_bot_photo"
+    assert out["photo_via"] == "business_bot_photo"
 
 
 def test_photo_via_user_mode_never_silently_uses_bot(monkeypatch, bot_env, api_calls):
@@ -306,9 +347,9 @@ def test_personal_photo_splits_long_caption(monkeypatch, bot_env, api_calls):
     monkeypatch.setattr(tg.tg_user, "load_config", lambda: {})
     monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "auto")
 
-    out = tg.send_outreach_to_client(
+    out = tg.send_telegram_message(
         text=long_text,
-        tg_nick=RECIPIENT_NICK,
+        chat_id=RECIPIENT_NICK,
         image_base64=PHOTO_B64,
     )
 

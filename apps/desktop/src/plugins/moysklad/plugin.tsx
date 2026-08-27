@@ -33,11 +33,6 @@ import {
   seedFactsFromAudienceRow
 } from './audience-pick'
 import {
-  tgActiveCellTitle,
-  tgActiveStatusWord,
-  tgStatusFilterParam
-} from './tg-active-label'
-import {
   cardMessageBlock,
   CardPhotoPicker,
   CardsPage,
@@ -78,6 +73,11 @@ import {
   cardPhotoAttachment,
   type ComposerImage
 } from './photo-send'
+import {
+  tgActiveCellTitle,
+  tgActiveStatusWord,
+  tgStatusFilterParam
+} from './tg-active-label'
 
 // Chat refine — DeepSeek only (OpenRouter id).
 // Verified live via OpenRouter on this key (probe 17.08.2026):
@@ -1303,9 +1303,11 @@ const CLIENT_COLUMNS: Array<{
     sortValue: r => (r.tg_active === true ? 1 : 0),
     render: r => {
       const word = tgActiveStatusWord(r)
+
       if (r.tg_active === true && r.tg_active_nick) {
         return `${word} · ${r.tg_active_nick}`
       }
+
       return word
     }
   },
@@ -3029,6 +3031,7 @@ function clearClientsLocalCaches(): void {
   if (typeof localStorage === 'undefined') {
     return
   }
+
   try {
     const prefixes = [
       CLIENTS_LOCAL_CACHE_PREFIX,
@@ -3036,16 +3039,21 @@ function clearClientsLocalCaches(): void {
       'hermes.moysklad.clients.v4:',
       'hermes.moysklad.clients.v3:'
     ]
+
     const doomed: string[] = []
+
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i)
+
       if (!key) {
         continue
       }
+
       if (prefixes.some(p => key.startsWith(p))) {
         doomed.push(key)
       }
     }
+
     for (const key of doomed) {
       localStorage.removeItem(key)
     }
@@ -3351,6 +3359,7 @@ function ClientsPage() {
 
         if (state?.running) {
           const p = state.progress
+
           if (p?.phase) {
             setTgImportNote(
               `TG телефоны: ${p.phase}` +
@@ -3359,6 +3368,7 @@ function ClientsPage() {
                 (p.inactive != null ? ` / нет ${p.inactive}` : '')
             )
           }
+
           continue
         }
 
@@ -3369,6 +3379,7 @@ function ClientsPage() {
           const irbots = state?.stats?.irbots || {}
           const live = state?.stats?.live || {}
           const bits: string[] = []
+
           if (irbots.phones != null || irbots.written != null) {
             bits.push(
               `IRbots телефонов ${irbots.phones ?? 0}` +
@@ -3377,15 +3388,18 @@ function ClientsPage() {
                 ` · cache ${irbots.cache_hits ?? 0} / api ${irbots.api_fetched ?? 0}`
             )
           }
+
           bits.push(
             `контакты ${cache.contacts_with_phone ?? 0} · совпало ${cache.matched ?? 0}`
           )
+
           if ((live.active ?? 0) + (live.inactive ?? 0) + (live.skipped ?? 0) > 0) {
             bits.push(
               `live OK ${live.active ?? 0} / нет ${live.inactive ?? 0}` +
                 ((live.skipped ?? 0) > 0 ? ` · skip ${live.skipped}` : '')
             )
           }
+
           setTgImportNote(`TG по телефону: ${bits.join(' · ')}`)
           // Bust local seeds — otherwise Клиенты/Рассылки paint pre-IRbots rows.
           clearClientsLocalCaches()
@@ -4414,8 +4428,10 @@ function ClientsPage() {
 
                     if (col.key === 'tg_active' || col.key === 'state') {
                       const title = tgActiveCellTitle(row)
+
                       const cls =
                         row.tg_active === true ? 'ms-tg-active-ok' : 'ms-tg-active-bad'
+
                       const shownValue =
                         col.key === 'tg_active' && row.tg_active === true && row.tg_active_nick
                           ? `${tgActiveStatusWord(row)} · ${row.tg_active_nick}`

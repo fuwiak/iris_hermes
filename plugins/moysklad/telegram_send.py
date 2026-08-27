@@ -996,7 +996,10 @@ def send_telegram_bundle(
         "ok": sent == len(shots),
         "message_id": head.get("message_id") or last.get("message_id"),
         "chat_id": head.get("chat_id") or last.get("chat_id") or chat_id,
+        # `via` is how the TEXT went; the photos may take another route
+        # (personal MTProto), so name that separately instead of hiding it.
         "via": head.get("via") or last.get("via") or "",
+        "photo_via": last.get("via") or "",
         "photos_sent": sent,
         "photos_total": len(shots),
     }
