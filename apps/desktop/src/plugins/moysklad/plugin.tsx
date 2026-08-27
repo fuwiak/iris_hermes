@@ -2848,7 +2848,7 @@ function ClientCardModal({
 }
 
 const CLIENTS_PAGE_SIZE = 100
-const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v4:'
+const CLIENTS_LOCAL_CACHE_PREFIX = 'hermes.moysklad.clients.v5:'
 const CLIENTS_LOCAL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const CLIENTS_REVALIDATE_POLL_MS = 4000
 const CLIENTS_REVALIDATE_POLL_MAX_MS = 90_000
@@ -2929,6 +2929,35 @@ function writeClientsLocalCache(key: string, payload: ClientsLocalCachePayload):
     localStorage.setItem(key, JSON.stringify(payload))
   } catch {
     // Quota / private mode — ignore; network path still works.
+  }
+}
+
+/** Drop Клиенты + Рассылки local seeds so TG status matches server overlay. */
+function clearClientsLocalCaches(): void {
+  if (typeof localStorage === 'undefined') {
+    return
+  }
+  try {
+    const prefixes = [
+      CLIENTS_LOCAL_CACHE_PREFIX,
+      'hermes.moysklad.clients.v4:',
+      'hermes.moysklad.clients.v3:'
+    ]
+    const doomed: string[] = []
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (!key) {
+        continue
+      }
+      if (prefixes.some(p => key.startsWith(p))) {
+        doomed.push(key)
+      }
+    }
+    for (const key of doomed) {
+      localStorage.removeItem(key)
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -3265,7 +3294,9 @@ function ClientsPage() {
             )
           }
           setTgImportNote(`TG по телефону: ${bits.join(' · ')}`)
-          await load({ refresh: false })
+          // Bust local seeds — otherwise Клиенты/Рассылки paint pre-IRbots rows.
+          clearClientsLocalCaches()
+          await load({ refresh: true })
         }
 
         break

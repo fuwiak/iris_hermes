@@ -696,9 +696,17 @@ def _tg_phone_verify_worker(*, live: bool, limit: int, delay_ms: int) -> None:
                 "skipped": skipped,
             }
         try:
-            stats["snapshots_cleared"] = invalidate_all_page_snapshots()
+            from plugins.moysklad.tg_verify import persist_verify_into_catalog
+
+            stats["catalog_persisted"] = persist_verify_into_catalog(rows)
         except Exception:
-            log.warning("page snapshot invalidate after tg-verify failed", exc_info=True)
+            log.warning("persist tg_verify into catalog failed", exc_info=True)
+            try:
+                stats["snapshots_cleared"] = invalidate_all_page_snapshots()
+            except Exception:
+                log.warning(
+                    "page snapshot invalidate after tg-verify failed", exc_info=True
+                )
         with _TG_PHONE_VERIFY_LOCK:
             _TG_PHONE_VERIFY_STATE["stats"] = stats
     except Exception as exc:

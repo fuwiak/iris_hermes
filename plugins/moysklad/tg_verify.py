@@ -192,22 +192,26 @@ def tg_active_label(*, active: bool | None, has_contact: bool) -> str:
 
 
 def row_tg_active(row: dict[str, Any]) -> bool | None:
-    """Tri-state: True/False from overlay stamp; None = never checked."""
+    """Tri-state: True/False from overlay (source of truth); None = never checked.
+
+    Overlay wins over any baked ``row['tg_active']`` — durable catalog / page
+    snapshots can lag after an IRbots run, and trusting the row first left the
+    UI on stale ✓/✗ while ``irbots_clients_status.txt`` was already updated.
+    """
     if not isinstance(row, dict):
         return None
+    cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
+    if cid:
+        entry = overlay_for_client(cid)
+        if isinstance(entry, dict) and "active" in entry:
+            return bool(entry.get("active"))
     if "tg_active" in row:
         val = row.get("tg_active")
         if val is True or val is False:
             return bool(val)
         if val is None:
             return None
-    cid = str(row.get("_moysklad_id") or row.get("id") or "").strip()
-    if not cid:
-        return None
-    entry = overlay_for_client(cid)
-    if not entry or "active" not in entry:
-        return None
-    return bool(entry.get("active"))
+    return None
 
 
 def row_has_contact_for_tg_check(row: dict[str, Any]) -> bool:
@@ -230,7 +234,10 @@ def _stamp_row_from_entry(row: dict[str, Any], entry: dict[str, Any]) -> bool:
     active = bool(entry.get("active"))
     resolved = normalize_tg_nick(entry.get("resolved_nick") or "")
     detail = str(entry.get("detail") or "").strip()
-    label = tg_active_label(active=active, has_contact=row_has_contact_for_tg_check(row))
+    # Prefer IRbots/report detail so Клиенты column matches the status file.
+    label = detail or tg_active_label(
+        active=active, has_contact=row_has_contact_for_tg_check(row)
+    )
     changed = False
     if row.get("tg_active") is not active:
         row["tg_active"] = active
@@ -247,6 +254,10 @@ def _stamp_row_from_entry(row: dict[str, Any], entry: dict[str, Any]) -> bool:
     checked_at = entry.get("checked_at")
     if checked_at is not None and row.get("tg_active_checked_at") != checked_at:
         row["tg_active_checked_at"] = checked_at
+        changed = True
+    via = str(entry.get("via") or "").strip()
+    if via and row.get("tg_active_via") != via:
+        row["tg_active_via"] = via
         changed = True
     return changed
 
@@ -731,3 +742,68 @@ def verify_catalog_row(row: dict[str, Any]) -> dict[str, Any]:
     if cid and result.get("checked"):
         save_verify_result(cid, result)
     return result
+
+
+def persist_verify_into_catalog(
+    rows: list[dict[str, Any]] | None = None,
+    *,
+    max_orders: int = 25000,
+    max_counterparties: int = 0,
+    include_archived: bool = False,
+) -> dict[str, Any]:
+    """Stamp overlay onto catalog rows and rewrite durable catalog cache.
+
+    Without this, Клиенты/Рассылки only see tg_active after a stamp-on-read
+    path; localStorage seeds and cold snapshots stay empty/stale vs the
+    ``irbots_clients_status.txt`` report.
+    """
+    from plugins.moysklad.catalog_cache import (
+        cache_key,
+        invalidate_all_page_snapshots,
+        peek_cached,
+        set_cached,
+    )
+
+    key = cache_key(
+        max_orders=max_orders,
+        max_counterparties=max_counterparties,
+        include_archived=include_archived,
+    )
+    catalog_rows = list(rows or [])
+    synced_at = time.time()
+    if not catalog_rows:
+        envelope = peek_cached(key)
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("catalog"), dict):
+            return {"ok": False, "error": "catalog cache missing", "stamped": 0}
+        catalog = dict(envelope["catalog"])
+        catalog_rows = list(catalog.get("rows") or [])
+        synced_at = float(envelope.get("synced_at") or synced_at)
+    else:
+        catalog = {"rows": catalog_rows}
+
+    stamped = stamp_catalog_rows_from_verify(catalog_rows)
+    catalog["rows"] = catalog_rows
+    # Preserve non-row fields when rewriting from peek.
+    if "counts" not in catalog or not isinstance(catalog.get("counts"), dict):
+        try:
+            from plugins.moysklad.dedupe import recompute_audience_counts
+
+            catalog["counts"] = recompute_audience_counts(catalog_rows)
+        except Exception:
+            pass
+
+    set_cached(key, catalog, synced_at=synced_at, merge=False)
+    snaps = invalidate_all_page_snapshots()
+    active = sum(1 for r in catalog_rows if isinstance(r, dict) and r.get("tg_active") is True)
+    inactive = sum(
+        1 for r in catalog_rows if isinstance(r, dict) and r.get("tg_active") is False
+    )
+    return {
+        "ok": True,
+        "stamped": stamped,
+        "rows": len(catalog_rows),
+        "active": active,
+        "inactive": inactive,
+        "snapshots_cleared": snaps,
+        "cache_key": key,
+    }

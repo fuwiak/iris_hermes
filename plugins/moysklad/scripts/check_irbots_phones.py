@@ -59,11 +59,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     from hermes_constants import get_hermes_home
-    from plugins.moysklad.catalog_cache import invalidate_all_page_snapshots
     from plugins.moysklad.irbots_checker import (
         verify_rows_via_irbots,
         write_full_report,
     )
+    from plugins.moysklad.tg_verify import persist_verify_into_catalog
 
     catalog_path = args.catalog
     if catalog_path is None:
@@ -96,11 +96,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     _log(f"IRbots stats: {stats}")
 
+    persisted = persist_verify_into_catalog(rows)
+    _log(f"Catalog persisted: {persisted}")
+
     report = write_full_report(rows, path=args.report)
     _log(f"Report: {report}")
-
-    cleared = invalidate_all_page_snapshots()
-    _log(f"Page snapshots cleared: {cleared}")
+    # Workspace-accessible copy (gitignored data/).
+    try:
+        repo_copy = Path(__file__).resolve().parents[3] / "data" / "irbots_clients_status.txt"
+        repo_copy.parent.mkdir(parents=True, exist_ok=True)
+        repo_copy.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+        _log(f"Repo copy: {repo_copy}")
+    except Exception as exc:
+        _log(f"Repo copy skipped: {exc}")
     return 0 if not stats.get("error") else 1
 
 

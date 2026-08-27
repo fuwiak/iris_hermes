@@ -479,6 +479,7 @@ def _public_client(row: dict[str, Any]) -> dict[str, Any]:
         "tg_active": row.get("tg_active"),
         "tg_active_label": row.get("tg_active_label") or "",
         "tg_active_nick": row.get("tg_active_nick") or "",
+        "tg_active_detail": row.get("tg_active_detail") or "",
         "tg_conversation": row.get("TG conversation") or "",
         "balance": row.get("balance"),
         "audience": {

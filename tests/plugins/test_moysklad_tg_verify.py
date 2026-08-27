@@ -106,18 +106,35 @@ def test_verify_probes_second_phone_via_tme_link(monkeypatch, tmp_path) -> None:
     assert result["via"] == "tme_phone_link"
 
 
-def test_drop_inactive_entry_clears_stale_no(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    from plugins.moysklad.tg_verify import (
-        drop_inactive_entry,
-        row_tg_active,
-        save_verify_result,
-    )
+def test_row_tg_active_prefers_overlay_over_stale_row(monkeypatch, tmp_path) -> None:
+    """Catalog/localStorage can bake wrong tg_active; overlay is source of truth."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    from plugins.moysklad.tg_verify import row_tg_active, save_verify_result
 
-    save_verify_result("c-stale", {"active": False, "detail": "miss"})
-    assert row_tg_active({"id": "c-stale"}) is False
-    assert drop_inactive_entry("c-stale") is True
-    assert row_tg_active({"id": "c-stale"}) is None
+    save_verify_result(
+        "c-overlay",
+        {"active": True, "via": "irbots", "detail": "активный (есть сессия TG)"},
+    )
+    stale = {"id": "c-overlay", "tg_active": False, "Телефон": "+79001112233"}
+    assert row_tg_active(stale) is True
+
+
+def test_stamp_uses_irbots_detail_as_label(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    from plugins.moysklad.tg_verify import save_verify_result, stamp_catalog_rows_from_verify
+
+    save_verify_result(
+        "c-label",
+        {
+            "active": False,
+            "via": "irbots",
+            "detail": "неактивный (не зарегистрирован)",
+        },
+    )
+    row = {"id": "c-label", "Телефон": "+79001112233"}
+    assert stamp_catalog_rows_from_verify([row]) == 1
+    assert row["tg_active"] is False
+    assert row["tg_active_label"] == "неактивный (не зарегистрирован)"
 
 
 def test_match_catalog_hits_second_number_in_cell(monkeypatch, tmp_path) -> None:
