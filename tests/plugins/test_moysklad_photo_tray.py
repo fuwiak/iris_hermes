@@ -177,48 +177,246 @@ class TestUnreachableCdn:
         assert out["ok"] is True
         assert calls == ["sendPhoto"]
 
-    def test_user_mode_still_owns_uploaded_bytes(
+    def test_user_mode_uploaded_bytes_still_fall_back_to_bot(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An uploaded photo is exactly what `user` mode is for — no bot detour."""
+        """Personal leg dead → bot must still try; otherwise text-ok / photo-gone."""
         monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
         monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: True)
         monkeypatch.setattr(
             ts.tg_user,
             "send_photo",
-            lambda **kw: {"ok": False, "error": "not_authorized", "detail": "no session"},
+            lambda **kw: {
+                "ok": False,
+                "error": "gateway_no_photo",
+                "detail": "gateway text-only",
+            },
         )
         calls: list[str] = []
-        monkeypatch.setattr(
-            ts, "telegram_api", lambda method, **kw: calls.append(method) or {"ok": True}
-        )
+
+        def fake_api(method: str, **kw: Any) -> dict[str, Any]:
+            calls.append(method)
+            return {"ok": True, "result": {"message_id": 9, "chat": {"id": 1}}}
+
+        monkeypatch.setattr(ts, "telegram_api", fake_api)
+        monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
 
         out = ts.send_telegram_message(
             text="",
-            chat_id="@someone",
+            chat_id="42",
             image_base64="data:image/jpeg;base64,/9j/4AAQ",
             via="user",
         )
 
-        assert out["ok"] is False
-        assert out["error"] == "not_authorized"
-        assert calls == []
+        assert out["ok"] is True
+        assert calls == ["sendPhoto"]
 
-    def test_undownloadable_photo_names_the_reason(
+
+class TestOutreachWireTextThenPhoto:
+    """Prove the real Bot API sequence: sendMessage, then sendPhoto — not caption."""
+
+    def test_send_outreach_fires_sendMessage_then_sendPhoto(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """No raw errno in the seller's face — say what to do instead."""
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setenv("MOYSKLAD_TELEGRAM_SEND_VIA", "bot")
+        monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: False)
+        monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
 
-        def boom(*a: Any, **k: Any) -> None:
-            raise OSError("[Errno 101] Network is unreachable")
+        wire: list[dict[str, Any]] = []
 
-        monkeypatch.setattr(ts, "_download_image_url", boom, raising=True)
-        monkeypatch.setattr(ts, "_LAST_IMAGE_FETCH_ERROR", "", raising=False)
-        # A relative URL is unusable regardless of the network — same branch.
-        ts._LAST_IMAGE_FETCH_ERROR = "[Errno 101] Network is unreachable"
+        def fake_api(method: str, **kwargs: Any) -> dict[str, Any]:
+            wire.append(
+                {
+                    "method": method,
+                    "json": dict(kwargs.get("json_body") or {}),
+                    "has_files": bool(kwargs.get("files")),
+                }
+            )
+            return {
+                "ok": True,
+                "result": {"message_id": len(wire), "chat": {"id": 4242}},
+            }
 
-        out = ts.send_telegram_message(text="привет", chat_id="42", image_url="cards/a.jpg")
+        monkeypatch.setattr(ts, "telegram_api", fake_api)
 
-        assert out["ok"] is False
-        assert out["error"] == "image_unusable"
-        assert "Приложите файл вручную" in out["detail"]
+        out = ts.send_outreach_to_client(
+            text="привет, вот букет",
+            tg_chat_id="123456789",
+            via="bot",
+            images=[
+                {
+                    "image_url": "https://cdn.example/bouquet.jpg",
+                    "image_base64": "",
+                    "image_name": "Букет",
+                }
+            ],
+        )
+
+        assert out["ok"] is True, out
+        assert out.get("photos_sent") == 1
+        assert out.get("photos_total") == 1
+        assert [row["method"] for row in wire] == ["sendMessage", "sendPhoto"]
+        assert wire[0]["json"].get("text") == "привет, вот букет"
+        assert "photo" not in wire[0]["json"]
+        # Follow-up photo: empty caption, URL handed to Bot API.
+        assert wire[1]["json"].get("photo") == "https://cdn.example/bouquet.jpg"
+        assert not wire[1]["json"].get("caption")
+
+    def test_send_outreach_with_uploaded_bytes_uses_multipart_sendPhoto(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: False)
+
+        wire: list[dict[str, Any]] = []
+
+        def fake_api(method: str, **kwargs: Any) -> dict[str, Any]:
+            wire.append(
+                {
+                    "method": method,
+                    "json": dict(kwargs.get("json_body") or {}),
+                    "has_files": bool(kwargs.get("files")),
+                }
+            )
+            return {
+                "ok": True,
+                "result": {"message_id": len(wire), "chat": {"id": 123456789}},
+            }
+
+        monkeypatch.setattr(ts, "telegram_api", fake_api)
+
+        # Valid minimal JPEG bytes as data-URL (bad padding used to decode→None
+        # and silently skip sendPhoto — that was part of the «фото не ушло» lie).
+        import base64
+
+        tiny = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xd9").decode("ascii")
+
+        out = ts.send_outreach_to_client(
+            text="текст сначала",
+            tg_chat_id="123456789",
+            via="bot",
+            images=[{"image_url": "", "image_base64": tiny, "image_name": "p.jpg"}],
+        )
+
+        assert out["ok"] is True, out
+        assert [row["method"] for row in wire] == ["sendMessage", "sendPhoto"]
+        assert wire[0]["json"].get("text") == "текст сначала"
+        assert wire[1]["has_files"] is True
+        assert not wire[1]["json"].get("caption")
+
+    def test_pydantic_tray_models_do_not_drop_photos(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """mark-sent passes ImageAttachment models — must not normalize to []."""
+        from plugins.moysklad.dashboard.plugin_api import ImageAttachment
+
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setattr(ts, "resolve_business_connection_id", lambda: "")
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: False)
+        monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
+
+        wire: list[str] = []
+        monkeypatch.setattr(
+            ts,
+            "telegram_api",
+            lambda method, **kw: wire.append(method)
+            or {"ok": True, "result": {"message_id": len(wire), "chat": {"id": 123456789}}},
+        )
+
+        tray = [
+            ImageAttachment(
+                image_url="https://cdn.example/a.jpg",
+                image_base64="",
+                image_name="A",
+            )
+        ]
+        out = ts.send_outreach_to_client(
+            text="hi",
+            tg_chat_id="123456789",
+            via="bot",
+            images=tray,
+        )
+        assert out["ok"] is True
+        assert wire == ["sendMessage", "sendPhoto"]
+
+
+class TestGatewayPhotoFallback:
+    def test_gateway_send_photo_ok_is_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from plugins.platforms.telegram_user import client as tu
+
+        monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://gw.example/t/x")
+        monkeypatch.setattr(
+            tu,
+            "_gateway_request",
+            lambda method, path, **kw: {
+                "ok": True,
+                "message_id": 55,
+                "chat_id": "9",
+                "via": "gateway",
+            }
+            if path == "send_photo"
+            else {"ok": False, "error": "unexpected"},
+        )
+        # Local path must not run when gateway succeeds.
+        monkeypatch.setattr(
+            tu,
+            "_call",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("local must not run")),
+        )
+
+        out = tu.send_photo(
+            peer="9",
+            caption="",
+            image_bytes=b"\xff\xd8\xff",
+            image_name="x.jpg",
+        )
+        assert out["ok"] is True
+        assert out["via"] == "user_account_photo_gateway"
+
+    def test_text_only_gateway_falls_through_to_local(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from plugins.platforms.telegram_user import client as tu
+
+        monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://gw.example/t/x")
+        monkeypatch.setattr(
+            tu,
+            "_gateway_request",
+            lambda method, path, **kw: {
+                "ok": False,
+                "error": "not_found",
+                "detail": "no send_photo",
+            },
+        )
+        monkeypatch.setattr(
+            tu,
+            "_call",
+            lambda fn, timeout=120.0: {
+                "ok": True,
+                "message_id": 1,
+                "chat_id": "9",
+                "via": "user_account_photo",
+            },
+        )
+
+        out = tu.send_photo(
+            peer="@nick",
+            image_url="https://cdn/a.jpg",
+        )
+        assert out["ok"] is True
+        assert out["via"] == "user_account_photo"
+
+
+def test_undownloadable_photo_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No raw errno in the seller's face — say what to do instead."""
+    monkeypatch.setattr(ts, "_LAST_IMAGE_FETCH_ERROR", "", raising=False)
+    ts._LAST_IMAGE_FETCH_ERROR = "[Errno 101] Network is unreachable"
+
+    out = ts.send_telegram_message(text="привет", chat_id="42", image_url="cards/a.jpg")
+
+    assert out["ok"] is False
+    assert out["error"] == "image_unusable"
+    assert "Приложите файл вручную" in out["detail"]

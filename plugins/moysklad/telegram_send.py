@@ -510,6 +510,10 @@ def _decode_image(image_base64: str) -> bytes | None:
     try:
         import base64
 
+        # Pad so truncated clipboard / UI data-URLs still decode.
+        pad = (-len(raw)) % 4
+        if pad:
+            raw = raw + ("=" * pad)
         return base64.b64decode(raw, validate=False)
     except Exception:
         return None
@@ -634,20 +638,19 @@ def send_telegram_message(
             )
             if user_photo is not None and user_photo.get("ok"):
                 return user_photo
-            # `user` mode exists because the Business bot cannot open a chat
-            # with a cold contact — but a photo lost to a dead MTProto leg
-            # helps nobody, so let the bot try before giving up.
-            if mode == "user" and image_bytes:
-                return user_photo or {
-                    "ok": False,
-                    "error": "telegram_user_unavailable",
-                    "detail": "Личный Telegram не подключён (Рассылки → Личный Telegram)",
-                }
+            # Prefer bot fallback whenever the personal leg failed — including
+            # ``user`` mode. Blocking bot for uploaded bytes left sellers with
+            # «текст ушёл, фото нет» when MTProto/gateway could not ship the
+            # picture (gateway_no_photo, dead session, CDN). Bot still cannot
+            # open cold chats; when it can, the photo must leave.
             if user_photo is not None:
                 log.info(
                     "telegram user photo send failed (%s), falling back to Business bot",
                     user_photo.get("error"),
                 )
+            elif mode == "user":
+                # Not authorized / unavailable — still try the bot before dying.
+                pass
 
         return _send_photo_via_bot(
             text=text,

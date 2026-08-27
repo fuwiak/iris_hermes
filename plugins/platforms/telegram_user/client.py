@@ -2179,15 +2179,43 @@ def send_photo(
     (``chat not found`` / ``BUSINESS_PEER_INVALID``), so a photo to a plain
     contact only lands over MTProto. Accepts raw bytes or a URL, which
     Telethon fetches itself.
+
+    When ``TELEGRAM_USER_GATEWAY_URL`` is set, text still rides the gateway, but
+    older gateways are text-only. We try ``POST send_photo`` first; on failure
+    we fall through to local Telethon so a seller is not stuck with
+    «текст ушёл, фото нет».
     """
     if not image_bytes and not str(image_url or "").strip():
         return _err("image_missing", "Нет фото (bytes/url)")
 
+    caption_s = (caption or "")[:1024]
+    name = image_name or "photo.jpg"
+
     if _gateway_base():
-        # The gateway speaks text-only today — say so instead of dropping it.
-        return _err(
-            "gateway_no_photo",
-            "Шлюз личного Telegram не умеет фото — отключите gateway или шлите ботом",
+        payload: dict[str, Any] = {
+            "peer": peer,
+            "caption": caption_s,
+            "image_name": name,
+        }
+        if image_bytes:
+            import base64
+
+            payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
+        else:
+            payload["image_url"] = str(image_url).strip()
+        res = _gateway_request(
+            "POST",
+            "send_photo",
+            json_body=payload,
+            timeout=120.0,
+        )
+        if res.get("ok"):
+            res["via"] = "user_account_photo_gateway"
+            return res
+        # Text-only / old gateway — do not abort; local MTProto may still work.
+        log.info(
+            "gateway send_photo failed (%s); trying local MTProto",
+            res.get("error") or res.get("detail") or "unknown",
         )
 
     target = _peer_arg(peer)
@@ -2205,7 +2233,7 @@ def send_photo(
             blob = io.BytesIO(image_bytes)
             # Telethon picks the media type from the name — without it a JPEG
             # would be uploaded as a nameless document.
-            blob.name = image_name or "photo.jpg"
+            blob.name = name
             file_arg: Any = blob
         else:
             file_arg = str(image_url).strip()
@@ -2213,7 +2241,7 @@ def send_photo(
         msg = await client.send_file(
             target,
             file_arg,
-            caption=(caption or "")[:1024] or None,
+            caption=caption_s or None,
         )
         chat_id = getattr(getattr(msg, "peer_id", None), "user_id", None)
         _RUNNER.persist_session(client)

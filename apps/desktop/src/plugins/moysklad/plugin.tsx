@@ -7018,7 +7018,14 @@ function CampaignsPage() {
         conversation?: ClientConversation
         facts?: ClientFacts
         deep_link?: string
-        delivery?: { ok?: boolean; detail?: string; error?: string; skipped?: boolean }
+        delivery?: {
+          ok?: boolean
+          detail?: string
+          error?: string
+          skipped?: boolean
+          photos_sent?: number
+          photos_total?: number
+        }
       }>('/campaigns/mark-sent', {
         method: 'POST',
         timeoutMs: OUTREACH_SEND_TIMEOUT_MS,
@@ -7043,10 +7050,14 @@ function CampaignsPage() {
       if (data.delivery?.ok) {
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
         setSendPhotos([])
+        const photosSent = Number(data.delivery.photos_sent ?? 0)
+        const photosTotal = Number(data.delivery.photos_total ?? images.length)
         setActionStatus(
-          images.length
-            ? `✓ Ушло: текст + фото ${images.length}. Выберите другого клиента или соберите ответы.`
-            : '✓ Ушло. Выберите другого клиента или соберите ответы.'
+          photosSent > 0
+            ? `✓ Ушло: текст + фото ${photosSent}${photosTotal && photosTotal !== photosSent ? `/${photosTotal}` : ''}. Выберите другого клиента или соберите ответы.`
+            : images.length
+              ? '✓ Текст ушёл, но фото сервер не подтвердил — проверьте доставку.'
+              : '✓ Ушло. Выберите другого клиента или соберите ответы.'
         )
       } else if (channel.startsWith('telegram') && data.delivery && !data.delivery.skipped) {
         const detail = data.delivery.detail || data.delivery.error || 'ошибка'
