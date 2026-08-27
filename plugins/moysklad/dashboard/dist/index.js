@@ -2850,8 +2850,11 @@
           : "Пишем исходящее в историю…"
       );
       // Whole tray — the backend appends each picture after the text, in order.
-      var images = sendPhotos.map(buildImageSendFields);
-      api("/campaigns/mark-sent", {
+      // Bytes are fetched HERE: the backend has no egress to the marketplace
+      // CDNs, so a bare URL came back «фото 0/1: Network is unreachable».
+      resolveTrayBytes(sendPhotos).then(function (resolved) {
+      var images = resolved.map(buildImageSendFields);
+      return api("/campaigns/mark-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2900,6 +2903,13 @@
         .finally(function () {
           setCheckingSanity(false);
         });
+      })
+      // Never leave «Отправляю…» stuck if resolving the tray itself throws.
+      .catch(function (err) {
+        setError((err && err.message) || String(err));
+        setActionStatus("");
+        setCheckingSanity(false);
+      });
     }
 
     useEffect(
@@ -3008,7 +3018,7 @@
           "div",
           null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
-          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.18.0"),
+          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.18.1"),
           h(
             "p",
             { className: "ms-muted" },
@@ -5756,6 +5766,64 @@
           : "Пусто. «+» / «Вставить» или карточка из списка — фото попадёт сюда и уйдёт вслед за текстом.",
       ),
     );
+  }
+
+  /** Telegram rejects anything past 10 MB; stay under it before we upload. */
+  var MAX_PHOTO_BYTES = 9 * 1024 * 1024;
+
+  function blobToDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () {
+        reject(reader.error || new Error("read failed"));
+      };
+      reader.onload = function () {
+        resolve(String(reader.result || ""));
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /**
+   * Turn a remote card photo into bytes, in the client, before sending.
+   *
+   * The backend does not always have egress to the marketplace CDNs — a send
+   * came back «Текст ушёл, фото 0/1: [Errno 101] Network is unreachable» — and
+   * neither Telegram leg can send what nobody fetched. The page itself CAN: it
+   * renders these very thumbnails, and both flowwow and Yandex answer with
+   * `access-control-allow-origin: *`.
+   *
+   * Best-effort: anything that goes wrong returns the photo untouched and the
+   * URL still rides to the backend as before.
+   */
+  function resolvePhotoBytes(photo) {
+    var url = normalizeRemoteImageUrl(photo && photo.url);
+    var isHttp = url.indexOf("http://") === 0 || url.indexOf("https://") === 0;
+    var hasUpload = String((photo && photo.dataUrl) || "").indexOf("data:") === 0;
+    if (hasUpload || !isHttp || typeof fetch !== "function") {
+      return Promise.resolve(photo);
+    }
+    return fetch(url)
+      .then(function (resp) {
+        if (!resp.ok) return photo;
+        return resp.blob().then(function (blob) {
+          if (!blob.size || blob.size > MAX_PHOTO_BYTES) return photo;
+          return blobToDataUrl(blob).then(function (dataUrl) {
+            if (dataUrl.indexOf("data:") !== 0) return photo;
+            return Object.assign({}, photo, { dataUrl: dataUrl });
+          });
+        });
+      })
+      .catch(function () {
+        // Offline, blocked, or a CDN that changed its mind about CORS — the
+        // backend still gets the URL and Telegram may fetch it server-side.
+        return photo;
+      });
+  }
+
+  /** Resolve a whole tray, keeping order; failures fall back to their URL. */
+  function resolveTrayBytes(photos) {
+    return Promise.all((photos || []).map(resolvePhotoBytes));
   }
 
   /** Key a photo by what it actually is, so the same picture never lands twice. */

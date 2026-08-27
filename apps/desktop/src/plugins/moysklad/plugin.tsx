@@ -71,7 +71,8 @@ import {
 import {
   buildImageSendFields,
   cardPhotoAttachment,
-  type ComposerImage
+  type ComposerImage,
+  resolveTrayBytes
 } from './photo-send'
 import {
   tgActiveCellTitle,
@@ -6877,7 +6878,9 @@ function CampaignsPage() {
 
     try {
       // Whole tray — the backend appends each picture after the text, in order.
-      const images = massPhotos.map(buildImageSendFields)
+      // Bytes are fetched HERE: the backend has no egress to the marketplace
+      // CDNs, so a bare URL came back «фото 0/1: Network is unreachable».
+      const images = (await resolveTrayBytes(massPhotos)).map(buildImageSendFields)
 
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
@@ -7023,7 +7026,10 @@ function CampaignsPage() {
       // Prefer a remote URL when the card already has one — huge data-URLs
       // inflate the JSON body and trip the desktop timeout. data: must ride
       // as image_base64; protocol-relative CDN urls are upgraded to https.
-      const images = sendPhotos.map(buildImageSendFields)
+      // Download in the app, upload bytes: the backend cannot always reach the
+      // marketplace CDNs, and neither Telegram leg can send what nobody fetched.
+      // A photo that fails to download here still rides as its URL.
+      const images = (await resolveTrayBytes(sendPhotos)).map(buildImageSendFields)
 
       const data = await call<{
         conversation?: ClientConversation

@@ -523,8 +523,15 @@ def _normalize_image_url(image_url: str) -> str:
     return url
 
 
+#: Why the last CDN download failed — surfaced in the delivery detail so a
+#: host without egress to the marketplace says so instead of leaking an errno.
+_LAST_IMAGE_FETCH_ERROR = ""
+
+
 def _download_image_url(image_url: str, *, timeout: float = 30.0) -> bytes | None:
     """Fetch a remote card photo so we upload bytes (CDN hotlink-safe)."""
+    global _LAST_IMAGE_FETCH_ERROR
+
     url = _normalize_image_url(image_url)
     if not url.startswith(("http://", "https://")):
         return None
@@ -541,10 +548,16 @@ def _download_image_url(image_url: str, *, timeout: float = 30.0) -> bytes | Non
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read(10 * 1024 * 1024 + 1)
-        if not data or len(data) > 10 * 1024 * 1024:
+        if not data:
+            _LAST_IMAGE_FETCH_ERROR = "пустой ответ CDN"
             return None
+        if len(data) > 10 * 1024 * 1024:
+            _LAST_IMAGE_FETCH_ERROR = "фото больше 10 МБ"
+            return None
+        _LAST_IMAGE_FETCH_ERROR = ""
         return data
     except Exception as exc:
+        _LAST_IMAGE_FETCH_ERROR = str(exc)
         log.info("card image download failed (%s): %s", url[:120], exc)
         return None
 
@@ -621,7 +634,10 @@ def send_telegram_message(
             )
             if user_photo is not None and user_photo.get("ok"):
                 return user_photo
-            if mode == "user":
+            # `user` mode exists because the Business bot cannot open a chat
+            # with a cold contact — but a photo lost to a dead MTProto leg
+            # helps nobody, so let the bot try before giving up.
+            if mode == "user" and image_bytes:
                 return user_photo or {
                     "ok": False,
                     "error": "telegram_user_unavailable",
@@ -645,12 +661,18 @@ def send_telegram_message(
         )
 
     if image_wanted:
+        why = _LAST_IMAGE_FETCH_ERROR
         return {
             "ok": False,
             "error": "image_unusable",
             "detail": (
-                "Фото карточки не удалось отправить: нужен http(s) URL или "
-                "загрузка файла. Проверьте ссылку на картинку маркетплейса."
+                f"Сервер не смог скачать фото карточки ({why}). "
+                "Приложите файл вручную — он уйдёт загрузкой, минуя CDN."
+                if why
+                else (
+                    "Фото карточки не удалось отправить: нужен http(s) URL или "
+                    "загрузка файла. Проверьте ссылку на картинку маркетплейса."
+                )
             ),
         }
 

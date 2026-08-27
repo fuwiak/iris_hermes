@@ -4,7 +4,10 @@ import {
   buildImageSendFields,
   cardPhotoAttachment,
   isHttpImageUrl,
-  normalizeRemoteImageUrl
+  MAX_PHOTO_BYTES,
+  normalizeRemoteImageUrl,
+  resolvePhotoBytes,
+  resolveTrayBytes
 } from './photo-send'
 
 describe('normalizeRemoteImageUrl', () => {
@@ -77,5 +80,75 @@ describe('cardPhotoAttachment', () => {
       name: 'A',
       url: 'https://cdn/x.jpg'
     })
+  })
+})
+
+describe('resolvePhotoBytes', () => {
+  const blob = (size: number) => ({ size, type: 'image/jpeg' }) as Blob
+  const toDataUrl = async () => 'data:image/jpeg;base64,AAAA'
+
+  it('uploads bytes fetched in the client, so a CDN-less backend still sends', async () => {
+    const fetchImpl = (async () => ({ ok: true, blob: async () => blob(1234) })) as unknown as typeof fetch
+
+    expect(
+      await resolvePhotoBytes({ name: 'Букет', url: '//cdn/x.jpg' }, { fetchImpl, toDataUrl })
+    ).toEqual({ name: 'Букет', url: '//cdn/x.jpg', dataUrl: 'data:image/jpeg;base64,AAAA' })
+  })
+
+  it('keeps the url when the fetch fails, so the send is never blocked', async () => {
+    const boom = (async () => {
+      throw new Error('CORS')
+    }) as unknown as typeof fetch
+    const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
+
+    expect(await resolvePhotoBytes(photo, { fetchImpl: boom, toDataUrl })).toEqual(photo)
+
+    const notOk = (async () => ({ ok: false, blob: async () => blob(1) })) as unknown as typeof fetch
+
+    expect(await resolvePhotoBytes(photo, { fetchImpl: notOk, toDataUrl })).toEqual(photo)
+  })
+
+  it('refuses a blob Telegram would reject anyway', async () => {
+    const huge = (async () => ({
+      ok: true,
+      blob: async () => blob(MAX_PHOTO_BYTES + 1)
+    })) as unknown as typeof fetch
+    const photo = { name: 'Букет', url: 'https://cdn/x.jpg' }
+
+    expect(await resolvePhotoBytes(photo, { fetchImpl: huge, toDataUrl })).toEqual(photo)
+  })
+
+  it('leaves uploads and non-http attachments alone', async () => {
+    const fetchImpl = (async () => {
+      throw new Error('must not be called')
+    }) as unknown as typeof fetch
+    const upload = { name: 'p.jpg', dataUrl: 'data:image/png;base64,aa' }
+
+    expect(await resolvePhotoBytes(upload, { fetchImpl, toDataUrl })).toEqual(upload)
+    expect(await resolvePhotoBytes({ name: 'p.jpg', url: 'p1.jpg' }, { fetchImpl, toDataUrl })).toEqual({
+      name: 'p.jpg',
+      url: 'p1.jpg'
+    })
+  })
+})
+
+describe('resolveTrayBytes', () => {
+  it('keeps tray order and mixes resolved with fallback photos', async () => {
+    const fetchImpl = (async (input: string) =>
+      input.includes('bad')
+        ? { ok: false, blob: async () => ({ size: 1 }) as Blob }
+        : { ok: true, blob: async () => ({ size: 10, type: 'image/jpeg' }) as Blob }) as unknown as typeof fetch
+
+    const out = await resolveTrayBytes(
+      [
+        { name: 'A', url: 'https://cdn/a.jpg' },
+        { name: 'B', url: 'https://cdn/bad.jpg' }
+      ],
+      { fetchImpl, toDataUrl: async () => 'data:image/jpeg;base64,AAAA' }
+    )
+
+    expect(out.map(p => p.name)).toEqual(['A', 'B'])
+    expect(out[0].dataUrl).toBe('data:image/jpeg;base64,AAAA')
+    expect(out[1].dataUrl).toBeUndefined()
   })
 })

@@ -138,3 +138,87 @@ class TestSendTelegramBundle:
         )
         assert out["ok"] is False
         assert len(calls) == 1
+
+
+class TestUnreachableCdn:
+    """Backend without egress to the marketplace CDN must not eat the photo."""
+
+    def test_url_only_photo_falls_back_to_the_bot_even_in_user_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MTProto down + URL photo: the bot can still hand the URL to Telegram.
+
+        Regression: «Текст ушёл, фото 0/1: [Errno 101] Network is unreachable».
+        """
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setattr(ts, "_download_image_url", lambda *a, **k: None)
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: True)
+        monkeypatch.setattr(
+            ts.tg_user,
+            "send_photo",
+            lambda **kw: (_ for _ in ()).throw(OSError("[Errno 101] Network is unreachable")),
+        )
+
+        calls: list[str] = []
+
+        def fake_api(method: str, **kw: Any) -> dict[str, Any]:
+            calls.append(method)
+            return {"ok": True, "result": {"message_id": 7, "chat": {"id": 1}}}
+
+        monkeypatch.setattr(ts, "telegram_api", fake_api)
+
+        out = ts.send_telegram_message(
+            text="",
+            chat_id="@someone",
+            image_url="https://cdn.example/a.jpg",
+            via="user",
+        )
+
+        assert out["ok"] is True
+        assert calls == ["sendPhoto"]
+
+    def test_user_mode_still_owns_uploaded_bytes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An uploaded photo is exactly what `user` mode is for — no bot detour."""
+        monkeypatch.setenv("TELEGRAM_BUSINESS_BOT_TOKEN", "1:TESTTOKEN")
+        monkeypatch.setattr(ts.tg_user, "is_authorized", lambda **kw: True)
+        monkeypatch.setattr(
+            ts.tg_user,
+            "send_photo",
+            lambda **kw: {"ok": False, "error": "not_authorized", "detail": "no session"},
+        )
+        calls: list[str] = []
+        monkeypatch.setattr(
+            ts, "telegram_api", lambda method, **kw: calls.append(method) or {"ok": True}
+        )
+
+        out = ts.send_telegram_message(
+            text="",
+            chat_id="@someone",
+            image_base64="data:image/jpeg;base64,/9j/4AAQ",
+            via="user",
+        )
+
+        assert out["ok"] is False
+        assert out["error"] == "not_authorized"
+        assert calls == []
+
+    def test_undownloadable_photo_names_the_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No raw errno in the seller's face — say what to do instead."""
+
+        def boom(*a: Any, **k: Any) -> None:
+            raise OSError("[Errno 101] Network is unreachable")
+
+        monkeypatch.setattr(ts, "_download_image_url", boom, raising=True)
+        monkeypatch.setattr(ts, "_LAST_IMAGE_FETCH_ERROR", "", raising=False)
+        # A relative URL is unusable regardless of the network — same branch.
+        ts._LAST_IMAGE_FETCH_ERROR = "[Errno 101] Network is unreachable"
+
+        out = ts.send_telegram_message(text="привет", chat_id="42", image_url="cards/a.jpg")
+
+        assert out["ok"] is False
+        assert out["error"] == "image_unusable"
+        assert "Приложите файл вручную" in out["detail"]

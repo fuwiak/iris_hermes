@@ -85,3 +85,79 @@ export function cardPhotoAttachment(name: string, photoUrl: string): ComposerIma
   }
   return { name, url }
 }
+
+/** Telegram rejects anything past 10 MB; stay under it before we upload. */
+export const MAX_PHOTO_BYTES = 9 * 1024 * 1024
+
+/**
+ * Turn a remote card photo into bytes, in the client, before sending.
+ *
+ * The backend does not always have egress to the marketplace CDNs — a send
+ * came back «Текст ушёл, фото 0/1: [Errno 101] Network is unreachable» — and
+ * MTProto/Bot API cannot fetch what the server cannot reach either. The app
+ * itself CAN: it renders these very thumbnails, and both flowwow and Yandex
+ * answer with `access-control-allow-origin: *`. So download here and upload
+ * the bytes.
+ *
+ * Best-effort: anything that goes wrong (CORS, offline, oversize) returns the
+ * photo untouched, and the URL still rides to the backend as before.
+ */
+export async function resolvePhotoBytes(
+  photo: SendImageLike,
+  deps: {
+    fetchImpl?: typeof fetch
+    toDataUrl?: (blob: Blob) => Promise<string>
+  } = {}
+): Promise<SendImageLike> {
+  const url = normalizeRemoteImageUrl(photo.url || '')
+
+  if (isDataImageUrl(photo.dataUrl || '') || !isHttpImageUrl(url)) {
+    return photo
+  }
+
+  const doFetch = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined)
+
+  if (!doFetch) {
+    return photo
+  }
+
+  try {
+    const resp = await doFetch(url)
+
+    if (!resp.ok) {
+      return photo
+    }
+
+    const blob = await resp.blob()
+
+    if (!blob.size || blob.size > MAX_PHOTO_BYTES) {
+      return photo
+    }
+
+    const dataUrl = await (deps.toDataUrl ?? blobToDataUrl)(blob)
+
+    return isDataImageUrl(dataUrl) ? { ...photo, dataUrl } : photo
+  } catch {
+    // Offline, blocked, or a CDN that changed its mind about CORS — the
+    // backend still gets the URL and Telegram may fetch it server-side.
+    return photo
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** Resolve a whole tray, keeping order; failures fall back to their URL. */
+export function resolveTrayBytes(
+  photos: readonly SendImageLike[],
+  deps?: Parameters<typeof resolvePhotoBytes>[1]
+): Promise<SendImageLike[]> {
+  return Promise.all(photos.map(photo => resolvePhotoBytes(photo, deps)))
+}
