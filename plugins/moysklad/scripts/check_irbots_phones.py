@@ -101,6 +101,11 @@ def main(argv: list[str] | None = None) -> int:
 
     report = write_full_report(rows, path=args.report)
     _log(f"Report: {report}")
+    # Re-apply report as UI source of truth (strips AI «новый» from Статус).
+    from plugins.moysklad.irbots_checker import apply_status_report_file
+
+    applied = apply_status_report_file(report, rows=rows)
+    _log(f"Status file applied: {applied}")
     # Workspace-accessible copy (gitignored data/).
     try:
         repo_copy = Path(__file__).resolve().parents[3] / "data" / "irbots_clients_status.txt"
