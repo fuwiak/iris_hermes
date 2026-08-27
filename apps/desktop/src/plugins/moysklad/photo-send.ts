@@ -12,6 +12,13 @@ export interface SendImageLike {
   url?: string
 }
 
+/** A composer attachment that is ready for `setSendImage` — `name` always set. */
+export interface ComposerImage {
+  name: string
+  dataUrl?: string
+  url?: string
+}
+
 export interface ImageSendFields {
   image_url: string
   image_base64: string
@@ -71,7 +78,7 @@ export function buildImageSendFields(image: SendImageLike | null | undefined): I
 }
 
 /** Normalize a marketplace photo for composer state (url or dataUrl). */
-export function cardPhotoAttachment(name: string, photoUrl: string): SendImageLike {
+export function cardPhotoAttachment(name: string, photoUrl: string): ComposerImage {
   const url = normalizeRemoteImageUrl(photoUrl)
   if (isDataImageUrl(url)) {
     return { name, dataUrl: url }

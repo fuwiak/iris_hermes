@@ -2061,6 +2061,42 @@
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerCard, setPickerCard] = useState(null); // card chosen inside the picker
 
+    // Text-only drafts get their card photo back (see photoForDraftText).
+    const [photoCatalog, setPhotoCatalog] = useState(null);
+    const draftMentionsCard = /«[^«»]{1,200}»/.test(offer);
+
+    useEffect(
+      function () {
+        if (!draftMentionsCard || photoCatalog) return;
+        var alive = true;
+        api("/cards/marketplaces?limit=100")
+          .then(function (payload) {
+            if (alive) setPhotoCatalog(payload.combined || []);
+          })
+          // Silent: no catalog only means no auto-photo, never a failed send.
+          .catch(function () {
+            if (alive) setPhotoCatalog([]);
+          });
+        return function () {
+          alive = false;
+        };
+      },
+      [draftMentionsCard, photoCatalog],
+    );
+
+    useEffect(
+      function () {
+        if (!photoCatalog || !photoCatalog.length) return;
+        setSendImage(function (prev) {
+          if (draftKeepsPhoto(offer, prev, photoCatalog)) return prev;
+          var next = photoForDraftText(offer, photoCatalog);
+          if (next && prev && next.url === prev.url) return prev;
+          return next;
+        });
+      },
+      [offer, photoCatalog],
+    );
+
     function openCardPicker() {
       setInsertMenuOpen(false);
       setPickerCard(null);
@@ -2831,6 +2867,7 @@
           ? "Отправка через Telegram Business bot…"
           : "Пишем исходящее в историю…"
       );
+      var imageFields = buildImageSendFields(sendImage);
       api("/campaigns/mark-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2840,9 +2877,9 @@
           client_id: selectedClientId,
           open_deep_link: true,
           deliver: true,
-          image_base64: (sendImage && sendImage.dataUrl) || "",
-          image_url: (sendImage && sendImage.url) || "",
-          image_name: (sendImage && sendImage.name) || "photo.jpg",
+          image_base64: imageFields.image_base64,
+          image_url: imageFields.image_url,
+          image_name: imageFields.image_name,
         }),
       })
         .then(function (data) {
@@ -2985,7 +3022,7 @@
           "div",
           null,
           h("h1", { className: "ms-clients-title" }, "Рассылки"),
-          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.2"),
+          h("span", { className: "ms-muted ms-plugin-ver" }, "v1.17.3"),
           h(
             "p",
             { className: "ms-muted" },
@@ -5681,6 +5718,89 @@
     var base = money(product.price);
     var discount = Number(product.discount || 0);
     return discount > 0 ? base + " · скидка " + discount + "%" : base;
+  }
+
+  // ── Card photo ⇄ draft text ────────────────────────────────────────────
+  // A draft is persisted server-side as TEXT ONLY (set_outreach_draft keeps
+  // `message`), so restoring one — picking another client, «Сгенерировать AI»,
+  // «Букет из истории» — used to bring the «Карточка» blocks back with no
+  // picture and the send went out text-only. The blocks name their cards, so
+  // re-attach the photo from the text.
+  function normalizeCardName(name) {
+    return String(name || "")
+      .toLowerCase()
+      .replace(/[^0-9a-zA-Zа-яёА-ЯЁ]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function cardNamesInText(text) {
+    var out = [];
+    var re = /«([^«»]{1,200})»/g;
+    var m;
+    while ((m = re.exec(String(text || "")))) {
+      var name = m[1].trim();
+      if (name) out.push(name);
+    }
+    return out;
+  }
+
+  /** Photo for a draft, or null. Last quoted card wins, like addCardToMessage. */
+  function photoForDraftText(text, cards) {
+    var names = cardNamesInText(text);
+    if (!names.length || !cards || !cards.length) return null;
+    var byName = {};
+    cards.forEach(function (card) {
+      var key = normalizeCardName(card && card.name);
+      if (key && card.image && !byName[key]) byName[key] = card;
+    });
+    for (var i = names.length - 1; i >= 0; i--) {
+      var card = byName[normalizeCardName(names[i])];
+      if (card && card.image) return { name: card.name || names[i], url: card.image };
+    }
+    return null;
+  }
+
+  /** `//host/path` → `https://host/path`; leave data:/http alone. */
+  function normalizeRemoteImageUrl(raw) {
+    var url = String(raw || "").trim();
+    return url.indexOf("//") === 0 ? "https:" + url : url;
+  }
+
+  /**
+   * Split a composer attachment into fields Telegram can actually send.
+   * data: must ride as image_base64 — the backend photo gate only accepts
+   * http(s) in image_url, and protocol-relative CDN urls need upgrading.
+   */
+  function buildImageSendFields(image) {
+    var name = (String((image && image.name) || "photo.jpg").trim()) || "photo.jpg";
+    var empty = { image_url: "", image_base64: "", image_name: name };
+    if (!image) return empty;
+    var dataUrl = String(image.dataUrl || "").trim();
+    var url = normalizeRemoteImageUrl(image.url);
+    if (dataUrl.indexOf("data:") === 0) return { image_url: "", image_base64: dataUrl, image_name: name };
+    if (url.indexOf("data:") === 0) return { image_url: "", image_base64: url, image_name: name };
+    if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) {
+      return { image_url: url, image_base64: "", image_name: name };
+    }
+    // Relative / unknown — keep whatever we have; backend may fetch or reject.
+    if (dataUrl) return { image_url: "", image_base64: dataUrl, image_name: name };
+    return { image_url: url, image_base64: "", image_name: name };
+  }
+
+  /** Does this draft still sell the attached card? */
+  function draftKeepsPhoto(text, photo, cards) {
+    if (!photo) return false;
+    // Uploads and hand-picked shots are not tied to any card block.
+    if (photo.dataUrl || !photo.url) return true;
+    var known = (cards || []).some(function (card) {
+      return card && card.image && card.image === photo.url;
+    });
+    if (!known) return true;
+    var wanted = normalizeCardName(photo.name);
+    return cardNamesInText(text).some(function (name) {
+      return normalizeCardName(name) === wanted;
+    });
   }
 
   function cardMessageBlock(card) {
