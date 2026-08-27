@@ -1105,6 +1105,37 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     return _call(_send, timeout=60.0)
 
 
+_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+    (b"BM", "bmp"),
+)
+_IMAGE_NAME_RE = re.compile(r"\.(jpe?g|png|gif|webp|bmp|heic|heif)$", re.IGNORECASE)
+
+
+def photo_upload_name(name: str, blob: bytes | None) -> str:
+    """Give the upload a real image extension.
+
+    Telethon types media from the FILE NAME, and MoySklad tray photos carry the
+    card title («Верес 101») — extensionless, so every picture arrived as a
+    document. Sniff the bytes instead of trusting the title.
+    """
+    base = (name or "").strip() or "photo"
+    if _IMAGE_NAME_RE.search(base):
+        return base
+    head = bytes(blob or b"")[:16]
+    ext = ""
+    for magic, candidate in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            ext = candidate
+            break
+    if not ext and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        ext = "webp"
+    return f"{base}.{ext or 'jpg'}"
+
+
 def send_photo(
     *,
     peer: str,
@@ -1143,7 +1174,7 @@ def send_photo(
             return _err("image_broken", "Пустые байты фото")
 
     caption_s = (caption or "")[:1024]
-    name = (image_name or "").strip() or "photo.jpg"
+    name = photo_upload_name(image_name, blob)
     target: Any = _peer_arg(peer)
     log.info(
         "send_photo peer=%s bytes=%s url=%s",
@@ -1157,16 +1188,32 @@ def send_photo(
         if not await client.is_user_authorized():
             return _err("not_authorized", "Личный Telegram не подключён")
         if blob is not None:
-            import io
+            from telethon.tl.types import InputMediaUploadedPhoto
 
-            handle = io.BytesIO(blob)
-            # Telethon types the media from the name — without it a JPEG goes
-            # out as a nameless document.
-            handle.name = name
-            file_arg: Any = handle
+            handle = await client.upload_file(blob, file_name=name)
+            try:
+                # Explicit photo media — a name-based guess turned card photos
+                # into file attachments.
+                msg = await client.send_file(
+                    target,
+                    InputMediaUploadedPhoto(file=handle),
+                    caption=caption_s or None,
+                )
+            except Exception as exc:
+                # Telegram refused to process the bytes as a picture (exotic
+                # format / dimensions) — deliver it as a file rather than lose it.
+                log.info("photo rejected as picture (%s); sending as file", exc)
+                msg = await client.send_file(
+                    target,
+                    handle,
+                    caption=caption_s or None,
+                    file_name=name,
+                    force_document=True,
+                )
         else:
-            file_arg = url
-        msg = await client.send_file(target, file_arg, caption=caption_s or None)
+            msg = await client.send_file(
+                target, url, caption=caption_s or None, force_document=False
+            )
         chat_id = getattr(getattr(msg, "peer_id", None), "user_id", None)
         _RUNNER.persist_session(client)
         return {

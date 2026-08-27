@@ -396,3 +396,17 @@ def test_personal_photo_splits_long_caption(monkeypatch, bot_env, api_calls):
     assert out["tail_ok"] is True
     # Подпись обрезана на 1024 — в хвост уходит ровно остаток (текст стрипается).
     assert tails == [long_text.strip()[1024:]]
+
+
+def test_bot_upload_name_gets_image_extension(bot_env, api_calls):
+    """Имя из карточки («Верес 101») без расширения — Telegram слал файлом."""
+    tg.send_outreach_to_client(
+        text=CAPTION,
+        tg_nick=RECIPIENT_NICK,
+        image_base64=PHOTO_B64,
+        image_name="Верес 101",
+    )
+
+    photo = [c for c in api_calls if c["method"] == "sendPhoto"]
+    assert len(photo) == 1
+    assert photo[0]["files"]["photo"][0] == "Верес 101.jpg"

@@ -1031,7 +1031,9 @@ def _send_photo_via_bot(
             "sendPhoto",
             token=token,
             json_body=payload,
-            files={"photo": (image_name, image_bytes)},
+            # Card titles («Верес 101») have no extension — Telegram then types
+            # the upload as a file instead of a picture.
+            files={"photo": (tg_user.photo_upload_name(image_name, image_bytes), image_bytes)},
             timeout=timeout,
         )
     else:

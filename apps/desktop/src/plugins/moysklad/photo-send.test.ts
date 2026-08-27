@@ -10,6 +10,7 @@ import {
   MAX_PHOTO_BYTES,
   normalizeRemoteImageUrl,
   photoKey,
+  photoUploadName,
   resolvePhotoBytes,
   resolveTrayBytes
 } from './photo-send'
@@ -34,7 +35,7 @@ describe('buildImageSendFields', () => {
     ).toEqual({
       image_url: 'https://content2.flowwow-images.com/x.jpg',
       image_base64: '',
-      image_name: 'Букет'
+      image_name: 'Букет.jpg'
     })
   })
 
@@ -58,7 +59,7 @@ describe('buildImageSendFields', () => {
     ).toEqual({
       image_url: 'https://cdn.example/x.jpg',
       image_base64: 'data:image/jpeg;base64,AAAA',
-      image_name: 'Букет'
+      image_name: 'Букет.jpg'
     })
   })
 
@@ -84,6 +85,29 @@ describe('buildImageSendFields', () => {
       image_base64: 'data:image/png;base64,aa',
       image_name: 'p.jpg'
     })
+  })
+})
+
+describe('photoUploadName', () => {
+  it('appends an extension so Telegram sends a picture, not a file', () => {
+    // Лоток берёт имя карточки — «Верес 101» без расширения уходило файлом.
+    expect(photoUploadName('Верес 101', '', 'https://cdn/veresk-101.jpg')).toBe(
+      'Верес 101.jpg'
+    )
+    expect(photoUploadName('Верес 101', 'data:image/png;base64,AAA', '')).toBe(
+      'Верес 101.png'
+    )
+    expect(photoUploadName('', '', '')).toBe('photo.jpg')
+  })
+
+  it('keeps a name that already carries an image extension', () => {
+    expect(photoUploadName('bouquet.JPEG', '', '')).toBe('bouquet.JPEG')
+  })
+
+  it('falls back to jpg for a mime Telegram cannot show as a photo', () => {
+    expect(photoUploadName('logo', 'data:image/svg+xml;base64,AAA', '')).toBe(
+      'logo.jpg'
+    )
   })
 })
 

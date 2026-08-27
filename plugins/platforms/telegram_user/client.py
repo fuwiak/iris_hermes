@@ -2185,6 +2185,37 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     return _call(_send, timeout=60.0)
 
 
+_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+    (b"BM", "bmp"),
+)
+_IMAGE_NAME_RE = re.compile(r"\.(jpe?g|png|gif|webp|bmp|heic|heif)$", re.IGNORECASE)
+
+
+def photo_upload_name(name: str, image_bytes: bytes | None) -> str:
+    """Filename Telegram can type as a picture.
+
+    Telethon and Bot API both type an upload from its FILE NAME, and a MoySklad
+    tray photo carries the card title («Верес 101») — no extension, so every
+    picture landed as a file attachment. Sniff the bytes instead.
+    """
+    base = (name or "").strip() or "photo"
+    if _IMAGE_NAME_RE.search(base):
+        return base
+    head = bytes(image_bytes or b"")[:16]
+    ext = ""
+    for magic, candidate in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            ext = candidate
+            break
+    if not ext and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        ext = "webp"
+    return f"{base}.{ext or 'jpg'}"
+
+
 def send_photo(
     *,
     peer: str,
@@ -2211,7 +2242,7 @@ def send_photo(
         return _err("image_missing", "Нет фото (bytes/url)")
 
     caption_s = (caption or "")[:1024]
-    name = image_name or "photo.jpg"
+    name = photo_upload_name(image_name, image_bytes)
     log.info(
         "telegram_user send_photo peer=%s bytes=%s url=%s gateway=%s",
         peer,
@@ -2269,21 +2300,34 @@ def send_photo(
             return _err("not_authorized", "Личный Telegram не подключён")
 
         if image_bytes:
-            import io
+            from telethon.tl.types import InputMediaUploadedPhoto
 
-            blob = io.BytesIO(image_bytes)
-            # Telethon picks the media type from the name — without it a JPEG
-            # would be uploaded as a nameless document.
-            blob.name = name
-            file_arg: Any = blob
+            handle = await client.upload_file(image_bytes, file_name=name)
+            try:
+                # Explicit photo media: Telethon otherwise types the upload from
+                # the file name, and a card title («Верес 101») has no extension,
+                # so the picture arrived as a document.
+                msg = await client.send_file(
+                    target,
+                    InputMediaUploadedPhoto(file=handle),
+                    caption=caption_s or None,
+                )
+            except Exception as exc:
+                log.info("photo rejected as picture (%s); sending as file", exc)
+                msg = await client.send_file(
+                    target,
+                    handle,
+                    caption=caption_s or None,
+                    file_name=name,
+                    force_document=True,
+                )
         else:
-            file_arg = str(image_url).strip()
-
-        msg = await client.send_file(
-            target,
-            file_arg,
-            caption=caption_s or None,
-        )
+            msg = await client.send_file(
+                target,
+                str(image_url).strip(),
+                caption=caption_s or None,
+                force_document=False,
+            )
         chat_id = getattr(getattr(msg, "peer_id", None), "user_id", None)
         _RUNNER.persist_session(client)
         return {

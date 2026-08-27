@@ -852,3 +852,18 @@ def test_gateway_photo_timeout_env_override(monkeypatch):
     assert tu._gateway_photo_timeout(180.0) == 180.0
     monkeypatch.setenv("TELEGRAM_USER_GATEWAY_PHOTO_TIMEOUT_SEC", "20")
     assert tu._gateway_photo_timeout(5.0) == 20.0
+
+
+def test_photo_upload_name_adds_extension_from_bytes():
+    """«Верес 101» — заголовок карточки без расширения: Telegram слал файлом."""
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 12
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+    webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WEBP" + b"\x00" * 4
+
+    assert tu.photo_upload_name("Верес 101", jpeg) == "Верес 101.jpg"
+    assert tu.photo_upload_name("Верес 101", png) == "Верес 101.png"
+    assert tu.photo_upload_name("card", webp) == "card.webp"
+    # Уже с расширением — не трогаем.
+    assert tu.photo_upload_name("bouquet.JPEG", jpeg) == "bouquet.JPEG"
+    # Ни имени, ни узнаваемых байтов — Telegram всё равно должен видеть фото.
+    assert tu.photo_upload_name("", b"") == "photo.jpg"

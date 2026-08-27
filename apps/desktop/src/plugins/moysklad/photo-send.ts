@@ -112,6 +112,36 @@ export function isDataImageUrl(url: string): boolean {
     .startsWith('data:')
 }
 
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i
+
+/**
+ * Upload name Telegram can type as a picture.
+ *
+ * A card photo carries the card title («Верес 101») — no extension, and both
+ * Telethon and Bot API then send it as a file attachment. Take the extension
+ * from the data-URL mime, else from the CDN path, else assume jpg.
+ */
+export function photoUploadName(
+  name: string,
+  dataUrl: string,
+  url: string
+): string {
+  const base = (name || '').trim() || 'photo'
+  if (IMAGE_EXT_RE.test(base)) {
+    return base
+  }
+  const mime = /^data:image\/([a-z0-9.+-]+)/i.exec(String(dataUrl || '').trim())
+  let ext = (mime?.[1] || '').toLowerCase()
+  if (!ext) {
+    const path = String(url || '').split(/[?#]/)[0] || ''
+    ext = (IMAGE_EXT_RE.exec(path)?.[1] || '').toLowerCase()
+  }
+  if (ext === 'jpeg' || !IMAGE_EXT_RE.test(`.${ext}`)) {
+    ext = 'jpg'
+  }
+  return `${base}.${ext}`
+}
+
 /**
  * Split a composer attachment into API fields Telegram can actually send.
  * Bytes first — the backend host often cannot reach marketplace CDNs
@@ -119,14 +149,14 @@ export function isDataImageUrl(url: string): boolean {
  * fetch the CDN if multipart upload from Selectel dies.
  */
 export function buildImageSendFields(image: SendImageLike | null | undefined): ImageSendFields {
-  const image_name = (image?.name || 'photo.jpg').trim() || 'photo.jpg'
   if (!image) {
-    return { image_url: '', image_base64: '', image_name }
+    return { image_url: '', image_base64: '', image_name: 'photo.jpg' }
   }
 
   const dataUrl = String(image.dataUrl || '').trim()
   const url = normalizeRemoteImageUrl(image.url || '')
   const httpUrl = isHttpImageUrl(url) ? url : ''
+  const image_name = photoUploadName(image.name || '', dataUrl || url, url)
 
   if (isDataImageUrl(dataUrl)) {
     return { image_url: httpUrl, image_base64: dataUrl, image_name }
