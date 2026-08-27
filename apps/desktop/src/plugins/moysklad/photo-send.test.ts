@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  addPhotoToTray,
   buildImageSendFields,
   cardPhotoAttachment,
   isHttpImageUrl,
   MAX_PHOTO_BYTES,
   normalizeRemoteImageUrl,
+  photoKey,
   resolvePhotoBytes,
   resolveTrayBytes
 } from './photo-send'
@@ -76,10 +78,21 @@ describe('buildImageSendFields', () => {
 
 describe('cardPhotoAttachment', () => {
   it('normalizes marketplace urls for composer state', () => {
-    expect(cardPhotoAttachment('A', '//cdn/x.jpg')).toEqual({
-      name: 'A',
-      url: 'https://cdn/x.jpg'
-    })
+    const out = cardPhotoAttachment('A', '//cdn/x.jpg')
+    expect(out.name).toBe('A')
+    expect(out.url).toBe('https://cdn/x.jpg')
+    expect(out.id).toMatch(/^p_/)
+  })
+})
+
+describe('addPhotoToTray', () => {
+  it('dedupes same CDN url but assigns a fresh id per new picture', () => {
+    const first = addPhotoToTray([], { name: 'a', url: 'https://cdn/a.jpg' })
+    const again = addPhotoToTray(first, { name: 'a', url: 'https://cdn/a.jpg' })
+    expect(again).toHaveLength(1)
+    const second = addPhotoToTray(first, { name: 'b', url: 'https://cdn/b.jpg' })
+    expect(second).toHaveLength(2)
+    expect(photoKey(second[0]!)).not.toBe(photoKey(second[1]!))
   })
 })
 

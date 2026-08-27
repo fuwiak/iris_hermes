@@ -958,14 +958,14 @@ def send_telegram_bundle(
     token: str | None = None,
     timeout: float = 30.0,
 ) -> dict[str, Any]:
-    """Message first, then every attached photo — the tray order, appended.
+    """Message first, then every attached photo as its own follow-up.
 
-    A caption tops out at 1024 chars and holds one picture, so a real sales
-    draft with several cards cannot ride as one captioned photo. Send the text
-    as text, then the photos after it.
+    Never stuff the whole draft into a photo caption: captions cap at 1024 and
+    hold one picture. Text goes as text; each tray photo is a separate
+    ``sendPhoto`` with an empty caption, in tray order.
 
-    ``ok`` is False when ANY part fails. Reporting ok on a text-only delivery is
-    exactly how attachments used to disappear without a word.
+    ``ok`` is False when ANY part fails — reporting ok on a text-only delivery
+    is exactly how attachments used to disappear without a word.
     """
     shots = list(attachments or [])
     if not shots:
@@ -996,7 +996,7 @@ def send_telegram_bundle(
     failures: list[str] = []
     last: dict[str, Any] = {}
     for shot in shots:
-        # Empty caption: the text already went out as its own message.
+        # Empty caption on purpose — the text already left as its own message.
         res = send_telegram_message(
             text="",
             chat_id=chat_id,
@@ -1006,7 +1006,7 @@ def send_telegram_bundle(
             image_url=shot.get("image_url", ""),
             business_connection_id=business_connection_id,
             token=token,
-            timeout=timeout,
+            timeout=max(timeout, 60.0),
         )
         last = res
         if res.get("ok"):
@@ -1018,8 +1018,6 @@ def send_telegram_bundle(
         "ok": sent == len(shots),
         "message_id": head.get("message_id") or last.get("message_id"),
         "chat_id": head.get("chat_id") or last.get("chat_id") or chat_id,
-        # `via` is how the TEXT went; the photos may take another route
-        # (personal MTProto), so name that separately instead of hiding it.
         "via": head.get("via") or last.get("via") or "",
         "photo_via": last.get("via") or "",
         "photos_sent": sent,

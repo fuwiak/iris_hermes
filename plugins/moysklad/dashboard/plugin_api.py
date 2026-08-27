@@ -2548,6 +2548,7 @@ def post_campaign_mark_sent_batch(body: MarkSentBatchBody) -> dict[str, Any]:
                     tg_conversation=tg_conversation,
                     tg_chat_id=tg_chat_id,
                     via=body.via,
+                    images=body.images,
                 )
 
             source = "campaign_send_batch"

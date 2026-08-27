@@ -69,9 +69,11 @@ import {
   terminalPrefixLength
 } from './mass-send'
 import {
+  addPhotoToTray,
   buildImageSendFields,
   cardPhotoAttachment,
   type ComposerImage,
+  photoKey,
   resolveTrayBytes
 } from './photo-send'
 import {
@@ -2059,18 +2061,6 @@ function factsFromDetail(detail: ClientDetail): ClientFacts {
   }
 }
 
-/** Key a photo by what it actually is, so the same picture never lands twice. */
-function photoKey(photo: ComposerImage): string {
-  return photo.dataUrl || photo.url || photo.name
-}
-
-/** Append a photo to the tray, ignoring one that is already there. */
-function addPhotoToTray(tray: ComposerImage[], photo: ComposerImage): ComposerImage[] {
-  const key = photoKey(photo)
-
-  return tray.some(item => photoKey(item) === key) ? tray : [...tray, photo]
-}
-
 /**
  * «Прикреплённые фото» — every picture attached to the draft, in send order.
  *
@@ -2078,7 +2068,7 @@ function addPhotoToTray(tray: ComposerImage[], photo: ComposerImage): ComposerIm
  * exactly one picture, and silently went missing whenever the draft text was
  * refilled; a seller quoting four cards could not tell what would actually be
  * delivered. Here the tray IS the payload: what you see is appended after the
- * message text, top to bottom.
+ * message text, top to bottom — one tray shared by single send and mass blast.
  */
 function PhotoTray({
   onClear,
@@ -2128,13 +2118,14 @@ function PhotoTray({
             })}
           </div>
           <p className="ms-muted ms-photo-tray-hint">
-            Уйдут отдельными сообщениями сразу после текста, в этом порядке.
+            Сначала текст, потом каждое фото отдельным сообщением — в этом
+            порядке.
           </p>
         </>
       ) : (
         <p className="ms-muted ms-photo-tray-hint">
           Пусто. «+» / «Вставить» или карточка из списка справа — фото попадёт
-          сюда и уйдёт вслед за текстом.
+          сюда и уйдёт следом за текстом.
         </p>
       )}
     </div>
@@ -4542,9 +4533,8 @@ function CampaignsPage() {
   const offerRef = useRef('')
   const [offerTick, setOfferTick] = useState(0)
   /**
-   * Photos attached to the draft, shown in «Прикреплённые фото» and appended
-   * after the text on send. A tray, not one slot: a sales draft quotes several
-   * cards, and a Telegram caption holds one picture and 1024 chars.
+   * One shared tray for single send + mass blast. Two trays both showed
+   * «Прикреплённые фото · 1» and made it look like photos were broken/doubled.
    */
   const [sendPhotos, setSendPhotos] = useState<ComposerImage[]>([])
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
@@ -6438,15 +6428,13 @@ function CampaignsPage() {
 
   // ── Массовая рассылка: background job + per-recipient status ──
   const [massText, setMassText] = useState('')
-  const [massPhotos, setMassPhotos] = useState<ComposerImage[]>([])
   const [massCards, setMassCards] = useState<{ name: string; block: string; image: string }[]>([])
   const [massInsertMenu, setMassInsertMenu] = useState(false)
   const [massPhotoPicker, setMassPhotoPicker] = useState(false)
 
-  /** One picture into both trays — the single draft and the mass draft. */
-  const attachPhoto = useCallback((photo: ComposerImage) => {
-    setSendPhotos(prev => addPhotoToTray(prev, photo))
-    setMassPhotos(prev => addPhotoToTray(prev, photo))
+  /** One shared tray — single send and mass blast both append these after text. */
+  const attachPhoto = useCallback((photo: ComposerImage | (Omit<ComposerImage, 'id'> & { id?: string })) => {
+    setSendPhotos(prev => addPhotoToTray(prev, photo as ComposerImage))
   }, [])
 
   const applyImageFile = useCallback(
@@ -6529,7 +6517,6 @@ function CampaignsPage() {
             tray.filter(photo => photo.url !== entry.image)
 
           setSendPhotos(dropCardPhoto)
-          setMassPhotos(dropCardPhoto)
         }
       }
 
@@ -6539,10 +6526,6 @@ function CampaignsPage() {
 
   const removeSendPhoto = useCallback((key: string) => {
     setSendPhotos(prev => prev.filter(photo => photoKey(photo) !== key))
-  }, [])
-
-  const removeMassPhoto = useCallback((key: string) => {
-    setMassPhotos(prev => prev.filter(photo => photoKey(photo) !== key))
   }, [])
 
   const [massIds, setMassIds] = useState<string[]>([])
@@ -6880,7 +6863,7 @@ function CampaignsPage() {
       // Whole tray — the backend appends each picture after the text, in order.
       // Bytes are fetched HERE: the backend has no egress to the marketplace
       // CDNs, so a bare URL came back «фото 0/1: Network is unreachable».
-      const images = (await resolveTrayBytes(massPhotos)).map(buildImageSendFields)
+      const images = (await resolveTrayBytes(sendPhotos)).map(buildImageSendFields)
 
       const data = await call<{ job?: MassJobSummary }>('/campaigns/mass-send', {
         method: 'POST',
@@ -7060,7 +7043,6 @@ function CampaignsPage() {
       if (data.delivery?.ok) {
         applyOfferText(draft, '✓ Отправлено. Можно выбрать следующего клиента.')
         setSendPhotos([])
-        setMassPhotos([])
         setActionStatus(
           images.length
             ? `✓ Ушло: текст + фото ${images.length}. Выберите другого клиента или соберите ответы.`
@@ -8335,9 +8317,7 @@ function CampaignsPage() {
                 const cardImage = card.image
 
                 if (cardImage) {
-                  setMassPhotos(prev =>
-                    addPhotoToTray(prev, cardPhotoAttachment(card.name || 'card.jpg', cardImage))
-                  )
+                  attachPhoto(cardPhotoAttachment(card.name || 'card.jpg', cardImage))
                 }
               } catch {
                 // not our payload — ignore
@@ -8363,12 +8343,10 @@ function CampaignsPage() {
               const reader = new FileReader()
 
               reader.onload = () =>
-                setMassPhotos(prev =>
-                  addPhotoToTray(prev, {
-                    name: file.name || 'clipboard.png',
-                    dataUrl: String(reader.result || '')
-                  })
-                )
+                attachPhoto({
+                  name: file.name || 'clipboard.png',
+                  dataUrl: String(reader.result || '')
+                })
               reader.readAsDataURL(file)
             }}
             placeholder="Одно сообщение для всей выборки… Ctrl+V вставляет картинку, карточку можно перетащить из списка справа. (возьмите текст из черновика или напишите здесь)"
@@ -8378,12 +8356,6 @@ function CampaignsPage() {
           />
           </div>
         </label>
-        <PhotoTray
-          onClear={() => setMassPhotos([])}
-          onRemove={removeMassPhoto}
-          photos={massPhotos}
-          title="Прикреплённые фото рассылки"
-        />
         <div className="ms-compose-actions">
           <span style={{ position: 'relative', display: 'inline-block' }}>
             <button className="ms-btn" onClick={() => setMassInsertMenu(open => !open)} type="button">
@@ -8454,7 +8426,7 @@ function CampaignsPage() {
               </div>
             ) : null}
           </span>
-          <span className="ms-muted">Фото показывается в поле сообщения и уйдёт фотографией в Telegram.</span>
+          <span className="ms-muted">Фото — в «Прикреплённые фото» ниже; уйдёт отдельным сообщением после текста.</span>
         </div>
         <div className="ms-compose-actions">
           {offer.trim() ? (

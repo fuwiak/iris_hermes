@@ -4,16 +4,21 @@
  * Card URLs may be protocol-relative (`//cdn…`) — browsers load them in <img>,
  * but the backend only treats http(s) as a photo attachment. data: URLs must
  * ride as image_base64, never as image_url.
+ *
+ * Send shape: text message first, then each tray photo as its own follow-up
+ * message (empty caption). A Telegram caption holds one picture and 1024 chars.
  */
 
 export interface SendImageLike {
+  id?: string
   name?: string
   dataUrl?: string
   url?: string
 }
 
-/** A composer attachment that is ready for `setSendImage` — `name` always set. */
+/** A composer attachment that is ready for the tray — `id` + `name` always set. */
 export interface ComposerImage {
+  id: string
   name: string
   dataUrl?: string
   url?: string
@@ -23,6 +28,46 @@ export interface ImageSendFields {
   image_url: string
   image_base64: string
   image_name: string
+}
+
+/** Stable React key / remove handle — never reuse across adds. */
+export function newPhotoId(): string {
+  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+/** Same bytes / same CDN url → same picture (for dedupe). */
+export function photoContentKey(photo: SendImageLike): string {
+  const data = String(photo.dataUrl || '').trim()
+  const url = normalizeRemoteImageUrl(photo.url || '')
+  return `${data}|${url}`
+}
+
+export function photoKey(photo: ComposerImage | SendImageLike): string {
+  if (photo.id) {
+    return photo.id
+  }
+  return photoContentKey(photo) || String(photo.name || 'photo')
+}
+
+/**
+ * Append a photo to the tray. Same CDN/bytes is ignored; a new file always
+ * gets a fresh id so «+» never silently no-ops.
+ */
+export function addPhotoToTray(
+  tray: ComposerImage[],
+  photo: SendImageLike & { name: string }
+): ComposerImage[] {
+  const content = photoContentKey(photo)
+  if (content !== '|' && tray.some(item => photoContentKey(item) === content)) {
+    return tray
+  }
+  const next: ComposerImage = {
+    id: photo.id || newPhotoId(),
+    name: (photo.name || 'photo.jpg').trim() || 'photo.jpg',
+    dataUrl: photo.dataUrl,
+    url: photo.url
+  }
+  return [...tray, next]
 }
 
 /** `//host/path` → `https://host/path`; trim; leave data:/http alone. */
@@ -81,9 +126,9 @@ export function buildImageSendFields(image: SendImageLike | null | undefined): I
 export function cardPhotoAttachment(name: string, photoUrl: string): ComposerImage {
   const url = normalizeRemoteImageUrl(photoUrl)
   if (isDataImageUrl(url)) {
-    return { name, dataUrl: url }
+    return { id: newPhotoId(), name, dataUrl: url }
   }
-  return { name, url }
+  return { id: newPhotoId(), name, url }
 }
 
 /** Telegram rejects anything past 10 MB; stay under it before we upload. */

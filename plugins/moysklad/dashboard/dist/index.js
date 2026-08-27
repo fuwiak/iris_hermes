@@ -5762,8 +5762,8 @@
         "p",
         { className: "ms-muted ms-photo-tray-hint" },
         photos.length
-          ? "Уйдут отдельными сообщениями сразу после текста, в этом порядке."
-          : "Пусто. «+» / «Вставить» или карточка из списка — фото попадёт сюда и уйдёт вслед за текстом.",
+          ? "Сначала текст, потом каждое фото отдельным сообщением — в этом порядке."
+          : "Пусто. «+» / «Вставить» или карточка из списка — фото попадёт сюда и уйдёт следом за текстом.",
       ),
     );
   }
@@ -5826,16 +5826,37 @@
     return Promise.all((photos || []).map(resolvePhotoBytes));
   }
 
-  /** Key a photo by what it actually is, so the same picture never lands twice. */
-  function photoKey(photo) {
-    return photo.dataUrl || photo.url || photo.name;
+  /** Stable React key / remove handle — never reuse across adds. */
+  function newPhotoId() {
+    return "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
   }
 
-  /** Append a photo to the tray, ignoring one that is already there. */
+  function photoContentKey(photo) {
+    var data = String((photo && photo.dataUrl) || "").trim();
+    var url = normalizeRemoteImageUrl((photo && photo.url) || "");
+    return data + "|" + url;
+  }
+
+  function photoKey(photo) {
+    if (photo && photo.id) return photo.id;
+    return photoContentKey(photo) || String((photo && photo.name) || "photo");
+  }
+
+  /** Append a photo; same CDN/bytes ignored; new file always gets a fresh id. */
   function addPhotoToTray(tray, photo) {
-    var key = photoKey(photo);
-    for (var i = 0; i < tray.length; i++) if (photoKey(tray[i]) === key) return tray;
-    return tray.concat([photo]);
+    var content = photoContentKey(photo);
+    if (content !== "|") {
+      for (var i = 0; i < tray.length; i++) {
+        if (photoContentKey(tray[i]) === content) return tray;
+      }
+    }
+    var next = {
+      id: (photo && photo.id) || newPhotoId(),
+      name: (String((photo && photo.name) || "photo.jpg").trim()) || "photo.jpg",
+      dataUrl: photo && photo.dataUrl,
+      url: photo && photo.url,
+    };
+    return tray.concat([next]);
   }
 
   /** `//host/path` → `https://host/path`; leave data:/http alone. */
