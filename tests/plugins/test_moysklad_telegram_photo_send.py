@@ -307,8 +307,8 @@ def test_photo_without_personal_account_still_uses_bot(monkeypatch, bot_env, api
     assert out["photo_via"] == "business_bot_photo"
 
 
-def test_photo_via_user_mode_never_silently_uses_bot(monkeypatch, bot_env, api_calls):
-    """via=user — если личный аккаунт не смог, это ошибка, а не тихий бот."""
+def test_photo_via_user_mode_falls_back_to_bot(monkeypatch, bot_env, api_calls):
+    """via=user — при провале личного отправляем фото через бот, чтобы не терять вложение."""
     monkeypatch.setattr(tg.tg_user, "is_authorized", lambda **kw: True)
     monkeypatch.setattr(
         tg.tg_user,
@@ -323,9 +323,9 @@ def test_photo_via_user_mode_never_silently_uses_bot(monkeypatch, bot_env, api_c
         via="user",
     )
 
-    assert out["ok"] is False
-    assert out["error"] == "image_missing"
-    assert api_calls == []
+    assert out["ok"] is True
+    assert out["via"] == "business_bot_photo"
+    assert [c["method"] for c in api_calls] == ["sendPhoto"]
 
 
 def test_personal_photo_splits_long_caption(monkeypatch, bot_env, api_calls):
