@@ -266,7 +266,9 @@ def test_photo_prefers_personal_account_over_bot(monkeypatch, bot_env, api_calls
             "has_bytes": True,
             "image_name": "bouquet.jpg",
             "image_url": "",
-            "timeout": 5.0,
+            # Личный аккаунт получает полный бюджет вызова (шлюз Railway
+            # грузит байты), а не 5-секундный шаг каскада.
+            "timeout": 60.0,
         }
     ]
     # Фото бот не трогал — иначе получатель картинку бы не увидел.
@@ -357,8 +359,10 @@ def test_photo_bot_retries_url_after_bytes_failure(monkeypatch, bot_env):
 
     assert out["ok"] is True
     assert out["via"] == "business_bot_photo"
+    # URL едет рядом с байтами: байты выигрывают в первой попытке, а во
+    # второй Telegram сам забирает картинку с CDN.
     assert attempts == [
-        {"has_bytes": True, "image_url": "", "timeout": 5.0},
+        {"has_bytes": True, "image_url": "https://market.example/fallback.jpg", "timeout": 5.0},
         {"has_bytes": False, "image_url": "https://market.example/fallback.jpg", "timeout": 5.0},
     ]
 

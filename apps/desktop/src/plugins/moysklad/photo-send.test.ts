@@ -48,14 +48,23 @@ describe('buildImageSendFields', () => {
     expect(isHttpImageUrl(fields.image_url)).toBe(true)
   })
 
+  it('keeps http URL alongside dataUrl so Bot API can fall back', () => {
+    expect(
+      buildImageSendFields({
+        name: 'Букет',
+        url: 'https://cdn.example/x.jpg',
+        dataUrl: 'data:image/jpeg;base64,AAAA'
+      })
+    ).toEqual({
+      image_url: 'https://cdn.example/x.jpg',
+      image_base64: 'data:image/jpeg;base64,AAAA',
+      image_name: 'Букет'
+    })
+  })
+
   it('puts data: on image_base64 even when stored in url', () => {
     const data = 'data:image/jpeg;base64,/9j/4AAQ'
     expect(buildImageSendFields({ name: 'p.jpg', url: data })).toEqual({
-      image_url: '',
-      image_base64: data,
-      image_name: 'p.jpg'
-    })
-    expect(buildImageSendFields({ name: 'p.jpg', dataUrl: data, url: 'https://ignore' })).toEqual({
       image_url: '',
       image_base64: data,
       image_name: 'p.jpg'

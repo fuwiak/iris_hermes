@@ -435,9 +435,10 @@ class TestGatewayPhotoFallback:
         assert out["ok"] is True
         assert out["via"] == "user_account_photo_gateway"
 
-    def test_text_only_gateway_falls_through_to_local(
+    def test_text_only_gateway_skips_local_mtproto(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Selectel: gateway 404 must not burn time on doomed local Telethon."""
         from plugins.platforms.telegram_user import client as tu
 
         monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://gw.example/t/x")
@@ -446,27 +447,24 @@ class TestGatewayPhotoFallback:
             "_gateway_request",
             lambda method, path, **kw: {
                 "ok": False,
-                "error": "not_found",
-                "detail": "no send_photo",
+                "error": "gateway_http_error",
+                "detail": "unknown route: send_photo",
+                "status_code": 404,
             },
         )
         monkeypatch.setattr(
             tu,
             "_call",
-            lambda fn, timeout=120.0: {
-                "ok": True,
-                "message_id": 1,
-                "chat_id": "9",
-                "via": "user_account_photo",
-            },
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("local must not run")),
         )
 
         out = tu.send_photo(
             peer="@nick",
-            image_url="https://cdn/a.jpg",
+            image_bytes=b"\xff\xd8\xff",
         )
-        assert out["ok"] is True
-        assert out["via"] == "user_account_photo"
+        assert out["ok"] is False
+        assert "send_photo" in str(out.get("detail") or "")
+        assert out.get("via") == "gateway"
 
 
 def test_undownloadable_photo_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:

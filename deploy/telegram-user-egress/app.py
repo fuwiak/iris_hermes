@@ -645,6 +645,14 @@ class SendBody(BaseModel):
     text: str = ""
 
 
+class SendPhotoBody(BaseModel):
+    peer: str = ""
+    caption: str = ""
+    image_base64: str = ""
+    image_name: str = "photo.jpg"
+    image_url: str = ""
+
+
 def start_login(*, phone: str, api_id: str = "", api_hash: str = "", force_sms: bool = False) -> dict[str, Any]:
     phone = normalize_phone(phone)
     if api_id.strip().isdigit() or api_hash.strip():
@@ -1097,6 +1105,80 @@ def send_message(*, peer: str, text: str) -> dict[str, Any]:
     return _call(_send, timeout=60.0)
 
 
+def send_photo(
+    *,
+    peer: str,
+    caption: str = "",
+    image_base64: str = "",
+    image_url: str = "",
+    image_name: str = "photo.jpg",
+) -> dict[str, Any]:
+    """Photo from the personal account — the only photo path Selectel has.
+
+    Hermes ships raw bytes as base64: the marketplace CDN is unreachable both
+    from the RU host and often from Telegram itself. ``image_url`` stays as a
+    fallback Telethon fetches from this (non-RU) egress.
+    """
+    peer = (peer or "").strip()
+    if not peer:
+        return _err("telegram_chat_missing", "Нужен @ник или chat id")
+
+    raw_b64 = (image_base64 or "").strip()
+    url = (image_url or "").strip()
+    if not raw_b64 and not url:
+        return _err("image_missing", "Нет фото (bytes/url)")
+
+    blob: bytes | None = None
+    if raw_b64:
+        import base64
+
+        if raw_b64.startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[-1]
+        try:
+            # Pad so a truncated data-URL from the browser still decodes.
+            blob = base64.b64decode(raw_b64 + "=" * ((-len(raw_b64)) % 4), validate=False)
+        except Exception as exc:
+            return _err("image_broken", f"base64 не декодируется: {exc}")
+        if not blob:
+            return _err("image_broken", "Пустые байты фото")
+
+    caption_s = (caption or "")[:1024]
+    name = (image_name or "").strip() or "photo.jpg"
+    target: Any = _peer_arg(peer)
+    log.info(
+        "send_photo peer=%s bytes=%s url=%s",
+        peer,
+        len(blob or b""),
+        bool(url),
+    )
+
+    async def _send() -> dict[str, Any]:
+        client = await _RUNNER.client()
+        if not await client.is_user_authorized():
+            return _err("not_authorized", "Личный Telegram не подключён")
+        if blob is not None:
+            import io
+
+            handle = io.BytesIO(blob)
+            # Telethon types the media from the name — without it a JPEG goes
+            # out as a nameless document.
+            handle.name = name
+            file_arg: Any = handle
+        else:
+            file_arg = url
+        msg = await client.send_file(target, file_arg, caption=caption_s or None)
+        chat_id = getattr(getattr(msg, "peer_id", None), "user_id", None)
+        _RUNNER.persist_session(client)
+        return {
+            "ok": True,
+            "message_id": getattr(msg, "id", None),
+            "chat_id": str(chat_id) if chat_id else str(peer).lstrip("@"),
+            "via": "user_account_photo_gateway",
+        }
+
+    return _call(_send, timeout=180.0)
+
+
 def _message_ts(msg: Any) -> str:
     raw = getattr(msg, "date", None)
     if raw is None:
@@ -1241,6 +1323,16 @@ async def gateway(
 
     if request.method == "POST" and route == "send":
         out = send_message(peer=str(body.get("peer") or ""), text=str(body.get("text") or ""))
+        return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+    if request.method == "POST" and route in ("send_photo", "send-photo"):
+        out = send_photo(
+            peer=str(body.get("peer") or ""),
+            caption=str(body.get("caption") or body.get("text") or ""),
+            image_base64=str(body.get("image_base64") or ""),
+            image_url=str(body.get("image_url") or ""),
+            image_name=str(body.get("image_name") or "photo.jpg"),
+        )
         return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
     if request.method == "POST" and route == "history":

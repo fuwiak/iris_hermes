@@ -523,13 +523,21 @@ def send_delay_seconds() -> float:
 
 
 def photo_send_step_timeout_seconds() -> float:
-    """Per-method timeout before hopping to the next photo-send fallback."""
+    """Per-method timeout before hopping to the next photo-send fallback.
+
+    With ``TELEGRAM_USER_GATEWAY_URL`` (Selectel → Railway) a photo upload is a
+    large base64 POST — 5s used to kill the only working path mid-flight.
+    """
     raw = (os.getenv("MOYSKLAD_TELEGRAM_PHOTO_STEP_TIMEOUT_SEC") or "").strip()
     try:
-        sec = float(raw) if raw else 5.0
+        if raw:
+            sec = float(raw)
+        else:
+            # Gateway photo uploads need headroom; bare hosts stay snappy.
+            sec = 60.0 if tg_user.gateway_configured() else 5.0
     except ValueError:
         sec = 5.0
-    return max(1.0, min(sec, 30.0))
+    return max(1.0, min(sec, 180.0))
 
 
 def telegram_send_mode() -> str:
@@ -631,14 +639,25 @@ def _resolve_send_image(
 
     image_bytes = _decode_image(raw_b64)
     if image_bytes:
-        photo_trace("resolve_image", via="base64", bytes_len=len(image_bytes), b64_len=len(raw_b64))
-        return image_bytes, "", wanted
+        # Keep the CDN URL as a Bot API fallback — Selectel often cannot POST
+        # multipart to api.telegram.org (Errno 101) while Telegram itself can
+        # still fetch the marketplace URL.
+        keep_url = raw_url if raw_url.startswith(("http://", "https://")) else ""
+        photo_trace(
+            "resolve_image",
+            via="base64",
+            bytes_len=len(image_bytes),
+            b64_len=len(raw_b64),
+            keep_url=keep_url,
+        )
+        return image_bytes, keep_url, wanted
 
     if raw_url.startswith(("http://", "https://")):
         fetched = _download_image_url(raw_url)
         if fetched:
             photo_trace("resolve_image", via="cdn_download", bytes_len=len(fetched), url=raw_url)
-            return fetched, "", wanted
+            # Keep URL so Bot API can still fetch if multipart upload dies.
+            return fetched, raw_url, wanted
         photo_trace(
             "resolve_image",
             via="url_only",
@@ -677,6 +696,11 @@ def send_telegram_message(
     if mode not in {"auto", "user", "bot"}:
         mode = "auto"
     step_timeout = photo_send_step_timeout_seconds()
+    # The personal-account leg carries the caller's full budget: on Selectel it
+    # rides the Railway gateway (base64 upload + Telegram upload) and is the
+    # ONLY working photo path — the short per-leg cascade timeout just skipped
+    # it into the bot fallback, which has no Telegram route at all there.
+    user_photo_timeout = max(step_timeout, float(timeout or 0.0))
     raw_image_url = _normalize_image_url(image_url)
 
     photo_trace(
@@ -711,7 +735,7 @@ def send_telegram_message(
                 image_bytes=image_bytes,
                 image_name=image_name or "photo.jpg",
                 image_url=resolved_url,
-                timeout=step_timeout,
+                timeout=user_photo_timeout,
             )
             if user_photo is not None and user_photo.get("ok"):
                 return user_photo

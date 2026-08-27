@@ -131,6 +131,26 @@ def _gateway_request(
     return data
 
 
+def _gateway_photo_timeout(requested: float) -> float:
+    """Budget for the gateway photo leg — base64 upload plus Telegram upload.
+
+    The MoySklad send cascade hands every leg a few seconds so one dead hop
+    cannot hang a seller, but where the gateway is mandatory (Selectel RU) it
+    is the *only* photo path: a 5s cap turned every picture into
+    «текст ушёл, фото нет».
+    """
+    raw = (os.getenv("TELEGRAM_USER_GATEWAY_PHOTO_TIMEOUT_SEC") or "").strip()
+    try:
+        floor = float(raw) if raw else 60.0
+    except ValueError:
+        floor = 60.0
+    try:
+        asked = float(requested or 0.0)
+    except (TypeError, ValueError):
+        asked = 0.0
+    return max(1.0, floor, asked)
+
+
 def gateway_configured() -> bool:
     return bool(_gateway_base())
 
@@ -2181,10 +2201,10 @@ def send_photo(
     contact only lands over MTProto. Accepts raw bytes or a URL, which
     Telethon fetches itself.
 
-    When ``TELEGRAM_USER_GATEWAY_URL`` is set, text still rides the gateway, but
-    older gateways are text-only. We try ``POST send_photo`` first; on failure
-    we fall through to local Telethon so a seller is not stuck with
-    «текст ушёл, фото нет».
+    When ``TELEGRAM_USER_GATEWAY_URL`` is set, photos MUST go through the gateway
+    (Selectel cannot open Telegram DCs — local Telethon returns Errno 101). Older
+    gateways without ``send_photo`` return an error so Bot API can try next;
+    we do not burn the step budget on a doomed local MTProto attempt.
     """
     if not image_bytes and not str(image_url or "").strip():
         log.info("telegram_user send_photo missing image peer=%s", peer)
@@ -2216,16 +2236,27 @@ def send_photo(
             "POST",
             "send_photo",
             json_body=payload,
-            timeout=max(1.0, float(timeout)),
+            timeout=_gateway_photo_timeout(timeout),
         )
         if res.get("ok"):
             res["via"] = "user_account_photo_gateway"
             log.info("telegram_user send_photo gateway ok peer=%s mid=%s", peer, res.get("message_id"))
             return res
-        # Text-only / old gateway — do not abort; local MTProto may still work.
+        detail = str(res.get("detail") or res.get("error") or "")
+        if "unknown route" in detail.lower() or res.get("status_code") == 404:
+            detail = (
+                "Telegram-шлюз без маршрута send_photo — задеплойте "
+                "deploy/telegram-user-egress (railway up) и повторите отправку фото."
+            )
         log.info(
-            "gateway send_photo failed (%s); trying local MTProto",
-            res.get("error") or res.get("detail") or "unknown",
+            "gateway send_photo failed (%s); skipping local MTProto (gateway configured)",
+            res.get("error") or detail or "unknown",
+        )
+        return _err(
+            str(res.get("error") or "gateway_photo_failed"),
+            detail or "gateway send_photo failed",
+            via="gateway",
+            status_code=res.get("status_code"),
         )
 
     target = _peer_arg(peer)

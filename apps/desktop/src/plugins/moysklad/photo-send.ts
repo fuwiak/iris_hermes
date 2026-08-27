@@ -115,7 +115,8 @@ export function isDataImageUrl(url: string): boolean {
 /**
  * Split a composer attachment into API fields Telegram can actually send.
  * Bytes first — the backend host often cannot reach marketplace CDNs
- * (Errno 101). A leftover URL is last-resort for Bot API (Telegram fetches).
+ * (Errno 101). Keep the http(s) URL alongside bytes so Bot API can still
+ * fetch the CDN if multipart upload from Selectel dies.
  */
 export function buildImageSendFields(image: SendImageLike | null | undefined): ImageSendFields {
   const image_name = (image?.name || 'photo.jpg').trim() || 'photo.jpg'
@@ -125,18 +126,19 @@ export function buildImageSendFields(image: SendImageLike | null | undefined): I
 
   const dataUrl = String(image.dataUrl || '').trim()
   const url = normalizeRemoteImageUrl(image.url || '')
+  const httpUrl = isHttpImageUrl(url) ? url : ''
 
   if (isDataImageUrl(dataUrl)) {
-    return { image_url: '', image_base64: dataUrl, image_name }
+    return { image_url: httpUrl, image_base64: dataUrl, image_name }
   }
   if (isDataImageUrl(url)) {
     return { image_url: '', image_base64: url, image_name }
   }
   if (dataUrl) {
-    return { image_url: '', image_base64: dataUrl, image_name }
+    return { image_url: httpUrl, image_base64: dataUrl, image_name }
   }
-  if (isHttpImageUrl(url)) {
-    return { image_url: url, image_base64: '', image_name }
+  if (httpUrl) {
+    return { image_url: httpUrl, image_base64: '', image_name }
   }
   return { image_url: url, image_base64: '', image_name }
 }

@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
+
 import plugins.platforms.telegram_user.client as tu
 
 
@@ -772,3 +774,81 @@ def test_iter_login_phones_keeps_inner_zero_and_second_number():
         "+79250553485",
     ]
     assert tu._phone_import_strings("+79250553485")[0] == "79250553485"
+
+
+def test_gateway_send_photo_forwards_bytes(tmp_path, monkeypatch):
+    """Фото уходит через Railway-шлюз: у Selectel нет своего маршрута к MTProto."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+    seen: list[dict] = []
+
+    def _fake(method, path, **kwargs):
+        seen.append(
+            {
+                "method": method,
+                "path": path,
+                "body": kwargs.get("json_body"),
+                "timeout": kwargs.get("timeout"),
+            }
+        )
+        return {"ok": True, "message_id": 77, "chat_id": "796461007"}
+
+    monkeypatch.setattr(tu, "_gateway_request", _fake)
+    monkeypatch.setattr(
+        tu, "_call", lambda *_a, **_k: pytest.fail("local MTProto must not run")
+    )
+
+    out = tu.send_photo(
+        peer="@pawels2137",
+        caption="привет",
+        image_bytes=b"\xff\xd8\xff\xdb",
+        image_name="bouquet.jpg",
+        timeout=5.0,
+    )
+
+    assert out["ok"] is True
+    assert out["via"] == "user_account_photo_gateway"
+    assert seen[0]["method"] == "POST" and seen[0]["path"] == "send_photo"
+    assert seen[0]["body"]["peer"] == "@pawels2137"
+    assert seen[0]["body"]["caption"] == "привет"
+    assert seen[0]["body"]["image_name"] == "bouquet.jpg"
+    assert seen[0]["body"]["image_base64"]
+    # 5s каскада хватает Bot API, но не загрузке байтов через шлюз.
+    assert seen[0]["timeout"] == 60.0
+
+
+def test_gateway_send_photo_reports_missing_route(tmp_path, monkeypatch):
+    """Старый шлюз без /send_photo: продавец видит причину, а не Errno 101."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_URL", "https://eg.example/t/tok")
+
+    monkeypatch.setattr(
+        tu,
+        "_gateway_request",
+        lambda *_a, **_k: {
+            "ok": False,
+            "error": "gateway_http_error",
+            "detail": "unknown route: send_photo",
+            "status_code": 404,
+        },
+    )
+    # Локальный MTProto на Selectel всё равно вернёт «[Errno 101] Network is
+    # unreachable» — именно этот errno продавец и видел вместо причины.
+    monkeypatch.setattr(
+        tu, "_call", lambda *_a, **_k: pytest.fail("local MTProto must not run")
+    )
+
+    out = tu.send_photo(peer="@pawels2137", image_bytes=b"\xff\xd8", timeout=5.0)
+
+    assert out["ok"] is False
+    assert "send_photo" in out["detail"]
+    assert "telegram-user-egress" in out["detail"]
+    assert "Errno 101" not in out["detail"]
+
+
+def test_gateway_photo_timeout_env_override(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_USER_GATEWAY_PHOTO_TIMEOUT_SEC", raising=False)
+    assert tu._gateway_photo_timeout(5.0) == 60.0
+    assert tu._gateway_photo_timeout(180.0) == 180.0
+    monkeypatch.setenv("TELEGRAM_USER_GATEWAY_PHOTO_TIMEOUT_SEC", "20")
+    assert tu._gateway_photo_timeout(5.0) == 20.0
