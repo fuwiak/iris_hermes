@@ -4559,13 +4559,14 @@
     );
   }
 
-  var DASH_METRICS = ["turnover", "revenue", "margin", "orders", "avg_check"];
+  var DASH_METRICS = ["turnover", "revenue", "margin", "orders", "avg_check", "deliveries"];
   var DASH_METRIC_RU = {
     turnover: "Оборот",
     revenue: "Выручка",
     margin: "Маржа",
     orders: "Заказы",
     avg_check: "Ср чек",
+    deliveries: "Доставки",
     commission: "Комиссия",
     new_clients: "Новые клиенты",
     second_purchase: "Вторая покупка",

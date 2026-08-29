@@ -3,7 +3,7 @@
   "label": "Клиенты",
   "description": "Iris CRM: Клиенты (Маркетплейс/Прямые) + Рассылки, MoySklad groups.",
   "icon": "Users",
-  "version": "1.17.2",
+  "version": "1.17.3",
   "tab": {
     "path": "/clients",
     "position": "after:skills"
