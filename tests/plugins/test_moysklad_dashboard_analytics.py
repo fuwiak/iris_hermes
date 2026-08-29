@@ -219,3 +219,14 @@ def test_analytics_overrides_loader(tmp_path, monkeypatch) -> None:
     assert out["purchase_by_month"]["2025-12"] == 1_000_000.0
     assert out["deliveries_by_month"]["2025-12"] == 282870.0
     assert out["yandex_use_cabinet"] is False
+
+
+def test_analytics_overrides_fallback_to_bundled_example(tmp_path, monkeypatch) -> None:
+    from plugins.moysklad import analytics_overrides as ao
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    (tmp_path / "moysklad").mkdir()
+    out = ao.load_analytics_overrides()
+    assert out["yandex_use_cabinet"] is True
+    assert out["deliveries_by_month"]["2025-12"] == 282870.0
+    assert out["purchase_by_month"]["2025-12"] > 0

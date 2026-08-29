@@ -40,29 +40,21 @@ def overrides_path() -> Path:
     return get_hermes_home() / "moysklad" / _OVERRIDES_NAME
 
 
-def load_analytics_overrides() -> dict[str, Any]:
-    path = overrides_path()
-    if not path.is_file():
-        return {
-            "purchase_by_month": {},
-            "deliveries_by_month": {},
-            "yandex_use_cabinet": True,
-        }
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log.warning("analytics_overrides unreadable (%s): %s", path, exc)
-        return {
-            "purchase_by_month": {},
-            "deliveries_by_month": {},
-            "yandex_use_cabinet": True,
-        }
+def _bundled_example_path() -> Path:
+    return Path(__file__).resolve().parent / "analytics_overrides.example.json"
+
+
+def _default_overrides() -> dict[str, Any]:
+    return {
+        "purchase_by_month": {},
+        "deliveries_by_month": {},
+        "yandex_use_cabinet": True,
+    }
+
+
+def _coerce_overrides(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        return {
-            "purchase_by_month": {},
-            "deliveries_by_month": {},
-            "yandex_use_cabinet": True,
-        }
+        return _default_overrides()
     purchase = raw.get("purchase_by_month") or {}
     deliveries = raw.get("deliveries_by_month") or {}
     use_cabinet = raw.get("yandex_use_cabinet")
@@ -83,6 +75,26 @@ def load_analytics_overrides() -> dict[str, Any]:
         else {},
         "yandex_use_cabinet": True if use_cabinet is None else bool(use_cabinet),
     }
+
+
+def load_analytics_overrides() -> dict[str, Any]:
+    """Load HERMES_HOME overrides; fall back to bundled example (web deploys)."""
+    path = overrides_path()
+    if path.is_file():
+        try:
+            return _coerce_overrides(json.loads(path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            log.warning("analytics_overrides unreadable (%s): %s", path, exc)
+    example = _bundled_example_path()
+    if example.is_file():
+        try:
+            out = _coerce_overrides(json.loads(example.read_text(encoding="utf-8")))
+            log.info("analytics_overrides: using bundled example %s", example)
+            return out
+        except Exception as exc:
+            log.warning("bundled analytics_overrides.example unreadable: %s", exc)
+    return _default_overrides()
+
 
 
 def analytics_kwargs_from_env() -> dict[str, Any]:
