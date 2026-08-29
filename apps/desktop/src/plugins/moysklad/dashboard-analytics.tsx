@@ -19,6 +19,7 @@ export type DashCell = {
   revenue?: number
   margin?: number
   avg_check?: number | null
+  deliveries?: number
   commission?: number
   sokolniki_orders?: number
   sokolniki_turnover?: number
@@ -35,6 +36,7 @@ export type DashChannelSeries = {
   margin?: Array<number | null>
   orders?: Array<number | null>
   avg_check?: Array<number | null>
+  deliveries?: Array<number | null>
   growth?: Record<string, Array<number | null | undefined>>
 }
 
@@ -47,6 +49,7 @@ export type DashMatrix = {
     margin?: Array<number | null>
     orders?: Array<number | null>
     avg_check?: Array<number | null>
+    deliveries?: Array<number | null>
     growth?: Record<string, Array<number | null | undefined>>
   }
 }
@@ -87,13 +90,14 @@ export type DashAnalytics = {
   }[]
 }
 
-const METRIC_KEYS = ['turnover', 'revenue', 'margin', 'orders', 'avg_check'] as const
+const METRIC_KEYS = ['turnover', 'revenue', 'margin', 'orders', 'avg_check', 'deliveries'] as const
 const METRIC_RU: Record<string, string> = {
   turnover: 'Оборот',
   revenue: 'Выручка',
   margin: 'Маржа',
   orders: 'Заказы',
   avg_check: 'Ср чек',
+  deliveries: 'Доставки',
   commission: 'Комиссия',
   new_clients: 'Новые клиенты',
   second_purchase: 'Вторая покупка',

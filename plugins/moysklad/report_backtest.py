@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 
-COMPARABLE_METRICS = ("turnover", "revenue", "margin", "orders", "avg_check")
+COMPARABLE_METRICS = ("turnover", "revenue", "margin", "orders", "avg_check", "deliveries")
 
 
 def extract_month_report(analytics: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:

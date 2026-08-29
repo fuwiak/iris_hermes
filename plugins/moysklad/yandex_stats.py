@@ -16,8 +16,17 @@ from datetime import date, timedelta
 from typing import Any
 
 _CANCEL_PREFIXES = ("CANCELLED", "RETURN", "UNPAID")
+# Partner commission types that map to Excel «Доставки» when no manual override.
+_DELIVERY_COMMISSION_TYPES = frozenset(
+    {
+        "EXPRESS_DELIVERY_TO_CUSTOMER",
+        "DELIVERY_TO_CUSTOMER",
+        "CROSSREGIONAL_DELIVERY",
+        "SORTING",
+    }
+)
 _CACHE_TTL_S = 1800.0
-_CACHE_KEY = "moysklad:yandex:stats:v1"
+_CACHE_KEY = "moysklad:yandex:stats:v2"
 
 
 def _months_back(today: date, months: int) -> str:
@@ -63,7 +72,15 @@ def fetch_yandex_monthly_stats(*, months: int = 3, today: date | None = None) ->
                 if len(month_id) != 7:
                     continue
                 cell = agg.setdefault(
-                    month_id, {"orders": 0, "buyer_total": 0.0, "payout_total": 0.0}
+                    month_id,
+                    {
+                        "orders": 0,
+                        "buyer_total": 0.0,
+                        "payout_total": 0.0,
+                        "deliveries": 0.0,
+                        "fees": 0.0,
+                        "commission_total": 0.0,
+                    },
                 )
                 cell["orders"] += 1
                 for item in order.get("items") or []:
@@ -73,12 +90,23 @@ def fetch_yandex_monthly_stats(*, months: int = 3, today: date | None = None) ->
                             cell["buyer_total"] += total
                         elif price.get("type") == "MARKETPLACE":
                             cell["payout_total"] += total
+                for commission in order.get("commissions") or []:
+                    amount = float(commission.get("actual") or 0)
+                    ctype = str(commission.get("type") or "")
+                    cell["commission_total"] += amount
+                    if ctype == "FEE":
+                        cell["fees"] += amount
+                    if ctype in _DELIVERY_COMMISSION_TYPES:
+                        cell["deliveries"] += amount
             page_token = str((result.get("paging") or {}).get("nextPageToken") or "")
             if not page_token:
                 break
     for cell in agg.values():
         cell["buyer_total"] = round(cell["buyer_total"], 2)
         cell["payout_total"] = round(cell["payout_total"], 2)
+        cell["deliveries"] = round(cell["deliveries"], 2)
+        cell["fees"] = round(cell["fees"], 2)
+        cell["commission_total"] = round(cell["commission_total"], 2)
     return {
         "months": dict(sorted(agg.items())),
         "campaigns": len(campaigns),

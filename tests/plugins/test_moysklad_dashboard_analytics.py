@@ -158,3 +158,64 @@ def test_build_analytics_aggregates_like_excel_sheets() -> None:
     conc = next(row for row in analytics["insights"] if row["id"] == "concentration")
     assert conc["channel"] == "flowwow"
     assert conc["tone"] == "warn"
+
+
+def test_yandex_cabinet_reprices_turnover_and_deliveries() -> None:
+    from plugins.moysklad.dashboard_analytics import apply_yandex_cabinet_to_raw, build_analytics
+
+    rows = [
+        _paid("o1", "2026-07-10T10:00:00", 10_000, "Яндекс Маркет", "c1"),
+        _paid("o2", "2026-07-11T10:00:00", 5_000, "Яндекс Маркет", "c2"),
+    ]
+    cabinet = {
+        "months": {
+            "2026-07": {
+                "orders": 3,
+                "buyer_total": 9000.0,
+                "payout_total": 6000.0,
+                "deliveries": 400.0,
+            }
+        }
+    }
+    analytics = build_analytics(
+        rows,
+        today=date(2026, 7, 20),
+        day_limit=20,
+        week_limit=4,
+        month_limit=3,
+        yandex_cabinet=cabinet,
+        deliveries_by_month={"2026-07": 56680},
+        purchase_by_month={"2026-07": 100_000},
+    )
+    ym = next(c for c in analytics["by_month"]["channels"] if c["key"] == "yandex_market")
+    jul_i = [i for i, p in enumerate(analytics["by_month"]["periods"]) if p["id"] == "2026-07"][0]
+    assert ym["turnover"][jul_i] == 9000.0  # cabinet BUYER, not MS 15000
+    assert ym["orders"][jul_i] == 3
+    assert ym["revenue"][jul_i] == 6300.0  # 9000 * 0.7
+    assert ym["deliveries"][jul_i] == 56680  # manual override wins
+    # share = 1.0 (only yandex) → margin = 6300 - 100000 * 1 = -93700
+    assert ym["margin"][jul_i] == -93700.0
+    assert analytics["yandex_source"] == "cabinet"
+
+    raw = {("2026-07", "yandex_market"): {"orders": 2, "turnover": 15000.0, "deliveries": 0.0,
+                                           "sokolniki_orders": 0, "sokolniki_turnover": 0.0,
+                                           "universitet_orders": 0, "universitet_turnover": 0.0}}
+    notes = apply_yandex_cabinet_to_raw(raw, yandex_cabinet=cabinet, use_cabinet=True)
+    assert raw[("2026-07", "yandex_market")]["turnover"] == 9000.0
+    assert any("BUYER" in n for n in notes)
+
+
+def test_analytics_overrides_loader(tmp_path, monkeypatch) -> None:
+    from plugins.moysklad import analytics_overrides as ao
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    (tmp_path / "moysklad").mkdir()
+    (tmp_path / "moysklad" / "analytics_overrides.json").write_text(
+        '{"purchase_by_month": {"2025-12": 1e6}, "deliveries_by_month": {"2025-12": 282870},'
+        ' "yandex_use_cabinet": false}',
+        encoding="utf-8",
+    )
+    out = ao.load_analytics_overrides()
+    assert out["purchase_by_month"]["2025-12"] == 1_000_000.0
+    assert out["deliveries_by_month"]["2025-12"] == 282870.0
+    assert out["yandex_use_cabinet"] is False

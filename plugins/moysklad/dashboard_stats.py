@@ -110,6 +110,8 @@ def build_dashboard_summary(
     now: float | None = None,
 ) -> dict[str, Any]:
     from datetime import date as date_cls
+
+    from plugins.moysklad.analytics_overrides import analytics_kwargs_from_env
     from plugins.moysklad.dashboard_analytics import build_analytics
 
     generated = float(now if now is not None else time.time())
@@ -118,6 +120,6 @@ def build_dashboard_summary(
         "clients": clients_summary(rows),
         "sends": sends_summary(messages, now=now),
         "last_mass_job": dict(last_job) if isinstance(last_job, dict) else None,
-        "analytics": build_analytics(rows, today=today),
+        "analytics": build_analytics(rows, today=today, **analytics_kwargs_from_env()),
         "generated_at": generated,
     }

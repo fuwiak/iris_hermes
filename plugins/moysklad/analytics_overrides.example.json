@@ -1,0 +1,11 @@
+{
+  "yandex_use_cabinet": true,
+  "purchase_by_month": {},
+  "deliveries_by_month": {
+    "2025-09": 56680,
+    "2025-10": 68719,
+    "2025-11": 112520,
+    "2025-12": 282870
+  },
+  "_comment": "purchase_by_month: total flower purchase cost for the month (all channels). margin = revenue - purchase * channel_share. deliveries_by_month: Excel «Доставки» — own logistics; overrides Yandex EXPRESS_DELIVERY fees."
+}

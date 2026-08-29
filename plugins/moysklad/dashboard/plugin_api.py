@@ -5506,12 +5506,15 @@ def post_cards_chat(body: CardsChatBody) -> dict[str, Any]:
 
         channel_dynamics: dict[str, Any] = {}
         try:
+            from plugins.moysklad.analytics_overrides import analytics_kwargs_from_env
             from plugins.moysklad.dashboard_analytics import build_analytics
             from plugins.moysklad.report_backtest import extract_month_report
 
             catalog, _meta = _get_catalog(force=False, blocking=True)
             analytics = build_analytics(
-                list((catalog or {}).get("rows") or []), today=_date.today()
+                list((catalog or {}).get("rows") or []),
+                today=_date.today(),
+                **analytics_kwargs_from_env(),
             )
             month_report = extract_month_report(analytics)
             for month_id in sorted(month_report)[-3:]:
@@ -5564,6 +5567,7 @@ def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
     try:
         from datetime import date as _date
 
+        from plugins.moysklad.analytics_overrides import analytics_kwargs_from_env
         from plugins.moysklad.cards_chat import cards_chat_reply
         from plugins.moysklad.dashboard_analytics import build_analytics
         from plugins.moysklad.marketplace_cards import cached_payload
@@ -5571,7 +5575,7 @@ def post_dashboard_chat(body: CardsChatBody) -> dict[str, Any]:
 
         catalog, meta = _get_catalog(force=False, blocking=True)
         rows = list((catalog or {}).get("rows") or [])
-        analytics = build_analytics(rows, today=_date.today())
+        analytics = build_analytics(rows, today=_date.today(), **analytics_kwargs_from_env())
         month_report = extract_month_report(analytics)
 
         cards_summary: dict[str, Any] | None = None
@@ -5836,6 +5840,7 @@ def get_cards_analytics(
     try:
         from datetime import date as _date
 
+        from plugins.moysklad.analytics_overrides import analytics_kwargs_from_env
         from plugins.moysklad.dashboard_analytics import build_analytics
         from plugins.moysklad.report_backtest import extract_month_report
         from plugins.moysklad.yandex_stats import (
@@ -5845,7 +5850,9 @@ def get_cards_analytics(
 
         catalog, _meta = _get_catalog(force=False, blocking=True)
         analytics = build_analytics(
-            list((catalog or {}).get("rows") or []), today=_date.today()
+            list((catalog or {}).get("rows") or []),
+            today=_date.today(),
+            **analytics_kwargs_from_env(),
         )
         month_report = extract_month_report(analytics)
         dynamics: dict[str, Any] = {}

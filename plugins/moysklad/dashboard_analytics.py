@@ -6,6 +6,11 @@ Sheets ported:
 - МЕСЯЦ — monthly P&L, MoM %, share, margin
 - Флау 2024-2025 — FlowWow monthly + year totals + nth-purchase cohorts
 
+Яндекс Маркет (when partner token + yandex_use_cabinet):
+  month turnover/orders ← cabinet BUYER totals (not MoySklad list prices)
+  deliveries ← analytics_overrides.json, else Yandex delivery commissions
+  purchase ← analytics_overrides.json (margin = revenue - purchase * share)
+
 Formulas (do not re-derive):
   growth(new, old)      = (new / old) - 1                 # =(new/old*100-100)/100
   avg_check             = turnover / orders
@@ -69,6 +74,7 @@ METRIC_ORDER: tuple[str, ...] = (
     "margin",
     "orders",
     "avg_check",
+    "deliveries",
 )
 
 METRIC_LABELS: dict[str, str] = {
@@ -77,6 +83,7 @@ METRIC_LABELS: dict[str, str] = {
     "margin": "Маржа",
     "orders": "Заказы",
     "avg_check": "Ср чек",
+    "deliveries": "Доставки",
     "commission": "Комиссия",
     "new_clients": "Новые клиенты",
     "second_purchase": "Вторая покупка",
@@ -308,6 +315,7 @@ def _empty_cell() -> dict[str, Any]:
     return {
         "orders": 0,
         "turnover": 0.0,
+        "deliveries": 0.0,
         "sokolniki_orders": 0,
         "sokolniki_turnover": 0.0,
         "universitet_orders": 0,
@@ -339,12 +347,14 @@ def _finish_cell(
     rev = revenue_from_turnover(turnover, commission_rate)
     comm = commission_from_turnover(turnover, commission_rate)
     sh = share_of_total(turnover, total_turnover)
+    deliveries = float(cell.get("deliveries") or 0)
     return {
         "orders": orders,
         "turnover": round(turnover, 2),
         "revenue": round(rev, 2),
         "commission": round(comm, 2),
         "avg_check": None if orders <= 0 else round(turnover / orders, 2),
+        "deliveries": round(deliveries, 2),
         "share": round(sh, 6),
         "margin": round(margin_from_revenue(rev, purchase, sh), 2),
         "sokolniki_orders": int(cell["sokolniki_orders"]),
@@ -374,7 +384,12 @@ def _channel_metric_series(
     for pid in periods:
         cell = cells.get((pid, channel))
         if not cell:
-            series.append(0.0 if metric in ("orders", "turnover", "revenue", "margin", "commission") else None)
+            series.append(
+                0.0
+                if metric
+                in ("orders", "turnover", "revenue", "margin", "commission", "deliveries")
+                else None
+            )
             continue
         series.append(cell.get(metric))
     return series
@@ -715,6 +730,63 @@ def build_insights(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return unique[:6]
 
 
+def apply_yandex_cabinet_to_raw(
+    raw: dict[tuple[str, str], dict[str, Any]],
+    *,
+    yandex_cabinet: dict[str, Any] | None,
+    deliveries_by_month: dict[str, float] | None = None,
+    use_cabinet: bool = True,
+) -> list[str]:
+    """Reprice Яндекс Маркет month cells from partner API + manual fills.
+
+    - ``turnover`` ← cabinet BUYER total (what buyers paid — Excel-aligned base)
+    - ``orders`` ← cabinet order count when present
+    - ``deliveries`` ← override file, else Yandex delivery commissions
+    """
+    notes: list[str] = []
+    deliveries_by_month = {
+        str(k): float(v) for k, v in (deliveries_by_month or {}).items()
+    }
+    months = (yandex_cabinet or {}).get("months") or {}
+    touched_cabinet = 0
+    month_ids = set(months) | set(deliveries_by_month)
+    for month_id in month_ids:
+        key = (month_id, "yandex_market")
+        real = months.get(month_id) or {}
+        cell = dict(raw.get(key) or _empty_cell())
+        if use_cabinet:
+            buyer = float(real.get("buyer_total") or 0)
+            if buyer > 0:
+                cell["turnover"] = buyer
+                if real.get("orders"):
+                    cell["orders"] = int(real["orders"])
+                # Cabinet has no store split — zero the MS-derived split.
+                cell["sokolniki_orders"] = 0
+                cell["sokolniki_turnover"] = 0.0
+                cell["universitet_orders"] = 0
+                cell["universitet_turnover"] = 0.0
+                touched_cabinet += 1
+        if month_id in deliveries_by_month:
+            cell["deliveries"] = float(deliveries_by_month[month_id])
+        elif real.get("deliveries") is not None:
+            cell["deliveries"] = float(real.get("deliveries") or 0)
+        raw[key] = cell
+    if touched_cabinet:
+        notes.append(
+            "Яндекс Маркет: оборот и заказы из кабинета (BUYER), не цены МС до скидки."
+        )
+    if deliveries_by_month:
+        notes.append(
+            "Доставки: ручные значения из analytics_overrides.json (как в Excel)."
+        )
+    elif any(float((m or {}).get("deliveries") or 0) > 0 for m in months.values()):
+        notes.append(
+            "Доставки: комиссии доставки Яндекса (EXPRESS_DELIVERY…); "
+            "для Excel-цифр задайте deliveries_by_month в overrides."
+        )
+    return notes
+
+
 def build_analytics(
     rows: list[dict[str, Any]],
     *,
@@ -723,6 +795,9 @@ def build_analytics(
     week_limit: int = 16,
     month_limit: int = 14,
     purchase_by_month: dict[str, float] | None = None,
+    deliveries_by_month: dict[str, float] | None = None,
+    yandex_cabinet: dict[str, Any] | None = None,
+    yandex_use_cabinet: bool = True,
 ) -> dict[str, Any]:
     today = today or date.today()
     facts = iter_paid_orders(rows)
@@ -751,6 +826,12 @@ def build_analytics(
         if mid not in seen_m:
             seen_m.add(mid)
             month_ids_for_days.append(mid)
+    cabinet_notes = apply_yandex_cabinet_to_raw(
+        raw_months_from_days,
+        yandex_cabinet=yandex_cabinet,
+        deliveries_by_month=deliveries_by_month,
+        use_cabinet=yandex_use_cabinet,
+    )
     finished_day_months = _finish_grid(
         raw_months_from_days, month_ids_for_days, channels, purchase_by_period=purchase_by_month
     )
@@ -850,6 +931,12 @@ def build_analytics(
         pid = f"{fact['date'].year:04d}-{fact['date'].month:02d}"
         if pid in month_set:
             _add_order(raw_months[(pid, fact["channel"])], fact)
+    cabinet_notes = apply_yandex_cabinet_to_raw(
+        raw_months,
+        yandex_cabinet=yandex_cabinet,
+        deliveries_by_month=deliveries_by_month,
+        use_cabinet=yandex_use_cabinet,
+    )
     finished_months = _finish_grid(
         raw_months, month_ids, channels, purchase_by_period=purchase_by_month
     )
@@ -1011,9 +1098,15 @@ def build_analytics(
         "flowwow": flowwow,
         "order_count": len(facts),
         "notes": [
-            "Оплаченные заказы из кэша МойСклад. Закупка в марже = 0, пока не задана.",
-            "Конверсия FW / избранное / подборки в МойСклад нет — только в кабинете FlowWow.",
+            "Оплаченные заказы из кэша МойСклад (день/неделя). Месяц Яндекс — кабинет BUYER при наличии токена.",
+            "Маржа = выручка − закупка×доля. Закупка и Excel-доставки — в analytics_overrides.json.",
+            *cabinet_notes,
         ],
+        "yandex_source": (
+            "cabinet"
+            if yandex_use_cabinet and (yandex_cabinet or {}).get("months")
+            else "moysklad"
+        ),
     }
     payload["insights"] = build_insights(payload)
     return payload
