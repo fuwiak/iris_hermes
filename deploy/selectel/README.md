@@ -1,119 +1,79 @@
-# Selectel deploy — Iris Hermes (`hermes-agent-ai.ru`)
+# Iris Hermes production — Yandex Cloud VDS (`hermes-agent-ai.ru`)
 
-New VDS (option 3 — does **not** touch `kinetic-ai.ru` / `kinetic-prod`).
+> **2026-09-15:** full cutover from Selectel `iris-hermes` (`185.161.66.162`)
+> to Yandex `iris-sasha` (`158.160.195.2`). Selectel VM is **SHUTOFF**;
+> DNS A/`www` → Yandex. Paths below still live under `deploy/selectel/`
+> (compose project name) for backwards compatibility.
 
 | | |
 |--|--|
-| Server | `iris-hermes` (Selectel cloud, region `ru-7`) |
-| Public IP | `185.161.66.162` |
+| Server | Yandex Cloud VDS `iris` / SSH host `iris-sasha` |
+| Public IP | `158.160.195.2` |
 | Domain | `hermes-agent-ai.ru` |
-| DNS zone ID | `c0985d99-2847-4d1b-a727-a52b15a1a532` (project «сайт») |
+| DNS | Selectel DNS zone (project «сайт») — A records point at Yandex |
 | Stack | Caddy + Hermes + Redis 7 + Postgres 16 |
 | App dir | `/opt/iris_hermes` |
-| Secrets | `/root/deploy.env` → `deploy/selectel/.env` |
+| Secrets | `/root/deploy.env` → compose `env_file` |
 
 ## DNS
 
-Zone is in project «сайт». A records already set via API:
+Zone ID `c0985d99-2847-4d1b-a727-a52b15a1a532` (project «сайт»):
 
 | Type | Name | Value | TTL |
 |------|------|-------|-----|
-| A | `@` | `185.161.66.162` | 300 |
-| A | `www` | `185.161.66.162` | 300 |
+| A | `@` | `158.160.195.2` | 300 |
+| A | `www` | `158.160.195.2` | 300 |
 
-If the panel says **not delegated**, set NS at the registrar to:
-
-`a.ns.selectel.ru`, `b.ns.selectel.ru`, `c.ns.selectel.ru`, `d.ns.selectel.ru`
-
-Then wait for propagation and enable HTTPS in Caddy (remove `auto_https disable_redirects`).
-
-## Iris defaults
-
-Entrypoint (`docker/railway-entrypoint.sh`) on every boot:
-
-- sets `dashboard.theme` / `display.skin` to **iris** when missing or `mono`/`default`
-- ensures `plugins.enabled` includes **moysklad** (unless explicitly disabled)
-- seeds chat model **`deepseek/deepseek-v4-flash-0731`** + `agent.reasoning_effort: medium` when unset (UI: Deepseek V4 Flash 0731 · Med)
-- syncs `MOYSKLAD_*` and `OPENROUTER_API_KEY` / `DEEPSEEK_API_KEY` from
-  process env into `$HERMES_HOME/.env` (volume). Required because Hermes loads
-  the volume `.env` with `override=True` — a stale OpenRouter key otherwise
-  survives after you rotate `deploy.env`.
-- optional Telegram Business outreach keys:
-  `MOYSKLAD_TELEGRAM_BOT_TOKEN`, `MOYSKLAD_TELEGRAM_BOT_USERNAME`,
-  `MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (GitHub secrets
-  `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_*`, patched into `/root/deploy.env` on deploy).
-
-Require `MOYSKLAD_API_TOKEN` in `/root/deploy.env`. `MOYSKLAD_ENABLED` alone does not enable the Hermes plugin.
-
-### OpenRouter `Access denied by security policy` (HTTP 403)
-
-This is **OpenRouter’s API** rejecting the request — not Hermes dashboard auth,
-CSRF, Caddy, or Cloudflare. Common causes on this VDS:
-
-1. **RU / Selectel egress IP** (`185.161.66.162`, region `ru-7`) blocked by
-   OpenRouter security policy (most likely when the key works from a laptop
-   outside RU but fails from the server).
-2. Stale / revoked `OPENROUTER_API_KEY` in the Hermes volume `.env`.
-3. Account-level ban on the OpenRouter key.
-
-**Preferred fix for (1) — Railway egress fallback** (Hermes stays on Selectel;
-only LLM traffic leaves via Railway’s non-RU IP):
-
-1. Deploy `deploy/openrouter-egress/` as a Railway service (see that README).
-2. Set GitHub secrets:
-   - `SELECTEL_IRIS_OPENROUTER_BASE_URL` =
-     `https://<railway-host>/t/<EGRESS_TOKEN>/api/v1`
-   - `SELECTEL_IRIS_OPENROUTER_API_KEY` (working key)
-3. Push to `main` (deploy patches `/root/deploy.env`; entrypoint syncs volume
-   `.env` **and** rewrites `config.yaml` `model.base_url` to the egress URL).
-
-For **personal Telegram (Telethon)** — same problem, MTProto DCs blocked from
-Selectel — deploy `deploy/telegram-user-egress/` and set
-`SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL=https://<host>/t/<EGRESS_TOKEN>`.
-
-`OPENROUTER_BASE_URL` always wins over a stale `model.base_url:
-https://openrouter.ai/api/v1` on the volume.
-
-Other fixes:
-
-1. Rotate key via `SELECTEL_IRIS_OPENROUTER_API_KEY` + push / recreate hermes.
-2. Edit `/root/deploy.env` on the VDS, then
-   `docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml up -d --force-recreate hermes`
-   (plain `up -d` can leave a stale container env / volume key).
-3. Switch to native DeepSeek (`DEEPSEEK_API_KEY` + `hermes model`) — no OpenRouter.
-
-Updating only a local laptop `.env` does **not** fix production.
-Laptop VPN does **not** change the Selectel server’s egress IP.
+NS at registrar: `a/b/c/d.ns.selectel.ru` (unchanged).
 
 ## Deploy
 
 GitHub Actions: `.github/workflows/deploy-selectel-iris.yml`
 
-On this Iris fork, **only Selectel deploy auto-runs on every push to `main`**.
-Heavy CI / lint / JS tests / Docker publish / docs / autofix are
-`workflow_dispatch` only (they were burning Actions minutes and blocking deploy).
+Secrets are still named `SELECTEL_IRIS_*` but **must** target the Yandex VDS:
 
-Secrets:
+- `SELECTEL_IRIS_HOST` = `158.160.195.2`
+- `SELECTEL_IRIS_USER` = `deploy`
+- `SELECTEL_IRIS_SSH_KEY` = `~/.ssh/iris_yandex_deploy` private key
+- `SELECTEL_IRIS_DEPLOY_ENV` = `/root/deploy.env` body
+- `SELECTEL_IRIS_OPENROUTER_BASE_URL` = Railway telegram-user-egress `/t/<token>/api/v1`
+- `SELECTEL_IRIS_OPENROUTER_API_KEY`, Telegram / MoySklad / marketplace tokens as before
 
-- `SELECTEL_IRIS_HOST`
-- `SELECTEL_IRIS_USER`
-- `SELECTEL_IRIS_SSH_KEY`
-- `SELECTEL_IRIS_DEPLOY_ENV` (full `/root/deploy.env` body)
-- `SELECTEL_IRIS_OPENROUTER_API_KEY` (optional; patches OpenRouter key on each deploy)
-- `SELECTEL_IRIS_OPENROUTER_BASE_URL` (optional; Railway egress proxy — see `deploy/openrouter-egress/`)
-- `SELECTEL_IRIS_TELEGRAM_USER_GATEWAY_URL` (optional; Railway Telethon egress — see `deploy/telegram-user-egress/`)
-- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN` (optional; Business bot for Рассылки)
-- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_USERNAME` (optional)
-- `SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BUSINESS_CONNECTION_ID` (optional)
-- `SELECTEL_IRIS_TELEGRAM_API_ID` (optional; personal MTProto — UI masks these)
-- `SELECTEL_IRIS_TELEGRAM_API_HASH` (optional; from my.telegram.org)
-
-Manual on VDS:
+Local SSH:
 
 ```bash
-bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh
-docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml ps
-curl -fsS -H 'Host: hermes-agent-ai.ru' http://127.0.0.1/
+ssh iris-sasha   # IdentityFile iris_yandex_deploy (passwordless)
 ```
 
-Kinetic CRM (`kinetic-prod` / `155.212.181.116`) left untouched.
+Manual redeploy on the VDS:
+
+```bash
+sudo bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh
+docker compose -f /opt/iris_hermes/deploy/selectel/docker-compose.yml ps
+```
+
+## Chat smoke (real WS path)
+
+On the VDS (inside the hermes container):
+
+```bash
+docker exec -u hermes -w /opt/data selectel-hermes-1 \
+  python /tmp/iris_chat_e2e.py --base-url http://127.0.0.1:8080 \
+  --question 'What is 2+2? Reply with only the digit.' --expect 4
+```
+
+Script: `scripts/iris_chat_e2e.py` (login → ws-ticket → `prompt.submit`).
+
+## OpenRouter / egress
+
+Yandex RU IP cannot dial `openrouter.ai` (HTTP 403). Keep
+`OPENROUTER_BASE_URL` on the Railway telegram-user-egress proxy. Boot sync
+must keep volume `$HERMES_HOME/.env` BASE_URL in sync with compose
+(dotenv `override=True` otherwise reverts to a stale `/t/<token>/` → HTTP 401).
+
+## Selectel (legacy)
+
+- VM name `iris-hermes` / IP `185.161.66.162` — **powered off** after migration.
+- Do **not** point DNS back without restarting that VM.
+- Volumes were copied to Yandex (`selectel_hermes_data`); Postgres on Selectel
+  was empty (sessions live in Hermes volume / SQLite).
