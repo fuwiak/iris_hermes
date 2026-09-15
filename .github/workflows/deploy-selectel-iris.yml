@@ -29,7 +29,8 @@ jobs:
           DEPLOY_ENV: ${{ secrets.SELECTEL_IRIS_DEPLOY_ENV }}
           # Optional: rotate OpenRouter without rewriting full DEPLOY_ENV body.
           OPENROUTER_API_KEY: ${{ secrets.SELECTEL_IRIS_OPENROUTER_API_KEY }}
-          # Optional: Railway OpenRouter egress (non-RU IP). See deploy/openrouter-egress/.
+          # Railway egress (non-RU IP). Prefer telegram-user-egress when
+          # openrouter-egress edge TLS-hangs from Yandex/Selectel VDS.
           OPENROUTER_BASE_URL: ${{ secrets.SELECTEL_IRIS_OPENROUTER_BASE_URL }}
           # Telegram Business outreach for MoySklad Рассылки (optional patch).
           MOYSKLAD_TELEGRAM_BOT_TOKEN: ${{ secrets.SELECTEL_IRIS_MOYSKLAD_TELEGRAM_BOT_TOKEN }}
@@ -55,6 +56,17 @@ jobs:
 
           SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30)
 
+          # Yandex uses non-root `deploy` + sudo; Selectel was root.
+          # Docker / prior root deploys leave root-owned trees — chown must
+          # succeed before rsync or mkstemp dies with Permission denied (13).
+          "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
+            'set -euo pipefail
+             sudo mkdir -p /opt/iris_hermes /opt/data
+             sudo chown -R "$(id -un):$(id -gn)" /opt/iris_hermes /opt/data
+             test -w /opt/iris_hermes
+             touch /opt/iris_hermes/.deploy_write_ok && rm -f /opt/iris_hermes/.deploy_write_ok
+            '
+
           rsync -az --delete \
             --exclude '.git' \
             --exclude 'node_modules' \
@@ -66,7 +78,8 @@ jobs:
 
           if [ -n "${DEPLOY_ENV:-}" ]; then
             printf '%s\n' "$DEPLOY_ENV" | "${SSH[@]}" \
-              "${SELECTEL_USER}@${SELECTEL_HOST}" 'cat > /root/deploy.env'
+              "${SELECTEL_USER}@${SELECTEL_HOST}" \
+              'sudo tee /root/deploy.env >/dev/null && sudo chmod 600 /root/deploy.env'
           fi
 
           # Patch rotating secrets into /root/deploy.env (volume synced on hermes boot).
@@ -109,7 +122,7 @@ jobs:
               "$PATCH_FILE" "${SELECTEL_USER}@${SELECTEL_HOST}:/tmp/iris_deploy_patch.env"
             "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
               'set -euo pipefail
-               test -f /root/deploy.env
+               sudo test -f /root/deploy.env
                test -f /tmp/iris_deploy_patch.env
                umask 077
                set -a
@@ -117,17 +130,17 @@ jobs:
                . /tmp/iris_deploy_patch.env
                set +a
                rm -f /tmp/iris_deploy_patch.env
-               python3 /opt/iris_hermes/scripts/sync_moysklad_env_from_railway.py \
+               sudo python3 /opt/iris_hermes/scripts/sync_moysklad_env_from_railway.py \
                  --prefer-process-env --env-file /root/deploy.env
-               python3 /opt/iris_hermes/scripts/patch_deploy_telegram_enabled.py
+               sudo python3 /opt/iris_hermes/scripts/patch_deploy_telegram_enabled.py
                '
           fi
           rm -f "$PATCH_FILE"
 
           "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
-            'bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh'
+            'sudo bash /opt/iris_hermes/deploy/selectel/remote_deploy.sh'
 
       - name: Health summary
         run: |
-          echo "Target: https://hermes-agent-ai.ru" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: http://158.160.195.2 (Yandex) / https://hermes-agent-ai.ru after DNS" >> "$GITHUB_STEP_SUMMARY"
           echo "VDS: ${{ secrets.SELECTEL_IRIS_HOST }}" >> "$GITHUB_STEP_SUMMARY"

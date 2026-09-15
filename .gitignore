@@ -249,3 +249,7 @@ reference/selectel-kinetic-deploy/deploy/.env
 # Local knowledge graph (can exceed GitHub 100MB limit)
 graphify-out/
 .agents/
+
+# local SSH keys — never commit
+iris_hermes_pawel
+iris_hermes_pawel.pub

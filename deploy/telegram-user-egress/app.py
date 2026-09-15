@@ -1,9 +1,25 @@
-"""Telethon MTProto egress for Selectel (RU) Hermes.
+"""Telethon MTProto + OpenRouter HTTPS egress for RU Hermes (Selectel/Yandex).
 
-Selectel VDS cannot open Telegram DCs. This service runs on Railway (non-RU IP)
-and exposes the personal-account login / contacts / send surface over HTTPS.
+RU datacenter IPs often cannot open Telegram DCs and get OpenRouter 403
+security-policy blocks. This service runs on Railway (non-RU IP) and exposes:
+
+- personal Telegram (Telethon) login / contacts / send
+- OpenRouter reverse-proxy at ``/t/<EGRESS_TOKEN>/api/v1/…`` (same shape as
+  ``deploy/openrouter-egress``) — needed when the dedicated openrouter-egress
+  Railway edge IP is unreachable from the VDS
 
 Auth: ``Authorization: Bearer <EGRESS_TOKEN>`` or path prefix ``/t/<token>/…``.
+For OpenRouter proxy, Hermes keeps ``Authorization: Bearer <OPENROUTER_API_KEY>``
+and relies on the path token for gateway auth.
+
+OpenRouter base URL for Hermes (Yandex/Selectel):
+
+```bash
+OPENROUTER_BASE_URL=https://telegram-user-egress-production.up.railway.app/t/<EGRESS_TOKEN>/api/v1
+```
+
+Prefer this over ``deploy/openrouter-egress`` when that service’s Railway edge IP
+TLS-hangs from the VDS (seen on Yandex Cloud → ``*.86`` anycast).
 """
 
 from __future__ import annotations
@@ -18,8 +34,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("telegram-user-egress")
@@ -1281,19 +1298,92 @@ def fetch_history(*, peer: str, limit: int = 40) -> dict[str, Any]:
     return _call(_hist, timeout=60.0)
 
 
+_OPENROUTER_UPSTREAM = "https://openrouter.ai"
+# Hop-by-hop / identity headers we must not forward to OpenRouter.
+_PROXY_DROP_REQ = {
+    "host",
+    "content-length",
+    "connection",
+    "transfer-encoding",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "upgrade",
+}
+# Keep content-encoding / content-type so gzip bodies stay decodable.
+_PROXY_DROP_RESP = _PROXY_DROP_REQ
+
+
+async def _proxy_openrouter(request: Request, route: str) -> Response:
+    """Reverse-proxy ``api/v1/…`` to openrouter.ai (streaming-safe)."""
+    upstream = f"{_OPENROUTER_UPSTREAM}/{route}"
+    if request.url.query:
+        upstream = f"{upstream}?{request.url.query}"
+
+    headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in _PROXY_DROP_REQ
+    }
+    headers["host"] = "openrouter.ai"
+    body = await request.body()
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0))
+    try:
+        req = client.build_request(
+            request.method,
+            upstream,
+            headers=headers,
+            content=body if body else None,
+        )
+        upstream_resp = await client.send(req, stream=True)
+    except Exception:
+        await client.aclose()
+        raise
+
+    resp_headers = {
+        k: v
+        for k, v in upstream_resp.headers.items()
+        if k.lower() not in _PROXY_DROP_RESP
+    }
+
+    async def _stream():
+        try:
+            async for chunk in upstream_resp.aiter_raw():
+                yield chunk
+        finally:
+            await upstream_resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _stream(),
+        status_code=upstream_resp.status_code,
+        headers=resp_headers,
+        media_type=upstream_resp.headers.get("content-type"),
+    )
+
+
 @app.get("/healthz")
 def healthz() -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-@app.api_route("/t/{token}/{path:path}", methods=["GET", "POST", "DELETE"])
-@app.api_route("/{path:path}", methods=["GET", "POST", "DELETE"])
+@app.api_route(
+    "/t/{token}/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
+@app.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
 async def gateway(
     request: Request,
     path: str = "",
     token: str | None = None,
     authorization: str | None = Header(default=None),
-) -> JSONResponse:
+) -> Response:
     # Normalize path whether called via /t/<token>/… or bare /…
     full = request.url.path
     if token is not None and token != _token():
@@ -1302,6 +1392,10 @@ async def gateway(
     route = _strip_token_prefix(full).rstrip("/") or "/"
     if route.startswith("/"):
         route = route[1:]
+
+    # OpenRouter API mirror (path-token auth; Bearer is the OpenRouter key).
+    if route == "api/v1" or route.startswith("api/v1/"):
+        return await _proxy_openrouter(request, route)
 
     probe = (request.query_params.get("probe") or "true").lower() not in ("0", "false", "no")
     force = (request.query_params.get("force") or "true").lower() not in ("0", "false", "no")
