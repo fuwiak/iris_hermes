@@ -288,7 +288,8 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // part-appends can't churn group identity (that would defeat the rows memo
   // below on every tick). Weights are folded in separately for the budget.
   const groups = useMemo(() => buildGroups(structuralSignature), [structuralSignature])
-  const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder)
+  const isEmptyThread = groups.length === 0
+  const renderEmpty = isEmptyThread && Boolean(emptyPlaceholder)
 
   // use-stick-to-bottom owns scrollTop (single writer): follow while locked,
   // escape on user scroll-up, re-lock at bottom. Snap instantly, not spring — a
@@ -424,15 +425,17 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     : 'pt-[calc(var(--titlebar-height)-0.5rem)]'
 
   useEffect(() => {
-    // Empty / intro-adjacent viewports have no real scroll content; mirroring
-    // stick-to-bottom into the composer store here only churns ChatBar metrics.
-    if (renderEmpty) {
+    // Empty viewports have no real scroll content. Mirroring stick-to-bottom
+    // into the composer store here only churns ChatBar metrics ↔ ResizeObserver
+    // and trips "Maximum update depth / getSnapshot should be cached" on the
+    // workspace pane (with or without an emptyPlaceholder).
+    if (isEmptyThread) {
       setThreadAtBottom(true)
       return
     }
 
     setThreadAtBottom(isAtBottom)
-  }, [isAtBottom, renderEmpty])
+  }, [isAtBottom, isEmptyThread])
   useEffect(() => () => resetThreadScroll(), [])
 
   // Floating jump button (outside this subtree) → return to the bottom.
@@ -628,13 +631,20 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
         data-slot="aui_thread-viewport"
         ref={scrollRef as React.RefCallback<HTMLDivElement>}
       >
-        {renderEmpty ? (
-          <div
-            className="mx-auto grid h-full w-full max-w-full grid-rows-[minmax(0,1fr)_auto] min-w-0 gap-(--conversation-turn-gap) px-3 py-4 sm:px-5"
-            data-slot="aui_thread-content"
-          >
-            {emptyPlaceholder}
-          </div>
+        {isEmptyThread ? (
+          renderEmpty ? (
+            <div
+              className="mx-auto grid h-full w-full max-w-full grid-rows-[minmax(0,1fr)_auto] min-w-0 gap-(--conversation-turn-gap) px-3 py-4 sm:px-5"
+              data-slot="aui_thread-content"
+            >
+              {emptyPlaceholder}
+            </div>
+          ) : (
+            // Loading / pre-intro empty: no contentRef and no composer clearance
+            // spacer — those + stick-to-bottom ResizeObserver loop with ChatBar
+            // height vars and crash the workspace pane.
+            <div className="size-full min-h-0" data-slot="aui_thread-content" />
+          )
         ) : (
           <div
             className={cn('mx-auto flex w-full max-w-(--composer-width) min-w-0 flex-col px-6', threadContentTopPad)}

@@ -31,7 +31,6 @@ import { $petOverlayActive } from '@/store/pet-overlay'
 import { $activeGatewayProfile, $gatewaySwapTarget, $profiles } from '@/store/profile'
 import {
   $contextSuggestions,
-  $freshDraftReady,
   $gatewayState,
   $introPersonality,
   $introSeed,
@@ -293,7 +292,6 @@ export function ChatView({
   const petActive = useStore($petActive)
   const petOverlayActive = useStore($petOverlayActive)
   const petPresent = petActive || petOverlayActive
-  const freshDraftReady = useStore($freshDraftReady)
   const gatewayState = useStore($gatewayState)
   const gatewaySwapTarget = useStore($gatewaySwapTarget)
   const gatewayOpen = gatewayState === 'open'
@@ -364,10 +362,14 @@ export function ChatView({
 
   // The compact new-session pop-out skips the wordmark/tagline intro — it's a
   // scratch window, not the full-height empty state.
+  //
+  // Do NOT gate on freshDraftReady: while it is false the empty ThreadMessageList
+  // still mounts (stick-to-bottom ↔ composer metrics) and crashes `workspace`
+  // with Maximum update depth / getSnapshot. Intro outside that list is safe
+  // even before the draft latch flips.
   const showIntro =
     isPrimary &&
     !isSecondaryWindow() &&
-    freshDraftReady &&
     !isRoutedSessionView &&
     !selectedSessionId &&
     !activeSessionId &&

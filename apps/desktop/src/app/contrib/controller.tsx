@@ -421,21 +421,37 @@ watchSessionPins()
 // fresh draft) — a stack of main + tiles is then just a row of session names.
 // register() replaces same-id in place; the render fn is the shared constant
 // above, so the pane content never remounts.
+//
+// Skip no-op re-registers: `$sessions` republishes often with the same title, and
+// each register() invalidates the `panes` snapshot → TreeSplit/useContributions
+// re-render → can cascade into a useSyncExternalStore getSnapshot loop that
+// trips ContribBoundary on `workspace`.
+let workspaceTitleSig = ''
+
 const syncWorkspaceTitle = () => {
   const selected = $selectedStoredSessionId.get()
   const stored = selected ? $sessions.get().find(s => sessionMatchesStoredId(s, selected)) : null
+  const title = stored ? storedSessionTitle(stored) : 'New session'
+  const headerVeto = $workspaceIsPage.get()
+  const sig = `${selected ?? ''}\0${title}\0${headerVeto ? '1' : '0'}`
+
+  if (sig === workspaceTitleSig) {
+    return
+  }
+
+  workspaceTitleSig = sig
 
   registry.register({
     id: 'workspace',
     area: 'panes',
-    title: stored ? storedSessionTitle(stored) : 'New session',
+    title,
     data: {
       // The tab's status dot — the SAME primitive the sidebar row and session
       // tiles render, so the main tab never disagrees with its sidebar row. No
       // dot on a fresh draft (no session yet).
       tabLead: selected ? () => <SessionStatusDot session={stored} storedSessionId={selected} /> : undefined,
       // Pages aren't tab-able: the main zone's bar stands down while one shows.
-      headerVeto: $workspaceIsPage.get(),
+      headerVeto,
       placement: 'main',
       minWidth: '22vw',
       tabDrag: workspaceTabDrag,
