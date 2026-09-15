@@ -22,6 +22,9 @@ from pathlib import Path
 
 DEFAULT_OPENROUTER = "https://openrouter.ai/api/v1"
 IRIS_MODEL = "deepseek/deepseek-v4-flash-0731"
+# Hidden thinking on DeepSeek-flash via OpenRouter adds TTFT; Iris chat
+# should answer, not reason. Boot pin so volume config cannot drift back.
+_FAST_REASONING = frozenset({"none", "off", "minimal"})
 
 # Bare DeepSeek / legacy ids that must not be sent to OpenRouter egress.
 _LEGACY_MODEL_IDS = frozenset(
@@ -66,28 +69,39 @@ def apply_iris_openrouter_egress(
             "provider": "openrouter",
             "base_url": base,
         }
-        return True
+        changed = True
+        model_cfg = raw["model"]
+    else:
+        current = (model_cfg.get("default") or model_cfg.get("model") or "").strip()
+        provider = (model_cfg.get("provider") or "").strip().lower()
+        cfg_base = _normalize_base(str(model_cfg.get("base_url") or ""))
 
-    current = (model_cfg.get("default") or model_cfg.get("model") or "").strip()
-    provider = (model_cfg.get("provider") or "").strip().lower()
-    cfg_base = _normalize_base(str(model_cfg.get("base_url") or ""))
+        if cfg_base != base:
+            model_cfg["base_url"] = base
+            changed = True
+        if provider != "openrouter":
+            model_cfg["provider"] = "openrouter"
+            changed = True
+        if (
+            not current
+            or current in _LEGACY_MODEL_IDS
+            or current.startswith("deepseek-")
+            and "/" not in current
+        ):
+            model_cfg["default"] = iris_model
+            if "model" in model_cfg and not (model_cfg.get("default") or "").strip():
+                model_cfg["model"] = iris_model
+            changed = True
 
-    if cfg_base != base:
-        model_cfg["base_url"] = base
+    agent = raw.get("agent")
+    if not isinstance(agent, dict):
+        raw["agent"] = {"reasoning_effort": "none"}
         changed = True
-    if provider != "openrouter":
-        model_cfg["provider"] = "openrouter"
-        changed = True
-    if (
-        not current
-        or current in _LEGACY_MODEL_IDS
-        or current.startswith("deepseek-")
-        and "/" not in current
-    ):
-        model_cfg["default"] = iris_model
-        if "model" in model_cfg and not (model_cfg.get("default") or "").strip():
-            model_cfg["model"] = iris_model
-        changed = True
+    else:
+        effort = str(agent.get("reasoning_effort") or "").strip().lower()
+        if effort not in _FAST_REASONING:
+            agent["reasoning_effort"] = "none"
+            changed = True
 
     aux = raw.get("auxiliary")
     if isinstance(aux, dict):
@@ -102,6 +116,10 @@ def apply_iris_openrouter_egress(
                 or (mid.startswith("deepseek-") and "/" not in mid)
             ):
                 section["model"] = iris_model
+                changed = True
+            effort = str(section.get("reasoning_effort") or "").strip().lower()
+            if effort and effort not in _FAST_REASONING:
+                section["reasoning_effort"] = "none"
                 changed = True
 
     return changed

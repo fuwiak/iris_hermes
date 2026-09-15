@@ -922,6 +922,7 @@ class TestFetchModelMetadata:
         import agent.model_metadata as mm
         mm._model_metadata_cache = {}
         mm._model_metadata_cache_time = 0
+        mm._model_metadata_fail_until = 0
 
     def _isolate_disk_cache(self, monkeypatch, tmp_path):
         import agent.model_metadata as mm
@@ -1004,8 +1005,45 @@ class TestFetchModelMetadata:
         assert "anthropic/claude-3.5-sonnet" in result
         assert result["anthropic/claude-3.5-sonnet"]["context_length"] == 200000
 
+    def test_uses_openrouter_base_url_egress_for_catalog(self, tmp_path, monkeypatch):
+        self._reset_cache()
+        self._isolate_disk_cache(monkeypatch, tmp_path)
+        egress = "https://telegram-user-egress.example/t/secret-token/api/v1"
+        monkeypatch.setenv("OPENROUTER_BASE_URL", egress)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"id": "deepseek/flash", "context_length": 64000, "name": "Flash"}]
+        }
+        mock_response.raise_for_status = MagicMock()
 
+        with patch("agent.model_metadata.requests.get", return_value=mock_response) as mock_get:
+            result = fetch_model_metadata(force_refresh=True)
 
+        assert "deepseek/flash" in result
+        url = mock_get.call_args.args[0]
+        assert url == f"{egress}/models"
+        assert "openrouter.ai" not in url
+        headers = mock_get.call_args.kwargs.get("headers") or {}
+        assert headers.get("Authorization") == "Bearer or-key"
+
+    def test_catalog_fail_cooldown_skips_repeat_network(self, tmp_path, monkeypatch):
+        self._reset_cache()
+        self._isolate_disk_cache(monkeypatch, tmp_path)
+        with patch(
+            "agent.model_metadata.requests.get",
+            side_effect=Exception("403 Forbidden"),
+        ) as mock_get:
+            first = fetch_model_metadata(force_refresh=True)
+            second = fetch_model_metadata()
+        assert first == {}
+        assert second == {}
+        assert mock_get.call_count == 1
+
+    def test_redact_openrouter_url_hides_egress_token(self):
+        from agent.model_metadata import _redact_openrouter_url
+        raw = "https://host.example/t/super-secret/api/v1/models"
+        assert _redact_openrouter_url(raw) == "https://host.example/t/***/api/v1/models"
 
 
 # =========================================================================

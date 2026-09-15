@@ -23,7 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover — runtime import is lazy (see below)
 
 from utils import atomic_json_write, base_url_host_matches, base_url_hostname
 
-from hermes_constants import OPENROUTER_MODELS_URL
+from hermes_constants import OPENROUTER_BASE_URL, OPENROUTER_MODELS_URL
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,12 @@ def _strip_provider_prefix(model: str) -> str:
 
 _model_metadata_cache: Dict[str, Dict[str, Any]] = {}
 _model_metadata_cache_time: float = 0
+# After a failed OpenRouter catalog fetch, skip the network for this long.
+# An empty cache + no cooldown retried every get_model_context_length call
+# (5s connect / 10s read) and stalled every chat turn on RU/Yandex VDS
+# where openrouter.ai returns HTTP 403.
+_model_metadata_fail_until: float = 0
+_MODEL_FAIL_COOLDOWN = 300
 _novita_metadata_cache: Dict[str, Dict[str, Any]] = {}
 _novita_metadata_cache_time: float = 0
 _MODEL_CACHE_TTL = 3600
@@ -1038,9 +1044,27 @@ def _add_model_aliases(cache: Dict[str, Dict[str, Any]], model_id: str, entry: D
         cache.setdefault(bare_model, entry)
 
 
+def _openrouter_models_fetch_url() -> str:
+    """Catalog URL: Railway/OpenRouter egress when configured, else public OR.
+
+    Iris VDS cannot dial openrouter.ai (HTTP 403). Chat completions already
+    use ``OPENROUTER_BASE_URL``; the catalog fetch must follow or every
+    context/pricing lookup hangs on a blocked host.
+    """
+    configured = (os.environ.get("OPENROUTER_BASE_URL") or "").strip().rstrip("/")
+    default = OPENROUTER_BASE_URL.rstrip("/")
+    if configured and configured != default:
+        return f"{configured}/models"
+    return OPENROUTER_MODELS_URL
+
+
+def _redact_openrouter_url(url: str) -> str:
+    return re.sub(r"/t/[^/]+", "/t/***", url)
+
+
 def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
     """Fetch model metadata from OpenRouter (cached for 1 hour)."""
-    global _model_metadata_cache, _model_metadata_cache_time
+    global _model_metadata_cache, _model_metadata_cache_time, _model_metadata_fail_until
 
     if not force_refresh and _model_metadata_cache and (time.time() - _model_metadata_cache_time) < _MODEL_CACHE_TTL:
         return _model_metadata_cache
@@ -1054,12 +1078,29 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                 _model_metadata_cache_time = time.time() - disk_age
                 return _model_metadata_cache
 
+    now = time.time()
+    if not force_refresh and now < _model_metadata_fail_until:
+        if _model_metadata_cache:
+            return _model_metadata_cache
+        disk_cache = _load_model_metadata_disk_cache()
+        return disk_cache or {}
+
+    models_url = _openrouter_models_fetch_url()
     try:
         _ensure_requests()
         # Tuple (connect, read) — flat timeout=10 means urllib3 can block 10s per
         # retry stage through proxies that 403 CONNECT, ballooning to minutes
         # (#46620). 5s connect / 10s read fails fast on unreachable hosts.
-        response = requests.get(OPENROUTER_MODELS_URL, timeout=(5, 10), verify=_resolve_requests_verify())
+        headers: Dict[str, str] = {}
+        api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = requests.get(
+            models_url,
+            timeout=(5, 10),
+            verify=_resolve_requests_verify(),
+            headers=headers or None,
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -1079,12 +1120,18 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
 
         _model_metadata_cache = cache
         _model_metadata_cache_time = time.time()
+        _model_metadata_fail_until = 0
         _save_model_metadata_disk_cache(cache)
         logger.debug("Fetched metadata for %s models from OpenRouter", len(cache))
         return cache
 
     except Exception as e:
-        logger.warning("Failed to fetch model metadata from OpenRouter: %s", e)
+        _model_metadata_fail_until = time.time() + _MODEL_FAIL_COOLDOWN
+        logger.warning(
+            "Failed to fetch model metadata from OpenRouter (%s): %s",
+            _redact_openrouter_url(models_url),
+            e,
+        )
         if _model_metadata_cache:
             return _model_metadata_cache
         disk_cache = _load_model_metadata_disk_cache()
