@@ -55,6 +55,8 @@ def test_apply_rewrites_deepseek_volume_to_openrouter_egress() -> None:
     assert raw["model"]["base_url"] == egress
     assert raw["model"]["default"] == "deepseek/deepseek-v4-flash-0731"
     assert raw["agent"]["reasoning_effort"] == "none"
+    assert raw["provider_routing"]["sort"] == "latency"
+    assert "Together" in raw["provider_routing"]["ignore"]
     assert raw["auxiliary"]["compression"]["model"] == "deepseek/deepseek-v4-flash-0731"
     assert raw["auxiliary"]["compression"]["reasoning_effort"] == "none"
     assert raw["auxiliary"]["moysklad_outreach"]["model"] == "deepseek/deepseek-v4-flash-0731"
@@ -70,6 +72,7 @@ def test_apply_is_idempotent_when_already_on_egress() -> None:
             "base_url": egress,
         },
         "agent": {"reasoning_effort": "none"},
+        "provider_routing": {"ignore": ["Together"], "sort": "latency"},
     }
     assert mod.apply_iris_openrouter_egress(raw, openrouter_base_url=egress) is False
 
@@ -87,6 +90,23 @@ def test_apply_pins_reasoning_effort_none_on_already_routed_egress() -> None:
     }
     assert mod.apply_iris_openrouter_egress(raw, openrouter_base_url=egress) is True
     assert raw["agent"]["reasoning_effort"] == "none"
+
+
+def test_apply_skips_together_and_sorts_by_latency() -> None:
+    mod = _load()
+    egress = "https://telegram-user-egress.example/t/tok/api/v1"
+    raw = {
+        "model": {
+            "default": "deepseek/deepseek-v4.1-flash",
+            "provider": "openrouter",
+            "base_url": egress,
+        },
+        "agent": {"reasoning_effort": "none"},
+    }
+    assert mod.apply_iris_openrouter_egress(raw, openrouter_base_url=egress) is True
+    assert raw["model"]["default"] == "deepseek/deepseek-v4-flash-0731"
+    assert raw["provider_routing"]["sort"] == "latency"
+    assert "Together" in raw["provider_routing"]["ignore"]
 
 
 def test_apply_skips_when_base_is_public_openrouter() -> None:

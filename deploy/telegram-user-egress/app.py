@@ -1330,7 +1330,13 @@ async def _proxy_openrouter(request: Request, route: str) -> Response:
     headers["host"] = "openrouter.ai"
     body = await request.body()
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0))
+    # HTTP/1.1: Together/OpenRouter SSE over h2 dies with
+    # "error reading a body from connection" and stalls Iris chat ~60s.
+    # 10min read: tool-loop streams outlive the old 120s cap.
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(600.0, connect=20.0),
+        http2=False,
+    )
     try:
         req = client.build_request(
             request.method,

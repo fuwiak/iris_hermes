@@ -35,6 +35,15 @@ _LEGACY_MODEL_IDS = frozenset(
         "deepseek-coder",
     }
 )
+# Live chat used these SKUs; OpenRouter routed them through Together and
+# the SSE died ("h2 protocol error"). Pin back to the Iris flash id.
+_SLOW_FLASH_ALIASES = frozenset(
+    {
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+    }
+)
+_IRIS_IGNORE_PROVIDERS = ("Together",)
 
 
 def _normalize_base(url: str) -> str:
@@ -85,8 +94,8 @@ def apply_iris_openrouter_egress(
         if (
             not current
             or current in _LEGACY_MODEL_IDS
-            or current.startswith("deepseek-")
-            and "/" not in current
+            or current in _SLOW_FLASH_ALIASES
+            or (current.startswith("deepseek-") and "/" not in current)
         ):
             model_cfg["default"] = iris_model
             if "model" in model_cfg and not (model_cfg.get("default") or "").strip():
@@ -122,6 +131,38 @@ def apply_iris_openrouter_egress(
                 section["reasoning_effort"] = "none"
                 changed = True
 
+    if _ensure_fast_provider_routing(raw):
+        changed = True
+
+    return changed
+
+
+def _ensure_fast_provider_routing(raw: dict) -> bool:
+    """Skip Together (SSE h2 drops) and pick the lowest-latency OpenRouter hop."""
+    pr = raw.get("provider_routing")
+    if not isinstance(pr, dict):
+        raw["provider_routing"] = {
+            "ignore": list(_IRIS_IGNORE_PROVIDERS),
+            "sort": "latency",
+        }
+        return True
+
+    changed = False
+    ignore = pr.get("ignore")
+    if not isinstance(ignore, list):
+        ignore = []
+        changed = True
+    have = {str(item).strip().lower() for item in ignore}
+    for name in _IRIS_IGNORE_PROVIDERS:
+        if name.lower() not in have:
+            ignore.append(name)
+            changed = True
+    if pr.get("ignore") != ignore:
+        pr["ignore"] = ignore
+        changed = True
+    if str(pr.get("sort") or "").strip().lower() != "latency":
+        pr["sort"] = "latency"
+        changed = True
     return changed
 
 
