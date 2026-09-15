@@ -143,15 +143,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"✗ invalid config.yaml at {path}", file=sys.stderr)
         return 1
 
-    if not apply_iris_openrouter_egress(raw, openrouter_base_url=base):
+    changed = apply_iris_openrouter_egress(raw, openrouter_base_url=base)
+    if changed:
+        path.write_text(
+            yaml.safe_dump(
+                raw, allow_unicode=True, default_flow_style=False, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        print(f"✓ {path}: forced provider=openrouter base_url=egress model={IRIS_MODEL}")
+    else:
         print(f"✓ {path}: already on OpenRouter egress")
-        return 0
 
-    path.write_text(
-        yaml.safe_dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
-    print(f"✓ {path}: forced provider=openrouter base_url=egress model={IRIS_MODEL}")
+    # Always pin volume .env BASE_URL to process env — dotenv override=True
+    # otherwise keeps a rotated-out /t/<token>/ and chat returns HTTP 401.
+    env_path = path.parent / ".env"
+    text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    lines = text.splitlines()
+    out: list[str] = []
+    found = False
+    for line in lines:
+        if line.startswith("OPENROUTER_BASE_URL="):
+            out.append(f"OPENROUTER_BASE_URL={base}")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(f"OPENROUTER_BASE_URL={base}")
+    env_path.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+    print(f"✓ {env_path}: OPENROUTER_BASE_URL pinned to process env")
     return 0
 
 

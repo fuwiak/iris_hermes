@@ -54,6 +54,34 @@ def test_prefer_process_env_syncs_llm_without_moysklad(
     assert "OPENROUTER_API_KEY=sk-or-v1-fresh" in env.read_text(encoding="utf-8")
 
 
+def test_prefer_process_env_replaces_stale_openrouter_base_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stale volume egress token must not win over compose OPENROUTER_BASE_URL.
+
+    Hermes load_hermes_dotenv(override=True) — if volume keeps an old
+    /t/<token>/ path, chat gets HTTP 401 unauthorized from the proxy while
+    a direct probe with the process-env URL still returns 200.
+    """
+    mod = _load_mod()
+    env = tmp_path / ".env"
+    env.write_text(
+        "OPENROUTER_API_KEY=sk-or-v1-keep\n"
+        "OPENROUTER_BASE_URL=https://telegram-user-egress.example/t/STALE_TOKEN/api/v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-keep")
+    monkeypatch.setenv(
+        "OPENROUTER_BASE_URL",
+        "https://telegram-user-egress.example/t/FRESH_TOKEN/api/v1",
+    )
+    monkeypatch.delenv("MOYSKLAD_API_TOKEN", raising=False)
+    assert mod.main(["--prefer-process-env", "--env-file", str(env)]) == 0
+    text = env.read_text(encoding="utf-8")
+    assert "t/FRESH_TOKEN/api/v1" in text
+    assert "STALE_TOKEN" not in text
+
+
 def test_prefer_process_env_syncs_openrouter_base_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -110,3 +110,5 @@ def test_main_rewrites_config_file(
     assert "deepseek/deepseek-v4-flash-0731" in text
     assert "api.deepseek.com" not in text
     assert "deepseek-flash" not in text
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert f"OPENROUTER_BASE_URL={egress}" in env
