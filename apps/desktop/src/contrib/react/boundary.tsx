@@ -52,6 +52,18 @@ export function ContribBoundary({ children, id, variant = 'pane' }: ContribBound
         )
       }
       label={`contrib:${id}`}
+      onError={error => {
+        if (!/Maximum update depth|getSnapshot should be cached/i.test(error.message)) {
+          return
+        }
+
+        // eslint-disable-next-line no-console
+        console.error(`[workspace-loop] contrib:${id} crashed on getSnapshot loop`, {
+          id,
+          message: error.message,
+          stack: error.stack?.slice(0, 4000)
+        })
+      }}
     >
       {children}
     </ErrorBoundary>

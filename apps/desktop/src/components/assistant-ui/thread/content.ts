@@ -52,6 +52,22 @@ export function messageAttachmentRefs(value: unknown): string[] {
   return value.every(ref => typeof ref === 'string') ? value : EMPTY_ATTACHMENT_REFS
 }
 
+/** Reuse the previous array when items are identical by reference.
+ *  `useAuiState` selectors that return `s.message.content` / `s.message.parts`
+ *  loop React 19 (`getSnapshot should be cached`) if the runtime clones the
+ *  array on every `getState()`. */
+export function reuseArrayIfShallowEqual<T>(prev: readonly T[] | undefined, next: readonly T[]): readonly T[] {
+  if (prev === next) {
+    return next
+  }
+
+  if (prev && prev.length === next.length && prev.every((item, i) => item === next[i])) {
+    return prev
+  }
+
+  return next
+}
+
 export function pickPrimaryPreviewTarget(targets: string[]): string[] {
   if (targets.length <= 1) {
     return targets

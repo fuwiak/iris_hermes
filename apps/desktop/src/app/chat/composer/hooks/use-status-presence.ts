@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 import { $composerActionsBySession } from '@/store/composer-actions'
 import { $statusItemsBySession } from '@/store/composer-status'
@@ -34,11 +34,13 @@ const subscribe = (onChange: () => void) => {
  * only on the actual show/hide transition.
  */
 export function useSessionStatusPresence(sessionId: string | null): boolean {
-  return useSyncExternalStore(subscribe, () => {
+  const getSnapshot = useCallback(() => {
     if (!sessionId) {
       return false
     }
 
     return FEEDS.some(feed => (feed.get()[sessionId]?.length ?? 0) > 0)
-  })
+  }, [sessionId])
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }

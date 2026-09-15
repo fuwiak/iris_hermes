@@ -2,7 +2,11 @@ import { ActionBarPrimitive, BranchPickerPrimitive, MessagePrimitive, useAuiStat
 import { type FC, type ReactNode, useCallback, useRef, useState } from 'react'
 
 import { DirectiveContent } from '@/components/assistant-ui/directive-text'
-import { messageAttachmentRefs, messageContentText } from '@/components/assistant-ui/thread/content'
+import {
+  messageAttachmentRefs,
+  messageContentText,
+  reuseArrayIfShallowEqual
+} from '@/components/assistant-ui/thread/content'
 import { ReactionBadge, ReactionPicker } from '@/components/assistant-ui/thread/message-reactions'
 import { type RestoreMessageTarget } from '@/components/assistant-ui/thread/types'
 import { useMessageReactions } from '@/components/assistant-ui/thread/use-message-reactions'
@@ -113,7 +117,17 @@ export const UserMessage: FC<{
   const { t } = useI18n()
   const copy = t.assistant.thread
   const messageId = useAuiState(s => s.message.id)
-  const content = useAuiState(s => s.message.content)
+  const contentCache = useRef<unknown>(undefined)
+  const content = useAuiState(s => {
+    const next = s.message.content
+    const cached = Array.isArray(next)
+      ? reuseArrayIfShallowEqual(contentCache.current as unknown[] | undefined, next)
+      : next
+
+    contentCache.current = cached
+
+    return cached
+  })
   const messageText = messageContentText(content)
   const threadRunning = useAuiState(s => s.thread.isRunning)
 

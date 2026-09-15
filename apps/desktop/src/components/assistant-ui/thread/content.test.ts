@@ -5,7 +5,8 @@ import {
   messageAttachmentRefs,
   messageContentText,
   partText,
-  pickPrimaryPreviewTarget
+  pickPrimaryPreviewTarget,
+  reuseArrayIfShallowEqual
 } from './content'
 
 describe('partText', () => {
@@ -65,6 +66,24 @@ describe('messageAttachmentRefs', () => {
     const b = messageAttachmentRefs([1, 2])
     expect(a).toEqual([])
     expect(a).toBe(b)
+  })
+})
+
+describe('reuseArrayIfShallowEqual', () => {
+  it('returns the previous array when items are the same by reference', () => {
+    const a = { id: 1 }
+    const b = { id: 2 }
+    const prev = [a, b]
+    const next = [a, b]
+
+    expect(reuseArrayIfShallowEqual(prev, next)).toBe(prev)
+  })
+
+  it('returns the next array when membership actually changed', () => {
+    const prev = [{ id: 1 }]
+    const next = [{ id: 1 }]
+
+    expect(reuseArrayIfShallowEqual(prev, next)).toBe(next)
   })
 })
 

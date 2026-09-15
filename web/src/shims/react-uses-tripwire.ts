@@ -10,6 +10,10 @@
  * second, it logs `[uses-loop]` ONCE with the getSnapshot source code and the
  * JS call stack — enough to name the hook even in a minified bundle.
  *
+ * The wrapper function is per-hook-instance (ref), not recreated every render:
+ * a fresh getSnapshot identity would itself resubscribe and can amplify a
+ * real snapshot loop.
+ *
  * Remove after the loop is found and fixed.
  */
 // @ts-nocheck — @types/react uses `export =`, which TS refuses to `export *`
@@ -37,54 +41,63 @@ export function useSyncExternalStore<T>(
   // subscribe fn both aggregate unrelated hooks (minified nanostores bodies
   // are identical; assistant-ui shares one bound subscribe) and cry wolf.
   const trackRef = ReactActual.useRef<Track | null>(null);
+  const getSnapshotRef = ReactActual.useRef(getSnapshot);
+  const subscribeRef = ReactActual.useRef(subscribe);
+  getSnapshotRef.current = getSnapshot;
+  subscribeRef.current = subscribe;
 
-  const wrapped = (): T => {
-    const value = getSnapshot();
-    const now = Date.now();
-    const track = trackRef.current;
+  const wrappedRef = ReactActual.useRef<(() => T) | null>(null);
+  if (!wrappedRef.current) {
+    wrappedRef.current = (): T => {
+      const value = getSnapshotRef.current();
+      const now = Date.now();
+      const track = trackRef.current;
 
-    if (!track || now - track.windowStart > 1000) {
-      trackRef.current = {
-        last: value,
-        flips: 0,
-        windowStart: now,
-        reported: track?.reported ?? false,
-      };
-      return value;
-    }
-
-    if (!Object.is(track.last, value)) {
-      track.last = value;
-      track.flips += 1;
-
-      if (track.flips > 100 && !track.reported) {
-        track.reported = true;
-        let preview = "";
-        try {
-          preview = JSON.stringify(value)?.slice(0, 300) ?? String(value);
-        } catch {
-          preview = Object.prototype.toString.call(value);
-        }
-        const report = {
-          at: new Date().toISOString(),
-          getSnapshot: String(getSnapshot).slice(0, 400),
-          subscribe: String(subscribe).slice(0, 400),
-          preview,
-          stack: String(new Error("uses-loop").stack).slice(0, 3000),
+      if (!track || now - track.windowStart > 1000) {
+        trackRef.current = {
+          last: value,
+          flips: 0,
+          windowStart: now,
+          reported: track?.reported ?? false,
         };
-        // eslint-disable-next-line no-console
-        console.error("[uses-loop] ONE hook instance flips >100x/s — the infinite loop:", JSON.stringify(report));
-        try {
-          sessionStorage.setItem("hermesUsesLoop", JSON.stringify(report));
-        } catch {
-          /* console line above is the primary channel */
+        return value;
+      }
+
+      if (!Object.is(track.last, value)) {
+        track.last = value;
+        track.flips += 1;
+
+        if (track.flips > 50 && !track.reported) {
+          track.reported = true;
+          let preview = "";
+          try {
+            preview = JSON.stringify(value)?.slice(0, 300) ?? String(value);
+          } catch {
+            preview = Object.prototype.toString.call(value);
+          }
+          const report = {
+            at: new Date().toISOString(),
+            flips: track.flips,
+            getSnapshot: String(getSnapshotRef.current).slice(0, 400),
+            subscribe: String(subscribeRef.current).slice(0, 400),
+            preview,
+            stack: String(new Error("uses-loop").stack).slice(0, 3000),
+          };
+          // eslint-disable-next-line no-console
+          console.error("[uses-loop] ONE hook instance flips >50x/s — the infinite loop:", JSON.stringify(report));
+          try {
+            sessionStorage.setItem("hermesUsesLoop", JSON.stringify(report));
+          } catch {
+            /* console line above is the primary channel */
+          }
         }
       }
-    }
 
-    return value;
-  };
+      return value;
+    };
+  }
 
+  const wrapped = wrappedRef.current;
   return REAL_USES(subscribe, wrapped, getServerSnapshot ?? wrapped);
 }
 

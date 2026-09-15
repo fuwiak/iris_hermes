@@ -29,7 +29,30 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     const tag = this.props.label ? `[error-boundary:${this.props.label}]` : '[error-boundary]'
-    console.error(tag, error, info.componentStack)
+    let usesLoop: string | null = null
+
+    try {
+      usesLoop = sessionStorage.getItem('hermesUsesLoop')
+    } catch {
+      /* ignore */
+    }
+
+    const snapshotLoop = /Maximum update depth|getSnapshot should be cached/i.test(error.message)
+    let parsedUsesLoop: unknown = usesLoop
+
+    if (usesLoop) {
+      try {
+        parsedUsesLoop = JSON.parse(usesLoop) as unknown
+      } catch {
+        parsedUsesLoop = usesLoop
+      }
+    }
+
+    console.error(tag, error.message, {
+      componentStack: info.componentStack,
+      snapshotLoop,
+      usesLoop: parsedUsesLoop
+    })
     this.props.onError?.(error, info)
   }
 

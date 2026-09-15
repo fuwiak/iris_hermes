@@ -7,13 +7,14 @@ import {
   useMessageRuntime
 } from '@assistant-ui/react'
 import { useStore } from '@nanostores/react'
-import { type FC, useCallback, useMemo, useState } from 'react'
+import { type FC, useCallback, useMemo, useRef, useState } from 'react'
 
 import { ChangedFilesCard } from '@/components/assistant-ui/thread/changed-files-card'
 import {
   contentHasVisibleText,
   messageContentText,
-  pickPrimaryPreviewTarget
+  pickPrimaryPreviewTarget,
+  reuseArrayIfShallowEqual
 } from '@/components/assistant-ui/thread/content'
 import { MESSAGE_PARTS_COMPONENTS } from '@/components/assistant-ui/thread/message-parts'
 import { ReactionPicker } from '@/components/assistant-ui/thread/message-reactions'
@@ -104,10 +105,16 @@ export const AssistantMessage: FC<{
   // summary, not a per-turn artifact: leaving one behind on every reply would
   // stack a wall of stale cards down the transcript. Sending the next message
   // retires it — the working tree it describes is already history by then.
+  const settledPartsCache = useRef<readonly unknown[]>(EMPTY_PARTS)
   const settledParts = useAuiState(s => {
     const isLastMessage = s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id
+    const next =
+      s.message.status?.type === 'running' || !isLastMessage ? EMPTY_PARTS : (s.message.parts ?? EMPTY_PARTS)
+    const cached = reuseArrayIfShallowEqual(settledPartsCache.current, next)
 
-    return s.message.status?.type === 'running' || !isLastMessage ? EMPTY_PARTS : s.message.parts
+    settledPartsCache.current = cached
+
+    return cached
   })
 
   const enterRef = useEnterAnimation(isRunning, `assistant-message:${messageId}`)
