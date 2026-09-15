@@ -4,29 +4,30 @@ import { writeKey } from '@/lib/storage'
  * Self-heal for the "Maximum update depth / getSnapshot should be cached"
  * crash that ContribBoundary catches on the `workspace` pane.
  *
- * The loop is state-dependent (hydrating a stored session + persisted layout
- * on a zero-height viewport), so a user who hit it once keeps hitting it on
- * every reload — the Retry button remounts into the same state. Escalate
- * instead of waiting for a click:
+ * The loop is state-dependent, so a user who hit it once keeps hitting it —
+ * the Retry button remounts into the same state. Remount automatically
+ * instead, but NEVER reload the document on our own: the chat state lives in
+ * stores that survive a pane remount, while a reload tears down the WebSocket
+ * and the in-flight turn (that is what "the frontend keeps restarting" was).
  *
- *   1. `reset`   — remount the pane once the current tick has settled.
- *   2. `reload`  — drop the persisted layout / last-session keys that feed
- *                  the loop and reload the document.
- *   3. `manual`  — two escalations inside the window did not help; show the
- *                  fallback with the explicit buttons (never reload-loop).
+ *   `reset`  — remount the pane once the current tick has settled. Allowed
+ *              MAX_AUTO_RESETS times per RECOVERY_WINDOW_MS.
+ *   `manual` — budget spent; show the fallback with the explicit buttons and
+ *              the tripwire diagnostics, and let the user decide.
  *
- * Attempts are tracked per tab in sessionStorage (survives the reload in
- * step 2, dies with the tab) and expire after RECOVERY_WINDOW_MS so a later,
- * unrelated crash gets a fresh ladder.
+ * Attempts are tracked per tab in sessionStorage and expire after the window
+ * so a later, unrelated crash gets a fresh budget.
  */
 
-export type LoopRecoveryPlan = 'manual' | 'reload' | 'reset'
+export type LoopRecoveryPlan = 'manual' | 'reset'
 
 const ATTEMPTS_KEY = 'hermes.desktop.workspaceLoopRecovery.v1'
-const RECOVERY_WINDOW_MS = 5 * 60 * 1000
+const RECOVERY_WINDOW_MS = 60 * 1000
+export const MAX_AUTO_RESETS = 4
 
 /** Persisted UI state that shapes the workspace pane on boot. Preferences
- *  (model, keybinds, pins, themes) are NOT here — only layout + routing. */
+ *  (model, keybinds, pins, themes) are NOT here — only layout + routing.
+ *  Cleared only by the user via "Reset layout & reload". */
 export const LOOP_STATE_KEYS = [
   'hermes.desktop.lastSessionId',
   'hermes.desktop.lastRoute',
@@ -78,17 +79,19 @@ function writeAttempts(attempts: Attempts) {
   }
 }
 
-/** Decide the next rung of the ladder and record that it was taken. */
+/** Decide whether this crash still gets an automatic remount, and record it. */
 export function planSnapshotLoopRecovery(now = Date.now()): LoopRecoveryPlan {
   const attempts = readAttempts(now)
-  const plan: LoopRecoveryPlan = attempts.n === 0 ? 'reset' : attempts.n === 1 ? 'reload' : 'manual'
+  const plan: LoopRecoveryPlan = attempts.n < MAX_AUTO_RESETS ? 'reset' : 'manual'
 
-  writeAttempts({ at: now, n: attempts.n + 1 })
+  // Keep the window anchored at the FIRST crash so a steady crash-every-5s
+  // cannot keep sliding it forward and stay on auto-reset forever.
+  writeAttempts({ at: attempts.n === 0 ? now : attempts.at, n: attempts.n + 1 })
 
   return plan
 }
 
-/** Forget the ladder — called once the pane renders cleanly again. */
+/** Forget the budget — called once the pane renders cleanly again. */
 export function clearSnapshotLoopRecovery() {
   try {
     sessionStorage.removeItem(ATTEMPTS_KEY)
@@ -104,7 +107,7 @@ export function clearLoopState() {
   }
 }
 
-/** Step 2/manual button: wipe layout state, then reload the document. */
+/** Manual button only: wipe layout state, then reload the document. */
 export function resetWorkspaceAndReload() {
   clearLoopState()
   window.location.reload()

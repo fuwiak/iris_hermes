@@ -5,6 +5,7 @@ import {
   clearSnapshotLoopRecovery,
   isSnapshotLoopError,
   LOOP_STATE_KEYS,
+  MAX_AUTO_RESETS,
   planSnapshotLoopRecovery
 } from './loop-recovery'
 
@@ -29,25 +30,45 @@ describe('isSnapshotLoopError', () => {
 })
 
 describe('planSnapshotLoopRecovery', () => {
-  it('escalates reset → reload → manual within the window', () => {
+  it('auto-remounts MAX_AUTO_RESETS times, then goes manual', () => {
     const t0 = 1_000_000
 
-    expect(planSnapshotLoopRecovery(t0)).toBe('reset')
-    expect(planSnapshotLoopRecovery(t0 + 1_000)).toBe('reload')
-    expect(planSnapshotLoopRecovery(t0 + 2_000)).toBe('manual')
-    expect(planSnapshotLoopRecovery(t0 + 3_000)).toBe('manual')
+    for (let i = 0; i < MAX_AUTO_RESETS; i += 1) {
+      expect(planSnapshotLoopRecovery(t0 + i * 1_000)).toBe('reset')
+    }
+
+    expect(planSnapshotLoopRecovery(t0 + 10_000)).toBe('manual')
+    expect(planSnapshotLoopRecovery(t0 + 11_000)).toBe('manual')
   })
 
-  it('starts a fresh ladder after the window expires', () => {
+  it('anchors the window at the first crash so steady crashes cannot slide it', () => {
     const t0 = 1_000_000
 
-    expect(planSnapshotLoopRecovery(t0)).toBe('reset')
-    expect(planSnapshotLoopRecovery(t0 + 1_000)).toBe('reload')
-    expect(planSnapshotLoopRecovery(t0 + 6 * 60 * 1000)).toBe('reset')
+    for (let i = 0; i < MAX_AUTO_RESETS; i += 1) {
+      expect(planSnapshotLoopRecovery(t0 + i * 20_000)).toBe('reset')
+    }
+
+    // t0 + 60s: the window (anchored at t0) is over → fresh budget.
+    expect(planSnapshotLoopRecovery(t0 + 60_000)).toBe('reset')
   })
 
-  it('starts a fresh ladder once the pane is healthy again', () => {
-    expect(planSnapshotLoopRecovery(1)).toBe('reset')
+  it('starts a fresh budget after the window expires', () => {
+    const t0 = 1_000_000
+
+    for (let i = 0; i <= MAX_AUTO_RESETS; i += 1) {
+      planSnapshotLoopRecovery(t0)
+    }
+
+    expect(planSnapshotLoopRecovery(t0)).toBe('manual')
+    expect(planSnapshotLoopRecovery(t0 + 2 * 60 * 1000)).toBe('reset')
+  })
+
+  it('starts a fresh budget once the pane is healthy again', () => {
+    for (let i = 0; i <= MAX_AUTO_RESETS; i += 1) {
+      planSnapshotLoopRecovery(1)
+    }
+
+    expect(planSnapshotLoopRecovery(1)).toBe('manual')
     clearSnapshotLoopRecovery()
     expect(planSnapshotLoopRecovery(2)).toBe('reset')
   })

@@ -50,13 +50,14 @@ describe('ContribBoundary getSnapshot loop', () => {
       return <div>recovered</div>
     }
 
-    render(
+    const { container } = render(
       <ContribBoundary id="workspace">
         <BoomOnce />
       </ContribBoundary>
     )
 
-    expect(screen.getByText('Restoring the workspace…')).toBeTruthy()
+    expect(container.querySelector('[data-loop-recovery="reset"]')).toBeTruthy()
+    expect(screen.queryByText('“workspace” failed to render')).toBeNull()
     expect(
       error.mock.calls.some(args => String(args[0]).includes('[workspace-loop]'))
     ).toBe(true)
@@ -74,17 +75,14 @@ describe('ContribBoundary getSnapshot loop', () => {
     expect(screen.getByText('recovered')).toBeTruthy()
   })
 
-  it('wipes persisted layout and reloads on the second crash', () => {
+  it('never reloads the document on its own, even past the budget', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const reload = vi.fn()
     vi.stubGlobal('location', { ...window.location, reload })
     localStorage.setItem('hermes.desktop.layoutTree.v2', '{"stale":true}')
-    localStorage.setItem('hermes.desktop.lastSessionId', 'sess-1')
-    localStorage.setItem('hermes.desktop.composer.model', 'keep-me')
-    // First rung already spent in this tab.
     sessionStorage.setItem(
       'hermes.desktop.workspaceLoopRecovery.v1',
-      JSON.stringify({ n: 1, at: Date.now() })
+      JSON.stringify({ n: 99, at: Date.now() })
     )
 
     render(
@@ -93,24 +91,29 @@ describe('ContribBoundary getSnapshot loop', () => {
       </ContribBoundary>
     )
 
-    expect(screen.getByText('Resetting the layout and reloading…')).toBeTruthy()
-
     act(() => {
-      vi.advanceTimersByTime(200)
+      vi.advanceTimersByTime(5_000)
+    })
+
+    expect(reload).not.toHaveBeenCalled()
+    expect(localStorage.getItem('hermes.desktop.layoutTree.v2')).toBe('{"stale":true}')
+    expect(screen.getByText('“workspace” failed to render')).toBeTruthy()
+
+    // The user can still choose the hard reset explicitly.
+    act(() => {
+      screen.getByText('Reset layout & reload').click()
     })
 
     expect(reload).toHaveBeenCalledTimes(1)
     expect(localStorage.getItem('hermes.desktop.layoutTree.v2')).toBeNull()
-    expect(localStorage.getItem('hermes.desktop.lastSessionId')).toBeNull()
-    expect(localStorage.getItem('hermes.desktop.composer.model')).toBe('keep-me')
     vi.unstubAllGlobals()
   })
 
-  it('falls back to the manual buttons once both rungs are spent', () => {
+  it('falls back to the manual buttons once the remount budget is spent', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     sessionStorage.setItem(
       'hermes.desktop.workspaceLoopRecovery.v1',
-      JSON.stringify({ n: 2, at: Date.now() })
+      JSON.stringify({ n: 4, at: Date.now() })
     )
     sessionStorage.setItem('hermesUsesLoop', JSON.stringify({ getSnapshot: '() => store.get()', flips: 77 }))
 
@@ -122,6 +125,7 @@ describe('ContribBoundary getSnapshot loop', () => {
 
     expect(screen.getByText('“workspace” failed to render')).toBeTruthy()
     expect(screen.getByText('Retry')).toBeTruthy()
+    expect(screen.getByText('Copy diagnostics')).toBeTruthy()
     expect(screen.getByText('Reset layout & reload')).toBeTruthy()
     expect(screen.getByText(/flips=77 getSnapshot=\(\) => store\.get\(\)/)).toBeTruthy()
   })
