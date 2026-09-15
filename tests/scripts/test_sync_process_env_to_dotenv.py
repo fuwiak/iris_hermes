@@ -90,3 +90,47 @@ def test_prefer_process_env_syncs_telegram_user_gateway_url(
     assert mod.main(["--prefer-process-env", "--env-file", str(env)]) == 0
     text = env.read_text(encoding="utf-8")
     assert "TELEGRAM_USER_GATEWAY_URL=https://telegram-user-egress.example/t/secret" in text
+
+
+def test_patch_file_syncs_openrouter_base_url_without_process_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deploy under sudo: patch file must win even when process env is empty.
+
+    GitHub Actions sources the patch then runs ``sudo python`` — sudo's
+    env_reset drops OPENROUTER_BASE_URL, so --prefer-process-env alone
+    never writes the egress URL and chat dials openrouter.ai → HTTP 403.
+    """
+    mod = _load_mod()
+    env = tmp_path / "deploy.env"
+    env.write_text("OPENROUTER_API_KEY=sk-or-v1-keep\n", encoding="utf-8")
+    patch = tmp_path / "patch.env"
+    patch.write_text(
+        "OPENROUTER_BASE_URL=https://telegram-user-egress.example/t/tok/api/v1\n"
+        "TELEGRAM_ENABLED=false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert (
+        mod.main(["--patch-file", str(patch), "--env-file", str(env)]) == 0
+    )
+    text = env.read_text(encoding="utf-8")
+    assert "OPENROUTER_API_KEY=sk-or-v1-keep" in text
+    assert (
+        "OPENROUTER_BASE_URL=https://telegram-user-egress.example/t/tok/api/v1"
+        in text
+    )
+    assert "TELEGRAM_ENABLED=false" in text
+
+
+def test_patch_file_empty_is_noop(tmp_path: Path) -> None:
+    mod = _load_mod()
+    env = tmp_path / "deploy.env"
+    env.write_text("OPENROUTER_API_KEY=sk-or-v1-keep\n", encoding="utf-8")
+    patch = tmp_path / "empty.env"
+    patch.write_text("# only comments\n\n", encoding="utf-8")
+    assert (
+        mod.main(["--patch-file", str(patch), "--env-file", str(env)]) == 0
+    )
+    assert env.read_text(encoding="utf-8") == "OPENROUTER_API_KEY=sk-or-v1-keep\n"

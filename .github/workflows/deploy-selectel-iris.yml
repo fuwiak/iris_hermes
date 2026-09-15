@@ -120,19 +120,17 @@ jobs:
           if [ -s "$PATCH_FILE" ]; then
             scp -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30 \
               "$PATCH_FILE" "${SELECTEL_USER}@${SELECTEL_HOST}:/tmp/iris_deploy_patch.env"
+            # Merge via --patch-file under sudo. Do NOT `source` then `sudo python`:
+            # sudo env_reset drops OPENROUTER_BASE_URL and chat falls back to
+            # openrouter.ai → HTTP 403 from the RU/Yandex egress IP.
             "${SSH[@]}" "${SELECTEL_USER}@${SELECTEL_HOST}" \
               'set -euo pipefail
                sudo test -f /root/deploy.env
                test -f /tmp/iris_deploy_patch.env
-               umask 077
-               set -a
-               # shellcheck disable=SC1091
-               . /tmp/iris_deploy_patch.env
-               set +a
-               rm -f /tmp/iris_deploy_patch.env
                sudo python3 /opt/iris_hermes/scripts/sync_moysklad_env_from_railway.py \
-                 --prefer-process-env --env-file /root/deploy.env
+                 --patch-file /tmp/iris_deploy_patch.env --env-file /root/deploy.env
                sudo python3 /opt/iris_hermes/scripts/patch_deploy_telegram_enabled.py
+               rm -f /tmp/iris_deploy_patch.env
                '
           fi
           rm -f "$PATCH_FILE"

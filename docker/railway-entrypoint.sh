@@ -32,6 +32,32 @@ fi
 # plugin allow-list. Safe to re-run — never overrides an explicit disable.
 # OPENROUTER_BASE_URL (Railway egress) overrides model.base_url so Selectel
 # never dials openrouter.ai from a RU datacenter IP (HTTP 403 security policy).
+# If compose forgot BASE_URL (sudo env_reset during deploy), keep the volume
+# egress URL instead of silently falling back to openrouter.ai.
+if [ -z "${OPENROUTER_BASE_URL:-}" ] && [ -x "$PY" ] && [ -f "$HERMES_HOME/.env" ]; then
+  _vol_or_base="$(
+    HERMES_HOME="$HERMES_HOME" "$PY" -c '
+import os, pathlib, re
+p = pathlib.Path(os.environ["HERMES_HOME"]) / ".env"
+try:
+    text = p.read_text(encoding="utf-8", errors="replace")
+except OSError:
+    raise SystemExit(0)
+for line in text.splitlines():
+    m = re.match(r"^OPENROUTER_BASE_URL=(.*)$", line.strip())
+    if not m:
+        continue
+    val = m.group(1).strip().strip("\"'\''")
+    if val:
+        print(val)
+    break
+' 2>/dev/null || true
+  )"
+  if [ -n "${_vol_or_base:-}" ]; then
+    export OPENROUTER_BASE_URL="$_vol_or_base"
+  fi
+  unset _vol_or_base
+fi
 OR_BASE_URL="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 OR_BASE_URL="${OR_BASE_URL%/}"
 if [ -x "$PY" ] && [ -f "$INSTALL_DIR/scripts/docker_config_migrate.py" ]; then

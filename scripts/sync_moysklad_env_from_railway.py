@@ -163,6 +163,23 @@ def default_env_path() -> Path:
     return Path.home() / ".hermes" / ".env"
 
 
+def _fetch_from_patch_file(path: Path) -> dict[str, str]:
+    """Load KEY=value pairs from a deploy patch file (no shell sourcing)."""
+    if not path.is_file():
+        raise SystemExit(f"patch file not found: {path}")
+    out: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            out[key] = value
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -176,9 +193,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Prefer already-exported env vars (container / compose) over CLI",
     )
+    parser.add_argument(
+        "--patch-file",
+        type=Path,
+        default=None,
+        help=(
+            "Merge KEY=value lines from this file into --env-file. "
+            "Use this under sudo instead of sourcing the patch then "
+            "`sudo python` (sudo env_reset drops OPENROUTER_BASE_URL)."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    if args.prefer_process_env:
+    if args.patch_file is not None:
+        mapping = _fetch_from_patch_file(args.patch_file)
+        if not mapping:
+            print(f"✓ nothing to sync from patch file {args.patch_file}")
+            return 0
+    elif args.prefer_process_env:
         mapping = _fetch_from_process_env()
         # LLM-only rotation is valid — do not fall back to Railway CLI.
         if not mapping:
@@ -194,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     for key in (
         "MOYSKLAD_API_TOKEN",
         "OPENROUTER_API_KEY",
+        "OPENROUTER_BASE_URL",
         "DEEPSEEK_API_KEY",
         "TELEGRAM_API_ID",
         "TELEGRAM_API_HASH",
