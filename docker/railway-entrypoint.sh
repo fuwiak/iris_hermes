@@ -12,7 +12,17 @@ export OSTYPE="${OSTYPE:-linux-gnu}"
 PORT="${PORT:-${HERMES_DASHBOARD_PORT:-8080}}"
 HOST="${HERMES_DASHBOARD_HOST:-0.0.0.0}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/hermes}"
+# Prefer venv python, but fall back when the image left an empty venv shell
+# (uv pip install landed in system site-packages). Empty venv → no PyYAML →
+# config migrate silently skips → chat sticks on provider: deepseek.
 PY="${INSTALL_DIR}/.venv/bin/python"
+if [ ! -x "$PY" ] || ! "$PY" -c "import yaml" >/dev/null 2>&1; then
+  if [ -x /usr/local/bin/python3.13 ] && /usr/local/bin/python3.13 -c "import yaml" >/dev/null 2>&1; then
+    PY=/usr/local/bin/python3.13
+  elif command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" >/dev/null 2>&1; then
+    PY="$(command -v python3)"
+  fi
+fi
 
 cd "$HERMES_HOME"
 
@@ -164,10 +174,22 @@ elif isinstance(model_cfg, dict):
         model_cfg.setdefault("provider", "openrouter")
         model_cfg.setdefault("base_url", _or_base)
         changed = True
-    if _force_or_base and (model_cfg.get("base_url") or "").rstrip("/") != _or_base:
-        model_cfg["base_url"] = _or_base
-        model_cfg.setdefault("provider", "openrouter")
-        changed = True
+    if _force_or_base:
+        # Must overwrite — setdefault left provider: deepseek on Selectel volumes.
+        if (model_cfg.get("base_url") or "").rstrip("/") != _or_base:
+            model_cfg["base_url"] = _or_base
+            changed = True
+        if (model_cfg.get("provider") or "").strip().lower() != "openrouter":
+            model_cfg["provider"] = "openrouter"
+            changed = True
+        _cur = (model_cfg.get("default") or model_cfg.get("model") or "").strip()
+        if (
+            not _cur
+            or _cur in {"deepseek-flash", "deepseek-chat", "deepseek-reasoner", "deepseek-coder"}
+            or (_cur.startswith("deepseek-") and "/" not in _cur)
+        ):
+            model_cfg["default"] = _IRIS_MODEL
+            changed = True
 elif isinstance(model_cfg, str) and not model_cfg.strip():
     raw["model"] = {
         "default": _IRIS_MODEL,
@@ -223,8 +245,16 @@ if changed:
 PY
 fi
 
+# Belt-and-suspenders: dedicated script (unit-tested) forces OpenRouter egress
+# even when the inline YAML block above was skipped (empty venv / no yaml).
+if [ -x "$PY" ] && [ -f "$INSTALL_DIR/scripts/iris_force_openrouter_egress.py" ]; then
+  "$PY" "$INSTALL_DIR/scripts/iris_force_openrouter_egress.py" \
+    --config "$HERMES_HOME/config.yaml" \
+    >/dev/null 2>&1 || true
+fi
+
 HERMES_BIN="${INSTALL_DIR}/.venv/bin/hermes"
-if [ -x "$HERMES_BIN" ]; then
+if [ -x "$HERMES_BIN" ] && "$HERMES_BIN" --help >/dev/null 2>&1; then
   exec "$HERMES_BIN" dashboard \
     --host "$HOST" \
     --port "$PORT" \
@@ -232,8 +262,19 @@ if [ -x "$HERMES_BIN" ]; then
     --skip-build
 fi
 
+# Empty venv has no hermes console script — use system install.
+if [ -x /usr/local/bin/hermes ]; then
+  exec /usr/local/bin/hermes dashboard \
+    --host "$HOST" \
+    --port "$PORT" \
+    --no-open \
+    --skip-build
+fi
+
 # shellcheck disable=SC1091
-. "${INSTALL_DIR}/.venv/bin/activate"
+if [ -f "${INSTALL_DIR}/.venv/bin/activate" ]; then
+  . "${INSTALL_DIR}/.venv/bin/activate"
+fi
 exec hermes dashboard \
   --host "$HOST" \
   --port "$PORT" \

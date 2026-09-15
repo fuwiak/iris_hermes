@@ -39,7 +39,9 @@ RUN chmod +x /opt/hermes/docker/railway-entrypoint.sh \
     && test -f /opt/hermes/plugins/moysklad/dashboard/dist/index.js \
     || (echo "FATAL: plugins/moysklad/dashboard/dist missing — check .dockerignore" >&2; exit 1) \
     && uv venv /opt/hermes/.venv \
-    && uv pip install --no-cache-dir -e ".[web,mcp]" \
+    && uv pip install --python /opt/hermes/.venv/bin/python --no-cache-dir -e ".[web,mcp]" \
+    && /opt/hermes/.venv/bin/python -c "import yaml, httpx, fastapi" \
+    && test -x /opt/hermes/.venv/bin/hermes \
     && mkdir -p /opt/data \
     && useradd --system --uid 10000 --home-dir /opt/data --shell /usr/sbin/nologin hermes \
     && chown -R hermes:hermes /opt/data /opt/hermes
