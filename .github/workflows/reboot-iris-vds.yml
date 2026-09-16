@@ -1,0 +1,41 @@
+name: Reboot Iris Yandex VDS
+
+# One-shot host reboot when local SSH/yc cannot reach the VDS.
+on:
+  workflow_dispatch:
+
+jobs:
+  reboot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: SSH reboot
+        env:
+          HOST: ${{ secrets.SELECTEL_IRIS_HOST }}
+          USER: ${{ secrets.SELECTEL_IRIS_USER }}
+          SSH_KEY: ${{ secrets.SELECTEL_IRIS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${HOST:-}"
+          test -n "${USER:-}"
+          test -n "${SSH_KEY:-}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=45 \
+               -o StrictHostKeyChecking=accept-new)
+          echo "Probing ${USER}@${HOST}…"
+          "${SSH[@]}" "${USER}@${HOST}" 'hostname; uptime; echo REBOOTING; sudo reboot' || true
+          echo "Waiting for SSH to drop/return…"
+          sleep 25
+          for i in $(seq 1 24); do
+            if "${SSH[@]}" "${USER}@${HOST}" 'echo UP; uptime'; then
+              echo "VDS back after attempt $i"
+              exit 0
+            fi
+            echo "attempt $i: still down"
+            sleep 10
+          done
+          echo "VDS did not answer SSH within ~4m after reboot signal"
+          exit 1
