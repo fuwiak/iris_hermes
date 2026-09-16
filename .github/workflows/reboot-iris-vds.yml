@@ -26,16 +26,31 @@ jobs:
           SSH=(ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=45 \
                -o StrictHostKeyChecking=accept-new)
           echo "Probing ${USER}@${HOST}…"
-          "${SSH[@]}" "${USER}@${HOST}" 'hostname; uptime; echo REBOOTING; sudo reboot' || true
-          echo "Waiting for SSH to drop/return…"
-          sleep 25
-          for i in $(seq 1 24); do
-            if "${SSH[@]}" "${USER}@${HOST}" 'echo UP; uptime'; then
-              echo "VDS back after attempt $i"
-              exit 0
+          BEFORE=$("${SSH[@]}" "${USER}@${HOST}" 'hostname; uptime -s; cat /proc/sys/kernel/random/boot_id')
+          echo "BEFORE:"
+          echo "$BEFORE"
+          # Soft reboot often no-ops without a TTY; force via systemd.
+          "${SSH[@]}" "${USER}@${HOST}" \
+            'sudo -n /bin/systemctl reboot --force --force || sudo -n /sbin/reboot -f' \
+            || true
+          echo "Waiting for SSH drop + new boot_id…"
+          sleep 35
+          for i in $(seq 1 30); do
+            AFTER=$("${SSH[@]}" "${USER}@${HOST}" 'echo UP; uptime -s; cat /proc/sys/kernel/random/boot_id' 2>/dev/null || true)
+            if echo "$AFTER" | grep -q '^UP$'; then
+              echo "AFTER attempt $i:"
+              echo "$AFTER"
+              OLD_ID=$(echo "$BEFORE" | tail -1)
+              NEW_ID=$(echo "$AFTER" | tail -1)
+              if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "$NEW_ID" ]; then
+                echo "VDS rebooted OK (boot_id changed)"
+                exit 0
+              fi
+              echo "SSH up but boot_id unchanged — reboot did not take"
+              exit 2
             fi
             echo "attempt $i: still down"
             sleep 10
           done
-          echo "VDS did not answer SSH within ~4m after reboot signal"
+          echo "VDS did not answer SSH within ~5m after reboot signal"
           exit 1
