@@ -23,16 +23,23 @@ jobs:
           "${SSH[@]}" "${USER}@${HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           echo "=== container ==="
-          docker ps --format "{{.Names}} {{.Status}}" | grep hermes || true
-          echo "=== configured username (password redacted) ==="
-          docker exec selectel-hermes-1 sh -c '
-            echo "USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-<unset>}"
-            if [ -n "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]; then echo "PASSWORD_SET=yes len=${#HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}"; else echo "PASSWORD_SET=no"; fi
-            if [ -n "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH:-}" ]; then echo "PASSWORD_HASH_SET=yes"; else echo "PASSWORD_HASH_SET=no"; fi
-          '
+          docker ps --format "{{.Names}} {{.Status}} {{.Ports}}" | grep hermes || true
+          echo "=== configured username (no password dump) ==="
+          docker exec selectel-hermes-1 python3 - <<'PY'
+          import os
+          u = os.environ.get("HERMES_DASHBOARD_BASIC_AUTH_USERNAME") or ""
+          p = os.environ.get("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD") or ""
+          print(f"USERNAME={u!r}")
+          print(f"PASSWORD_LEN={len(p)}")
+          print(f"PASSWORD_IS_admin={p == 'admin'}")
+          print(f"PASSWORD_IS_EMPTY={not bool(p)}")
+          PY
+          echo "=== localhost /api/status ==="
+          curl -sS -m 10 http://127.0.0.1:8080/api/status | head -c 500 || echo STATUS_FAIL
+          echo
           echo "=== localhost login probe admin/admin ==="
           code=$(curl -sS -m 10 -o /tmp/login_body.json -w "%{http_code}" -X POST http://127.0.0.1:8080/auth/password-login \
             -H "Content-Type: application/json" \
-            -d "{\"provider\":\"basic\",\"username\":\"admin\",\"password\":\"admin\",\"next\":\"/chat\"}" || echo fail)
+            -d '{"provider":"basic","username":"admin","password":"admin","next":"/chat"}' || echo fail)
           echo "HTTP=$code body=$(head -c 200 /tmp/login_body.json 2>/dev/null || true)"
           REMOTE
